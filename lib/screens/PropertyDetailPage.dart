@@ -52,8 +52,10 @@ class PropertyDetailPage extends StatefulWidget {
 }
 
 class _PropertyDetailPageState extends State<PropertyDetailPage> {
-  final Color _primaryColor = Color(0xFF4A6BFF);
-  final Color _secondaryColor = Color(0xFF6E8AFA);
+
+  final Color _primaryColor = Color(0xFF1976D2);
+  final Color _secondaryColor = Color(0xFF64B5F6);
+  final Color darkBlue = Color(0xFF0D47A1);
   final Color _darkColor = Color(0xFF1A1D26);
   final Color _lightColor = Color(0xFFF8F9FA);
   final Color _greyColor = Color(0xFF6C757D);
@@ -545,7 +547,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             ),
             child: Center(
               child: Text(
-                widget.property.agentName.split(' ').map((n) => n[0]).join(),
+                  // .split(' ').map((n) => n[0]).join(),
+                widget.property.agentName,
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 20,
