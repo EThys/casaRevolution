@@ -5,21 +5,26 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 
+import '../widgets/SnackbarHelper.dart';
+
 class CreatePropertyPostPage extends StatefulWidget {
   @override
   _CreatePropertyPostPageState createState() => _CreatePropertyPostPageState();
 }
 
 class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
-  // Couleurs du thème
-  final Color _primaryColor = Color(0xFF1976D2);
-  final Color darkBlue = Color(0xFF0D47A1);
-  final Color _darkColor = Color(0xFF1A1D26);
-  final Color _lightColor = Color(0xFFF8F9FA);
-  final Color _greyColor = Color(0xFF6C757D);
-  final Color _successColor = Color(0xFF00C897);
+  // Modern color palette
+  final Color _primaryColor = Color(0xFF4361EE); // Vibrant blue
+  final Color _secondaryColor = Color(0xFF3F37C9); // Deep blue
+  final Color _accentColor = Color(0xFF4CC9F0); // Light blue
+  final Color _darkColor = Color(0xFF1A1D26); // Dark background
+  final Color _lightColor = Color(0xFFF8F9FA); // Light background
+  final Color _greyColor = Color(0xFF6C757D); // Grey text
+  final Color _successColor = Color(0xFF38B000); // Success green
+  final Color _cardColor = Colors.white; // Card background
+  final Color _borderColor = Color(0xFFE9ECEF); // Border color
 
-  // Contrôleurs de formulaire
+  // Form controllers
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
@@ -32,7 +37,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   final TextEditingController _areaController = TextEditingController();
   final TextEditingController _floorController = TextEditingController();
 
-  // Variables d'état
+  // State variables
   bool _isForRent = true;
   bool _isLoading = false;
   List<XFile> _selectedImages = [];
@@ -41,7 +46,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   final ImagePicker _picker = ImagePicker();
   int _currentStep = 0;
 
-  // Liste des équipements disponibles
+  // Amenities list
   final List<String> _amenitiesList = [
     'Wi-Fi',
     'Climatisation',
@@ -96,28 +101,32 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   void _submitForm() {
+    // Vérifie si le formulaire est valide
     if (_formKey.currentState!.validate()) {
+      // Vérifie qu'au moins 3 photos sont sélectionnées
+      if (_selectedImages.length < 3) {
+        SnackBarHelper.show(context, "Veuillez ajouter au moins 3 photos", isError: true);
+        return;
+      }
+
+      if (_currentStep == 2 && _selectedAmenities.isEmpty) {
+        SnackBarHelper.show(context, "Veuillez sélectionner au moins un équipement", isError: true);
+        return;
+      }
+
       setState(() {
         _isLoading = true;
       });
 
-      // Simuler un envoi de données
       Future.delayed(Duration(seconds: 2), () {
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Annonce publiée avec succès!'),
-            backgroundColor: _successColor,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
+        SnackBarHelper.show(context, "Annonce publiée avec succès!", isError: false);
         Navigator.pop(context);
       });
+    } else {
+      SnackBarHelper.show(context, "Veuillez remplir tous les champs obligatoires", isError: true);
     }
   }
 
@@ -125,177 +134,138 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _lightColor,
-      appBar: AppBar(
-        title: Text(
-          'Nouvelle annonce',
-          style: TextStyle(
-            color: _darkColor,
-            fontWeight: FontWeight.bold,
+      appBar: _buildAppBar(),
+      body: Column(
+        children: [
+          // Progress indicator
+          _buildProgressIndicator(),
+
+          // Main content
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: IndexedStack(
+                index: _currentStep,
+                children: [
+                  _buildStep1(), // Property type and photos
+                  _buildStep2(), // Property details
+                  _buildStep3(), // Amenities
+                ],
+              ),
+            ),
           ),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new_rounded, color: _darkColor),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Stepper horizontal en haut
-            Container(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: Offset(0, 4),
-                  )
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildStepIndicator(0, 'Type'),
-                  _buildStepIndicator(1, 'Détails'),
-                  _buildStepIndicator(2, 'Équipements'),
-                ],
-              ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(16),
-                child: IndexedStack(
-                  index: _currentStep,
-                  children: [
-                    // Étape 1 - Type d'annonce et photos
-                    _buildStep1(),
 
-                    // Étape 2 - Détails de la propriété
-                    _buildStep2(),
-
-                    // Étape 3 - Équipements
-                    _buildStep3(),
-                  ],
-                ),
-              ),
-            ),
-
-            // Boutons de navigation
-            Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: Offset(0, -4),
-                  )
-                ],
-              ),
-              child: Row(
-                children: [
-                  if (_currentStep > 0)
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => setState(() => _currentStep--),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _greyColor,
-                          side: BorderSide(color: _greyColor),
-                          padding: EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: Text('Précédent'),
-                      ),
-                    ),
-                  if (_currentStep > 0) SizedBox(width: 16),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        if (_currentStep < 2) {
-                          setState(() => _currentStep++);
-                        } else {
-                          _submitForm();
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: _isLoading
-                          ? SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                          : Text(
-                        _currentStep == 2 ? 'Publier' : 'Continuer',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+          // Navigation buttons
+          _buildBottomNavigation(),
+        ],
       ),
     );
   }
 
-  Widget _buildStepIndicator(int stepIndex, String label) {
-    final isActive = _currentStep == stepIndex;
-    final isCompleted = _currentStep > stepIndex;
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: Text(
+        'Nouvelle annonce',
+        style: TextStyle(
+          color: _darkColor,
+          fontWeight: FontWeight.w600,
+          fontSize: 20,
+        ),
+      ),
+      centerTitle: true,
+      elevation: 0,
+      backgroundColor: Colors.transparent,
+      leading: IconButton(
+        icon: Icon(Icons.arrow_back_ios_new_rounded,
+            color: _darkColor, size: 22),
+        onPressed: () => Navigator.pop(context),
+      ),
+      actions: [
+        if (_currentStep > 0)
+          Padding(
+            padding: EdgeInsets.only(right: 16),
+            child: Center(
+              child: Text(
+                '${_currentStep + 1}/3',
+                style: TextStyle(
+                  color: _greyColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
+  Widget _buildProgressIndicator() {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        children: [
+          // Step progress bar
+          LinearProgressIndicator(
+            value: (_currentStep + 1) / 3,
+            backgroundColor: _borderColor,
+            color: _primaryColor,
+            minHeight: 6,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          SizedBox(height: 12),
+          // Step labels
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildStepLabel(0, 'Type'),
+              _buildStepLabel(1, 'Détails'),
+              _buildStepLabel(2, 'Équipements'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepLabel(int stepIndex, String label) {
+    final isActive = _currentStep == stepIndex;
     return GestureDetector(
       onTap: () => setState(() => _currentStep = stepIndex),
       child: Column(
         children: [
           Container(
-            width: 32,
-            height: 32,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isActive || isCompleted ? _primaryColor : Colors.grey[200],
-              border: Border.all(
-                color: isActive ? _primaryColor : Colors.transparent,
-                width: 2,
-              ),
+              color: isActive ? _primaryColor : _borderColor,
             ),
             child: Center(
-              child: isCompleted
-                  ? Icon(Icons.check, size: 18, color: Colors.white)
-                  : Text(
+              child: Text(
                 '${stepIndex + 1}',
                 style: TextStyle(
                   color: isActive ? Colors.white : _greyColor,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
           ),
-          SizedBox(height: 4),
+          SizedBox(height: 6),
           Text(
             label,
             style: TextStyle(
               color: isActive ? _primaryColor : _greyColor,
               fontSize: 12,
-              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+              fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
             ),
           ),
         ],
@@ -305,244 +275,232 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
   Widget _buildStep1() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Sélection type d'annonce
+        // Property type selection
+        _buildSectionHeader('Type d\'annonce'),
+        SizedBox(height: 12),
         Container(
           padding: EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            color: _cardColor,
+            borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
+                color: Colors.black.withOpacity(0.03),
                 blurRadius: 8,
                 offset: Offset(0, 4),
               )
             ],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Text(
-                'Type d\'annonce',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: _darkColor,
+              Expanded(
+                child: _buildTypeOption(
+                  'À louer',
+                  Icons.home_work_outlined,
+                  _isForRent,
+                      () => setState(() => _isForRent = true),
                 ),
               ),
-              SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ChoiceChip(
-                      label: Text('À louer'),
-                      selected: _isForRent,
-                      onSelected: (selected) {
-                        setState(() {
-                          _isForRent = selected;
-                        });
-                      },
-                      selectedColor: _primaryColor,
-                      labelStyle: TextStyle(
-                        color: _isForRent ? Colors.white : _darkColor,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+              SizedBox(width: 16),
+              Expanded(
+                child: _buildTypeOption(
+                  'À vendre',
+                  Icons.sell_outlined,
+                  !_isForRent,
+                      () => setState(() => _isForRent = false),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 24),
+
+        // Photo upload section
+        _buildSectionHeader('Photos de la propriété'),
+        SizedBox(height: 8),
+        Text(
+          'Ajoutez au moins 3 photos de bonne qualité',
+          style: TextStyle(
+            color: _greyColor,
+            fontSize: 13,
+          ),
+        ),
+        SizedBox(height: 16),
+
+        // Photo grid
+        if (_selectedImages.isEmpty)
+          _buildEmptyPhotoUpload()
+        else
+          _buildPhotoGrid(),
+      ],
+    );
+  }
+
+  Widget _buildTypeOption(String title, IconData icon, bool isSelected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? _primaryColor.withOpacity(0.1) : _lightColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? _primaryColor : _borderColor,
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 32,
+              color: isSelected ? _primaryColor : _greyColor,
+            ),
+            SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                color: isSelected ? _primaryColor : _darkColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyPhotoUpload() {
+    return GestureDetector(
+      onTap: _pickImages,
+      child: Container(
+        height: 180,
+        decoration: BoxDecoration(
+          color: _cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _borderColor,
+            width: 1.5,
+            style: BorderStyle.solid,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.cloud_upload_outlined,
+                size: 32,
+                color: _primaryColor,
+              ),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Ajouter des photos',
+              style: TextStyle(
+                color: _primaryColor,
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Formats supportés: JPG, PNG',
+              style: TextStyle(
+                color: _greyColor,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhotoGrid() {
+    return Column(
+      children: [
+        GridView.builder(
+          shrinkWrap: true,
+          physics: NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: 1,
+          ),
+          itemCount: _selectedImages.length + 1,
+          itemBuilder: (context, index) {
+            if (index == _selectedImages.length) {
+              return GestureDetector(
+                onTap: _pickImages,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: _lightColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _borderColor,
+                      width: 1.5,
                     ),
                   ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: Text('À vendre'),
-                      selected: !_isForRent,
-                      onSelected: (selected) {
-                        setState(() {
-                          _isForRent = !selected;
-                        });
-                      },
-                      selectedColor: _primaryColor,
-                      labelStyle: TextStyle(
-                        color: !_isForRent ? Colors.white : _darkColor,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                  child: Center(
+                    child: Icon(
+                      Icons.add_rounded,
+                      size: 32,
+                      color: _primaryColor,
+                    ),
+                  ),
+                ),
+              );
+            }
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Stack(
+                children: [
+                  Image.file(
+                    File(_selectedImages[index].path),
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: GestureDetector(
+                      onTap: () => _removeImage(index),
+                      child: Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 16,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
+            );
+          },
         ),
-        SizedBox(height: 16),
-        // Upload de photos
-        Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              )
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Photos de la propriété',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: _darkColor,
-                ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Ajoutez au moins 3 photos de bonne qualité',
-                style: TextStyle(
-                  color: _greyColor,
-                  fontSize: 13,
-                ),
-              ),
-              SizedBox(height: 16),
-              if (_selectedImages.isEmpty)
-                GestureDetector(
-                  onTap: _pickImages,
-                  child: Container(
-                    height: 180,
-                    decoration: BoxDecoration(
-                      color: _lightColor,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: _primaryColor.withOpacity(0.3),
-                        width: 1.5,
-                        style: BorderStyle.solid,
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.cloud_upload_outlined,
-                          size: 40,
-                          color: _primaryColor,
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'Ajouter des photos',
-                          style: TextStyle(
-                            color: _primaryColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else
-                Column(
-                  children: [
-                    SizedBox(
-                      height: 180,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _selectedImages.length + 1,
-                        itemBuilder: (context, index) {
-                          if (index == _selectedImages.length) {
-                            return GestureDetector(
-                              onTap: _pickImages,
-                              child: Container(
-                                width: 140,
-                                margin: EdgeInsets.only(right: 12),
-                                decoration: BoxDecoration(
-                                  color: _lightColor,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: _primaryColor.withOpacity(0.3),
-                                    width: 1.5,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.add_rounded,
-                                        size: 30,
-                                        color: _primaryColor,
-                                      ),
-                                      SizedBox(height: 8),
-                                      Text(
-                                        'Ajouter',
-                                        style: TextStyle(
-                                          color: _primaryColor,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          }
-                          return Container(
-                            width: 140,
-                            margin: EdgeInsets.only(
-                                right:
-                                index < _selectedImages.length - 1 ? 12 : 0),
-                            child: Stack(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.file(
-                                    File(_selectedImages[index].path),
-                                    width: 140,
-                                    height: 180,
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                                Positioned(
-                                  top: 8,
-                                  right: 8,
-                                  child: GestureDetector(
-                                    onTap: () => _removeImage(index),
-                                    child: Container(
-                                      padding: EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.5),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(
-                                        Icons.close_rounded,
-                                        size: 18,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    SizedBox(height: 12),
-                    Text(
-                      '${_selectedImages.length} photo(s) sélectionnée(s)',
-                      style: TextStyle(
-                        color: _greyColor,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-            ],
+        SizedBox(height: 12),
+        Text(
+          '${_selectedImages.length} photo(s) sélectionnée(s)',
+          style: TextStyle(
+            color: _greyColor,
+            fontSize: 12,
           ),
         ),
       ],
@@ -553,27 +511,30 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     return Form(
       key: _formKey,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Titre
-          _buildFormField(
+          _buildSectionHeader('Informations de base'),
+          SizedBox(height: 12),
+          _buildModernTextField(
             controller: _titleController,
             label: 'Titre de l\'annonce',
-            hint: 'Ex: Magnifique appartement avec vue sur la tour Eiffel',
+            hint: 'Magnifique appartement avec vue...',
+            icon: Icons.title_rounded,
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer un titre';
               }
               return null;
             },
-            icon: Icons.title_rounded,
           ),
           SizedBox(height: 16),
-          // Prix
-          _buildFormField(
+          _buildModernTextField(
             controller: _priceController,
-            label: _isForRent ? 'Prix mensuel (\$)' : 'Prix de vente (\$)',
+            label: _isForRent ? 'Prix mensuel' : 'Prix de vente',
             hint: _isForRent ? '1200' : '450000',
+            icon: Icons.attach_money_rounded,
             keyboardType: TextInputType.number,
+            suffixText: '\$',
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer un prix';
@@ -583,15 +544,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               }
               return null;
             },
-            icon: Icons.attach_money,
           ),
           SizedBox(height: 16),
-          // Description
-          _buildFormField(
+          _buildModernTextField(
             controller: _descriptionController,
             label: 'Description',
             hint: 'Décrivez en détail la propriété...',
-            maxLines: 5,
+            icon: Icons.description_rounded,
+            maxLines: 4,
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer une description';
@@ -601,101 +561,65 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               }
               return null;
             },
-            icon: Icons.description_rounded,
           ),
-          SizedBox(height: 16),
-          // Adresse
-          _buildFormField(
+          SizedBox(height: 24),
+          _buildSectionHeader('Adresse'),
+          SizedBox(height: 12),
+          _buildModernTextField(
             controller: _addressController,
             label: 'Adresse complète',
-            hint: 'Ex: 15 Rue de Rivoli, 75004 Paris, France',
+            hint: '18eme Rue Limete, av de la foire',
+            icon: Icons.location_on_rounded,
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer une adresse';
               }
               return null;
             },
-            icon: Icons.location_on_rounded,
           ),
-          SizedBox(height: 16),
-          // Caractéristiques
-          Container(
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 8,
-                  offset: Offset(0, 4),
-                )
-              ],
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildNumberField(
-                        controller: _bedroomsController,
-                        label: 'Chambres',
-                        icon: FontAwesomeIcons.bed,
-                      ),
-                    ),
-                    SizedBox(width: 16),
-                    Expanded(
-                      child: _buildNumberField(
-                        controller: _bathroomsController,
-                        label: 'Salles de bain',
-                        icon: FontAwesomeIcons.bath,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildNumberField(
-                        controller: _livingRoomsController,
-                        label: 'Salons',
-                        icon: FontAwesomeIcons.couch,
-                      ),
-                    ),
-                    SizedBox(width: 16),
-                    Expanded(
-                      child: _buildNumberField(
-                        controller: _kitchensController,
-                        label: 'Cuisines',
-                        icon: FontAwesomeIcons.kitchenSet,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildNumberField(
-                        controller: _areaController,
-                        label: 'Surface (m²)',
-                        icon: FontAwesomeIcons.rulerCombined,
-                      ),
-                    ),
-                    SizedBox(width: 16),
-                    Expanded(
-                      child: _buildNumberField(
-                        controller: _floorController,
-                        label: 'Étage',
-                        icon: FontAwesomeIcons.building,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          )
+          SizedBox(height: 24),
+          _buildSectionHeader('Caractéristiques'),
+          SizedBox(height: 12),
+          GridView.count(
+            shrinkWrap: true,
+            physics: NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 3,
+            children: [
+              _buildFeatureInput(
+                controller: _bedroomsController,
+                label: 'Chambres',
+                icon: FontAwesomeIcons.bed,
+              ),
+              _buildFeatureInput(
+                controller: _bathroomsController,
+                label: 'Salles de bain',
+                icon: FontAwesomeIcons.bath,
+              ),
+              _buildFeatureInput(
+                controller: _livingRoomsController,
+                label: 'Salons',
+                icon: FontAwesomeIcons.couch,
+              ),
+              _buildFeatureInput(
+                controller: _kitchensController,
+                label: 'Cuisines',
+                icon: FontAwesomeIcons.kitchenSet,
+              ),
+              _buildFeatureInput(
+                controller: _areaController,
+                label: 'Surface (m²)',
+                icon: FontAwesomeIcons.rulerCombined,
+              ),
+              _buildFeatureInput(
+                controller: _floorController,
+                label: 'Étage',
+                icon: FontAwesomeIcons.building,
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -703,256 +627,272 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
   Widget _buildStep3() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Équipements
-        Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              )
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Équipements',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: _darkColor,
-                ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Sélectionnez les équipements disponibles',
-                style: TextStyle(
-                  color: _greyColor,
-                  fontSize: 13,
-                ),
-              ),
-              SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _amenitiesList.map((amenity) {
-                  final isSelected = _selectedAmenities.contains(amenity);
-                  return FilterChip(
-                    label: Text(amenity),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      setState(() {
-                        if (selected) {
-                          _selectedAmenities.add(amenity);
-                        } else {
-                          _selectedAmenities.remove(amenity);
-                        }
-                      });
-                    },
-                    selectedColor: _primaryColor.withOpacity(0.1),
-                    checkmarkColor: _primaryColor,
-                    labelStyle: TextStyle(
-                      color: isSelected ? _primaryColor : _darkColor,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      side: BorderSide(
-                        color: isSelected
-                            ? _primaryColor
-                            : Colors.grey.shade300,
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ],
+        _buildSectionHeader('Équipements'),
+        SizedBox(height: 8),
+        Text(
+          'Sélectionnez les équipements disponibles dans votre propriété',
+          style: TextStyle(
+            color: _greyColor,
+            fontSize: 13,
           ),
         ),
+        SizedBox(height: 16),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _amenitiesList.map((amenity) {
+            final isSelected = _selectedAmenities.contains(amenity);
+            return ChoiceChip(
+              label: Text(amenity),
+              selected: isSelected,
+              onSelected: (selected) {
+                setState(() {
+                  if (selected) {
+                    _selectedAmenities.add(amenity);
+                  } else {
+                    _selectedAmenities.remove(amenity);
+                  }
+                });
+              },
+              selectedColor: _primaryColor.withOpacity(0.1),
+              backgroundColor: _lightColor,
+              labelStyle: TextStyle(
+                color: isSelected ? _primaryColor : _darkColor,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(
+                  color: isSelected ? _primaryColor : _borderColor,
+                ),
+              ),
+            );
+          }).toList(),
+        ),
         SizedBox(height: 24),
-        // Localisation
-        // Container(
-        //   padding: EdgeInsets.all(16),
-        //   decoration: BoxDecoration(
-        //     color: Colors.white,
-        //     borderRadius: BorderRadius.circular(12),
-        //     boxShadow: [
-        //       BoxShadow(
-        //         color: Colors.black.withOpacity(0.05),
-        //         blurRadius: 8,
-        //         offset: Offset(0, 4),
-        //       )
-        //     ],
-        //   ),
-        //   child: Column(
-        //     crossAxisAlignment: CrossAxisAlignment.start,
-        //     children: [
-        //       Text(
-        //         'Localisation sur la carte',
-        //         style: TextStyle(
-        //           fontSize: 16,
-        //           fontWeight: FontWeight.w600,
-        //           color: _darkColor,
-        //         ),
-        //       ),
-        //       SizedBox(height: 8),
-        //       Text(
-        //         'Positionnez le marqueur sur la carte',
-        //         style: TextStyle(
-        //           color: _greyColor,
-        //           fontSize: 13,
-        //         ),
-        //       ),
-        //       SizedBox(height: 16),
-        //       Container(
-        //         height: 200,
-        //         decoration: BoxDecoration(
-        //           borderRadius: BorderRadius.circular(12),
-        //           color: _lightColor,
-        //           border: Border.all(
-        //             color: _primaryColor.withOpacity(0.3),
-        //             width: 1.5,
-        //           ),
-        //         ),
-        //         child: ClipRRect(
-        //           borderRadius: BorderRadius.circular(12),
-        //           child: Stack(
-        //             children: [
-        //               GoogleMap(
-        //                 initialCameraPosition: CameraPosition(
-        //                   target: _selectedLocation ?? LatLng(48.8566, 2.3522),
-        //                   // Paris par défaut
-        //                   zoom: 12,
-        //                 ),
-        //                 onTap: (latLng) {
-        //                   setState(() {
-        //                     _selectedLocation = latLng;
-        //                   });
-        //                 },
-        //                 markers: _selectedLocation != null
-        //                     ? {
-        //                   Marker(
-        //                     markerId: MarkerId('property'),
-        //                     position: _selectedLocation!,
-        //                     icon: BitmapDescriptor.defaultMarkerWithHue(
-        //                         BitmapDescriptor.hueRed),
-        //                   ),
-        //                 }
-        //                     : {},
-        //                 mapType: MapType.normal,
-        //                 myLocationEnabled: true,
-        //                 zoomControlsEnabled: false,
-        //               ),
-        //               if (_selectedLocation == null)
-        //                 Center(
-        //                   child: Container(
-        //                     padding: EdgeInsets.all(16),
-        //                     decoration: BoxDecoration(
-        //                       color: Colors.white,
-        //                       borderRadius: BorderRadius.circular(8),
-        //                     ),
-        //                     child: Text(
-        //                       'Cliquez sur la carte pour positionner',
-        //                       style: TextStyle(
-        //                         color: _darkColor,
-        //                         fontWeight: FontWeight.w600,
-        //                       ),
-        //                     ),
-        //                   ),
-        //                 ),
-        //             ],
-        //           ),
-        //         ),
-        //       ),
-        //       SizedBox(height: 12),
-        //       if (_selectedLocation != null)
-        //         Text(
-        //           'Position sélectionnée',
-        //           style: TextStyle(
-        //             color: _greyColor,
-        //             fontSize: 12,
-        //           ),
-        //         ),
-        //     ],
-        //   ),
-        // ),
+        _buildSectionHeader('Localisation'),
+        SizedBox(height: 12),
+        Container(
+          height: 180,
+          decoration: BoxDecoration(
+            color: _cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _borderColor),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.map_outlined,
+                  size: 40,
+                  color: _greyColor.withOpacity(0.5),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Carte interactive',
+                  style: TextStyle(
+                    color: _greyColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildFormField({
-    required TextEditingController controller,
-    required String label,
-    String? hint,
-    int maxLines = 1,
-    TextInputType keyboardType = TextInputType.text,
-    String? Function(String?)? validator,
-    IconData? icon,
-  }) {
+  Widget _buildBottomNavigation() {
     return Container(
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: _cardColor,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: Offset(0, 4),
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 16,
+            offset: Offset(0, -4),
+          )
+        ],
+      ),
+      child: Row(
+        children: [
+          if (_currentStep > 0)
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => setState(() => _currentStep--),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _greyColor,
+                  side: BorderSide(color: _borderColor),
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  'Précédent',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          if (_currentStep > 0) SizedBox(width: 16),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: () {
+                if (_currentStep < 2) {
+                  setState(() => _currentStep++);
+                } else {
+                  _submitForm();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryColor,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+                shadowColor: Colors.transparent,
+              ),
+              child: _isLoading
+                  ? SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Colors.white,
+                ),
+              )
+                  : Text(
+                _currentStep == 2 ? 'Publier l\'annonce' : 'Continuer',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
+              ),
+            ),
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: TextFormField(
-          controller: controller,
-          decoration: InputDecoration(
-            labelText: label,
-            hintText: hint,
-            border: InputBorder.none,
-            prefixIcon: icon != null ? Icon(icon, color: _primaryColor) : null,
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        color: _darkColor,
+      ),
+    );
+  }
+
+  Widget _buildModernTextField({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    IconData? icon,
+    int? maxLines = 1,
+    TextInputType? keyboardType,
+    String? suffixText,
+    String? Function(String?)? validator,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(9),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          )
+        ],
+      ),
+      child: TextFormField(
+        controller: controller,
+        maxLines: maxLines,
+        keyboardType: keyboardType,
+        validator: validator,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          prefixIcon: icon != null ? Icon(icon, color: _greyColor) : null,
+          suffixText: suffixText,
+          suffixStyle: TextStyle(color: _darkColor),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: BorderSide(color: _borderColor),
           ),
-          maxLines: maxLines,
-          keyboardType: keyboardType,
-          validator: validator,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: BorderSide(color: _borderColor),
+          ),
+          filled: true,
+          fillColor: _cardColor,
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: maxLines == 1 ? 0 : 16,
+          ),
+          labelStyle: TextStyle(color: _greyColor),
         ),
       ),
     );
   }
 
-  Widget _buildNumberField({
+  Widget _buildFeatureInput({
     required TextEditingController controller,
     required String label,
-    IconData? icon,
+    required IconData icon,
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: Offset(0, 4),
+        border: Border.all(color: _borderColor),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: _primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(12),
+                bottomLeft: Radius.circular(12),
+              ),
+            ),
+            child: Icon(
+              icon,
+              color: _primaryColor,
+              size: 20,
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: TextFormField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  labelText: label,
+                  border: InputBorder.none,
+                  labelStyle: TextStyle(
+                    color: _greyColor,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: TextFormField(
-          controller: controller,
-          decoration: InputDecoration(
-            labelText: label,
-            border: InputBorder.none,
-            prefixIcon: icon != null ? Icon(icon, color: _primaryColor) : null,
-          ),
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        ),
       ),
     );
   }
