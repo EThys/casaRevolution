@@ -1,5 +1,11 @@
+import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart'; // Pour des icônes plus variées
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:provider/provider.dart';
+import 'package:shimmer/shimmer.dart';
+
+import '../models/PropertyModel.dart';
+import '../utils/Routes.dart'; // Pour des icônes plus variées
 
 class HomePage extends StatefulWidget {
   @override
@@ -12,8 +18,35 @@ class _HomePageState extends State<HomePage> {
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
 
+  bool _isLoading =true;
+  bool _hasError=false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Attendre que le widget soit complètement construit
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Utiliser Provider pour accéder au contrôleur
+      final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+      propertyCtrl.getAllProperty().then((_) {
+        print("Données chargées: ${propertyCtrl.properties.length} propriétés");
+      });
+    });
+  }
+
+
   @override
   Widget build(BuildContext context) {
+    var propertyCtrl = context.watch<PropertyController>();
+    var properties = propertyCtrl.properties;
+
+    final rentalProperties = properties.where((p) => p.transactionType == 'location').toList();
+    final saleProperties = properties.where((p) => p.transactionType == 'vente').toList();
+   // final images = properties.where((p) => p.transactionType == 'vente').toList();
+
+    print("ICIIIIIIIIIIIIIIIIIIIIIIIIIII${properties}");
+    print("Données chargées: ${properties}");
+
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: Colors.grey[50],
@@ -35,7 +68,11 @@ class _HomePageState extends State<HomePage> {
               subtitle: "Découvrez nos meilleures offres",
               onSeeAll: () {},
             ),
-            _buildPropertyCarousel(isForRent: true),
+            _buildPropertyCarousel(
+              isForRent: true,
+              properties: rentalProperties,
+              isLoading: propertyCtrl.loading
+            ),
 
             // Bannière promotionnelle
             _buildPromoBanner(),
@@ -46,7 +83,11 @@ class _HomePageState extends State<HomePage> {
               subtitle: "Investissez dans votre avenir",
               onSeeAll: () {},
             ),
-            _buildPropertyCarousel(isForRent: false),
+            _buildPropertyCarousel(
+              isForRent: false,
+              properties: saleProperties,
+                isLoading: propertyCtrl.loading
+            ),
 
             SizedBox(height: 30),
           ],
@@ -481,19 +522,122 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildPropertyCarousel({required bool isForRent}) {
+
+  Widget _buildShimmerLoading() {
     return Container(
       height: 320,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.only(left: 24, right: 8),
-        itemCount: 5,
+        itemCount: 3, // Nombre d'éléments shimmer à afficher
         itemBuilder: (context, index) {
           return Container(
             width: 260,
             margin: EdgeInsets.only(right: 16),
+            child: Shimmer.fromColors(
+              baseColor: Colors.grey[300]!,
+              highlightColor: Colors.grey[100]!,
+              period: Duration(milliseconds: 1500),
+              child: Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                elevation: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                  // Placeholder pour l'image
+                  Container(
+                  height: 160,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(20),
+                    ),
+                  ),
+                  // Placeholder pour les détails
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          height: 20,
+                          color: Colors.white,
+                        ),
+                        SizedBox(height: 10),
+                        Container(
+                          width: 150,
+                          height: 15,
+                          color: Colors.white,
+                        ),
+                        SizedBox(height: 20),
+                        Container(
+                          height: 40,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              Container(width: 60, height: 15, color: Colors.white),
+                              Container(width: 60, height: 15, color: Colors.white),
+                              Container(width: 60, height: 15, color: Colors.white),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  )
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+
+  Widget _buildPropertyCarousel({
+    required List<PropertyModel> properties,
+    required bool isForRent,
+    required bool isLoading,
+  }) {
+
+    if (isLoading) {
+      return _buildShimmerLoading();
+    }
+    // Vérifiez si la liste est vide
+    if (properties.isEmpty) {
+      return Container(
+        height: 120,
+        child: Center(
+          child: Text(
+            'Aucune propriété disponible',
+            style: TextStyle(color: Colors.grey),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 320,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.only(left: 24, right: 8),
+        itemCount: properties.length,
+        itemBuilder: (context, index) {
+          final property = properties[index];
+          final priceText = isForRent
+              ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
+              : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
+
+          return Container(
+            width: 260,
+            margin: EdgeInsets.only(right: 16),
             child: InkWell(
-              onTap: () {},
+              onTap: () {Navigator.pushNamed(context, Routes.detailPageRoute,arguments: property);},
               borderRadius: BorderRadius.circular(20),
               child: Card(
                 shape: RoundedRectangleBorder(
@@ -517,17 +661,15 @@ class _HomePageState extends State<HomePage> {
                             decoration: BoxDecoration(
                               color: Colors.grey[200],
                               image: DecorationImage(
-                                image: AssetImage(
-                                  isForRent
-                                      ? 'assets/images/one.jpg'
-                                      : 'assets/images/two.jpg',
-                                ),
+                                image: property.images?.isNotEmpty ?? false
+                                    ? NetworkImage(property.images!.first.path!)
+                                    : AssetImage('assets/images/default_property.jpg') as ImageProvider,
                                 fit: BoxFit.cover,
                               ),
                             ),
                           ),
                         ),
-                        // Overlay gradient pour améliorer la lisibilité
+                        // Overlay gradient
                         Container(
                           height: 160,
                           decoration: BoxDecoration(
@@ -562,12 +704,12 @@ class _HomePageState extends State<HomePage> {
                             ),
                             child: Icon(
                               Icons.favorite_border_rounded,
-                              color: primaryColor,
+                              color: Colors.red,
                               size: 22,
                             ),
                           ),
                         ),
-                        // Prix en haut à gauche
+                        // Prix
                         Positioned(
                           bottom: 12,
                           right: 12,
@@ -581,9 +723,7 @@ class _HomePageState extends State<HomePage> {
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Text(
-                              isForRent
-                                  ? '${800 + index * 50}€/mois'
-                                  : '${250000 + index * 50000}€',
+                              priceText,
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 14,
@@ -592,7 +732,7 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                         ),
-                        // Badge type (location/vente) en bas à gauche
+                        // Badge type
                         Positioned(
                           bottom: 12,
                           left: 12,
@@ -602,7 +742,7 @@ class _HomePageState extends State<HomePage> {
                               vertical: 6,
                             ),
                             decoration: BoxDecoration(
-                              color: isForRent ? accentColor : primaryColor,
+                              color: isForRent ? Colors.blue : Colors.green,
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
@@ -631,15 +771,12 @@ class _HomePageState extends State<HomePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Titre et localisation
                           Text(
-                            isForRent
-                                ? ['Appartement lumineux', 'Studio moderne', 'Loft spacieux', 'Duplex élégant', 'Penthouse luxueux'][index]
-                                : ['Maison spacieuse', 'Villa contemporaine', 'Propriété de prestige', 'Maison de campagne', 'Château historique'][index],
+                            property.title ?? 'Sans titre',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 17,
-                              color: darkBlue,
+                              color: Colors.black87,
                               height: 1.2,
                             ),
                             maxLines: 2,
@@ -656,9 +793,7 @@ class _HomePageState extends State<HomePage> {
                               SizedBox(width: 4),
                               Expanded(
                                 child: Text(
-                                  isForRent
-                                      ? ['Lemba 15ème', 'Ngana 2ème', 'Limete', 'Gombe', 'Msina'][index]
-                                      : ['liyolo', 'De la foire', 'Lodja', 'Badara', 'lotambe'][index],
+                                  '${property.commune ?? ''}, ${property.city ?? ''}',
                                   style: TextStyle(
                                     color: Colors.grey[600],
                                     fontSize: 13,
@@ -690,16 +825,15 @@ class _HomePageState extends State<HomePage> {
                               children: [
                                 _buildFeatureInfo(
                                   icon: FontAwesomeIcons.bed,
-                                  value: '${1 + (index % 3)}',
+                                  value: '${property.bedrooms ?? 0}',
                                 ),
                                 _buildFeatureInfo(
                                   icon: FontAwesomeIcons.bath,
-                                  value: '${1 + (index % 2)}',
+                                  value: '${property.rooms ?? 0}',
                                 ),
                                 _buildFeatureInfo(
                                   icon: FontAwesomeIcons.rulerCombined,
-                                  value: '${40 + index * 20}',
-
+                                  value: '${property.surface?.toStringAsFixed(0) ?? '0'} m²',
                                 ),
                               ],
                             ),
@@ -716,6 +850,8 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+
+
 
   // Widget _buildFeatureInfo({
   //   required IconData icon,
