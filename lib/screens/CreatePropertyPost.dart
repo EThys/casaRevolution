@@ -46,6 +46,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   final ImagePicker _picker = ImagePicker();
   int _currentStep = 0;
 
+  String? _selectedCategory;
+
   // Amenities list
   final List<String> _amenitiesList = [
     'Wi-Fi',
@@ -122,6 +124,41 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         setState(() {
           _isLoading = false;
         });
+        // final propertyData = {
+        //   // Informations principales
+        //   "title": _titleController.text,
+        //   "description": _descriptionController.text,
+        //   "price": double.tryParse(_priceController.text) ?? 0,
+        //
+        //   // Adresse et localisation
+        //   "address": _addressController.text,
+        //   "commune": _selectedCommune, // Variable à définir selon votre implémentation
+        //   "city": _selectedCity, // Variable à définir
+        //   "postalCode": _postalCodeController.text,
+        //   "latitude": _latitude, // Variable à définir
+        //   "longitude": _longitude, // Variable à définir
+        //
+        //   // Caractéristiques techniques
+        //   "surface": double.tryParse(_areaController.text) ?? 0,
+        //   "rooms": int.tryParse(_livingRoomsController.text) ?? 0 +
+        //       int.tryParse(_bedroomsController.text) ?? 0 +
+        //       int.tryParse(_kitchensController.text) ?? 0,
+        //   "bedrooms": int.tryParse(_bedroomsController.text) ?? 0,
+        //   "floor": int.tryParse(_floorController.text) ?? 0,
+        //
+        //   // Transaction et disponibilité
+        //   "sold": false, // Par défaut à la création
+        //   "transactionType": _isForRent ? "location" : "avendre",
+        //   "isAvailable": true, // Par défaut à la création
+        //
+        //   // Relations
+        //   "PropertyTypeId": _selectedPropertyTypeId, // ID du type sélectionné
+        //   "UserId": currentUserId, // ID de l'utilisateur connecté
+        //   "features": _selectedFeatures.map((f) => f.id).toList(), // Liste des IDs des features
+        // };
+
+
+
         SnackBarHelper.show(context, "Annonce publiée avec succès!", isError: false);
         Navigator.pop(context);
       });
@@ -273,6 +310,72 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     );
   }
 
+  Widget _buildPropertyCategoryCarousel() {
+    final categories = [
+      {'icon': FontAwesomeIcons.building, 'label': 'Appartement','value':'appartement'},
+      {'icon': FontAwesomeIcons.house, 'label': 'Maison','value':'maison'},
+      {'icon': FontAwesomeIcons.building, 'label': 'Villas','value':'villa'},
+      {'icon': FontAwesomeIcons.buildingColumns, 'label': 'Bureaux','value':'office'},
+      {'icon': FontAwesomeIcons.houseCrack, 'label': 'Studio','value':'studio'},
+      {'icon': FontAwesomeIcons.mountain, 'label': 'Terrain','value':'terrain'},
+      {'icon': FontAwesomeIcons.hotel, 'label': 'Hôtel', 'value': 'hotel'},
+      {'icon': FontAwesomeIcons.warehouse, 'label': 'Entrepôt', 'value': 'warehouse'},
+    ];
+
+    return Container(
+      height: 100,
+      margin: EdgeInsets.only(bottom: 16),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.symmetric(horizontal: 16),
+        itemCount: categories.length,
+        itemBuilder: (context, index) {
+          final category = categories[index];
+          final isSelected = _selectedCategory == category['value'];
+
+          return GestureDetector(
+            onTap: () => setState(() => _selectedCategory = category['value'] as String),
+            child: Container(
+              width: 80,
+              margin: EdgeInsets.only(right: 12),
+              child: Column(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: isSelected ? _primaryColor.withOpacity(0.2) : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected ? _primaryColor : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(
+                      category['icon'] as IconData,
+                      size: 24,
+                      color: isSelected ? _primaryColor : Colors.grey[700],
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    category['label'] as String,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      color: isSelected ? _primaryColor : Colors.grey[800],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildStep1() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -315,7 +418,20 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             ],
           ),
         ),
-        SizedBox(height: 24),
+        SizedBox(height: 20),
+
+        // Nouvelle section de catégories
+        Text(
+          'Type de propriété',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey[800],
+          ),
+        ),
+        SizedBox(height: 8),
+        _buildPropertyCategoryCarousel(),
+
 
         // Photo upload section
         _buildSectionHeader('Photos de la propriété'),
@@ -573,6 +689,21 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer une adresse';
+              }
+              return null;
+            },
+          ),
+          SizedBox(height: 20),
+          _buildSectionHeader('Commune'),
+          SizedBox(height: 12),
+          _buildModernTextField(
+            controller: _addressController,
+            label: 'Commune',
+            hint: 'Lemba',
+            icon: Icons.location_on_rounded,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Veuillez entrer une commune';
               }
               return null;
             },
