@@ -14,15 +14,16 @@ class CreatePropertyPostPage extends StatefulWidget {
 
 class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   // Modern color palette
-  final Color _primaryColor = Color(0xFF4361EE); // Vibrant blue
-  final Color _secondaryColor = Color(0xFF3F37C9); // Deep blue
-  final Color _accentColor = Color(0xFF4CC9F0); // Light blue
-  final Color _darkColor = Color(0xFF1A1D26); // Dark background
-  final Color _lightColor = Color(0xFFF8F9FA); // Light background
-  final Color _greyColor = Color(0xFF6C757D); // Grey text
-  final Color _successColor = Color(0xFF38B000); // Success green
-  final Color _cardColor = Colors.white; // Card background
-  final Color _borderColor = Color(0xFFE9ECEF); // Border color
+
+  final Color _primaryColor = Color(0xFF1976D2);
+  final Color _secondaryColor = Color(0xFF64B5F6);
+  final Color darkBlue = Color(0xFF0D47A1);
+  final Color _darkColor = Color(0xFF1A1D26);
+  final Color _lightColor = Color(0xFFF8F9FA);
+  final Color _greyColor = Color(0xFF6C757D);
+  final Color _successColor = Color(0xFF38B000);
+  final Color _cardColor = Colors.white;
+  final Color _borderColor = Color(0xFFE9ECEF);
 
   // Form controllers
   final _formKey = GlobalKey<FormState>();
@@ -699,7 +700,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           _buildModernTextField(
             controller: _addressController,
             label: 'Commune',
-            hint: 'Lemba',
+            hint: 'Lemba',  
             icon: Icons.location_on_rounded,
             validator: (value) {
               if (value == null || value.isEmpty) {
