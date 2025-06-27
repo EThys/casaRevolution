@@ -1,5 +1,6 @@
 import 'package:casa/screens/FavoritesPage.dart';
 import 'package:casa/screens/HomePage.dart';
+import 'package:casa/screens/ProfilePage.dart';
 import 'package:casa/screens/PropertySearchPage.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
@@ -23,7 +24,7 @@ class _BottomNavBarState extends State<BottomNavBar> {
     HomePage(),
     PropertySearchPage(),
     FavoritesPage(),
-    ProfilePage(),
+    Profilepage()
   ];
 
   @override
@@ -169,11 +170,4 @@ class _BottomNavBarState extends State<BottomNavBar> {
     );
   }
 
-}
-
-class ProfilePage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(child: Text('Page Profil'));
-  }
 }
