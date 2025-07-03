@@ -6,6 +6,7 @@ import '../utils/StockageKeys.dart';
 import '../utils/requetes.dart';
 
 class AuthentificationCtrl with ChangeNotifier {
+
   AuthentificationCtrl({this.stockage});
 
   String _token = "";
@@ -52,34 +53,62 @@ class AuthentificationCtrl with ChangeNotifier {
 
   //LOGIN USER
   Future<HttpResponse> login(Map data) async {
-    var url = "${Endpoints.login}";
-    print("URL de connexion: $url");
+    try {
+      var url = "${Endpoints.login}";
+      print("URL de connexion: $url");
 
-    HttpResponse response = await postData(url, data);
-    print(response.data);
-    var test=response.data != null;
-    print("azaaaaaaaaaaaaaa ${test}");
+      HttpResponse response = await postData(url, data);
+      print("Réponse API: ${response.data}");
 
-    if (test) {
-      var token = response.data['data']['token'];
-      print("token${token}");
-      var user = response.data['data']['user'];
+      if (response.data == null) {
+        print("Réponse API null");
+        return response;
+      }
 
-      // Stocker le token
-      stockage?.write(StockageKeys.tokenKey, token);
+      // Vérification de la structure de la réponse
+      if (response.data['success'] == true) {
+        final responseData = response.data['data'];
 
-      // Stocker les informations de l'utilisateur
-      user = UserModel.fromJson(user);
-      this.user = user;
+        if (responseData != null) {
+          String? token = responseData['token'];
+          var userJson = responseData['user'];
 
-      print("Informations de l'utilisateur: $user");
-      print("Token stocké: ${stockage?.read(StockageKeys.tokenKey)}");
+          // Vérification cruciale avant stockage
+          if (token != null && userJson != null) {
+            print("Token reçu: $token");
+            print("User reçu: $userJson");
+
+            // Stockage du token
+            await stockage?.write(StockageKeys.tokenKey, token);
+
+            try {
+              // Conversion et vérification de l'utilisateur
+              UserModel user = UserModel.fromJson(userJson);
+              await stockage?.write(StockageKeys.userKey, user.toJson());
+              this.user = user; // Utilise le setter
+
+              print("Utilisateur stocké avec succès");
+            } catch (e) {
+              print("Erreur conversion utilisateur: $e");
+              await stockage?.remove(StockageKeys.tokenKey); // Nettoyage
+              throw Exception("Format utilisateur invalide");
+            }
+          } else {
+            print("Token ou utilisateur manquant dans la réponse");
+          }
+        } else {
+          print("Champ 'data' manquant dans la réponse");
+        }
+      } else {
+        print("Échec connexion: ${response.data['message']}");
+      }
 
       notifyListeners();
+      return response;
+    } catch (e, stack) {
+      print("Erreur lors du login: $e\n$stack");
+      rethrow;
     }
-
-    print("Données de réponse: ${response.data}");
-    return response;
   }
 
   //REGISTER USER
@@ -89,13 +118,14 @@ class AuthentificationCtrl with ChangeNotifier {
       print("URL d'inscription: $url");
 
       HttpResponse response = await postData(url, userData);
-
       print(response.data);
+      var test=response.data != null;
 
 
-      if (response.status==200) {
-        var token = response.data['token'];
-        var user = response.data['user'];
+      if (test) {
+        var token = response.data['data']['token'];
+        print("token${token}");
+        var user = response.data['data']['user'];
 
         // Stocker le token
         stockage?.write(StockageKeys.tokenKey, token);
@@ -142,26 +172,26 @@ class AuthentificationCtrl with ChangeNotifier {
 // "identifiant": "jean.dupont@example.com",
 // "password": "12345678"
 }
-void main(){
-  var ctrl=AuthentificationCtrl();
-  ctrl.logout(
+main() async {
+  await GetStorage.init();
+  var stockage = GetStorage();
+  var ctrl = AuthentificationCtrl(stockage: stockage);
+  ctrl.login(
       {
-        "first_name": "John",
-        "last_name": "Doe",
-        "email": "jodhn.doe@example.com",
-        "password": "Password123!",
-        "phone": "+1234567840",
-        "address": "123 Main St",
-        "city": "New York",
-        "postal_code": "10001",
-        "country": "USA",
-        "date_of_birth": "1990-01-01",
+        "email": "ethberg@example.com",
+        "password": "MotDePasseSecurise123!",
+        "TypeAccountId": 2,
+        "CityId": 2,
+        "postal_code": "75010",
+        "country": "France",
+        "date_of_birth": "1990-05-15",
         "gender": "male",
-        "profile_picture": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
-        "bio": "Je suis un nouvel utilisateur",
-        "is_agent": false,
+        "profile_picture": "iVBORw0KGgoAAAANSUhEUgAA...",
+        "bio": "Utilisateur passionné par l’immobilier et la technologie.",
+        "is_agent": true,
         "is_admin": false
-    }
+      }
+
   );
 }
 
