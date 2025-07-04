@@ -76,7 +76,7 @@ class AuthentificationCtrl with ChangeNotifier {
           // Vérification cruciale avant stockage
           if (token != null && userJson != null) {
             print("Token reçu: $token");
-            print("User reçu: $userJson");
+            // print("User reçu: $userJson");
 
             // Stockage du token
             await stockage?.write(StockageKeys.tokenKey, token);
@@ -115,43 +115,64 @@ class AuthentificationCtrl with ChangeNotifier {
   Future<HttpResponse> register(Map<String, dynamic> userData) async {
     try {
       const url = Endpoints.register;
-      print("URL d'inscription: $url");
+      print("Payload d'inscription: ${(userData)}");
 
       HttpResponse response = await postData(url, userData);
-      print(response.data);
-      var test=response.data != null;
 
+      if (response.data == null) {
+        return HttpResponse(
+          status: false,
+          errorMsg: "Réponse vide du serveur",
+          isException: true,
+        );
+      }
 
-      if (test) {
-        var token = response.data['data']['token'];
-        print("token${token}");
-        var user = response.data['data']['user'];
+      print("Réponse API: ${(response.data)}");
 
-        // Stocker le token
-        stockage?.write(StockageKeys.tokenKey, token);
+      // Vérifiez d'abord si la requête a réussi
+      if (response.data['success'] == true) {
+        final data = response.data['data'] ?? {};
 
-        // Stocker les informations de l'utilisateur
-        user = UserModel.fromJson(user);
-        this.user = user;
+        String? token = data['token'];
+        var userJson = data['user'];
 
-        print("Inscription réussie: Informations de l'utilisateur - $user");
-        print("Token stocké: ${stockage?.read(StockageKeys.tokenKey)}");
-
-        notifyListeners();
+        if (token != null && userJson != null) {
+          await stockage?.write(StockageKeys.tokenKey, token);
+          user = UserModel.fromJson(userJson);
+          this.user = user;
+          notifyListeners();
+        } else {
+          print("Token ou user manquant dans la réponse");
+          return HttpResponse(
+            status: false,
+            errorMsg: "Données utilisateur manquantes dans la réponse",
+            data: response.data,
+          );
+        }
       } else {
-        print("Échec de l'inscription: ${response.data["errors"]}");
+        // Gestion des erreurs API
+        String errorMsg = response.data['message'] ??
+            response.data['errors']?.toString() ??
+            "Erreur inconnue lors de l'inscription";
+        return HttpResponse(
+          status: false,
+          errorMsg: errorMsg,
+          data: response.data,
+        );
       }
 
       return response;
-    } catch (e) {
+    } catch (e, stackTrace) {
       print("Exception lors de l'inscription: $e");
+      print("Stack trace: $stackTrace");
       return HttpResponse(
         status: false,
-        errorMsg: "Une erreur est survenue lors de l'inscription",
+        errorMsg: e.toString(),
         isException: true,
       );
     }
   }
+
 
 
   //LOGOUT USER
@@ -176,7 +197,7 @@ main() async {
   await GetStorage.init();
   var stockage = GetStorage();
   var ctrl = AuthentificationCtrl(stockage: stockage);
-  ctrl.login(
+  ctrl.register(
       {
         "email": "ethberg@example.com",
         "password": "MotDePasseSecurise123!",
