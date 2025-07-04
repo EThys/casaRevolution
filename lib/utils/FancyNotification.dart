@@ -10,14 +10,16 @@ class FancyNotification {
     final overlay = Overlay.of(context);
     final overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
-        top: MediaQuery.of(context).viewInsets.top + 50,
+        bottom: 50, // Afficher en bas de l'écran
         left: 20,
         right: 20,
-        child: Material(
-          color: Colors.transparent,
-          child: AnimatedNotification(
-            message: message,
-            isError: isError,
+        child: Center( // Centrer horizontalement
+          child: Material(
+            color: Colors.transparent,
+            child: AnimatedNotification(
+              message: message,
+              isError: isError,
+            ),
           ),
         ),
       ),
@@ -56,9 +58,10 @@ class _AnimatedNotificationState extends State<AnimatedNotification>
       duration: const Duration(milliseconds: 500),
     );
 
+    // Animation pour faire monter la notification du bas
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, -1),
-      end: Offset.zero,
+      begin: const Offset(0, 1), // Commence en bas (hors écran)
+      end: Offset.zero, // Fin à sa position normale
     ).animate(CurvedAnimation(
       parent: _controller,
       curve: Curves.elasticOut,
@@ -87,6 +90,9 @@ class _AnimatedNotificationState extends State<AnimatedNotification>
       child: FadeTransition(
         opacity: _fadeAnimation,
         child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.9, // Largeur maximale de 90%
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
           decoration: BoxDecoration(
             color: widget.isError
@@ -108,6 +114,7 @@ class _AnimatedNotificationState extends State<AnimatedNotification>
             ),
           ),
           child: Row(
+            mainAxisSize: MainAxisSize.min, // Pour que la Row ne prenne que la place nécessaire
             children: [
               Icon(
                 widget.isError ? Icons.error_outline : Icons.check_circle,
@@ -117,7 +124,7 @@ class _AnimatedNotificationState extends State<AnimatedNotification>
                 size: 28,
               ),
               const SizedBox(width: 12),
-              Expanded(
+              Flexible( // Permet au texte de s'adapter à la largeur disponible
                 child: Text(
                   widget.message,
                   style: TextStyle(
