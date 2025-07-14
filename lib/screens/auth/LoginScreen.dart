@@ -1,5 +1,6 @@
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/screens/HomePage.dart';
+import 'package:casa/screens/termsAndPrivacy/TermsAndPrivacyPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
@@ -218,6 +219,14 @@ class _LoginScreenState extends State<LoginScreen> {
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(color: Colors.grey.shade300),
         ),
+        errorBorder: OutlineInputBorder( // Style pour l'état d'erreur
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.red),
+        ),
+        focusedErrorBorder: OutlineInputBorder( // Style pour l'état d'erreur focalisé
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.red),
+        ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(color: primaryColor),
@@ -298,7 +307,7 @@ class _LoginScreenState extends State<LoginScreen> {
       children: [
         Text('Pas de compte ? ', style: TextStyle(color: secondaryTextColor)),
         TextButton(
-          onPressed: () {},
+          onPressed: () {Navigator.pushNamed(context, Routes.registerRoute);},
           child: Text('Créer un compte', style: TextStyle(
             color: primaryColor,
             fontWeight: FontWeight.bold,
@@ -319,18 +328,26 @@ class _LoginScreenState extends State<LoginScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             TextButton(
-              onPressed: () {},
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(
+                  builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
+                ));
+              },
               child: Text('Conditions', style: TextStyle(
                 color: primaryColor,
                 fontSize: 12,
               )),
             ),
-            Text(' et ', style: TextStyle(
+            Text('et', style: TextStyle(
               color: secondaryTextColor,
               fontSize: 12,
             )),
             TextButton(
-              onPressed: () {},
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(
+                  builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
+                ));
+              },
               child: Text('Politique de confidentialité', style: TextStyle(
                 color: primaryColor,
                 fontSize: 12,
