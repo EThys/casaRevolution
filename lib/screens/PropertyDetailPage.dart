@@ -1,50 +1,15 @@
+import 'package:casa/utils/Constantes.dart';
+import 'package:casa/utils/Routes.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
-import 'package:flutter_rating_bar/flutter_rating_bar.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_advanced_switch/flutter_advanced_switch.dart';
 
-class Property {
-  final String id;
-  final String title;
-  final String address;
-  final double price;
-  final bool isForRent;
-  final List<String> images;
-  final int bedrooms;
-  final int bathrooms;
-  final double area;
-  final int floor;
-  final String description;
-  final LatLng location;
-  final String agentName;
-  final String agentBio;
-  final double rating;
-  final List<Property> similarProperties;
-
-  Property({
-    required this.id,
-    required this.title,
-    required this.address,
-    required this.price,
-    required this.isForRent,
-    required this.images,
-    required this.bedrooms,
-    required this.bathrooms,
-    required this.area,
-    required this.floor,
-    required this.description,
-    required this.location,
-    required this.agentName,
-    required this.agentBio,
-    required this.rating,
-    required this.similarProperties,
-  });
-}
+import 'FullScreenImageViewer.dart';
 
 class PropertyDetailPage extends StatefulWidget {
-  final Property property;
-
+  final dynamic property;
   const PropertyDetailPage({Key? key, required this.property}) : super(key: key);
 
   @override
@@ -52,29 +17,30 @@ class PropertyDetailPage extends StatefulWidget {
 }
 
 class _PropertyDetailPageState extends State<PropertyDetailPage> {
-
   final Color _primaryColor = Color(0xFF1976D2);
   final Color _secondaryColor = Color(0xFF64B5F6);
-  final Color darkBlue = Color(0xFF0D47A1);
-  final Color _darkColor = Color(0xFF1A1D26);
+  final Color _darkColor = Color(0xFF2D3748);
   final Color _lightColor = Color(0xFFF8F9FA);
   final Color _greyColor = Color(0xFF6C757D);
-  bool _showMoreFeatures = false; // Pour la section dépliable
 
+  bool _showMoreFeatures = false;
+  final _favoriteController = ValueNotifier<bool>(false);
   late final PageController _imageController;
   int _currentImageIndex = 0;
-  late GoogleMapController _mapController;
-  bool _isFavorite = false;
 
   @override
   void initState() {
     super.initState();
-    _imageController = PageController();
+    _imageController = PageController(viewportFraction: 1.0);
+    _favoriteController.addListener(() {
+      setState(() {});
+    });
   }
 
   @override
   void dispose() {
     _imageController.dispose();
+    _favoriteController.dispose();
     super.dispose();
   }
 
@@ -82,193 +48,190 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _lightColor,
+      extendBody: true,
       body: CustomScrollView(
         slivers: [
-          // AppBar avec carrousel d'images
-          SliverAppBar(
-            expandedHeight: MediaQuery.of(context).size.height * 0.4,
-            pinned: true,
-            floating: false,
-            flexibleSpace: FlexibleSpaceBar(
-              background: _buildImageCarousel(),
-              collapseMode: CollapseMode.parallax,
-            ),
-            leading: _buildAppBarButton(
-              icon: Icons.arrow_back_ios_new_rounded,
-              onPressed: () => Navigator.pop(context),
-            ),
-            actions: [
-              _buildAppBarButton(
-                icon: _isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                onPressed: () => setState(() => _isFavorite = !_isFavorite),
-              ),
-              _buildAppBarButton(
-                icon: Icons.share_rounded,
-                onPressed: _shareProperty,
-              ),
-            ],
-            bottom: PreferredSize(
-              preferredSize: Size.fromHeight(20),
-              child: _buildImageIndicator(),
-            ),
-          ),
-
-          // Contenu principal
           SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(height: 24),
-                  // En-tête avec titre et prix
-                  _buildHeaderSection(),
-                  SizedBox(height: 16),
-
-                  // Caractéristiques principales
-                  _buildFeaturesSection(),
-                  SizedBox(height: 24),
-
-                  // Description
-                  _buildDescriptionSection(),
-                  SizedBox(height: 24),
-
-                  // Carte
-                  //_buildMapSection(),
-                  _buildAdditionalFeaturesSection(),
-                  SizedBox(height: 24),
-
-                  // Agent immobilier
-                  _buildAgentSection(),
-                  SizedBox(height: 24),
-
-                  // Évaluation
-                  _buildRatingSection(),
-                  SizedBox(height: 24),
-                ],
-              ),
-            ),
+            child: _buildImageCarousel(),
           ),
-
-          // Propriétés similaires
           SliverPadding(
-            padding: EdgeInsets.only(left: 24, right: 24, bottom: 24),
-            sliver: SliverToBoxAdapter(
-              child: _buildSimilarProperties(),
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                SizedBox(height: 20),
+                _buildHeaderSection(),
+                SizedBox(height: 24),
+                _buildPriceSection(),
+                SizedBox(height: 24),
+                _buildFeaturesSection(),
+                SizedBox(height: 24),
+                _buildDescriptionSection(),
+                SizedBox(height: 24),
+                _buildAdditionalFeaturesSection(),
+                SizedBox(height: 24),
+                _buildLocationSection(),
+                SizedBox(height: 24),
+                _buildAgentSection(),
+                SizedBox(height: 24),
+                _buildSimilarProperties(),
+                SizedBox(height: 100),
+              ]),
             ),
           ),
         ],
       ),
-
-      // Bouton de contact fixe
-      bottomNavigationBar: _buildContactButton(),
-    );
-  }
-
-  Widget _buildAppBarButton({required IconData icon, required VoidCallback onPressed}) {
-    return IconButton(
-      icon: Container(
-        padding: EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.4),
-          shape: BoxShape.circle,
+      floatingActionButtonLocation: FloatingActionButtonLocation.miniStartTop,
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(top: 40),
+        child: FloatingActionButton(
+          mini: true,
+          backgroundColor: Colors.white.withOpacity(0.9),
+          elevation: 2,
+          onPressed: () => Navigator.pop(context),
+          child: Icon(Icons.arrow_back, color: _darkColor),
         ),
-        child: Icon(icon, color: Colors.white, size: 20),
       ),
-      onPressed: onPressed,
+      bottomSheet: _buildBottomActionBar(),
     );
   }
 
   Widget _buildImageCarousel() {
+    final images = widget.property?.images ?? [];
+    final carouselHeight = MediaQuery.of(context).size.height * 0.4;
     return Stack(
       children: [
-        PageView.builder(
-          controller: _imageController,
-          itemCount: widget.property.images.length,
-          onPageChanged: (index) {
-            setState(() {
-              _currentImageIndex = index;
-            });
-          },
-          itemBuilder: (context, index) {
-            return Image.asset(
-              widget.property.images[index], // Assure-toi que ce chemin pointe vers une image locale dans tes assets
-              fit: BoxFit.cover,
-              // Pas besoin de loadingBuilder pour les assets locaux
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: Colors.grey[200],
-                  child: Icon(Icons.broken_image, color: Colors.grey[400]),
-                );
-              },
-            );
-          },
-
-        ),
-        Positioned(
-          bottom: 16,
-          left: 12,
-          child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: widget.property.isForRent ? _secondaryColor : _primaryColor,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: _primaryColor.withOpacity(0.2),
-                  blurRadius: 10,
-                  offset: Offset(0, 4),
+        SizedBox(
+          height: carouselHeight,
+          child: PageView.builder(
+            controller: _imageController,
+            itemCount: images.length,
+            onPageChanged: (index) {
+              setState(() => _currentImageIndex = index);
+            },
+            itemBuilder: (context, index) {
+              final image = images[index];
+              final imagePath = image.path ?? '';
+              final correctedPath = imagePath.startsWith('/')
+                  ? imagePath.substring(1)
+                  : imagePath;
+              final imageUrl = '${Constantes.URL_IMAGES}$correctedPath';
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FullScreenImageViewer(
+                        images: images,
+                        initialIndex: index,
+                      ),
+                    ),
+                  );
+                },
+                child: Hero(
+                  tag: 'property_image_${widget.property?.PropertyId}_$index',
+                  child: CachedNetworkImage(
+                    imageUrl: imageUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(
+                      color: Colors.grey[200],
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                        ),
+                      ),
+                    ),
+                    errorWidget: (context, url, error) => Container(
+                      color: Colors.grey[200],
+                      child: Center(
+                        child: Icon(Icons.broken_image,
+                            color: Colors.grey[400], size: 40),
+                      ),
+                    ),
+                  ),
                 ),
-              ],
-            ),
-            child: Text(
-              widget.property.isForRent
-                  ? '${widget.property.price.toInt()}\$/mois'
-                  : '${widget.property.price.toInt()}\$',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+              );
+            },
           ),
         ),
-        // Overlay gradient
-        Positioned.fill(
-          child: DecoratedBox(
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            height: 100,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  Colors.black.withOpacity(0.1),
+                  Colors.black.withOpacity(0.3),
                 ],
-                stops: [0.7, 1],
               ),
             ),
+          ),
+        ),
+        if (images.length > 1)
+          Positioned(
+            bottom: 20,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: SmoothPageIndicator(
+                controller: _imageController,
+                count: images.length,
+                effect: ScrollingDotsEffect(
+                  activeDotColor: Colors.white,
+                  dotColor: Colors.white.withOpacity(0.5),
+                  dotHeight: 8,
+                  dotWidth: 8,
+                  spacing: 6,
+                ),
+              ),
+            ),
+          ),
+        Positioned(
+          top: 50,
+          right: 20,
+          child: Row(
+            children: [
+              _buildActionButton(
+                icon: Icons.share,
+                onPressed: () {},
+              ),
+              SizedBox(width: 12),
+              ValueListenableBuilder<bool>(
+                valueListenable: _favoriteController,
+                builder: (_, value, __) {
+                  return _buildActionButton(
+                    icon: value ? Icons.favorite : Icons.favorite_border,
+                    iconColor: value ? Colors.red : Colors.white,
+                    onPressed: () => _favoriteController.value = !_favoriteController.value,
+                  );
+                },
+              ),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildImageIndicator() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: SmoothPageIndicator(
-          controller: _imageController,
-          count: widget.property.images.length,
-          effect: ScrollingDotsEffect(
-            activeDotColor: _primaryColor,
-            dotColor: Colors.white.withOpacity(0.6),
-            dotHeight: 8,
-            dotWidth: 8,
-            spacing: 4,
-          ),
-        ),
+  Widget _buildActionButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    Color iconColor = Colors.white,
+  }) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.3),
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(
+        icon: Icon(icon, size: 20, color: iconColor),
+        onPressed: onPressed,
       ),
     );
   }
@@ -277,61 +240,138 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Titre et badge
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        Wrap(
+          spacing: 8,
           children: [
-            Expanded(
-              child: Text(
-                widget.property.title,
+            Chip(
+              backgroundColor: _primaryColor.withOpacity(0.1),
+              label: Text(
+                widget.property?.transactionType == "location" ? 'À LOUER' : 'À VENDRE',
                 style: TextStyle(
-                  fontSize: 24,
+                  color: _primaryColor,
+                  fontSize: 12,
                   fontWeight: FontWeight.bold,
-                  color: _darkColor,
-                  height: 1.3,
                 ),
               ),
+              shape: StadiumBorder(),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             ),
-
+            Chip(
+              backgroundColor: _secondaryColor.withOpacity(0.1),
+              label: Text(
+                "${widget.property?.propertyType}" ?? '',
+                style: TextStyle(
+                  color: _secondaryColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              shape: StadiumBorder(),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            ),
           ],
         ),
+        SizedBox(height: 16),
+        Text(
+          widget.property!.title ?? '',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: _darkColor,
+            height: 1.3,
+          ),
+        ),
         SizedBox(height: 8),
-
-        // Localisation et note
         Row(
           children: [
             Icon(Icons.location_on_outlined, size: 18, color: _greyColor),
             SizedBox(width: 6),
             Expanded(
               child: Text(
-                widget.property.address,
+                widget.property!.address ?? "",
                 style: TextStyle(
                   color: _greyColor,
-                  fontSize: 16,
+                  fontSize: 15,
                 ),
-              ),
-            ),
-            RatingBarIndicator(
-              rating: widget.property.rating,
-              itemBuilder: (context, index) => Icon(
-                Icons.star_rounded,
-                color: Colors.amber,
-              ),
-              itemCount: 5,
-              itemSize: 18,
-              unratedColor: Colors.amber.withAlpha(50),
-            ),
-            SizedBox(width: 4),
-            Text(
-              widget.property.rating.toStringAsFixed(1),
-              style: TextStyle(
-                color: _darkColor,
-                fontWeight: FontWeight.bold,
               ),
             ),
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildPriceSection() {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'PRIX',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _greyColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                '\$${widget.property!.price!.toInt()}',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: _primaryColor,
+                ),
+              ),
+              if (widget.property?.transactionType == "location")
+                Text(
+                  '/mois',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: _greyColor,
+                  ),
+                ),
+            ],
+          ),
+          Spacer(),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                'SURFACE',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _greyColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                '${widget.property!.surface!.toInt()} m²',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: _darkColor,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -344,67 +384,100 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: 16,
-            offset: Offset(0, 8),
+            blurRadius: 10,
+            offset: Offset(0, 4),
           ),
         ],
       ),
-      child: IntrinsicHeight(
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildFeatureItem(
-              icon: FontAwesomeIcons.bed,
-              value: widget.property.bedrooms.toString(),
-              label: 'Chambres',
-            ),
-            VerticalDivider(color: Colors.grey[200], thickness: 1),
-            _buildFeatureItem(
-              icon: FontAwesomeIcons.bath,
-              value: widget.property.bathrooms.toString(),
-              label: 'Salles de bain',
-            ),
-            VerticalDivider(color: Colors.grey[200], thickness: 1),
-            _buildFeatureItem(
-              icon: FontAwesomeIcons.rulerCombined,
-              value: '${widget.property.area.toInt()}',
-              label: 'm²',
-            ),
-            VerticalDivider(color: Colors.grey[200], thickness: 1),
-            _buildFeatureItem(
-              icon: FontAwesomeIcons.building,
-              value: widget.property.floor.toString(),
-              label: 'Étage',
-            ),
-          ],
-        ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildFeatureItem(
+                'assets/images/bed.png',
+                '${widget.property!.bedrooms}',
+                'Chambres',
+              ),
+              _buildFeatureItem(
+                'assets/images/douche.png',
+                '${widget.property!.bedrooms}',
+                'SDB',
+              ),
+              _buildFeatureItem(
+                'assets/images/parking.png',
+                '1',
+                'Parking',
+              ),
+              _buildFeatureItem(
+                'assets/images/bed.png',
+                '${widget.property!.floor}',
+                'Étage',
+              ),
+            ],
+          ),
+          SizedBox(height: 12),
+          Divider(height: 1),
+          SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildFeatureItem(
+                'assets/images/salon.png',
+                '2',
+                'Salons',
+              ),
+              _buildFeatureItem(
+                'assets/images/quisine.png',
+                '1',
+                'Cuisine',
+              ),
+              _buildFeatureItem(
+                'assets/images/wifi.png',
+                'Oui',
+                'Wi-Fi',
+              ),
+              _buildFeatureItem(
+                'assets/images/clim.png',
+                'Oui',
+                'Clim',
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildFeatureItem({required IconData icon, required String value, required String label}) {
+  Widget _buildFeatureItem(String imagePath, String value, String label) {
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Container(
-          width: 40,
-          height: 40,
+          width: 45,
+          height: 45,
           decoration: BoxDecoration(
             color: _primaryColor.withOpacity(0.1),
-            shape: BoxShape.circle,
+            borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(icon, size: 18, color: _primaryColor),
+          child: Center(
+            child: Image.asset(
+              imagePath, // Chemin de l'image dans vos assets
+              width: 40, // Taille similaire à votre icône originale (18 + padding)
+              height: 40,
+              fit: BoxFit.contain,
+            ),
+          ),
         ),
         SizedBox(height: 8),
         Text(
           value,
           style: TextStyle(
-            fontSize: 16,
+            fontSize: 15,
             fontWeight: FontWeight.bold,
             color: _darkColor,
           ),
         ),
-        SizedBox(height: 4),
+        SizedBox(height: 2),
         Text(
           label,
           style: TextStyle(
@@ -423,14 +496,14 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         Text(
           'Description',
           style: TextStyle(
-            fontSize: 20,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
             color: _darkColor,
           ),
         ),
         SizedBox(height: 12),
         Text(
-          widget.property.description,
+          widget.property!.description ?? "",
           style: TextStyle(
             color: _darkColor.withOpacity(0.8),
             fontSize: 15,
@@ -441,255 +514,180 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  // Widget _buildMapSection() {
-  //   return Column(
-  //     crossAxisAlignment: CrossAxisAlignment.start,
-  //     children: [
-  //       Text(
-  //         'Localisation',
-  //         style: TextStyle(
-  //           fontSize: 20,
-  //           fontWeight: FontWeight.bold,
-  //           color: _darkColor,
-  //         ),
-  //       ),
-  //       SizedBox(height: 12),
-  //       Container(
-  //         height: 200,
-  //         decoration: BoxDecoration(
-  //           borderRadius: BorderRadius.circular(16),
-  //           boxShadow: [
-  //             BoxShadow(
-  //               color: Colors.black.withOpacity(0.1),
-  //               blurRadius: 16,
-  //               offset: Offset(0, 8),
-  //             ),
-  //           ],
-  //         ),
-  //         child: ClipRRect(
-  //           borderRadius: BorderRadius.circular(16),
-  //           child: Stack(
-  //             children: [
-  //               GoogleMap(
-  //                 initialCameraPosition: CameraPosition(
-  //                   target: widget.property.location,
-  //                   zoom: 15,
-  //                 ),
-  //                 markers: {
-  //                   Marker(
-  //                     markerId: MarkerId('property'),
-  //                     position: widget.property.location,
-  //                     icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-  //                   ),
-  //                 },
-  //                 onMapCreated: (controller) {
-  //                   _mapController = controller;
-  //                 },
-  //                 mapType: MapType.normal,
-  //                 myLocationEnabled: true,
-  //                 zoomControlsEnabled: false,
-  //               ),
-  //               Positioned(
-  //                 bottom: 12,
-  //                 right: 12,
-  //                 child: FloatingActionButton.small(
-  //                   onPressed: () {
-  //                     _mapController.animateCamera(
-  //                       CameraUpdate.newLatLng(widget.property.location),
-  //                     );
-  //                   },
-  //                   backgroundColor: Colors.white,
-  //                   child: Icon(Icons.gps_fixed_rounded, color: _primaryColor),
-  //                 ),
-  //               ),
-  //             ],
-  //           ),
-  //         ),
-  //       ),
-  //       SizedBox(height: 12),
-  //       Text(
-  //         widget.property.address,
-  //         style: TextStyle(
-  //           color: _greyColor,
-  //           fontSize: 15,
-  //         ),
-  //       ),
-  //     ],
-  //   );
-  // }
-
-  Widget _buildAgentSection() {
-    return Container(
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 16,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 60,
-            height: 60,
+  Widget _buildAdditionalFeaturesSection() {
+    final features = {
+      'Construction': '2015',
+      'État du bien': 'Excellent',
+      'Ascenseur': widget.property?.features?.any((f) => f.name == 'Ascenseur') ?? false ? 'Oui' : 'Non',
+      'Parking': 'Sous-sol',
+      'Terrasse': '12 m²',
+      'Piscine': widget.property?.features?.any((f) => f.name == 'Piscine') ?? false ? 'Oui' : 'Non',
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: () => setState(() => _showMoreFeatures = !_showMoreFeatures),
+          child: Container(
+            padding: EdgeInsets.symmetric(vertical: 12),
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [_primaryColor, _secondaryColor],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Center(
-              child: Text(
-                  // .split(' ').map((n) => n[0]).join(),
-                widget.property.agentName,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.grey.withOpacity(0.2),
+                  width: 1,
                 ),
               ),
             ),
-          ),
-          SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  widget.property.agentName,
+                  'Caractéristiques détaillées',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: _darkColor,
                   ),
                 ),
-                SizedBox(height: 4),
-                Text(
-                  widget.property.agentBio,
-                  style: TextStyle(
-                    color: _greyColor,
-                    fontSize: 13,
-                  ),
+                Icon(
+                  _showMoreFeatures ? Icons.expand_less : Icons.expand_more,
+                  color: _greyColor,
                 ),
               ],
             ),
-          ),
-          IconButton(
-            icon: Icon(Icons.message_rounded, color: _primaryColor),
-            onPressed: () {},
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Nouvelle méthode pour la section "Autres particularités"
-  Widget _buildAdditionalFeaturesSection() {
-    final additionalFeatures = {
-      'Année de construction': '2015',
-      'État du bien': 'Excellent',
-      'Type de chauffage': 'Gaz',
-      'Classe énergie': 'B',
-      'Exposition': 'Sud',
-      'Ascenseur': 'Oui',
-      'Parking': 'Sous-sol',
-      'Terrasse': '12 m²',
-    };
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        GestureDetector(
-          onTap: () => setState(() => _showMoreFeatures = !_showMoreFeatures),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Autres particularités',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: _darkColor,
-                ),
-              ),
-              Icon(
-                _showMoreFeatures ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-                color: _primaryColor,
-              ),
-            ],
           ),
         ),
-        SizedBox(height: 12),
-        AnimatedCrossFade(
-          duration: Duration(milliseconds: 300),
-          crossFadeState: _showMoreFeatures ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-          firstChild: Container(),
-          secondChild: Container(
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 16,
-                  offset: Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                ...additionalFeatures.entries.map((entry) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        if (_showMoreFeatures) ...[
+          SizedBox(height: 16),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: features.entries.map((e) => Container(
+              width: (MediaQuery.of(context).size.width - 64) / 2,
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.withOpacity(0.1)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: _primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Image.asset("assets/images/check.png",width: 16,height: 20,),
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        entry.key,
+                        e.key,
                         style: TextStyle(
                           color: _greyColor,
-                          fontSize: 15,
+                          fontSize: 12,
                         ),
                       ),
+                      SizedBox(height: 2),
                       Text(
-                        entry.value,
+                        e.value,
                         style: TextStyle(
                           color: _darkColor,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
-                )).toList(),
-              ],
+                ],
+              ),
+            )).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildLocationSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Localisation',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: _darkColor,
+          ),
+        ),
+        SizedBox(height: 16),
+        Container(
+          height: 200,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: Colors.grey[200],
+            image: DecorationImage(
+              image: AssetImage('assets/map_placeholder.jpg'),
+              fit: BoxFit.cover,
             ),
           ),
+        ),
+        SizedBox(height: 16),
+        Row(
+          children: [
+            Icon(Icons.location_on, size: 20, color: _primaryColor),
+            SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.property!.address ?? "",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'À 5 min à pied du métro le plus proche',
+                    style: TextStyle(
+                      color: _greyColor,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () {},
+              child: Text('Itinéraire', style: TextStyle(color: _primaryColor)),
+            ),
+          ],
         ),
       ],
     );
   }
 
-  Widget _buildRatingSection() {
+  Widget _buildAgentSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Évaluations',
+          'Agent immobilier',
           style: TextStyle(
-            fontSize: 20,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
             color: _darkColor,
           ),
         ),
-        SizedBox(height: 12),
+        SizedBox(height: 16),
         Container(
           padding: EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -698,54 +696,59 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.05),
-                blurRadius: 16,
-                offset: Offset(0, 8),
+                blurRadius: 10,
+                offset: Offset(0, 4),
               ),
             ],
           ),
-          child: Column(
+          child: Row(
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Note moyenne',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: _darkColor,
-                    ),
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  image: DecorationImage(
+                    image: NetworkImage('https://randomuser.me/api/portraits/men/42.jpg'),
+                    fit: BoxFit.cover,
                   ),
-                  RatingBarIndicator(
-                    rating: widget.property.rating,
-                    itemBuilder: (context, index) => Icon(
-                      Icons.star_rounded,
-                      color: Colors.amber,
-                    ),
-                    itemCount: 5,
-                    itemSize: 20,
-                    unratedColor: Colors.amber.withAlpha(50),
-                  ),
-                ],
-              ),
-              SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {},
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _lightColor,
-                  foregroundColor: _primaryColor,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: _primaryColor.withOpacity(0.3)),
-                  ),
-                  padding: EdgeInsets.symmetric(vertical: 12),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+              ),
+              SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.add_rounded, size: 18),
-                    SizedBox(width: 8),
-                    Text('Ajouter une évaluation'),
+                    Text(
+                      "Muzola",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: _darkColor,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      "Compte certifié",
+                      style: TextStyle(
+                        color: _greyColor,
+                        fontSize: 13,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.star, color: Colors.amber, size: 16),
+                        SizedBox(width: 4),
+                        Text(
+                          '4.9 (24 avis)',
+                          style: TextStyle(
+                            color: _greyColor,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -763,7 +766,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         Text(
           'Propriétés similaires',
           style: TextStyle(
-            fontSize: 20,
+            fontSize: 18,
             fontWeight: FontWeight.bold,
             color: _darkColor,
           ),
@@ -771,87 +774,92 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         SizedBox(height: 16),
         SizedBox(
           height: 240,
-          child: ListView.builder(
+          child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: widget.property.similarProperties.length,
+            itemCount: 4,
+            separatorBuilder: (_, __) => SizedBox(width: 16),
             itemBuilder: (context, index) {
-              final property = widget.property.similarProperties[index];
               return Container(
-                width: 200,
-                margin: EdgeInsets.only(right: 16),
-                child: InkWell(
+                width: 180,
+                decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => PropertyDetailPage(property: property),
-                      ),
-                    );
-                  },
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Image
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey[200],
-                              image: DecorationImage(
-                                image: AssetImage(property.images.first),
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                      child: Container(
+                        height: 120,
+                        color: Colors.grey[200],
+                        child: Center(
+                          child: Icon(Icons.home, size: 40, color: Colors.grey[400]),
                         ),
                       ),
-                      SizedBox(height: 12),
-                      // Titre
-                      Text(
-                        property.title,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          color: _darkColor,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: 4),
-                      // Localisation
-                      Row(
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.location_on_outlined, size: 14, color: _greyColor),
-                          SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              property.address.split(',').first,
-                              style: TextStyle(
-                                color: _greyColor,
-                                fontSize: 12,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                          Text(
+                            'Appartement moderne',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: _darkColor,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(Icons.location_on, size: 14, color: _greyColor),
+                              SizedBox(width: 4),
+                              Text(
+                                'Paris',
+                                style: TextStyle(color: _greyColor, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '\$1,200',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: _primaryColor,
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  Icon(Icons.king_bed, size: 14, color: _greyColor),
+                                  SizedBox(width: 4),
+                                  Text('3', style: TextStyle(fontSize: 12, color: _greyColor)),
+                                  SizedBox(width: 8),
+                                  Icon(Icons.bathtub, size: 14, color: _greyColor),
+                                  SizedBox(width: 4),
+                                  Text('2', style: TextStyle(fontSize: 12, color: _greyColor)),
+                                ],
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                      SizedBox(height: 8),
-                      // Prix
-                      Text(
-                        property.isForRent
-                            ? '${property.price.toInt()}\$/mois'
-                            : '${property.price.toInt()}\$',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: _primaryColor,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               );
             },
@@ -861,43 +869,49 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  Widget _buildContactButton() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: ElevatedButton(
-          onPressed: () {
-            // Action pour organiser une visite
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _primaryColor,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: EdgeInsets.symmetric(vertical: 16),
-            elevation: 3,
-            shadowColor: _primaryColor.withOpacity(0.3),
+  Widget _buildBottomActionBar() {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: Offset(0, -5),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.calendar_today_rounded, size: 20), // Icône de calendrier
-              SizedBox(width: 8),
-              Text(
-                'ORGANISER UNE VISITE', // Texte modifié
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
+        ],
+      ),
+      child: ElevatedButton(
+        onPressed: () {
+          Navigator.pushNamed(context, Routes.bookingVisitPageRoute, arguments: widget.property);
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _primaryColor,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: EdgeInsets.symmetric(vertical: 16),
+          elevation: 0,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.calendar_today, size: 20),
+            SizedBox(width: 8),
+            Text(
+              'PLANIFIER UNE VISITE',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
-  void _shareProperty() {
-    // Implémentez le partage ici
-  }
+
+
 }
