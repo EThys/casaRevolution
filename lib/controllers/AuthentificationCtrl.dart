@@ -112,7 +112,7 @@ class AuthentificationCtrl with ChangeNotifier {
   }
 
   //REGISTER USER
-  Future<HttpResponse> register(Map<String, dynamic> userData) async {
+  Future<HttpResponse> register(Map<String, dynamic> userData, {required String url}) async {
     try {
       const url = Endpoints.register;
       print("Payload d'inscription: ${(userData)}");
@@ -211,7 +211,7 @@ main() async {
         "bio": "Utilisateur passionné par l’immobilier et la technologie.",
         "is_agent": true,
         "is_admin": false
-      }
+      }, url: ''
 
   );
 }
