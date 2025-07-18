@@ -1,5 +1,15 @@
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/controllers/PropertyVisitCtrl.dart';
+import 'package:casa/models/PropertyVisitModel.dart';
+import 'package:casa/utils/Constantes.dart';
+import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
+import '../utils/networkCheck.dart';
 
 class BookingHistoryPage extends StatefulWidget {
   const BookingHistoryPage({Key? key}) : super(key: key);
@@ -11,14 +21,15 @@ class BookingHistoryPage extends StatefulWidget {
 class _BookingHistoryPageState extends State<BookingHistoryPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final List<Reservation> _reservations = [];
   final DateFormat _dateFormat = DateFormat('EEEE d MMMM y', 'fr_FR');
   final DateFormat _timeFormat = DateFormat('HH:mm', 'fr_FR');
   final TextEditingController _reasonController = TextEditingController();
+  final GetStorage storage = GetStorage();
+  bool _isLoading = false;
+  AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
 
   // Couleurs modernes
   final Color _primaryColor = Color(0xFF1976D2);
-  final Color darkBlue = Color(0xFF0D47A1);
   final Color _darkColor = Color(0xFF1A1D26);
   final Color _lightGrey = Color(0xFFF5F6FA);
   final Color _mediumGrey = Color(0xFF7F8C8D);
@@ -32,7 +43,20 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadReservations();
+    print("aliceeeeeeeeeeee");
+    _loadVisits();
+  }
+
+  Future<void> _loadVisits() async {
+    print("ETHBERGGGGGGGGGGGG");
+    final userId = storage.read(StockageKeys.userKey)?['UserId'];
+    if (userId != null) {
+      print("NOELLLLLLLL");
+      final propertyCtrl = Provider.of<PropertyVisitCtrl>(context, listen: false);
+      print("VIDAAAAAAAAAAAGE${propertyCtrl.getVisitsByUser(userId.toString())}");
+      print(propertyCtrl.propertyVisits); // Ajoutez ceci pour vérifier les données
+      await propertyCtrl.getVisitsByUser(userId.toString());
+    }
   }
 
   @override
@@ -42,82 +66,19 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     super.dispose();
   }
 
-  void _loadReservations() {
-    setState(() {
-      _reservations.addAll([
-        Reservation(
-          id: '1',
-          propertyTitle: 'Appartement lumineux avec vue sur la tour Eiffel',
-          propertyImage: 'assets/images/one.jpg',
-          date: DateTime.now().add(Duration(days: 2)),
-          status: ReservationStatus.pending,
-          address: '15 Rue , 75004 Limete',
-          price: 1200,
-          features: '2 chambres · 75m² · 3ème étage',
-          amenities: ['Wifi', 'Cuisine', 'TV', 'Climatisation'],
-        ),
-        Reservation(
-          id: '2',
-          propertyTitle: 'Studio design en hypercentre',
-          propertyImage: 'assets/images/three.jpg',
-          date: DateTime.now().subtract(Duration(days: 3)),
-          status: ReservationStatus.completed,
-          address: '2 Rue , 75001 Limete',
-          price: 850,
-          features: '1 chambre · 35m² · Rez-de-chaussée',
-          amenities: ['Wifi', 'Espace de travail', 'Machine à laver'],
-        ),
-        Reservation(
-          id: '3',
-          propertyTitle: 'Duplex loft dans le Marais',
-          propertyImage: 'assets/images/one.jpg',
-          date: DateTime.now().subtract(Duration(days: 10)),
-          status: ReservationStatus.cancelled,
-          address: '40 Rue des Archives, 75004 Paris',
-          price: 1500,
-          features: '3 chambres · 110m² · 2ème étage',
-          cancellationReason: 'Changement de programme',
-          amenities: ['Wifi', 'Parking', 'Terrasse', 'Climatisation'],
-        ),
-        Reservation(
-          id: '4',
-          propertyTitle: 'Appartement haussmannien rénové',
-          propertyImage: 'assets/images/two.jpg',
-          date: DateTime.now().add(Duration(days: 5)),
-          status: ReservationStatus.pending,
-          address: '12 Avenue de l\'Opéra, 75002 Paris',
-          price: 1800,
-          features: '2 chambres · 90m² · 4ème étage',
-          amenities: ['Wifi', 'Ascenseur', 'Cheminée', 'Vue dégagée'],
-        ),
-        Reservation(
-          id: '5',
-          propertyTitle: 'Maison avec jardin arboré',
-          propertyImage: 'assets/images/three.jpg',
-          date: DateTime.now().subtract(Duration(days: 15)),
-          status: ReservationStatus.completed,
-          address: '5 Rue des Jardins, 75016 Paris',
-          price: 2500,
-          features: '4 chambres · 150m² · Jardin 50m²',
-          amenities: ['Wifi', 'Jardin', 'Piscine', 'Parking'],
-        ),
-      ]);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
+    final propertyCtrl = Provider.of<PropertyVisitCtrl>(context);
+
     return Scaffold(
       backgroundColor: _lightGrey,
       appBar: AppBar(
         leading: IconButton(
           icon: Icon(Icons.arrow_back),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          'Mes Réservations',
+          'Mes Visites',
           style: TextStyle(
             color: _darkColor,
             fontWeight: FontWeight.w700,
@@ -152,12 +113,16 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildReservationList(_getFilteredReservations(ReservationStatus.pending)),
-          _buildReservationList(_getFilteredReservations(ReservationStatus.completed)),
-          _buildReservationList(_getFilteredReservations(ReservationStatus.cancelled)),
+          _buildVisitList(_filterVisits(propertyCtrl.propertyVisits, 'pending')),
+          _buildVisitList(_filterVisits(propertyCtrl.propertyVisits, 'validated')),
+          _buildVisitList(_filterVisits(propertyCtrl.propertyVisits, 'cancelled')),
         ],
       ),
     );
+  }
+
+  List<PropertyVisitModel> _filterVisits(List<PropertyVisitModel> visits, String status) {
+    return visits.where((visit) => visit.status == status).toList();
   }
 
   Widget _buildDetailRow({
@@ -213,9 +178,9 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  Widget _buildReservationDetails(Reservation reservation) {
-    final isPending = reservation.status == ReservationStatus.pending;
-    final isCancelled = reservation.status == ReservationStatus.cancelled;
+  Widget _buildVisitDetails(PropertyVisitModel visit) {
+    final isPending = visit.status == 'pending';
+    final isCancelled = visit.status == 'cancelled';
 
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
@@ -245,7 +210,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 ),
                 SizedBox(height: 20),
                 Text(
-                  'Détails de la réservation',
+                  'Détails de la visite',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -253,25 +218,19 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   ),
                 ),
                 SizedBox(height: 20),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(15),
-                  child: Image.asset(
-                    reservation.propertyImage,
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      height: 180,
-                      color: _lightGrey,
-                      child: Center(
-                        child: Icon(Icons.home, size: 50, color: _mediumGrey),
-                      ),
-                    ),
+                Container(
+                  height: 180,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(15),
+                    color: _lightGrey,
+                  ),
+                  child: Center(
+                    child: Icon(Icons.home, size: 50, color: _mediumGrey),
                   ),
                 ),
                 SizedBox(height: 20),
                 Text(
-                  reservation.propertyTitle,
+                  "${visit.property.title}",
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 18,
@@ -284,7 +243,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                     Icon(Icons.location_on_outlined, size: 16, color: _mediumGrey),
                     SizedBox(width: 4),
                     Text(
-                      reservation.address,
+                      "${visit.property.address}",
                       style: TextStyle(
                         color: _mediumGrey,
                         fontSize: 14,
@@ -298,30 +257,29 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 _buildDetailRow(
                   icon: Icons.calendar_today_outlined,
                   label: 'Date',
-                  value: _dateFormat.format(reservation.date),
+                  value: _dateFormat.format(visit.visitDate),
                 ),
                 _buildDetailRow(
                   icon: Icons.access_time_outlined,
                   label: 'Heure',
-                  value: _timeFormat.format(reservation.date),
+                  value: visit.visitHour,
                 ),
                 _buildDetailRow(
-                  icon: Icons.attach_money
-                  ,
+                  icon: Icons.attach_money,
                   label: 'Prix',
-                  value: '${reservation.price}\$',
+                  value: '${visit.property.price}\$',
                 ),
                 _buildDetailRow(
                   icon: Icons.info_outline_rounded,
                   label: 'Statut',
-                  value: _getStatusText(reservation.status),
-                  valueColor: _getStatusColor(reservation.status),
+                  value: _getStatusText(visit.status),
+                  valueColor: _getStatusColor(visit.status),
                 ),
-                if (isCancelled && reservation.cancellationReason != null)
+                if (isCancelled && visit.cancellationReason != null)
                   _buildDetailRow(
                     icon: Icons.cancel_outlined,
                     label: 'Motif d\'annulation',
-                    value: reservation.cancellationReason!,
+                    value: visit.cancellationReason!,
                     valueColor: _errorColor,
                   ),
                 SizedBox(height: 15),
@@ -337,47 +295,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 ),
                 SizedBox(height: 10),
                 Text(
-                  reservation.features,
+                  '${visit.property.bedrooms} chambres · ${visit.property.surface}m² · ${visit.property.floor}ème étage',
                   style: TextStyle(
                     color: _darkColor.withOpacity(0.8),
                     fontSize: 15,
                   ),
                 ),
-                SizedBox(height: 15),
-                if (reservation.amenities != null && reservation.amenities!.isNotEmpty)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Équipements',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: _darkColor,
-                        ),
-                      ),
-                      SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: reservation.amenities!
-                            .map(
-                              (amenity) => Chip(
-                            label: Text(amenity),
-                            backgroundColor: _chipBackground,
-                            labelStyle: TextStyle(
-                              color: _darkColor,
-                              fontSize: 13,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        )
-                            .toList(),
-                      ),
-                    ],
-                  ),
                 SizedBox(height: 25),
                 if (isPending)
                   SizedBox(
@@ -385,7 +308,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                     child: ElevatedButton(
                       onPressed: () {
                         Navigator.pop(context);
-                        _showCancelConfirmationDialog(reservation.id);
+                        _showCancelConfirmationDialog(visit);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _errorColor.withOpacity(0.1),
@@ -397,7 +320,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                         padding: EdgeInsets.symmetric(vertical: 16),
                       ),
                       child: Text(
-                        'ANNULER LA RÉSERVATION',
+                        'ANNULER LA VISITE',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
@@ -415,62 +338,92 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
 
-  Color _getStatusColor(ReservationStatus status) {
+  Color _getStatusColor(String status) {
     switch (status) {
-      case ReservationStatus.pending:
+      case 'pending':
         return _warningColor;
-      case ReservationStatus.completed:
+      case 'completed':
         return _successColor;
-      case ReservationStatus.cancelled:
+      case 'cancelled':
         return _errorColor;
+      default:
+        return _mediumGrey;
     }
   }
 
-  String _getStatusText(ReservationStatus status) {
+  String _getStatusText(String status) {
     switch (status) {
-      case ReservationStatus.pending:
+      case 'pending':
         return 'En attente';
-      case ReservationStatus.completed:
+      case 'completed':
         return 'Terminée';
-      case ReservationStatus.cancelled:
+      case 'cancelled':
         return 'Annulée';
+      default:
+        return status;
     }
   }
 
-  List<Reservation> _getFilteredReservations(ReservationStatus status) {
-    return _reservations.where((r) => r.status == status).toList();
+  Future<void> _cancelVisit(PropertyVisitModel visit, String reason) async {
+    if (!mounted || _isLoading) return;
+    setState(() => _isLoading = true);
+
+    FocusScope.of(context).unfocus();
+
+    final isConnected = await NetworkUtils.checkInternetConnectivity();
+    if (!isConnected) {
+      FancyNotification.show(context, "Pas de connexion internet");
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      final propertyCtrl = Provider.of<PropertyVisitCtrl>(context, listen: false);
+      final requestData = {
+        'status': 'cancelled',
+        'cancellation_reason': reason, // Utilisez le paramètre reason
+      };
+
+      final response = await propertyCtrl.changeVisitStatus(
+        visitId: visit.propertyVisitId.toString(),
+        requestData: requestData,
+      );
+
+      if (!mounted) return;
+
+      if (response.status == 200 && response.data['success'] == true) {
+        FancyNotification.show(context, "Visite annulée avec succès", isError: false);
+        await _loadVisits();
+        if (mounted) {
+          Navigator.of(context).pop(); // Fermer le bottom sheet des détails
+        }
+      } else {
+        String errorMsg = response.data['message'] ?? "Échec de l'annulation";
+        FancyNotification.show(context, errorMsg);
+      }
+    } catch (e) {
+      print("Erreur d'annulation: $e");
+      FancyNotification.show(context, "Erreur technique lors de l'annulation");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
-  void _cancelReservation(String id, String reason) {
-    setState(() {
-      final reservation = _reservations.firstWhere((r) => r.id == id);
-      reservation.status = ReservationStatus.cancelled;
-      reservation.cancellationReason = reason;
-      _reasonController.clear();
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Réservation annulée'),
-        backgroundColor: _errorColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-      ),
-    );
-  }
 
-  void _showReservationDetails(Reservation reservation) {
+
+  void _showVisitDetails(PropertyVisitModel visit) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _buildReservationDetails(reservation),
+      builder: (context) => _buildVisitDetails(visit),
     );
   }
 
-  Widget _buildReservationList(List<Reservation> reservations) {
-    if (reservations.isEmpty) {
+  Widget _buildVisitList(List<PropertyVisitModel> visits) {
+    if (visits.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -482,7 +435,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
             ),
             SizedBox(height: 20),
             Text(
-              'Aucune réservation',
+              'Aucune visite',
               style: TextStyle(
                 color: _mediumGrey,
                 fontSize: 18,
@@ -494,10 +447,10 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
               padding: EdgeInsets.symmetric(horizontal: 40),
               child: Text(
                 _tabController.index == 0
-                    ? 'Vous n\'avez pas de réservation à venir'
+                    ? 'Vous n\'avez pas de visite à venir'
                     : _tabController.index == 1
-                    ? 'Aucune réservation passée'
-                    : 'Aucune réservation annulée',
+                    ? 'Aucune visite passée'
+                    : 'Aucune visite annulée',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: _mediumGrey.withOpacity(0.8),
@@ -513,22 +466,22 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     return RefreshIndicator(
       color: _primaryColor,
       backgroundColor: Colors.white,
-      onRefresh: () async {
-        await Future.delayed(Duration(seconds: 1));
-        _loadReservations();
-      },
+      onRefresh: _loadVisits,
       child: ListView.separated(
         padding: EdgeInsets.all(20),
-        itemCount: reservations.length,
+        itemCount: visits.length,
         separatorBuilder: (_, __) => SizedBox(height: 20),
         itemBuilder: (context, index) {
-          return _buildReservationCard(reservations[index]);
+          return _buildVisitCard(visits[index]);
         },
       ),
     );
   }
 
-  void _showCancelConfirmationDialog(String id) {
+  void _showCancelConfirmationDialog(PropertyVisitModel visit) {
+    // Créez un nouveau TextEditingController local pour ce dialogue
+    final reasonController = TextEditingController();
+
     showDialog(
       context: context,
       builder: (context) {
@@ -542,7 +495,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Annuler la réservation',
+                  'Annuler la visite',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -559,7 +512,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 ),
                 SizedBox(height: 15),
                 TextField(
-                  controller: _reasonController,
+                  controller: reasonController, // Utilisez le contrôleur local
                   decoration: InputDecoration(
                     hintText: 'Motif de l\'annulation...',
                     border: OutlineInputBorder(
@@ -579,7 +532,10 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        reasonController.dispose(); // Nettoyez le contrôleur
+                        Navigator.pop(context);
+                      },
                       style: TextButton.styleFrom(
                         padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                       ),
@@ -594,10 +550,13 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                     ),
                     SizedBox(width: 10),
                     ElevatedButton(
-                      onPressed: () {
-                        if (_reasonController.text.trim().isNotEmpty) {
+                      onPressed: () async {
+                        if (reasonController.text.trim().isNotEmpty) {
                           Navigator.pop(context);
-                          _cancelReservation(id, _reasonController.text);
+                          await _cancelVisit(visit,reasonController.text);
+                          reasonController.dispose(); // Nettoyez le contrôleur
+                        } else {
+                          FancyNotification.show(context, "Veuillez indiquer un motif d\'annulation");
                         }
                       },
                       style: ElevatedButton.styleFrom(
@@ -626,13 +585,19 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  Widget _buildReservationCard(Reservation reservation) {
-    final isPending = reservation.status == ReservationStatus.pending;
-    final isCancelled = reservation.status == ReservationStatus.cancelled;
+  Widget _buildVisitCard(PropertyVisitModel visit) {
+    final isPending = visit.status == 'pending';
+    final isCancelled = visit.status == 'cancelled';
+
+    // Récupération de la première image de la propriété
+    final firstImagePath = visit.property.images!.isNotEmpty
+        ? visit.property.images!.first.path
+        : null;
+
 
     return InkWell(
       borderRadius: BorderRadius.circular(20),
-      onTap: () => _showReservationDetails(reservation),
+      onTap: () => _showVisitDetails(visit),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
@@ -643,7 +608,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
               blurRadius: 20,
               spreadRadius: 1,
               offset: Offset(0, 10),
-            ),
+            )
           ],
         ),
         child: Column(
@@ -651,37 +616,33 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
           children: [
             Stack(
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                  child: Image.asset(
-                    reservation.propertyImage,
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    // loadingBuilder: (context, child, loadingProgress) {
-                    //   if (loadingProgress == null) return child;
-                    //   return Container(
-                    //     height: 180,
-                    //     color: _lightGrey,
-                    //     child: Center(
-                    //       child: CircularProgressIndicator(
-                    //         color: _primaryColor,
-                    //         strokeWidth: 2,
-                    //       ),
-                    //     ),
-                    //   );
-                    // },
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      height: 180,
-                      color: _lightGrey,
-                      child: Center(
-                        child: Icon(
-                          Icons.home_outlined,
-                          size: 40,
-                          color: _mediumGrey.withOpacity(0.5),
+                // Conteneur d'image avec CachedNetworkImage
+                Container(
+                  height: 180,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                    color: _lightGrey,
+                  ),
+                  child: firstImagePath != null
+                      ? ClipRRect(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                    child: CachedNetworkImage(
+                      imageUrl: "${Constantes.URL_IMAGES}${firstImagePath}",
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      placeholder: (context, url) => Center(
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: _primaryColor,
                         ),
                       ),
+                      errorWidget: (context, url, error) => Center(
+                        child: Icon(Icons.home, size: 50, color: _mediumGrey),
+                      ),
                     ),
+                  )
+                      : Center(
+                    child: Icon(Icons.home, size: 50, color: _mediumGrey),
                   ),
                 ),
                 Positioned(
@@ -701,7 +662,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       ],
                     ),
                     child: Text(
-                      '${reservation.price}\$/${reservation.status == ReservationStatus.pending ? 'mois' : 'visite'}',
+                      '${visit.property.price}\$',
                       style: TextStyle(
                         color: _primaryColor,
                         fontWeight: FontWeight.bold,
@@ -716,11 +677,11 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   child: Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: _getStatusColor(reservation.status).withOpacity(0.9),
+                      color: _getStatusColor(visit.status).withOpacity(0.9),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      _getStatusText(reservation.status),
+                      _getStatusText(visit.status),
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -737,7 +698,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    reservation.propertyTitle,
+                    "${visit.property.title}",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
@@ -757,7 +718,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       SizedBox(width: 5),
                       Expanded(
                         child: Text(
-                          reservation.address,
+                         "${visit.property.address}",
                           style: TextStyle(
                             color: _mediumGrey,
                             fontSize: 14,
@@ -778,7 +739,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       ),
                       SizedBox(width: 8),
                       Text(
-                        _dateFormat.format(reservation.date),
+                        _dateFormat.format(visit.visitDate),
                         style: TextStyle(
                           color: _darkColor,
                           fontSize: 14,
@@ -788,7 +749,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       Spacer(),
                       if (isPending)
                         InkWell(
-                          onTap: () => _showCancelConfirmationDialog(reservation.id),
+                          onTap: () {
+                            print("TESTTTTTTTT${Constantes.URL_IMAGES}${firstImagePath}");
+                            _showCancelConfirmationDialog(visit);
+                          },
+
+
                           borderRadius: BorderRadius.circular(8),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -827,32 +793,4 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       ),
     );
   }
-}
-
-enum ReservationStatus { pending, completed, cancelled }
-
-class Reservation {
-  final String id;
-  final String propertyTitle;
-  final String propertyImage;
-  final String address;
-  final DateTime date;
-  final int price;
-  final String features;
-  ReservationStatus status;
-  String? cancellationReason;
-  List<String>? amenities;
-
-  Reservation({
-    required this.id,
-    required this.propertyTitle,
-    required this.propertyImage,
-    required this.address,
-    required this.date,
-    required this.status,
-    required this.price,
-    required this.features,
-    this.cancellationReason,
-    this.amenities,
-  });
 }
