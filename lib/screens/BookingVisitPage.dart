@@ -1,12 +1,20 @@
+import 'package:casa/controllers/PropertyVisitCtrl.dart';
+import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/utils/Constantes.dart';
+import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_datetime_picker_plus/flutter_datetime_picker_plus.dart' as picker;
+import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
 
 import 'PropertyDetailPage.dart';
 
 class BookingVisitPage extends StatefulWidget {
-  final Property property;
+  final PropertyModel property;
 
   const BookingVisitPage({Key? key, required this.property}) : super(key: key);
 
@@ -22,6 +30,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
 
   final _formKey = GlobalKey<FormState>();
+  final GetStorage storage = GetStorage();
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   final TextEditingController _nameController = TextEditingController();
@@ -149,29 +158,85 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     }
   }
 
-  void _submitForm() {
-    if (_formKey.currentState!.validate()) {
-      if (_selectedDate == null || _selectedTime == null) {
+  Future<void> _handleBooking() async {
+    // Validation du formulaire
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (_selectedDate == null || _selectedTime == null) {
+      FancyNotification.show(context,"Veuillez sélectionner une date et une heure");
+
+      return;
+    }
+
+    if (!mounted || _isLoading) return;
+    setState(() => _isLoading = true);
+
+    FocusScope.of(context).unfocus();
+
+    // Vérification de la connexion internet
+    final isConnected = await NetworkUtils.checkInternetConnectivity();
+    if (!isConnected) {
+      if (mounted) {
+        FancyNotification.show(context,"Pas de connexion internet");
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
+
+    try {
+      // Formatage de la date et de l'heure
+      final formattedDate = DateFormat('yyyy-MM-dd').format(_selectedDate!);
+      final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}';
+
+      // Préparation des données à envoyer
+      final bookingData = {
+        "PropertyId": widget.property.PropertyId,
+        "UserId": storage.read(StockageKeys.userKey)?['UserId'],
+        "name": _nameController.text,
+        "secondName": "",
+        "email": _emailController.text,
+        "phone": _phoneController.text,
+        "message": _notesController.text.isNotEmpty
+            ? _notesController.text
+            : "Intéressé par la propriété",
+        "address": widget.property.address ?? "",
+        "visitDate": formattedDate,
+        "visitHour": formattedTime,
+        "ipAddress": "192.168.1.1" // Vous pouvez obtenir la vraie IP si nécessaire
+      };
+
+      final ctrl = context.read<PropertyVisitCtrl>();
+      final res = await ctrl.createVisitProperty(bookingData);
+
+
+      if (!mounted) return;
+
+      if (res.data['success'] == true) {
+        // Succès
+        _showConfirmationDialog();
+      } else {
+        // Erreur
+        final errorMessage = res.data['message'] ?? "Erreur lors de la réservation";
+        FancyNotification.show(context, errorMessage);
+      }
+    } catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Veuillez sélectionner une date et une heure'),
+            content: Text('Erreur technique lors de la réservation'),
             backgroundColor: Colors.red,
           ),
         );
-        return;
       }
-
-      setState(() {
-        _isLoading = true;
-      });
-
-      // Simuler un appel API
-      Future.delayed(const Duration(seconds: 2), () {
+      print("Booking error: $e");
+    } finally {
+      if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        _showConfirmationDialog();
-      });
+      }
     }
   }
 
@@ -183,71 +248,161 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       context: context,
       builder: (BuildContext context) {
         return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.check_circle,
-                  color: Colors.green,
-                  size: 60,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Demande confirmée',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1A1D26),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Votre visite est prévue le :',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '$formattedDate à $formattedTime',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF1A1D26),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      Navigator.pop(context);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _primaryColor,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: const Text(
-                      'RETOUR',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(24),
+          elevation: 0,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 24,
+                  spreadRadius: 2,
                 ),
               ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Animated checkmark
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8F5E9),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.check_rounded,
+                        color: Color(0xFF4CAF50),
+                        size: 48,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Title with gradient
+                  ShaderMask(
+                    shaderCallback: (bounds) => const LinearGradient(
+                      colors: [Color(0xFF1976D2), Color(0xFF2196F3)],
+                    ).createShader(bounds),
+                    child: const Text(
+                      'Demande confirmée !',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Divider with icon
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Divider(
+                          color: Colors.grey[300],
+                          thickness: 1,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Icon(
+                          Icons.calendar_today_rounded,
+                          color: Colors.grey[500],
+                          size: 18,
+                        ),
+                      ),
+                      Expanded(
+                        child: Divider(
+                          color: Colors.grey[300],
+                          thickness: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Date/time info card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F9FF),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFFE3F2FD),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Votre visite est programmée',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          formattedDate,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF1976D2),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'à $formattedTime',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF424242),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Action buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            Navigator.pop(context);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1976D2),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            elevation: 2,
+                          ),
+                          child: const Text(
+                            'RETOUR',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -362,8 +517,8 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: Image.asset(
-              widget.property.images.first,
+            child: Image.network( // Utilisez Image.network pour les URLs
+              "${Constantes.URL_IMAGES}${widget.property.images!.first.path}", // Adaptez selon votre modèle
               width: 80,
               height: 80,
               fit: BoxFit.cover,
@@ -381,7 +536,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.property.title,
+                  widget.property.title ?? "",
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
@@ -392,7 +547,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  widget.property.address,
+                  widget.property.address ?? "",
                   style: TextStyle(
                     color: Colors.grey[600],
                     fontSize: 14,
@@ -402,9 +557,9 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  widget.property.isForRent
-                      ? '${widget.property.price.toInt()}€/mois'
-                      : '${widget.property.price.toInt()}€',
+                  widget.property.transactionType=="location"
+                      ? '${widget.property.price!.toInt()}\$/mois'
+                      : '${widget.property.price!.toInt()}\$',
                   style:  TextStyle(
                     fontWeight: FontWeight.bold,
                     color: _primaryColor,
@@ -611,7 +766,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: _isLoading ? null : _submitForm,
+        onPressed: _isLoading ? null : _handleBooking,
         style: ElevatedButton.styleFrom(
           backgroundColor: _primaryColor,
           foregroundColor: Colors.white,
