@@ -92,12 +92,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
   Future<void> _selectTime() async {
     if (_selectedDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez d\'abord sélectionner une date'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      FancyNotification.show(context, "Veuillez d\'abord sélectionner une date");
       return;
     }
 
@@ -142,12 +137,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       if (isToday) {
         final now = TimeOfDay.fromDateTime(DateTime.now());
         if (picked.hour < now.hour || (picked.hour == now.hour && picked.minute <= now.minute)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Veuillez choisir une heure future'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          FancyNotification.show(context, "Veuillez choisir une heure future");
           return;
         }
       }
@@ -223,12 +213,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erreur technique lors de la réservation'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        FancyNotification.show(context, "Erreur technique lors de la réservation");
       }
       print("Booking error: $e");
     } finally {
@@ -653,7 +638,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       controller: _nameController,
       decoration: InputDecoration(
         labelText: 'Nom complet',
-        hintText: 'Jean Dupont',
+        hintText: 'Votre nom',
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Colors.grey[300]!),
@@ -682,7 +667,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       keyboardType: TextInputType.phone,
       decoration: InputDecoration(
         labelText: 'Téléphone',
-        hintText: '0612345678',
+        hintText: '0000000000',
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Colors.grey[300]!),
