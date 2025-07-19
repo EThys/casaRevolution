@@ -1,13 +1,16 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyVisitCtrl.dart';
 import 'package:casa/models/PropertyVisitModel.dart';
+import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:shimmer/shimmer.dart';
 
 import '../utils/networkCheck.dart';
 
@@ -21,6 +24,7 @@ class BookingHistoryPage extends StatefulWidget {
 class _BookingHistoryPageState extends State<BookingHistoryPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  bool _isLoadingData = true;
   final DateFormat _dateFormat = DateFormat('EEEE d MMMM y', 'fr_FR');
   final DateFormat _timeFormat = DateFormat('HH:mm', 'fr_FR');
   final TextEditingController _reasonController = TextEditingController();
@@ -46,16 +50,46 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     print("aliceeeeeeeeeeee");
     _loadVisits();
   }
+  Widget _buildShimmerEffect() {
+    return ListView.separated(
+      padding: EdgeInsets.all(20),
+      itemCount: 3,
+      separatorBuilder: (_, __) => SizedBox(height: 20),
+      itemBuilder: (context, index) {
+        return Shimmer.fromColors(
+          baseColor: Colors.grey[300]!,
+          highlightColor: Colors.grey[100]!,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+            ),
+            height: 250,
+          ),
+        );
+      },
+    );
+  }
 
   Future<void> _loadVisits() async {
-    print("ETHBERGGGGGGGGGGGG");
-    final userId = storage.read(StockageKeys.userKey)?['UserId'];
-    if (userId != null) {
-      print("NOELLLLLLLL");
-      final propertyCtrl = Provider.of<PropertyVisitCtrl>(context, listen: false);
-      print("VIDAAAAAAAAAAAGE${propertyCtrl.getVisitsByUser(userId.toString())}");
-      print(propertyCtrl.propertyVisits); // Ajoutez ceci pour vérifier les données
-      await propertyCtrl.getVisitsByUser(userId.toString());
+    try {
+      if (!mounted) return;
+
+      setState(() => _isLoadingData = true);
+
+      final userId = storage.read(StockageKeys.userKey)?['UserId'];
+      if (userId != null) {
+        final propertyCtrl = Provider.of<PropertyVisitCtrl>(context, listen: false);
+        await propertyCtrl.getVisitsByUser(userId.toString());
+        print("Visites chargées: ${propertyCtrl.propertyVisits.length}"); // Debug
+      }
+    } catch (e) {
+      print("Erreur lors du c hargement des visites: $e");
+      // Vous pourriez aussi afficher un message d'erreur à l'utilisateur
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingData = false);
+      }
     }
   }
 
@@ -179,8 +213,17 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
   Widget _buildVisitDetails(PropertyVisitModel visit) {
+    final isForRent = visit.property.transactionType == 'location';
     final isPending = visit.status == 'pending';
     final isCancelled = visit.status == 'cancelled';
+
+    final firstImagePath = visit.property.images!.isNotEmpty
+        ? visit.property.images!.first.path
+        : null;
+
+    final priceText = isForRent
+        ? '${visit.property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
+        : '${visit.property.price?.toStringAsFixed(0) ?? '0'}\$';
 
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
@@ -218,14 +261,41 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   ),
                 ),
                 SizedBox(height: 20),
-                Container(
-                  height: 180,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(15),
-                    color: _lightGrey,
-                  ),
-                  child: Center(
-                    child: Icon(Icons.home, size: 50, color: _mediumGrey),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.pushNamed(
+                      context,
+                      Routes.detailPageRoute,
+                      arguments: visit.property,
+                    );
+                  },
+                  child: Container(
+                    height: 180,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(15),
+                      color: _lightGrey,
+                    ),
+                    child: firstImagePath != null
+                        ? ClipRRect(
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                      child: CachedNetworkImage(
+                        imageUrl: "${Constantes.URL_IMAGES}${firstImagePath}",
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        placeholder: (context, url) => Center(
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: _primaryColor,
+                          ),
+                        ),
+                        errorWidget: (context, url, error) => Center(
+                          child: Icon(Icons.home, size: 50, color: _mediumGrey),
+                        ),
+                      ),
+                    )
+                        : Center(
+                      child: Icon(Icons.home, size: 50, color: _mediumGrey),
+                    ),
                   ),
                 ),
                 SizedBox(height: 20),
@@ -267,7 +337,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 _buildDetailRow(
                   icon: Icons.attach_money,
                   label: 'Prix',
-                  value: '${visit.property.price}\$',
+                  value: '${priceText}',
                 ),
                 _buildDetailRow(
                   icon: Icons.info_outline_rounded,
@@ -342,7 +412,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     switch (status) {
       case 'pending':
         return _warningColor;
-      case 'completed':
+      case 'validated':
         return _successColor;
       case 'cancelled':
         return _errorColor;
@@ -355,8 +425,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     switch (status) {
       case 'pending':
         return 'En attente';
-      case 'completed':
-        return 'Terminée';
+      case 'validated':
+        return 'Déjà visité';
       case 'cancelled':
         return 'Annulée';
       default:
@@ -366,7 +436,15 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
   Future<void> _cancelVisit(PropertyVisitModel visit, String reason) async {
     if (!mounted || _isLoading) return;
-    setState(() => _isLoading = true);
+
+    // Supprimez immédiatement la visite de la liste avant l'animation
+    final propertyCtrl = Provider.of<PropertyVisitCtrl>(context, listen: false);
+    propertyCtrl.removeVisit(visit.propertyVisitId.toString());
+
+    setState(() {
+      _isLoading = true;
+      _isLoadingData = true;
+    });
 
     FocusScope.of(context).unfocus();
 
@@ -374,14 +452,15 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     if (!isConnected) {
       FancyNotification.show(context, "Pas de connexion internet");
       setState(() => _isLoading = false);
+      // Remettre la visite si échec
+      propertyCtrl.addVisit(visit);
       return;
     }
 
     try {
-      final propertyCtrl = Provider.of<PropertyVisitCtrl>(context, listen: false);
       final requestData = {
         'status': 'cancelled',
-        'cancellation_reason': reason, // Utilisez le paramètre reason
+        'cancellation_reason': reason,
       };
 
       final response = await propertyCtrl.changeVisitStatus(
@@ -393,24 +472,33 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
       if (response.status == 200 && response.data['success'] == true) {
         FancyNotification.show(context, "Visite annulée avec succès", isError: false);
+
+        // Recharger les données
         await _loadVisits();
+
         if (mounted) {
           Navigator.of(context).pop(); // Fermer le bottom sheet des détails
         }
       } else {
         String errorMsg = response.data['message'] ?? "Échec de l'annulation";
         FancyNotification.show(context, errorMsg);
+        // Remettre la visite si échec
+        propertyCtrl.addVisit(visit);
       }
     } catch (e) {
       print("Erreur d'annulation: $e");
       FancyNotification.show(context, "Erreur technique lors de l'annulation");
+      // Remettre la visite si erreur
+      propertyCtrl.addVisit(visit);
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _isLoadingData = false;
+        });
       }
     }
   }
-
 
 
   void _showVisitDetails(PropertyVisitModel visit) {
@@ -423,46 +511,66 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
   Widget _buildVisitList(List<PropertyVisitModel> visits) {
-    if (visits.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.calendar_today_outlined,
-              size: 60,
-              color: _mediumGrey.withOpacity(0.3),
-            ),
-            SizedBox(height: 20),
-            Text(
-              'Aucune visite',
-              style: TextStyle(
-                color: _mediumGrey,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 10),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                _tabController.index == 0
-                    ? 'Vous n\'avez pas de visite à venir'
-                    : _tabController.index == 1
-                    ? 'Aucune visite passée'
-                    : 'Aucune visite annulée',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _mediumGrey.withOpacity(0.8),
-                  fontSize: 14,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+    return AnimatedSwitcher(
+      duration: Duration(milliseconds: 300),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return ScaleTransition(
+          scale: animation,
+          child: FadeTransition(
+            opacity: animation,
+            child: child,
+          ),
+        );
+      },
+      child: _isLoadingData
+          ? _buildShimmerEffect()
+          : visits.isEmpty
+          ? _buildEmptyState()
+          : _buildVisitListContent(visits),
+    );
+  }
 
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.calendar_today_outlined,
+            size: 60,
+            color: _mediumGrey.withOpacity(0.3),
+          ),
+          SizedBox(height: 20),
+          Text(
+            'Aucune visite',
+            style: TextStyle(
+              color: _mediumGrey,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          SizedBox(height: 10),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              _tabController.index == 0
+                  ? 'Vous n\'avez pas de visite à venir'
+                  : _tabController.index == 1
+                  ? 'Aucune visite passée'
+                  : 'Aucune visite annulée',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: _mediumGrey.withOpacity(0.8),
+                fontSize: 14,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVisitListContent(List<PropertyVisitModel> visits) {
     return RefreshIndicator(
       color: _primaryColor,
       backgroundColor: Colors.white,
@@ -472,7 +580,11 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         itemCount: visits.length,
         separatorBuilder: (_, __) => SizedBox(height: 20),
         itemBuilder: (context, index) {
-          return _buildVisitCard(visits[index]);
+          final visit = visits[index];
+          return AnimatedSwitcher(
+            duration: Duration(milliseconds: 300),
+            child: _buildVisitCard(visit),
+          );
         },
       ),
     );
@@ -588,11 +700,16 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   Widget _buildVisitCard(PropertyVisitModel visit) {
     final isPending = visit.status == 'pending';
     final isCancelled = visit.status == 'cancelled';
-
+    final isForRent = visit.property.transactionType == 'location';
     // Récupération de la première image de la propriété
     final firstImagePath = visit.property.images!.isNotEmpty
         ? visit.property.images!.first.path
         : null;
+
+    final priceText = isForRent
+        ? '${visit.property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
+        : '${visit.property.price?.toStringAsFixed(0) ?? '0'}\$';
+
 
 
     return InkWell(
@@ -662,7 +779,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       ],
                     ),
                     child: Text(
-                      '${visit.property.price}\$',
+                      '${priceText}',
                       style: TextStyle(
                         color: _primaryColor,
                         fontWeight: FontWeight.bold,
@@ -766,18 +883,9 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  Icons.close,
-                                  size: 16,
+                                  Icons.delete_outline,
+                                  size: 20,
                                   color: _errorColor,
-                                ),
-                                SizedBox(width: 5),
-                                Text(
-                                  'Annuler',
-                                  style: TextStyle(
-                                    color: _errorColor,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
                                 ),
                               ],
                             ),
