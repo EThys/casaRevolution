@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/models/UserModel.dart';
 
@@ -78,5 +80,12 @@ class PropertyVisitModel {
       'property': property.toJson(),
       'user': user?.toJson(),
     };
+  }
+  String toJsonString() {
+    return jsonEncode(toJson());
+  }
+
+  factory PropertyVisitModel.fromJsonString(String jsonString) {
+    return PropertyVisitModel.fromJson(jsonDecode(jsonString));
   }
 }
