@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/screens/AllPropertiesPage.dart';
 import 'package:casa/screens/PromoBanner.dart';
@@ -234,7 +235,7 @@ class _HomePageState extends State<HomePage> {
 
               try {
                 // 1. Suppression du token
-                await storage.remove(StockageKeys.tokenKey);
+                await storage.erase();
                 // await storage.erase(); // Option: Tout supprimer
                 if (!mounted) return;
                 Navigator.pushAndRemoveUntil(
@@ -1031,8 +1032,8 @@ class _HomePageState extends State<HomePage> {
                             child: AnimatedSwitcher(
                               duration: Duration(milliseconds: 500),
                               child: firstImagePath != null
-                                  ? Image.network(
-                                "${Constantes.URL_IMAGES}${firstImagePath}",
+                                  ? CachedNetworkImage(
+                                imageUrl: "${Constantes.URL_IMAGES}${firstImagePath}",
                                 fit: BoxFit.cover,
                                 key: ValueKey(firstImagePath),
                               )
