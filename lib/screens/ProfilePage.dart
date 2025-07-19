@@ -519,7 +519,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
               try {
                 // 1. Suppression du token
-                await storage.remove(StockageKeys.tokenKey);
+                await storage.erase();
                 // await storage.erase(); // Option: Tout supprimer
                 if (!mounted) return;
                 Navigator.pushAndRemoveUntil(
