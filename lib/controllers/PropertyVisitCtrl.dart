@@ -1,4 +1,5 @@
 import 'package:casa/models/PropertyVisitModel.dart';
+import 'package:casa/utils/database/VisitDatabaseHelper.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:flutter/material.dart';
@@ -68,6 +69,19 @@ class PropertyVisitCtrl with ChangeNotifier{
   //   }
   // }
 
+  // Dans PropertyVisitCtrl
+  void removeVisit(String visitId) {
+    propertyVisits.removeWhere((visit) => visit.propertyVisitId.toString() == visitId);
+    notifyListeners();
+  }
+
+  void addVisit(PropertyVisitModel visit) {
+    propertyVisits.add(visit);
+    notifyListeners();
+  }
+
+
+
   Future<List<PropertyVisitModel>> getVisitsByUser(String userId) async {
     var url = "${Endpoints.visitsByUser}/$userId";
     final tkn = stockage?.read<String>(StockageKeys.tokenKey);
@@ -78,6 +92,7 @@ class PropertyVisitCtrl with ChangeNotifier{
     print("Début de la récupération des visites pour l'utilisateur $userId");
 
     try {
+      // Essayer de récupérer depuis le réseau
       var reponse = await getData(url, token: tkn);
       print("Réponse du serveur: $reponse");
 
@@ -86,34 +101,47 @@ class PropertyVisitCtrl with ChangeNotifier{
       if (reponse != null && reponse['success'] == true) {
         print("Données reçues du serveur");
 
+        // Initialiser la base de données
+        final db = VisitDatabaseHelper.instance;
+
+        // Vider les anciennes visites de cet utilisateur
+        await db.clearUserVisits(userId);
+
         if (reponse['data'] is List) {
           List<PropertyVisitModel> visits = (reponse['data'] as List)
               .map<PropertyVisitModel>((e) => PropertyVisitModel.fromJson(e))
               .toList();
 
-          await stockage?.write('${StockageKeys.userVisits}_$userId', visits);
+          // Sauvegarder en SQLite
+          for (var visit in visits) {
+            await db.insertOrUpdateVisit(visit, userId);
+          }
 
           result = visits;
           print("${visits.length} visites trouvées pour l'utilisateur");
         } else if (reponse['data']['data'] is List) {
-
           List<PropertyVisitModel> visits = (reponse['data']['data'] as List)
               .map<PropertyVisitModel>((e) => PropertyVisitModel.fromJson(e))
               .toList();
 
-          await stockage?.write('${StockageKeys.userVisits}_$userId', visits);
+          // Sauvegarder en SQLite
+          for (var visit in visits) {
+            await db.insertOrUpdateVisit(visit, userId);
+          }
+
           result = visits;
           print("${visits.length} visites trouvées (format paginé)");
         } else {
           print("Le format des données n'est pas reconnu");
         }
-      } else {
-        print("Utilisation des données locales");
-        var localData = stockage?.read('${StockageKeys.userVisits}_$userId');
-        result = localData != null
-            ? (localData as List).map((e) => PropertyVisitModel.fromJson(e)).toList()
-            : [];
-        print("${result.length} visites locales chargées");
+      }
+
+      // Si échec réseau ou réponse invalide, charger depuis SQLite
+      if (result.isEmpty) {
+        print("Utilisation des données locales SQLite");
+        final db = VisitDatabaseHelper.instance;
+        result = await db.getVisitsByUser(userId);
+        print("${result.length} visites locales chargées depuis SQLite");
       }
 
       propertyVisits = result;
@@ -122,9 +150,16 @@ class PropertyVisitCtrl with ChangeNotifier{
       return result;
     } catch (e) {
       print("Erreur lors de la récupération des visites utilisateur: $e");
+
+      // En cas d'erreur, charger depuis SQLite
+      print("Utilisation des données locales SQLite (fallback)");
+      final db = VisitDatabaseHelper.instance;
+      final result = await db.getVisitsByUser(userId);
+
+      propertyVisits = result;
       loading = false;
       notifyListeners();
-      return [];
+      return result;
     }
   }
 
