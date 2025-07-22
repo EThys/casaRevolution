@@ -10,7 +10,7 @@ class FancyNotification {
     final overlay = Overlay.of(context);
     final overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
-        bottom: 50, // Afficher en bas de l'écran
+        bottom: 125, // Afficher en bas de l'écran
         left: 20,
         right: 20,
         child: Center( // Centrer horizontalement
