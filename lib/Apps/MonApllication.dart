@@ -1,5 +1,8 @@
 import 'package:casa/controllers/PropertyCtrl.dart';
+import 'package:casa/controllers/PropertyFavoriteCtrl.dart';
 import 'package:casa/controllers/PropertyVisitCtrl.dart';
+import 'package:casa/controllers/provider/FavoriteProvider.dart';
+import 'package:casa/utils/database/FavoriteDatabaseHelper.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -25,6 +28,11 @@ class MonApplication extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthentificationCtrl(stockage: _stockage)),
         ChangeNotifierProvider(create: (_) => PropertyController(stockage: _stockage)),
         ChangeNotifierProvider(create: (_) => PropertyVisitCtrl(stockage: _stockage)),
+        ChangeNotifierProvider(create: (_) => PropertyFavoriteCtrl(stockage: _stockage)),
+        ChangeNotifierProvider(create: (context) => FavoriteProvider(
+          FavoriteDatabaseHelper.instance,
+          Provider.of<PropertyFavoriteCtrl>(context, listen: false),
+        ),),
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -47,7 +55,7 @@ class MonApplication extends StatelessWidget {
           Locale('en', 'US'),
         ],
         onGenerateRoute: RoutesManager.route,
-        initialRoute: Routes.loginRoute,
+        initialRoute: Routes.bottomPageRoute,
       ),
     );
   }
