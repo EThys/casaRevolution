@@ -56,12 +56,11 @@ class FavoriteDatabaseHelper {
     final propertyJson = favorite.property?.toJson() ?? {};
 
     return await db.insert(
-      'property_favorites',
+      table,
       {
-        'property_favorite_id': favorite.propertyFavoriteId,
-        'user_id': favorite.userId,
-        'property_id': favorite.property?.PropertyId,
-        'property_data': jsonEncode(propertyJson),
+        columnId: favorite.propertyFavoriteId,
+        columnUserId: favorite.userId,
+        columnData: jsonEncode(propertyJson),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -80,14 +79,15 @@ class FavoriteDatabaseHelper {
     });
   }
 
-  Future<int> deleteFavorite(int favoriteId, String userId) async {
+  Future<int> deleteFavorite(int userId, String propertyId) async {
     final db = await database;
     return await db.delete(
       table,
-      where: '$columnId = ? AND $columnUserId = ?',
-      whereArgs: [favoriteId, userId],
+      where: '$columnUserId = ? AND $columnData LIKE ?',
+      whereArgs: [userId, '%"PropertyId":"$propertyId"%'],
     );
   }
+
 
   Future<int> clearUserFavorites(String userId) async {
     final db = await database;
