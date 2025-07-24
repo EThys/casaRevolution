@@ -34,6 +34,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
   // Couleurs modernes
   final Color _primaryColor = Color(0xFF1976D2);
+  final Color _secondaryColor = Color(0xFF64B5F6);
   final Color _darkColor = Color(0xFF1A1D26);
   final Color _lightGrey = Color(0xFFF5F6FA);
   final Color _mediumGrey = Color(0xFF7F8C8D);
@@ -106,44 +107,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
     return Scaffold(
       backgroundColor: _lightGrey,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Mes Visites',
-          style: TextStyle(
-            color: _darkColor,
-            fontWeight: FontWeight.w700,
-            fontSize: 19,
-          ),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.white,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: _primaryColor,
-          unselectedLabelColor: _mediumGrey,
-          indicatorColor: _primaryColor,
-          indicatorWeight: 3,
-          labelStyle: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
-          ),
-          tabs: [
-            Tab(text: 'À venir'),
-            Tab(text: 'Passées'),
-            Tab(text: 'Annulées'),
-          ],
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            bottom: Radius.circular(20),
-          ),
-        ),
-      ),
+      appBar: _buildVisitesAppBar(),
       body: TabBarView(
         controller: _tabController,
         children: [
@@ -151,6 +115,57 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
           _buildVisitList(_filterVisits(propertyCtrl.propertyVisits, 'validated')),
           _buildVisitList(_filterVisits(propertyCtrl.propertyVisits, 'cancelled')),
         ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildVisitesAppBar() {
+    return AppBar(
+      elevation: 0,
+      flexibleSpace: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [_primaryColor, _secondaryColor],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+      ),
+      leading: IconButton(
+        icon: Icon(Icons.arrow_back_ios_new, color: Colors.white),
+        onPressed: () => Navigator.pop(context),
+      ),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.calendar_month, color: Colors.white, size: 20),
+          SizedBox(width: 8),
+          Text(
+            'Mes visites',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
+            ),
+            textAlign: TextAlign.left,
+          ),
+        ],
+      ),
+      actions: [
+        IconButton(
+          icon: Icon(Icons.search_rounded, color: Colors.white),
+          onPressed: () {
+            // Action de recherche
+          },
+        ),
+      ],
+
+      bottom: PreferredSize(
+        preferredSize: Size.fromHeight(1),
+        child: Container(
+          height: 1,
+          color: Colors.white.withOpacity(0.2),
+        ),
       ),
     );
   }

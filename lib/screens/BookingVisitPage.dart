@@ -25,6 +25,7 @@ class BookingVisitPage extends StatefulWidget {
 class _BookingVisitPageState extends State<BookingVisitPage> {
 
   final Color _primaryColor = Color(0xFF1976D2);
+  final Color _secondaryColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
 
 
@@ -395,25 +396,55 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     );
   }
 
+  PreferredSizeWidget _buildreservationVisiteAppBar() {
+    return AppBar(
+      elevation: 0,
+      flexibleSpace: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [_primaryColor, _secondaryColor],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+      ),
+      leading: IconButton(
+        icon: Icon(Icons.arrow_back_ios_new, color: Colors.white),
+        onPressed: () => Navigator.pop(context),
+      ),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.calendar_month, color: Colors.white, size: 20),
+          SizedBox(width: 8),
+          Text(
+            'Réserver une visite',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
+            ),
+            textAlign: TextAlign.left,
+          ),
+        ],
+      ),
+
+      bottom: PreferredSize(
+        preferredSize: Size.fromHeight(1),
+        child: Container(
+          height: 1,
+          color: Colors.white.withOpacity(0.2),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Réserver une visite',
-          style: TextStyle(
-            color: Color(0xFF1A1D26),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF1A1D26)),
-          onPressed: () => Navigator.pop(context),
-        ),
-      ),
+      appBar:_buildreservationVisiteAppBar(),
+
+
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
