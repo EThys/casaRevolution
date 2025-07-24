@@ -1,7 +1,10 @@
+import 'package:casa/screens/FullScreenProfileImage.dart';
 import 'package:casa/utils/Constantes.dart';
+import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_advanced_switch/flutter_advanced_switch.dart';
@@ -80,17 +83,17 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           ),
         ],
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.miniStartTop,
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(top: 40),
-        child: FloatingActionButton(
-          mini: true,
-          backgroundColor: Colors.white.withOpacity(0.9),
-          elevation: 2,
-          onPressed: () => Navigator.pop(context),
-          child: Icon(Icons.arrow_back, color: _darkColor),
-        ),
-      ),
+      // floatingActionButtonLocation: FloatingActionButtonLocation.miniStartTop,
+      // floatingActionButton: Padding(
+      //   padding: const EdgeInsets.only(top: 40),
+      //   child: FloatingActionButton(
+      //     mini: true,
+      //     backgroundColor: Colors.white.withOpacity(0.9),
+      //     elevation: 2,
+      //     onPressed: () => Navigator.pop(context),
+      //     child: Icon(Icons.arrow_back, color: _darkColor),
+      //   ),
+      // ),
       bottomSheet: _buildBottomActionBar(),
     );
   }
@@ -98,6 +101,51 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   Widget _buildImageCarousel() {
     final images = widget.property?.images ?? [];
     final carouselHeight = MediaQuery.of(context).size.height * 0.4;
+    final property = widget.property;
+
+    Future<void> _shareProperty() async {
+      if (widget.property == null) return;
+
+      final firstImageUrl = widget.property.images?.isNotEmpty ?? false
+          ? '${Constantes.URL_IMAGES}${widget.property.images!.first.path}'
+          : null;
+
+      bool isForRent = widget.property.transactionType == "location";
+
+      final priceText = isForRent
+          ? '${widget.property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
+          : '${widget.property.price?.toStringAsFixed(0) ?? '0'}\$';
+
+      final shareText = '''
+        🏠 ${widget.property.title ?? 'Belle propriété'} - ${widget.property.commune ?? ''}, ${widget.property.city ?? ''}
+        
+        💰 ${priceText}
+        🛏️ ${widget.property.bedrooms ?? 0} chambres
+        🚿 ${widget.property.bedrooms ?? 0} salles de bain
+        📐 ${widget.property.surface ?? 0} m²
+        
+        Découvrez plus de détails sur Yinzo!
+''';
+
+      try {
+        final box = context.findRenderObject() as RenderBox?;
+        await Share.share(
+          shareText,
+          subject: 'Propriété ${widget.property.transactionType == "location" ? 'à louer' : 'à vendre'}',
+          sharePositionOrigin: box!.localToGlobal(Offset.zero) & box.size ?? Rect.zero,
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur lors du partage: ${e.toString()}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+
     return Stack(
       children: [
         SizedBox(
@@ -115,6 +163,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                   ? imagePath.substring(1)
                   : imagePath;
               final imageUrl = '${Constantes.URL_IMAGES}$correctedPath';
+
               return GestureDetector(
                 onTap: () {
                   Navigator.push(
@@ -128,7 +177,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                   );
                 },
                 child: Hero(
-                  tag: 'property_image_${widget.property?.PropertyId}_$index',
+                  tag: 'property_image_${property?.PropertyId}_$index',
                   child: CachedNetworkImage(
                     imageUrl: imageUrl,
                     fit: BoxFit.cover,
@@ -143,8 +192,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                     errorWidget: (context, url, error) => Container(
                       color: Colors.grey[200],
                       child: Center(
-                        child: Icon(Icons.broken_image,
-                            color: Colors.grey[400], size: 40),
+                        child: Icon(
+                          Icons.broken_image,
+                          color: Colors.grey[400],
+                          size: 40,
+                        ),
                       ),
                     ),
                   ),
@@ -153,6 +205,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             },
           ),
         ),
+
+        // Gradient overlay
         Positioned(
           bottom: 0,
           left: 0,
@@ -171,6 +225,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             ),
           ),
         ),
+
+        // Page indicator
         if (images.length > 1)
           Positioned(
             bottom: 20,
@@ -190,26 +246,38 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
             ),
           ),
+
+        // Back button
+        Positioned(
+          top: 50,
+          left: 20,
+          child: _buildActionButton(
+            icon: Icons.arrow_back,
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+
+        // Action buttons
         Positioned(
           top: 50,
           right: 20,
           child: Row(
             children: [
+              // Share button
               _buildActionButton(
                 icon: Icons.share,
-                onPressed: () {},
+                onPressed: _shareProperty,
               ),
-              SizedBox(width: 12),
-              ValueListenableBuilder<bool>(
-                valueListenable: _favoriteController,
-                builder: (_, value, __) {
-                  return _buildActionButton(
-                    icon: value ? Icons.favorite : Icons.favorite_border,
-                    iconColor: value ? Colors.red : Colors.white,
-                    onPressed: () => _favoriteController.value = !_favoriteController.value,
-                  );
-                },
-              ),
+              const SizedBox(width: 12),
+              // Favorite button
+              if (property?.PropertyId != null)
+                FavoriteHeartIcon(
+                  propertyId: property!.PropertyId.toString(),
+                  size: 32,
+                  splashRadius: 24,
+                  activeColor: Colors.red,
+                  inactiveColor: Colors.white,
+                ),
             ],
           ),
         ),
@@ -219,22 +287,32 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
   Widget _buildActionButton({
     required IconData icon,
-    required VoidCallback onPressed,
     Color iconColor = Colors.white,
+    required VoidCallback onPressed,
   }) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.3),
-        shape: BoxShape.circle,
-      ),
-      child: IconButton(
-        icon: Icon(icon, size: 20, color: iconColor),
-        onPressed: onPressed,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.4),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: iconColor,
+            size: 24,
+          ),
+        ),
       ),
     );
   }
+
+
 
   Widget _buildHeaderSection() {
     return Column(
@@ -259,7 +337,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             Chip(
               backgroundColor: _secondaryColor.withOpacity(0.1),
               label: Text(
-                "${widget.property?.propertyType}" ?? '',
+                "${widget.property?.property_type.name}" ?? '',
                 style: TextStyle(
                   color: _secondaryColor,
                   fontSize: 12,
@@ -330,7 +408,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
               SizedBox(height: 4),
               Text(
-                '\$${widget.property!.price!.toInt()}',
+                '${widget.property! .price!.toInt()}\$',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -676,6 +754,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   Widget _buildAgentSection() {
+    final user = widget.property?.user;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -703,14 +783,33 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           ),
           child: Row(
             children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  image: DecorationImage(
-                    image: NetworkImage('https://randomuser.me/api/portraits/men/42.jpg'),
-                    fit: BoxFit.cover,
+              GestureDetector(
+                onTap: () {
+                  if (user?.profilePicture != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => FullScreenProfileImage(
+                          imageUrl: '${Constantes.URL_IMAGES}${user!.profilePicture!}',
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: Hero(
+                  tag: 'profile_image_${user?.userId}',
+                  child: Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      image: DecorationImage(
+                        image: user?.profilePicture != null
+                            ? NetworkImage('${Constantes.URL_IMAGES}${user!.profilePicture!}')
+                            : AssetImage('assets/images/default_profile.png') as ImageProvider,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -720,7 +819,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "Muzola",
+                      user?.fullname ?? user?.username ?? 'Nom non disponible',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -728,20 +827,44 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                       ),
                     ),
                     SizedBox(height: 4),
-                    Text(
-                      "Compte certifié",
-                      style: TextStyle(
-                        color: _greyColor,
-                        fontSize: 13,
+                    if (user?.isAgent ?? false)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.verified, size: 16, color: Colors.green),
+                          SizedBox(width: 4),
+                          Text(
+                            "Agent certifié",
+                            style: TextStyle(
+                              color: _primaryColor,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      )
+                    else if (user?.isAdmin ?? false)
+                      Text(
+                        "Administrateur",
+                        style: TextStyle(
+                          color: Colors.red,
+                          fontSize: 13,
+                        ),
+                      )
+                    else
+                      Text(
+                        "Particulier",
+                        style: TextStyle(
+                          color: _greyColor,
+                          fontSize: 13,
+                        ),
                       ),
-                    ),
                     SizedBox(height: 8),
                     Row(
                       children: [
-                        Icon(Icons.star, color: Colors.amber, size: 16),
-                        SizedBox(width: 4),
+                        Icon(Icons.email, size: 16, color: _greyColor),
+                        SizedBox(width: 8),
                         Text(
-                          '4.9 (24 avis)',
+                          user?.email ?? 'Non renseigné',
                           style: TextStyle(
                             color: _greyColor,
                             fontSize: 13,
@@ -884,6 +1007,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       ),
       child: ElevatedButton(
         onPressed: () {
+          print("louuuuuuuuuuuuupe${widget.property}");
           Navigator.pushNamed(context, Routes.bookingVisitPageRoute, arguments: widget.property);
         },
         style: ElevatedButton.styleFrom(
