@@ -11,6 +11,7 @@ class AuthentificationCtrl with ChangeNotifier {
 
   String _token = "";
 
+
   String get token {
     var locale = stockage?.read<String>(StockageKeys.tokenKey);
     return locale ?? "";
@@ -31,13 +32,28 @@ class AuthentificationCtrl with ChangeNotifier {
   bool loading = false;
 
   UserModel get user {
-    var locale = stockage?.read(StockageKeys.userKey);
-    _user = UserModel?.fromJson(locale);
-    return _user;
+    try {
+      final locale = stockage?.read<Map<String, dynamic>>(StockageKeys.userKey);
+      if (locale == null) return UserModel(); // Retourne un utilisateur vide plutôt que null
+      return UserModel.fromJson(locale);
+    } catch (e) {
+      print("Erreur de décodage de l'utilisateur: $e");
+      return UserModel(); // Retourne un utilisateur vide en cas d'erreur
+    }
   }
+
   set user(UserModel value) {
-    stockage?.write(StockageKeys.userKey, value.toJson());
-    _user = value;
+    try {
+      stockage?.write(StockageKeys.userKey, value.toJson());
+      _user = value;
+      notifyListeners();
+    } catch (e) {
+      print("Erreur d'encodage de l'utilisateur: $e");
+    }
+  }
+
+  bool get isLoggedIn {
+    return token.isNotEmpty && user.userId != null;
   }
 
   UserModel get userPreference {
