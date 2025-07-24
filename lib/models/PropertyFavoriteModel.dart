@@ -41,4 +41,11 @@ class PropertyFavoriteModel {
     "user": user?.toJson(),
     "property": property?.toJson(),
   };
+  String toJsonString() {
+    return jsonEncode(toJson());
+  }
+
+  factory PropertyFavoriteModel.fromJsonString(String jsonString) {
+    return PropertyFavoriteModel.fromJson(jsonDecode(jsonString));
+  }
 }
