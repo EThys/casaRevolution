@@ -1,8 +1,16 @@
+import 'dart:convert';
+
+import 'package:casa/controllers/PropertyCtrl.dart';
+import 'package:casa/utils/Endpoints.dart';
+import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/Routes.dart';
+import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'dart:io';
 
 import '../widgets/SnackbarHelper.dart';
@@ -48,10 +56,11 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   int _currentStep = 0;
 
   String? _selectedCategory;
+  AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
 
   // Amenities list
   final List<String> _amenitiesList = [
-    'Wi-Fi',
+    'WiFi',
     'Climatisation',
     'Chauffage',
     'Cuisine équipée',
@@ -103,70 +112,171 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     });
   }
 
-  void _submitForm() {
-    // Vérifie si le formulaire est valide
-    if (_formKey.currentState!.validate()) {
-      // Vérifie qu'au moins 3 photos sont sélectionnées
-      if (_selectedImages.length < 3) {
-        SnackBarHelper.show(context, "Veuillez ajouter au moins 3 photos", isError: true);
-        return;
+  Future<void> _handleCreatePropertyPost() async {
+    setState(() {
+      _autoValidateMode = AutovalidateMode.always;
+    });
+
+    await Future.delayed(Duration(milliseconds: 50));
+
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+
+    if (_selectedImages.length < 3) {
+      FancyNotification.show(context, "Veuillez ajouter au moins 3 photos", isError: true);
+      return;
+    }
+
+    if (_currentStep == 2 && _selectedAmenities.isEmpty) {
+      FancyNotification.show(context, "Veuillez sélectionner au moins un équipement", isError: true);
+      return;
+    }
+
+    if (!mounted || _isLoading) return;
+
+    setState(() => _isLoading = true);
+
+    FocusScope.of(context).unfocus();
+
+    final isConnected = await NetworkUtils.checkInternetConnectivity();
+    if (!isConnected) {
+      FancyNotification.show(context, "Pas de connexion internet");
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    try {
+      List<Map<String, dynamic>> images = [];
+      for (var image in _selectedImages) {
+        final bytes = await image.readAsBytes();
+        final base64String = base64Encode(bytes);
+        images.add({
+          "base64": base64String,
+          "isMain": images.isEmpty, // Set the first image as main
+        });
       }
 
-      if (_currentStep == 2 && _selectedAmenities.isEmpty) {
-        SnackBarHelper.show(context, "Veuillez sélectionner au moins un équipement", isError: true);
-        return;
+      final propertyData = {
+        "title": _titleController.text,
+        "description": _descriptionController.text,
+        "price": double.tryParse(_priceController.text) ?? 0,
+        "address": _addressController.text,
+        "commune": "Lemba", // You can make this dynamic as well
+        "city": "Kinshasa",
+        "postalCode": "243",
+        "latitude": _selectedLocation?.latitude ?? 0.0,
+        "longitude": _selectedLocation?.longitude ?? 0.0,
+        "surface": double.tryParse(_areaController.text) ?? 0,
+        "rooms": (int.tryParse(_livingRoomsController.text) ?? 0) +
+            (int.tryParse(_bedroomsController.text) ?? 0) +
+            (int.tryParse(_kitchensController.text) ?? 0),
+        "bedrooms": int.tryParse(_bedroomsController.text) ?? 0,
+        "floor": int.tryParse(_floorController.text) ?? 0,
+        "bathroom":int.tryParse(_bathroomsController.text) ?? 0,
+        "kitchen":int.tryParse(_kitchensController.text) ?? 0,
+        "living_room":int.tryParse(_livingRoomsController.text) ?? 0,
+        "sold": false,
+        "transactionType": _isForRent ? "location" : "vente",
+        "isAvailable": true,
+        "PropertyTypeId": _getPropertyTypeId(_selectedCategory),
+        "UserId": 1,
+        "features": _selectedAmenities.map((amenity) => _getFeatureId(amenity)).toList(),
+        "images": images,
+      };
+
+      final ctrl = context.read<PropertyController>();
+      final res = await ctrl.createProperty(propertyData);
+
+      print("EEEEEEEEEEEEEEEE${res}");
+
+      if (!mounted) return;
+
+      if (res.data['success'] == true) {
+        print("MATAMAAAAAA${res.data['success']}");
+        FancyNotification.show(context, "Annonce publiée avec succès!", isError: false);
+        await Future.delayed(const Duration(milliseconds: 1500));
+        if (mounted) {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            Routes.homeRoute, // Replace with your desired route
+                (route) => false,
+          );
+        }
+      } else {
+        String errorMessage = res.data['message'] ?? "Erreur lors de la publication de l'annonce";
+        FancyNotification.show(context, errorMessage);
       }
-
-      setState(() {
-        _isLoading = true;
-      });
-
-      Future.delayed(Duration(seconds: 2), () {
+    } catch (e) {
+      FancyNotification.show(context, "Erreur technique lors de la publication de l'annonce");
+      print("Create property error: $e");
+    } finally {
+      if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        // final propertyData = {
-        //   // Informations principales
-        //   "title": _titleController.text,
-        //   "description": _descriptionController.text,
-        //   "price": double.tryParse(_priceController.text) ?? 0,
-        //
-        //   // Adresse et localisation
-        //   "address": _addressController.text,
-        //   "commune": _selectedCommune, // Variable à définir selon votre implémentation
-        //   "city": _selectedCity, // Variable à définir
-        //   "postalCode": _postalCodeController.text,
-        //   "latitude": _latitude, // Variable à définir
-        //   "longitude": _longitude, // Variable à définir
-        //
-        //   // Caractéristiques techniques
-        //   "surface": double.tryParse(_areaController.text) ?? 0,
-        //   "rooms": int.tryParse(_livingRoomsController.text) ?? 0 +
-        //       int.tryParse(_bedroomsController.text) ?? 0 +
-        //       int.tryParse(_kitchensController.text) ?? 0,
-        //   "bedrooms": int.tryParse(_bedroomsController.text) ?? 0,
-        //   "floor": int.tryParse(_floorController.text) ?? 0,
-        //
-        //   // Transaction et disponibilité
-        //   "sold": false, // Par défaut à la création
-        //   "transactionType": _isForRent ? "location" : "avendre",
-        //   "isAvailable": true, // Par défaut à la création
-        //
-        //   // Relations
-        //   "PropertyTypeId": _selectedPropertyTypeId, // ID du type sélectionné
-        //   "UserId": currentUserId, // ID de l'utilisateur connecté
-        //   "features": _selectedFeatures.map((f) => f.id).toList(), // Liste des IDs des features
-        // };
-
-
-
-        SnackBarHelper.show(context, "Annonce publiée avec succès!", isError: false);
-        Navigator.pop(context);
-      });
-    } else {
-      SnackBarHelper.show(context, "Veuillez remplir tous les champs obligatoires", isError: true);
+      }
     }
   }
+
+  int _getPropertyTypeId(String? category) {
+    // Map the category to the corresponding ID
+    switch (category) {
+      case 'appartement':
+        return 1;
+      case 'maison':
+        return 2;
+      case 'villa':
+        return 3;
+      case 'office':
+        return 4;
+      case 'studio':
+        return 5;
+      case 'terrain':
+        return 6;
+      case 'hotel':
+        return 7;
+      case 'warehouse':
+        return 8;
+      default:
+        return 1; // Default to appartement
+    }
+  }
+
+  int _getFeatureId(String amenity) {
+    // Map the amenity to the corresponding ID
+    switch (amenity) {
+      case 'Wi-Fi':
+        return 1;
+      case 'Climatisation':
+        return 2;
+      case 'Chauffage':
+        return 3;
+      case 'Cuisine équipée':
+        return 4;
+      case 'Lave-linge':
+        return 5;
+      case 'Parking':
+        return 6;
+      case 'Ascenseur':
+        return 7;
+      case 'Piscine':
+        return 8;
+      case 'Jardin':
+        return 9;
+      case 'Terrasse':
+        return 10;
+      case 'Gym':
+        return 11;
+      case 'Sécurité':
+        return 12;
+      case 'Animaux acceptés':
+        return 13;
+      default:
+        return 1; // Default to Wi-Fi
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -313,19 +423,47 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
   Widget _buildPropertyCategoryCarousel() {
     final categories = [
-      {'icon': FontAwesomeIcons.building, 'label': 'Appartement','value':'appartement'},
-      {'icon': FontAwesomeIcons.house, 'label': 'Maison','value':'maison'},
-      {'icon': FontAwesomeIcons.building, 'label': 'Villas','value':'villa'},
-      {'icon': FontAwesomeIcons.buildingColumns, 'label': 'Bureaux','value':'office'},
-      {'icon': FontAwesomeIcons.houseCrack, 'label': 'Studio','value':'studio'},
-      {'icon': FontAwesomeIcons.mountain, 'label': 'Terrain','value':'terrain'},
-      {'icon': FontAwesomeIcons.hotel, 'label': 'Hôtel', 'value': 'hotel'},
-      {'icon': FontAwesomeIcons.warehouse, 'label': 'Entrepôt', 'value': 'warehouse'},
+      {
+        'image': 'assets/images/studio.png',
+        'label': 'Studio',
+        'value': 'Studios',
+        'color': Color(0xFF1976D2) // Couleur personnalisée pour chaque catégorie
+      },
+      {
+        'image': 'assets/images/apart.png',
+        'label': 'Apparts',
+        'value': 'Apparts',
+        'color': Color(0xFF10B981),
+      },
+      {
+        'image': 'assets/images/maisons.png',
+        'label': 'Maisons',
+        'value': 'Maisons',
+        'color': Color(0xFF1976D2),
+      },
+      {
+        'image': 'assets/images/office.png',
+        'label': 'Bureaux',
+        'value': 'Bureaux',
+        'color': Color(0xFFF59E0B),
+      },
+      {
+        'image': 'assets/images/hotel.png',
+        'label': 'Hotels',
+        'value': 'Hotels',
+        'color': Color(0xFF1976D2),
+      },
+      {
+        'image': 'assets/images/plage.png',
+        'label': 'Vacances',
+        'value': 'Vacances',
+        'color': Color(0xFFEC4899),
+      },
     ];
 
     return Container(
-      height: 100,
-      margin: EdgeInsets.only(bottom: 16),
+      height: 110,
+      margin: EdgeInsets.only(bottom: 20),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.symmetric(horizontal: 16),
@@ -333,29 +471,66 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         itemBuilder: (context, index) {
           final category = categories[index];
           final isSelected = _selectedCategory == category['value'];
+          final categoryColor = category['color'] as Color;
 
           return GestureDetector(
             onTap: () => setState(() => _selectedCategory = category['value'] as String),
             child: Container(
-              width: 80,
-              margin: EdgeInsets.only(right: 12),
+              width: 85,
+              margin: EdgeInsets.only(right: 5),
               child: Column(
                 children: [
+                  // Conteneur de l'image avec effet de sélection
                   Container(
-                    width: 60,
-                    height: 60,
+                    width: 70,
+                    height: 70,
                     decoration: BoxDecoration(
-                      color: isSelected ? _primaryColor.withOpacity(0.2) : Colors.grey[100],
-                      borderRadius: BorderRadius.circular(12),
+                      color: isSelected
+                          ? categoryColor.withOpacity(0.15)
+                          : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: isSelected ? _primaryColor : Colors.transparent,
-                        width: 2,
+                        color: isSelected ? categoryColor : Colors.transparent,
+                        width: 2.5,
                       ),
+                      boxShadow: isSelected
+                          ? [
+                        BoxShadow(
+                          color: categoryColor.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: Offset(0, 3),
+                        )
+                      ]
+                          : [
+                        BoxShadow(
+                          color: Colors.black12,
+                          blurRadius: 4,
+                          offset: Offset(0, 2),
+                        )
+                      ],
                     ),
-                    child: Icon(
-                      category['icon'] as IconData,
-                      size: 24,
-                      color: isSelected ? _primaryColor : Colors.grey[700],
+                    child: Stack(
+                      children: [
+                        // Image originale sans filtre de couleur
+                        Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Image.asset(
+                              category['image'] as String,
+                              fit: BoxFit.contain,
+                              // Suppression du color filter pour voir les images en couleur
+                            ),
+                          ),
+                        ),
+                        // Overlay pour l'effet de sélection
+                        if (isSelected)
+                          Container(
+                            decoration: BoxDecoration(
+                              color: categoryColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   SizedBox(height: 8),
@@ -363,10 +538,12 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                     category['label'] as String,
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      color: isSelected ? _primaryColor : Colors.grey[800],
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      color: isSelected ? categoryColor : Colors.grey[700],
                     ),
                     textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -627,6 +804,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   Widget _buildStep2() {
     return Form(
       key: _formKey,
+      autovalidateMode: AutovalidateMode.onUserInteraction,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -644,7 +822,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               return null;
             },
           ),
-          SizedBox(height: 16),
+          SizedBox(height: 5),
           _buildModernTextField(
             controller: _priceController,
             label: _isForRent ? 'Prix mensuel' : 'Prix de vente',
@@ -662,7 +840,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               return null;
             },
           ),
-          SizedBox(height: 16),
+          SizedBox(height: 5),
           _buildModernTextField(
             controller: _descriptionController,
             label: 'Description',
@@ -679,9 +857,9 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               return null;
             },
           ),
-          SizedBox(height: 24),
+          SizedBox(height: 5),
           _buildSectionHeader('Adresse'),
-          SizedBox(height: 12),
+          SizedBox(height: 5),
           _buildModernTextField(
             controller: _addressController,
             label: 'Adresse complète',
@@ -694,9 +872,9 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               return null;
             },
           ),
-          SizedBox(height: 20),
+          SizedBox(height: 5),
           _buildSectionHeader('Commune'),
-          SizedBox(height: 12),
+          SizedBox(height: 5),
           _buildModernTextField(
             controller: _addressController,
             label: 'Commune',
@@ -709,9 +887,9 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               return null;
             },
           ),
-          SizedBox(height: 24),
+          SizedBox(height: 5),
           _buildSectionHeader('Caractéristiques'),
-          SizedBox(height: 12),
+          SizedBox(height: 5),
           GridView.count(
             shrinkWrap: true,
             physics: NeverScrollableScrollPhysics(),
@@ -773,7 +951,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         SizedBox(height: 16),
         Wrap(
           spacing: 8,
-          runSpacing: 8,
+          runSpacing: 2,
           children: _amenitiesList.map((amenity) {
             final isSelected = _selectedAmenities.contains(amenity);
             return ChoiceChip(
@@ -803,7 +981,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             );
           }).toList(),
         ),
-        SizedBox(height: 24),
+        SizedBox(height: 16),
         _buildSectionHeader('Localisation'),
         SizedBox(height: 12),
         Container(
@@ -877,7 +1055,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                 if (_currentStep < 2) {
                   setState(() => _currentStep++);
                 } else {
-                  _submitForm();
+                  _handleCreatePropertyPost();
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -935,6 +1113,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     String? Function(String?)? validator,
   }) {
     return Container(
+      margin: EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: _cardColor,
         borderRadius: BorderRadius.circular(9),
@@ -951,31 +1130,51 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         maxLines: maxLines,
         keyboardType: keyboardType,
         validator: validator,
+        onChanged: (_) {
+          // Revalide dynamiquement le champ à chaque frappe
+          if (_formKey.currentState != null) {
+            _formKey.currentState!.validate();
+          }
+        },
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
           prefixIcon: icon != null ? Icon(icon, color: _greyColor) : null,
           suffixText: suffixText,
           suffixStyle: TextStyle(color: _darkColor),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(9),
-            borderSide: BorderSide(color: _borderColor),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(9),
-            borderSide: BorderSide(color: _borderColor),
-          ),
+
           filled: true,
           fillColor: _cardColor,
           contentPadding: EdgeInsets.symmetric(
             horizontal: 16,
             vertical: maxLines == 1 ? 0 : 16,
           ),
+
+          // Label style
           labelStyle: TextStyle(color: _greyColor),
+
+          // Bordures : normales, focus, erreur
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: BorderSide(color: _borderColor),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: BorderSide(color: _primaryColor, width: 1.5),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: BorderSide(color: Colors.red),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(9),
+            borderSide: BorderSide(color: Colors.red, width: 1.5),
+          ),
         ),
       ),
     );
   }
+
 
   Widget _buildFeatureInput({
     required TextEditingController controller,
