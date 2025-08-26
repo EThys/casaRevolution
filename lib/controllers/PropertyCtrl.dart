@@ -1,3 +1,4 @@
+import 'package:casa/utils/database/DatabaseHelper.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import '../models/PropertyModel.dart';
@@ -15,54 +16,43 @@ class PropertyController with ChangeNotifier {
 
 
   Future<List<PropertyModel>> getAllProperty() async {
-    var url = "${Endpoints.properties}";
+    final url = "${Endpoints.properties}";
     loading = true;
     notifyListeners();
 
-    print("Début de la récupération des propriétés");
-
     try {
-      var reponse = await getData(url);
-      print("Réponse du serveur: $reponse");
+      // Essayer de récupérer depuis le réseau
+      var response = await getData(url);
 
-      List<PropertyModel> result = [];
+      if (response != null && response['success'] == true) {
+        List<PropertyModel> properties = (response['data'] as List)
+            .map<PropertyModel>((e) => PropertyModel.fromJson(e))
+            .toList();
 
-      if (reponse != null && reponse['success'] == true) {
-        print("Données reçues du serveur");
-
-        // Correction ici: on accède au tableau 'data' dans la réponse
-        if (reponse['data'] is List) {
-          List<PropertyModel> property = (reponse['data'] as List)
-              .map<PropertyModel>((e) => PropertyModel.fromJson(e))
-              .toList();
-          properties = property;
-          await stockage?.write(StockageKeys.propreties, property);
-          notifyListeners();
-          print("${property.length} propriétés stockées");
-          result = property;
-        } else {
-          print("Le champ 'data' n'est pas une liste");
+        // Sauvegarder en local
+        final db = DatabaseHelper.instance;
+        for (var property in properties) {
+          await db.insertOrUpdateProperty(property);
         }
-      } else {
-        print("Utilisation des données locales");
-        var localData = stockage?.read(StockageKeys.propreties);
-        result = localData != null
-            ? (localData as List).map((e) => PropertyModel.fromJson(e)).toList()
-            : [];
-        properties = result;
-        print("${result.length} propriétés locales chargées");
-      }
 
-      loading = false;
-      notifyListeners();
-      return result;
+        this.properties = properties;
+        loading = false;
+        notifyListeners();
+        return properties;
+      }
     } catch (e) {
-      print("Erreur lors de la récupération: $e");
-      loading = false;
-      properties = [];
-      notifyListeners();
-      return [];
+      print("Erreur réseau: $e");
+      // Continuer avec le cache si échec réseau
     }
+
+    // Si échec réseau ou réponse invalide, charger depuis SQLite
+    final db = DatabaseHelper.instance;
+    final cachedProperties = await db.getAllProperties();
+
+    this.properties = cachedProperties;
+    loading = false;
+    notifyListeners();
+    return cachedProperties;
   }
 
 
