@@ -1,9 +1,12 @@
+import 'dart:math';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/screens/AllPropertiesPage.dart';
 import 'package:casa/screens/PromoBanner.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/utils/Constantes.dart';
+import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -22,7 +25,7 @@ class HomePage extends StatefulWidget {
   _HomePageState createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage>  {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final Color primaryColor = Color(0xFF1976D2);
   final Color accentColor = Color(0xFF64B5F6);
@@ -982,7 +985,7 @@ class _HomePageState extends State<HomePage> {
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         padding: EdgeInsets.symmetric(horizontal: 24),
-        itemCount: properties.length,
+        itemCount: min(5, properties.length),
         itemBuilder: (context, index) {
           final property = properties[index];
           final firstImagePath = property.images?.isNotEmpty ?? false
@@ -1197,7 +1200,7 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                     _buildModernFeatureItem(
                                       icon: FontAwesomeIcons.bath,
-                                      value: '${property.bedrooms ?? 0}',
+                                      value: '${property.bathroom ?? 0}',
                                     ),
                                     _buildModernFeatureItem(
                                       icon: FontAwesomeIcons.rulerCombined,
@@ -1253,34 +1256,13 @@ class _HomePageState extends State<HomePage> {
                                 ),
                               ),
 
-                              // Bouton favoris avec animation
-                              InkWell(
-                                onTap: () {
-                                  HapticFeedback.selectionClick();
-                                  // Ajouter/retirer des favoris
-                                },
-                                borderRadius: BorderRadius.circular(20),
-                                child: AnimatedContainer(
-                                  duration: Duration(milliseconds: 300),
-                                  width: 36,
-                                  height: 36,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.9),
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.1),
-                                        blurRadius: 8,
-                                        spreadRadius: 0,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Icon(
-                                    Icons.favorite_border,
-                                    color: primaryColor,
-                                    size: 18,
-                                  ),
-                                ),
+                              // Remplacement du InkWell par FavoriteHeartIcon
+                              FavoriteHeartIcon(
+                                propertyId: property.PropertyId.toString(),
+                                size: 30,
+                                splashRadius: 5,
+                                activeColor: primaryColor,
+                                inactiveColor: primaryColor,
                               ),
                             ],
                           ),
