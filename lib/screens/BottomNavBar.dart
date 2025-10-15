@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:provider/provider.dart';
 import '../controllers/AuthentificationCtrl.dart';
+import '../utils/FancyNotification.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/Routes.dart';
 
@@ -18,13 +19,14 @@ class BottomNavBar extends StatefulWidget {
 
 class _BottomNavBarState extends State<BottomNavBar> {
   int _currentIndex = 0;
+  final GetStorage _stockage = GetStorage();
   final PageStorageBucket _bucket = PageStorageBucket();
 
   final List<Widget> _screens = [
     HomePage(),
     PropertySearchPage(),
     FavoritesPage(),
-    Profilepage()
+    ProfilePage()
   ];
 
   @override
@@ -76,8 +78,24 @@ class _BottomNavBarState extends State<BottomNavBar> {
         ),
         elevation: 0,
         onPressed: () {
-          // Navigation vers la page de publication
-          Navigator.pushNamed(context, Routes.createPropertyRoute);
+          var token = _stockage.read(StockageKeys.tokenKey);
+          var typeAccount = _stockage.read(StockageKeys.userKey)?['TypeAccountId'];
+
+          if (token != null) {
+            if (typeAccount != 2) {
+              Navigator.pushNamed(context, Routes.createPropertyRoute);
+            } else {
+              FancyNotification.show(
+                context,
+                "Votre type de compte ne permet pas de publier une annonce",
+              );
+            }
+          } else {
+            FancyNotification.show(
+              context,
+              "Vous devez être connecté pour publier une annonce",
+            );
+          }
         },
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
