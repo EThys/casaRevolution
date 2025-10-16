@@ -20,9 +20,12 @@ class CategoryPropertiesPage extends StatefulWidget {
 }
 
 class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
-  final Color primaryColor = Color(0xFF1976D2);
+  final Color _primaryColor = Color(0xFF1976D2);
   final Color _secondaryColor = Color(0xFF64B5F6);
-  final Color darkBlue = Color(0xFF0D47A1);
+  final Color _darkColor = Color(0xFF1A1D26);
+  final Color _lightColor = Color(0xFFF5F6FA);
+  final Color _greyColor = Color(0xFF7F8C8D);
+
   bool _isGridView = false;
   String _selectedFilter = 'Tous';
   final List<String> _filters = ['Tous', 'Location', 'Vente', 'Populaires', 'Nouveautés'];
@@ -36,7 +39,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     final filteredProperties = _applyFilter(properties, _selectedFilter);
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: _lightColor,
       appBar: _buildAppBar(),
       body: Column(
         children: [
@@ -60,7 +63,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     if (propertyTypeName == null) return false;
 
     final categoryMap = {
-      'Apparts': ['appartement', 'studio', 'loft'],
+      'Apparts': ['appartement', 'Apparts', 'loft'],
       'Maisons': ['maison', 'duplex', 'villa'],
       'Studios': ['studio'],
       'Bureaux': ['bureau', 'espace commercial'],
@@ -102,27 +105,27 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [primaryColor, _secondaryColor],
+            colors: [_primaryColor, _secondaryColor],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
         ),
-      ), // Fond bleu
+      ),
       leading: IconButton(
-        icon: Icon(Icons.arrow_back_ios_new, color: Colors.white), // Icône blanche
+        icon: Icon(Icons.arrow_back_ios_new, color: Colors.white),
         onPressed: () => Navigator.pop(context),
       ),
       title: Row(
         children: [
           Icon(categoryIcons[widget.category] ?? FontAwesomeIcons.building,
-              size: 20, color: Colors.white), // Icône blanche
+              size: 20, color: Colors.white),
           SizedBox(width: 10),
           Text(
             widget.category,
             style: TextStyle(
-              color: Colors.white, // Texte blanc
-              fontWeight: FontWeight.w600, // Semi-bold au lieu de bold pour plus d'élégance
-              fontSize: 18, // Légèrement réduit
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
             ),
           ),
         ],
@@ -143,13 +146,12 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       bottom: PreferredSize(
         preferredSize: Size.fromHeight(1),
         child: Container(
-          color: Colors.white.withOpacity(0.2), // Ligne de séparation semi-transparente
+          color: Colors.white.withOpacity(0.2),
           height: 1,
         ),
       ),
     );
   }
-
 
   Widget _buildFilterChips() {
     final filterIcons = {
@@ -191,10 +193,10 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
               duration: Duration(milliseconds: 200),
               padding: EdgeInsets.symmetric(horizontal: 18, vertical: 10),
               decoration: BoxDecoration(
-                color: isSelected ? primaryColor.withOpacity(0.12) : Colors.grey[100],
+                color: isSelected ? _primaryColor.withOpacity(0.12) : Colors.grey[100],
                 borderRadius: BorderRadius.circular(30),
                 border: Border.all(
-                  color: isSelected ? primaryColor : Colors.grey[300]!,
+                  color: isSelected ? _primaryColor : Colors.grey[300]!,
                   width: 1,
                 ),
               ),
@@ -203,7 +205,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                   Icon(
                     filterIcons[filter],
                     size: 18,
-                    color: isSelected ? primaryColor : Colors.black54,
+                    color: isSelected ? _primaryColor : Colors.black54,
                   ),
                   SizedBox(width: 8),
                   Text(
@@ -211,7 +213,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
-                      color: isSelected ? primaryColor : Colors.black87,
+                      color: isSelected ? _primaryColor : Colors.black87,
                     ),
                   ),
                 ],
@@ -219,186 +221,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
             ),
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildPropertyListItem(PropertyModel property, bool isForRent) {
-    final priceText = isForRent
-        ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
-    final firstImagePath = property.images?.isNotEmpty == true
-        ? property.images!.first.path
-        : null;
-
-    return InkWell(
-      onTap: () {
-        Navigator.pushNamed(
-          context,
-          Routes.detailPageRoute,
-          arguments: property,
-        );
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        margin: EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black12,
-              blurRadius: 6,
-              offset: Offset(0, 3),
-            )
-          ],
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Image Section avec bouton favoris
-            Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.horizontal(left: Radius.circular(12)),
-                  child: Container(
-                    width: 120,
-                    height: 130,
-                    color: Colors.grey[200],
-                    child: firstImagePath != null
-                        ? CachedNetworkImage(
-                      imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Center(
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                              Theme.of(context).colorScheme.primary),
-                        ),
-                      ),
-                      errorWidget: (context, url, error) => Center(
-                        child: Icon(
-                          Icons.photo_outlined,
-                          size: 36,
-                          color: Colors.grey[400],
-                        ),
-                      ),
-                    )
-                        : Center(
-                      child: Icon(
-                        Icons.photo_outlined,
-                        size: 36,
-                        color: Colors.grey[400],
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 6,
-                  right: 6,
-                  child: FavoriteHeartIcon(
-                    propertyId: property.PropertyId.toString(),
-                    size: 24,
-                    splashRadius: 20,
-                    activeColor: Colors.red,
-                    inactiveColor: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            property.title ?? 'Sans titre',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Container(
-                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: isForRent ? Colors.blueAccent : Colors.green,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            isForRent ? 'À LOUER' : 'À VENDRE',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(Icons.location_on_outlined, size: 14, color: Colors.grey[600]),
-                        SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            [property.commune, property.city]
-                                .where((e) => e != null && e!.isNotEmpty)
-                                .join(', '),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _buildFeatureIcon(
-                          icon: FontAwesomeIcons.bed,
-                          value: ' ${property.bedrooms ?? 0}',
-                          iconSize: 14,
-                        ),
-                        _buildFeatureIcon(
-                          icon: FontAwesomeIcons.bath,
-                          value: ' ${property.bedrooms ?? 0}',
-                          iconSize: 14,
-                        ),
-                        _buildFeatureIcon(
-                          icon: FontAwesomeIcons.rulerCombined,
-                          value: ' ${property.surface?.toStringAsFixed(0) ?? '0'}m²',
-                          iconSize: 14,
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 15),
-                    Text(
-                      priceText,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -432,180 +254,213 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     );
   }
 
-  Widget _buildPropertyGrid(List<PropertyModel> properties) {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.builder(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 0.75,
-        ),
-        itemCount: properties.length,
-        itemBuilder: (context, index) {
-          final property = properties[index];
-          final isForRent = property.transactionType == 'location';
-
-          return _buildPropertyCard(property, isForRent);
-        },
-      ),
-    );
-  }
-
-  Widget _buildPropertyCard(PropertyModel property, bool isForRent) {
+  // Carte en mode liste - Design moderne avec superposition
+  Widget _buildPropertyListItem(PropertyModel property, bool isForRent) {
     final priceText = isForRent
         ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
         : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
-    final firstImagePath = property.images?.isNotEmpty == true
+
+    final firstImagePath = property.images?.isNotEmpty ?? false
         ? property.images!.first.path
         : null;
 
+    String propertyType = _getPropertyTypeFromTitle(property.title);
+
     return InkWell(
-      onTap: () {
-        Navigator.pushNamed(
-          context,
-          Routes.detailPageRoute,
-          arguments: property,
-        );
-      },
+      onTap: () => _navigateToDetail(property),
       borderRadius: BorderRadius.circular(16),
-      child: Card(
-        elevation: 3,
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
+      child: Container(
+        margin: EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
         ),
-        child: SizedBox(
-          width: 180, // Largeur fixe pour une meilleure consistance
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min, // Pour éviter l'expansion inutile
-            children: [
-              // Image Section
-              Stack(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Section Image avec superposition moderne
+            Container(
+              width: 140,
+              height: 140,
+              margin: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Stack(
                 children: [
-                  Container(
-                    height: 120,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                      color: Colors.grey[200],
-                    ),
+                  // Image principale
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
                     child: firstImagePath != null
-                        ? ClipRRect(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                      child: CachedNetworkImage(
-                        imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Center(
+                        ? CachedNetworkImage(
+                      imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                      placeholder: (context, url) => Container(
+                        color: Colors.grey[200],
+                        child: Center(
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                                Theme.of(context).colorScheme.primary),
-                          ),
-                        ),
-                        errorWidget: (context, url, error) => Center(
-                          child: Icon(
-                            Icons.photo_outlined,
-                            size: 48,
-                            color: Colors.grey[400],
+                            valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
                           ),
                         ),
                       ),
+                      errorWidget: (context, url, error) {
+                        return Container(
+                          color: Colors.grey[200],
+                          child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
+                        );
+                      },
                     )
-                        : Center(
-                      child: Icon(
-                        Icons.photo_outlined,
-                        size: 48,
-                        color: Colors.grey[400],
+                        : Container(
+                      color: Colors.grey[200],
+                      child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
+                    ),
+                  ),
+
+                  // Gradient overlay pour meilleur contraste
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.1),
+                          ],
+                        ),
                       ),
                     ),
                   ),
+
+                  // Badge type de propriété en haut à gauche
                   Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
+                    top: 8,
+                    left: 8,
                     child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.black.withOpacity(0.6), Colors.transparent],
-                          begin: Alignment.bottomCenter,
-                          end: Alignment.topCenter,
-                        ),
-                        borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+                        color: _primaryColor.withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 4,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
                       ),
                       child: Text(
-                        priceText,
+                        propertyType,
                         style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
                           color: Colors.white,
-                          fontSize: 13, // Légèrement réduit
-                          fontWeight: FontWeight.bold,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ),
+
+                  // Bouton favoris en haut à droite
                   Positioned(
                     top: 8,
                     right: 8,
                     child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
-                        color: isForRent ? Colors.blueAccent : Colors.green,
-                        borderRadius: BorderRadius.circular(10), // Plus petit
+                        color: Colors.white.withOpacity(0.9),
+                        shape: BoxShape.circle,
                         boxShadow: [
-                        BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 3,
-                        offset: Offset(1, 1),
-                        )
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 4,
+                            offset: Offset(0, 1),
+                          ),
                         ],
                       ),
+                      child: FavoriteHeartIcon(
+                        propertyId: property.PropertyId.toString(),
+                        size: 20,
+                        splashRadius: 18,
+                        activeColor: Colors.red,
+                        inactiveColor: _greyColor,
+                      ),
+                    ),
+                  ),
+
+                  // Prix en bas à gauche sur l'image
+                  Positioned(
+                    bottom: 8,
+                    left: 8,
+                    child: Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
                       child: Text(
-                        isForRent ? 'À LOUER' : 'À VENDRE', // Texte plus court
+                        priceText,
                         style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 9, // Plus petit
+                          fontSize: 12,
                           fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
                       ),
                     ),
                   ),
                 ],
               ),
-              // Details Section
-              Padding(
-                padding: const EdgeInsets.all(10), // Padding réduit
+            ),
+
+            // Section détails
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(top: 12, right: 12, bottom: 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Title
+                    // Titre
                     Text(
                       property.title ?? 'Sans titre',
                       style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13, // Légèrement réduit
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: _darkColor,
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    SizedBox(height: 4), // Espacement réduit
-                    // Address
+
+                    SizedBox(height: 6),
+
+                    // Localisation
                     Row(
                       children: [
-                        Icon(Icons.location_on_outlined, size: 12, color: Colors.grey[600]),
-                        SizedBox(width: 2),
+                        Icon(Icons.location_on_outlined, size: 14, color: _primaryColor),
+                        SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            [property.commune, property.city]
-                                .where((e) => e != null && e!.isNotEmpty)
-                                .join(', '),
+                            '${property.commune ?? ''}, ${property.city ?? ''}',
                             style: TextStyle(
-                              fontSize: 10, // Plus petit
-                              color: Colors.grey[600],
+                              color: _greyColor,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -613,54 +468,399 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         ),
                       ],
                     ),
-                    SizedBox(height: 8),
-                    // Features
+
+                    SizedBox(height: 12),
+
+                    // Caractéristiques
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _buildFeatureIcon(
+                        _buildFeatureItem(
                           icon: FontAwesomeIcons.bed,
                           value: '${property.bedrooms ?? 0}',
-                          iconSize: 12, // Ajout d'un paramètre de taille
+                          label: 'Chambres',
                         ),
-                        _buildFeatureIcon(
+                        _buildFeatureItem(
                           icon: FontAwesomeIcons.bath,
-                          value: '${property.bedrooms ?? 0}', // Corrigé: bathrooms au lieu de bedrooms
-                          iconSize: 12,
+                          value: '${property.bedrooms ?? 0}',
+                          label: 'SDB',
                         ),
-                        _buildFeatureIcon(
+                        _buildFeatureItem(
                           icon: FontAwesomeIcons.rulerCombined,
-                          value: '${property.surface?.toStringAsFixed(0) ?? '0'}m²',
-                          iconSize: 12,
+                          value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
+                          label: 'm²',
                         ),
                       ],
+                    ),
+
+                    SizedBox(height: 12),
+
+                    // Type de transaction
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isForRent ? Colors.blue[50] : Colors.green[50],
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: isForRent ? Colors.blue[100]! : Colors.green[100]!,
+                        ),
+                      ),
+                      child: Text(
+                        isForRent ? 'À LOUER' : 'À VENDRE',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: isForRent ? Colors.blue[800]! : Colors.green[800]!,
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-// Fonction modifiée pour accepter la taille de l'icône
-  Widget _buildFeatureIcon({required IconData icon, required String value, double iconSize = 14}) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+  // Carte en mode grille - Design moderne avec superposition
+  Widget _buildPropertyCard(PropertyModel property, bool isForRent) {
+    final priceText = isForRent
+        ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
+        : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
+
+    final firstImagePath = property.images?.isNotEmpty ?? false
+        ? property.images!.first.path
+        : null;
+
+    String propertyType = _getPropertyTypeFromTitle(property.title);
+
+    return InkWell(
+      onTap: () => _navigateToDetail(property),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Section Image avec superposition
+            Expanded(
+              flex: 6,
+              child: Container(
+                margin: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  children: [
+                    // Image principale
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: firstImagePath != null
+                          ? CachedNetworkImage(
+                        imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey[200],
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                            ),
+                          ),
+                        ),
+                        errorWidget: (context, url, error) {
+                          return Container(
+                            color: Colors.grey[200],
+                            child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
+                          );
+                        },
+                      )
+                          : Container(
+                        color: Colors.grey[200],
+                        child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
+                      ),
+                    ),
+
+                    // Gradient overlay
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withOpacity(0.3),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // Badge type de propriété
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _primaryColor.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          propertyType,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // Bouton favoris
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.9),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 4,
+                              offset: Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: FavoriteHeartIcon(
+                          propertyId: property.PropertyId.toString(),
+                          size: 18,
+                          splashRadius: 16,
+                          activeColor: Colors.red,
+                          inactiveColor: _greyColor,
+                        ),
+                      ),
+                    ),
+
+                    // Prix en bas
+                    Positioned(
+                      bottom: 8,
+                      left: 8,
+                      right: 8,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          priceText,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Section détails
+            Expanded(
+              flex: 4,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Titre et localisation
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          property.title ?? 'Sans titre',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            color: _darkColor,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.location_on_outlined, size: 10, color: _greyColor),
+                            SizedBox(width: 2),
+                            Expanded(
+                              child: Text(
+                                '${property.commune ?? ''}, ${property.city ?? ''}',
+                                style: TextStyle(
+                                  color: _greyColor,
+                                  fontSize: 10,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    // Caractéristiques
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _buildMiniFeatureItem(FontAwesomeIcons.bed, '${property.bedrooms ?? 0}'),
+                        _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bedrooms ?? 0}'),
+                        _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}'),
+                      ],
+                    ),
+
+                    // Type de transaction
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isForRent ? Colors.blue[50] : Colors.green[50],
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: isForRent ? Colors.blue[100]! : Colors.green[100]!,
+                        ),
+                      ),
+                      child: Text(
+                        isForRent ? 'LOCATION' : 'VENTE',
+                        style: TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w600,
+                          color: isForRent ? Colors.blue[800]! : Colors.green[800]!,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Item de caractéristique pour la vue liste
+  Widget _buildFeatureItem({required IconData icon, required String value, required String label}) {
+    return Column(
       children: [
-        Icon(icon, size: iconSize, color: Colors.grey[600]),
-        SizedBox(width: 2),
+        Container(
+          padding: EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: _primaryColor.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            size: 14,
+            color: _primaryColor,
+          ),
+        ),
+        SizedBox(height: 4),
         Text(
           value,
           style: TextStyle(
-            fontSize: iconSize - 2, // Taille proportionnelle
-            color: Colors.grey[600],
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: _darkColor,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: _greyColor,
           ),
         ),
       ],
     );
+  }
+
+  // Item de caractéristique miniature pour la vue grille
+  Widget _buildMiniFeatureItem(IconData icon, String value) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 10, color: _primaryColor),
+        SizedBox(width: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: _darkColor,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Navigation vers la page de détail
+  void _navigateToDetail(PropertyModel property) {
+    Navigator.pushNamed(
+      context,
+      Routes.detailPageRoute,
+      arguments: property,
+    );
+  }
+
+  // Méthode pour déterminer le type de propriété depuis le titre
+  String _getPropertyTypeFromTitle(String? title) {
+    if (title == null) return 'Propriété';
+
+    final lowerTitle = title.toLowerCase();
+    if (lowerTitle.contains('appartement') || lowerTitle.contains('apartement')) {
+      return 'Appartement';
+    } else if (lowerTitle.contains('maison')) {
+      return 'Maison';
+    } else if (lowerTitle.contains('studio')) {
+      return 'Studio';
+    } else if (lowerTitle.contains('villa')) {
+      return 'Villa';
+    } else if (lowerTitle.contains('duplex')) {
+      return 'Duplex';
+    } else if (lowerTitle.contains('loft')) {
+      return 'Loft';
+    } else if (lowerTitle.contains('penthouse')) {
+      return 'Penthouse';
+    }
+    return 'Propriété';
   }
 
   Widget _buildShimmerLoading() {
@@ -679,49 +879,74 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
           return Shimmer.fromColors(
             baseColor: Colors.grey[300]!,
             highlightColor: Colors.grey[100]!,
-            child: Card(
-              shape: RoundedRectangleBorder(
+            child: Container(
+              decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
+                color: Colors.white,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    height: 120,
-                    width: double.infinity,
-                    color: Colors.white,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(16),
+                  // Image shimmer
+                  Expanded(
+                    flex: 6,
+                    child: Container(
+                      margin: EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.white,
                       ),
                     ),
                   ),
-                  Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: double.infinity,
-                          height: 16,
-                          color: Colors.white,
-                        ),
-                        SizedBox(height: 8),
-                        Container(
-                          width: 120,
-                          height: 12,
-                          color: Colors.white,
-                        ),
-                        SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Container(width: 40, height: 12, color: Colors.white),
-                            Container(width: 40, height: 12, color: Colors.white),
-                            Container(width: 40, height: 12, color: Colors.white),
-                          ],
-                        ),
-                      ],
+                  // Details shimmer
+                  Expanded(
+                    flex: 4,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: double.infinity,
+                                height: 14,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                              SizedBox(height: 6),
+                              Container(
+                                width: 100,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Container(width: 30, height: 10, color: Colors.white),
+                              Container(width: 30, height: 10, color: Colors.white),
+                              Container(width: 30, height: 10, color: Colors.white),
+                            ],
+                          ),
+                          Container(
+                            width: 60,
+                            height: 16,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -739,37 +964,63 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
             child: Container(
               margin: EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
                 color: Colors.white,
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Image shimmer
                   Container(
-                    width: 120,
-                    height: 120,
-                    color: Colors.white,
+                    width: 140,
+                    height: 140,
+                    margin: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.white,
+                    ),
                   ),
+                  // Details shimmer
                   Expanded(
                     child: Padding(
-                      padding: EdgeInsets.all(12),
+                      padding: EdgeInsets.only(top: 12, right: 12, bottom: 12),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(width: 150, height: 16, color: Colors.white),
+                          Container(
+                            width: 150,
+                            height: 16,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
                           SizedBox(height: 8),
-                          Container(width: 100, height: 12, color: Colors.white),
+                          Container(
+                            width: 120,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
                           SizedBox(height: 16),
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
-                              Container(width: 40, height: 12, color: Colors.white),
-                              SizedBox(width: 8),
-                              Container(width: 40, height: 12, color: Colors.white),
-                              SizedBox(width: 8),
-                              Container(width: 40, height: 12, color: Colors.white),
-                              Spacer(),
-                              Container(width: 60, height: 14, color: Colors.white),
+                              Container(width: 40, height: 40, color: Colors.white),
+                              Container(width: 40, height: 40, color: Colors.white),
+                              Container(width: 40, height: 40, color: Colors.white),
                             ],
+                          ),
+                          SizedBox(height: 12),
+                          Container(
+                            width: 80,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
                           ),
                         ],
                       ),
@@ -812,25 +1063,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
               color: Colors.grey[500],
             ),
           ),
-          // SizedBox(height: 20),
-          // ElevatedButton(
-          //   onPressed: () {
-          //     setState(() {
-          //       _selectedFilter = 'Tous';
-          //     });
-          //   },
-          //   style: ElevatedButton.styleFrom(
-          //     backgroundColor: primaryColor,
-          //     shape: RoundedRectangleBorder(
-          //       borderRadius: BorderRadius.circular(12),
-          //     ),
-          //     padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          //   ),
-          //   child: Text(
-          //     'Réinitialiser les filtres',
-          //     style: TextStyle(color: Colors.white),
-          //   ),
-          // ),
         ],
       ),
     );
