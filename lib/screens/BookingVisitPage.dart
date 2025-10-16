@@ -11,8 +11,6 @@ import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
-import 'PropertyDetailPage.dart';
-
 class BookingVisitPage extends StatefulWidget {
   final PropertyModel property;
 
@@ -23,34 +21,100 @@ class BookingVisitPage extends StatefulWidget {
 }
 
 class _BookingVisitPageState extends State<BookingVisitPage> {
-
   final Color _primaryColor = Color(0xFF1976D2);
-  final Color _secondaryColor = Color(0xFF64B5F6);
-  final Color darkBlue = Color(0xFF0D47A1);
-
-
+  final Color _primaryDark = Color(0xFF1565C0);
+  final Color _primaryLight = Color(0xFF42A5F5);
+  final Color _accentColor = Color(0xFFE3F2FD);
+  final Color _surfaceColor = Color(0xFFFAFBFD);
+  final Color _cardColor = Colors.white;
+  final Color _borderColor = Color(0xFFEEEEEE);
+  final Color _textPrimary = Color(0xFF1A1A1A);
+  final Color _textSecondary = Color(0xFF666666);
+  final Color _textLight = Color(0xFF999999);
 
   final _formKey = GlobalKey<FormState>();
   final GetStorage storage = GetStorage();
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   bool _isLoading = false;
+  bool _showFullAddress = false;
+
+  String _userName = '';
+  String _userEmail = '';
+  String _userPhone = '';
+  int? _userId;
+
+  String get safeUsername {
+    return storage.read(StockageKeys.userKey)?['username']?.toString() ?? 'Visiteur';
+  }
+
+  final List<TimeOfDay> _availableHours = [
+    TimeOfDay(hour: 7, minute: 0),
+    TimeOfDay(hour: 8, minute: 0),
+    TimeOfDay(hour: 9, minute: 0),
+    TimeOfDay(hour: 10, minute: 0),
+    TimeOfDay(hour: 11, minute: 0),
+    TimeOfDay(hour: 12, minute: 0),
+    TimeOfDay(hour: 13, minute: 0),
+    TimeOfDay(hour: 14, minute: 0),
+    TimeOfDay(hour: 15, minute: 0),
+    TimeOfDay(hour: 16, minute: 0),
+    TimeOfDay(hour: 17, minute: 0),
+    TimeOfDay(hour: 18, minute: 0),
+    TimeOfDay(hour: 19, minute: 0),
+    TimeOfDay(hour: 20, minute: 0),
+    TimeOfDay(hour: 21, minute: 0),
+  ];
 
   @override
   void initState() {
     super.initState();
-    initializeDateFormatting('fr_FR'); // Initialisation ici
+    initializeDateFormatting('fr_FR');
+    _loadUserInfo();
+  }
+
+  void _loadUserInfo() {
+    try {
+      final dynamic userData = storage.read(StockageKeys.userKey);
+
+      if (userData != null) {
+        final Map<String, dynamic> user = _convertToStringMap(userData);
+
+        setState(() {
+          _userId = user['UserId'] as int?;
+          _userName = '${user['username'] ?? ''}'.trim();
+          _userEmail = user['email']?.toString() ?? '';
+          _userPhone = user['phone']?.toString() ?? '';
+        });
+      }
+    } catch (e) {
+      print("Erreur lors du chargement des infos utilisateur: $e");
+    }
+  }
+
+  Map<String, dynamic> _convertToStringMap(dynamic data) {
+    if (data is Map<String, dynamic>) {
+      return data;
+    } else if (data is Map<dynamic, dynamic>) {
+      return data.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return {};
+  }
+
+  String _getPartialAddress(String fullAddress) {
+    if (fullAddress.length <= 30) return fullAddress;
+
+    final parts = fullAddress.split(',');
+    if (parts.length > 1) {
+      return '${parts[0]}, ${parts[1]}...';
+    }
+
+    return '${fullAddress.substring(0, 30)}...';
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    _emailController.dispose();
     _notesController.dispose();
     super.dispose();
   }
@@ -64,17 +128,17 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       theme: picker.DatePickerTheme(
         headerColor: _primaryColor,
         backgroundColor: Colors.white,
-        itemStyle: const TextStyle(
-          color: Colors.black,
-          fontWeight: FontWeight.w500,
-          fontSize: 18,
+        itemStyle: TextStyle(
+          color: _textPrimary,
+          fontWeight: FontWeight.w400,
+          fontSize: 16,
         ),
-        doneStyle: const TextStyle(
+        doneStyle: TextStyle(
           color: Colors.white,
           fontSize: 16,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w600,
         ),
-        cancelStyle: const TextStyle(
+        cancelStyle: TextStyle(
           color: Colors.white,
           fontSize: 16,
         ),
@@ -82,7 +146,6 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       onConfirm: (date) {
         setState(() {
           _selectedDate = date;
-          // Reset time when date changes
           _selectedTime = null;
         });
       },
@@ -91,73 +154,20 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     );
   }
 
-  Future<void> _selectTime() async {
-    if (_selectedDate == null) {
-      FancyNotification.show(context, "Veuillez d\'abord sélectionner une date");
-      return;
-    }
-
-    final now = DateTime.now();
-    final isToday = _selectedDate!.day == now.day &&
-        _selectedDate!.month == now.month &&
-        _selectedDate!.year == now.year;
-
-    final initialTime = _selectedTime ?? (isToday ? TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))) : const TimeOfDay(hour: 9, minute: 0));
-
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
-      builder: (BuildContext context, Widget? child) {
-        return Theme(
-          data: ThemeData.light().copyWith(
-            colorScheme:  ColorScheme.light(
-              primary: _primaryColor,
-              onSurface: Colors.black,
-            ),
-            timePickerTheme: TimePickerThemeData(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              hourMinuteShape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(8)),
-              ),
-            ),
-          ),
-          child: MediaQuery(
-            data: MediaQuery.of(context).copyWith(
-              alwaysUse24HourFormat: true,
-            ),
-            child: child!,
-          ),
-        );
-      },
-    );
-
-    if (picked != null) {
-      // verifie si l'heure choisi est deja passée
-      if (isToday) {
-        final now = TimeOfDay.fromDateTime(DateTime.now());
-        if (picked.hour < now.hour || (picked.hour == now.hour && picked.minute <= now.minute)) {
-          FancyNotification.show(context, "Veuillez choisir une heure future");
-          return;
-        }
-      }
-
-      setState(() {
-        _selectedTime = picked;
-      });
-    }
+  void _selectTime(TimeOfDay time) {
+    setState(() {
+      _selectedTime = time;
+    });
   }
 
   Future<void> _handleBooking() async {
-    // Validation du formulaire
-    if (!_formKey.currentState!.validate()) {
+    if (_selectedDate == null || _selectedTime == null) {
+      FancyNotification.show(context, "Veuillez sélectionner une date et une heure");
       return;
     }
 
-    if (_selectedDate == null || _selectedTime == null) {
-      FancyNotification.show(context,"Veuillez sélectionner une date et une heure");
-
+    if (_userId == null) {
+      FancyNotification.show(context, "Utilisateur non connecté");
       return;
     }
 
@@ -166,49 +176,43 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
     FocusScope.of(context).unfocus();
 
-    // Vérification de la connexion internet
     final isConnected = await NetworkUtils.checkInternetConnectivity();
     if (!isConnected) {
       if (mounted) {
-        FancyNotification.show(context,"Pas de connexion internet");
+        FancyNotification.show(context, "Pas de connexion internet");
         setState(() => _isLoading = false);
       }
       return;
     }
 
     try {
-      // Formatage de la date et de l'heure
       final formattedDate = DateFormat('yyyy-MM-dd').format(_selectedDate!);
       final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}';
 
-      // Préparation des données à envoyer
       final bookingData = {
         "PropertyId": widget.property.PropertyId,
-        "UserId": storage.read(StockageKeys.userKey)?['UserId'],
-        "name": _nameController.text,
+        "UserId": _userId,
+        "name": _userName,
         "secondName": "",
-        "email": _emailController.text,
-        "phone": _phoneController.text,
+        "email": _userEmail,
+        "phone": _userPhone,
         "message": _notesController.text.isNotEmpty
             ? _notesController.text
             : "Intéressé par la propriété",
         "address": widget.property.address ?? "",
         "visitDate": formattedDate,
         "visitHour": formattedTime,
-        "ipAddress": "192.168.1.1" // Vous pouvez obtenir la vraie IP si nécessaire
+        "ipAddress": "192.168.1.1"
       };
 
       final ctrl = context.read<PropertyVisitCtrl>();
       final res = await ctrl.createVisitProperty(bookingData);
 
-
       if (!mounted) return;
 
       if (res.data['success'] == true) {
-        // Succès
         _showConfirmationDialog();
       } else {
-        // Erreur
         final errorMessage = res.data['message'] ?? "Erreur lors de la réservation";
         FancyNotification.show(context, errorMessage);
       }
@@ -228,164 +232,154 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
   void _showConfirmationDialog() {
     final formattedDate = DateFormat('EEEE d MMMM y', 'fr_FR').format(_selectedDate!);
-    final formattedTime = _selectedTime!.format(context);
+    final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}h${_selectedTime!.minute == 0 ? '' : _selectedTime!.minute.toString().padLeft(2, '0')}';
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(24),
+          insetPadding: const EdgeInsets.all(20),
           elevation: 0,
           child: Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(28),
+              borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 24,
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 30,
                   spreadRadius: 2,
                 ),
               ],
             ),
             child: Padding(
-              padding: const EdgeInsets.all(32),
+              padding: const EdgeInsets.all(28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Animated checkmark
                   Container(
                     width: 80,
                     height: 80,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5E9),
+                      gradient: LinearGradient(
+                        colors: [_primaryColor, _primaryLight],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                       shape: BoxShape.circle,
                     ),
-                    child: const Center(
+                    child: Center(
                       child: Icon(
                         Icons.check_rounded,
-                        color: Color(0xFF4CAF50),
-                        size: 48,
+                        color: Colors.white,
+                        size: 40,
                       ),
                     ),
                   ),
                   const SizedBox(height: 24),
 
-                  // Title with gradient
-                  ShaderMask(
-                    shaderCallback: (bounds) => const LinearGradient(
-                      colors: [Color(0xFF1976D2), Color(0xFF2196F3)],
-                    ).createShader(bounds),
-                    child: const Text(
-                      'Demande confirmée !',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                  Text(
+                    'Visite programmée !',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: _textPrimary,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 8),
 
-                  // Divider with icon
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Divider(
-                          color: Colors.grey[300],
-                          thickness: 1,
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Icon(
-                          Icons.calendar_today_rounded,
-                          color: Colors.grey[500],
-                          size: 18,
-                        ),
-                      ),
-                      Expanded(
-                        child: Divider(
-                          color: Colors.grey[300],
-                          thickness: 1,
-                        ),
-                      ),
-                    ],
+                  Text(
+                    'Votre demande a été envoyée avec succès',
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 15,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
 
-                  // Date/time info card
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF5F9FF),
+                      gradient: LinearGradient(
+                        colors: [_accentColor, Colors.white],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: const Color(0xFFE3F2FD),
-                        width: 1.5,
+                        color: _primaryColor.withOpacity(0.2),
+                        width: 1,
                       ),
                     ),
                     child: Column(
                       children: [
+                        Row(
+                          children: [
+                            Icon(Icons.calendar_month, color: _primaryColor, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Rendez-vous confirmé',
+                              style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
                         Text(
-                          'Votre visite est programmée',
+                          formattedDate,
                           style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 15,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: _primaryColor,
                           ),
+                          textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          formattedDate,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF1976D2),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
                           'à $formattedTime',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF424242),
+                            fontWeight: FontWeight.w600,
+                            color: _textPrimary,
                           ),
+                          textAlign: TextAlign.center,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 28),
 
-                  // Action buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            Navigator.pop(context);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF1976D2),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            elevation: 2,
-                          ),
-                          child: const Text(
-                            'RETOUR',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.pop(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _primaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        elevation: 2,
+                        shadowColor: _primaryColor.withOpacity(0.3),
+                      ),
+                      child: Text(
+                        'Retour à l\'accueil',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ],
               ),
@@ -396,27 +390,25 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     );
   }
 
-  PreferredSizeWidget _buildreservationVisiteAppBar() {
+  PreferredSizeWidget _buildAppBar() {
     return AppBar(
       elevation: 0,
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [_primaryColor, _secondaryColor],
+            colors: [_primaryColor, _primaryDark],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
         ),
       ),
       leading: IconButton(
-        icon: Icon(Icons.arrow_back_ios_new, color: Colors.white),
+        icon: Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
         onPressed: () => Navigator.pop(context),
       ),
-      title: Row(
-        mainAxisSize: MainAxisSize.min,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.calendar_month, color: Colors.white, size: 20),
-          SizedBox(width: 8),
           Text(
             'Réserver une visite',
             style: TextStyle(
@@ -424,87 +416,69 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               fontWeight: FontWeight.w600,
               fontSize: 18,
             ),
-            textAlign: TextAlign.left,
+          ),
+          Text(
+            'Planifiez votre visite',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+            ),
           ),
         ],
       ),
-
-      bottom: PreferredSize(
-        preferredSize: Size.fromHeight(1),
-        child: Container(
-          height: 1,
-          color: Colors.white.withOpacity(0.2),
-        ),
-      ),
+      centerTitle: false,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar:_buildreservationVisiteAppBar(),
-
-
+      backgroundColor: _surfaceColor,
+      appBar: _buildAppBar(),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // En-tête avec infos propriété
             _buildPropertyHeader(),
             const SizedBox(height: 24),
 
-            // Formulaire de réservation
+            if (_userId != null) _buildUserInfoSection(),
+            const SizedBox(height: 24),
+
             Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Informations de visite',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1D26),
+                    'Planifier votre visite',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: _textPrimary,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Choisissez la date et l\'heure de votre visite',
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
 
-                  // Sélection de date
                   _buildDateField(),
-                  const SizedBox(height: 16),
-
-                  // Sélection d'heure
-                  _buildTimeField(),
                   const SizedBox(height: 24),
 
-                  Text(
-                    'Vos informations',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1D26),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+                  _buildTimeGrid(),
+                  const SizedBox(height: 28),
 
-                  // Champ nom
-                  _buildNameField(),
-                  const SizedBox(height: 16),
-
-                  // Champ téléphone
-                  _buildPhoneField(),
-                  const SizedBox(height: 16),
-
-                  // Champ email
-                  _buildEmailField(),
-                  const SizedBox(height: 16),
-
-                  // Champ notes
                   _buildNotesField(),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 36),
 
-                  // Bouton de soumission
                   _buildSubmitButton(),
                 ],
               ),
@@ -517,32 +491,44 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
   Widget _buildPropertyHeader() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Row(
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.network( // Utilisez Image.network pour les URLs
-              "${Constantes.URL_IMAGES}${widget.property.images!.first.path}", // Adaptez selon votre modèle
-              width: 80,
-              height: 80,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => Container(
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                "${Constantes.URL_IMAGES}${widget.property.images?.first.path ?? ''}",
                 width: 80,
                 height: 80,
-                color: Colors.grey[200],
-                child: const Icon(Icons.home, color: Colors.grey),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: Colors.grey[100],
+                  child: Icon(Icons.home_rounded, color: Colors.grey[400], size: 30),
+                ),
               ),
             ),
           ),
@@ -553,33 +539,97 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               children: [
                 Text(
                   widget.property.title ?? "",
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
                     fontSize: 16,
-                    color: Color(0xFF1A1D26),
+                    color: _textPrimary,
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  widget.property.address ?? "",
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 14,
+                const SizedBox(height: 8),
+
+                // Adresse masquée avec effet de flou
+                GestureDetector(
+                  onTap: () {
+                    // Action pour révéler l'adresse (redirection, popup, etc.)
+                    _showAddressVerification();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _accentColor,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _primaryColor.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.location_on_rounded, size: 14, color: _primaryColor),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Texte flouté
+                              Text(
+                                widget.property.address ?? "Adresse non disponible",
+                                style: TextStyle(
+                                  color: Colors.transparent,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              // Overlay flou
+                              Container(
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(4),
+                                  color: Colors.black.withOpacity(0.1),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    "••••••••••••••••••••",
+                                    style: TextStyle(
+                                      color: _textPrimary.withOpacity(0.7),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      letterSpacing: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.lock_outline,
+                          size: 14,
+                          color: _primaryColor,
+                        ),
+                      ],
+                    ),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  widget.property.transactionType=="location"
-                      ? '${widget.property.price!.toInt()}\$/mois'
-                      : '${widget.property.price!.toInt()}\$',
-                  style:  TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: _primaryColor,
-                    fontSize: 16,
+                const SizedBox(height: 8),
+
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    widget.property.transactionType == "location"
+                        ? '${widget.property.price?.toInt() ?? 0}\$ / mois'
+                        : '${widget.property.price?.toInt() ?? 0}\$',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: _primaryColor,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
               ],
@@ -590,225 +640,567 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     );
   }
 
+  void _showAddressVerification() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(20),
+          child: Container(
+            decoration: BoxDecoration(
+              color: _cardColor,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 30,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Icone décorative
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: _primaryColor.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.location_on_rounded,
+                      size: 40,
+                      color: _primaryColor,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Titre
+                  Text(
+                    "Adresse Protégée",
+                    style: TextStyle(
+                      color: _textPrimary,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      height: 1.2,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Sous-titre
+                  Text(
+                    "Pour préserver l'intimité des propriétaires",
+                    style: TextStyle(
+                      color: _textPrimary.withOpacity(0.7),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Contenu
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _accentColor.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _primaryColor.withOpacity(0.1),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          color: _primaryColor,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            "L'adresse complète est accessible après prise de contact avec notre agence",
+                            style: TextStyle(
+                              color: _textPrimary.withOpacity(0.8),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w400,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+
+                  // Actions
+                  Row(
+                    children: [
+                      // Bouton Fermer
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            side: BorderSide(
+                              color: _primaryColor.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Text(
+                            "Plus tard",
+                            style: TextStyle(
+                              color: _textPrimary.withOpacity(0.8),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+
+                      // Bouton Principal
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            _navigateToContactPage();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _primaryColor,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                            shadowColor: Colors.transparent,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.calendar_today_rounded,
+                                size: 18,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                "Rendez-vous",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Lien de contact alternatif
+                  const SizedBox(height: 16),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      _navigateToContactPage();
+                    },
+                    child: Text(
+                      "Ou nous contacter par téléphone",
+                      style: TextStyle(
+                        color: _primaryColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+  void _navigateToContactPage() {
+    // Navigation vers la page de contact/rendez-vous
+    // Navigator.push(context, MaterialPageRoute(builder: (context) => ContactPage()));
+  }
+
+  Widget _buildUserInfoSection() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_accentColor, Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _primaryColor.withOpacity(0.2)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [_primaryColor, _primaryLight],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _primaryColor.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.person,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _userName.isNotEmpty ? 'Bonjour, $_userName' : 'Bonjour',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: _textPrimary,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                if (_userEmail.isNotEmpty)
+                  Text(
+                    _userEmail,
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDateField() {
-    return InkWell(
-      onTap: _selectDate,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: Colors.grey[300]!,
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
+            Icon(Icons.calendar_month, size: 18, color: _primaryColor),
+            const SizedBox(width: 8),
             Text(
-              _selectedDate == null
-                  ? 'Choisir une date'
-                  : DateFormat('EEEE d MMMM y', 'fr_FR').format(_selectedDate!),
+              'Date de visite',
               style: TextStyle(
-                color: _selectedDate == null ? Colors.grey[500] : const Color(0xFF1A1D26),
+                fontWeight: FontWeight.w600,
+                color: _textPrimary,
                 fontSize: 16,
               ),
             ),
-            Icon(
-              Icons.calendar_today_rounded,
-              color: _primaryColor,
-              size: 20,
-            ),
           ],
         ),
-      ),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: _selectDate,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            decoration: BoxDecoration(
+              color: _cardColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _selectedDate == null ? _borderColor : _primaryColor,
+                width: _selectedDate == null ? 1.5 : 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _selectedDate == null
+                      ? 'Sélectionnez une date'
+                      : DateFormat('EEEE d MMMM y', 'fr_FR').format(_selectedDate!),
+                  style: TextStyle(
+                    color: _selectedDate == null ? _textLight : _textPrimary,
+                    fontSize: 16,
+                    fontWeight: _selectedDate == null ? FontWeight.normal : FontWeight.w600,
+                  ),
+                ),
+                Icon(
+                  Icons.calendar_today_rounded,
+                  color: _selectedDate == null ? _textLight : _primaryColor,
+                  size: 22,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildTimeField() {
-    return InkWell(
-      onTap: _selectTime,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: Colors.grey[300]!,
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildTimeGrid() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
+            Icon(Icons.access_time_rounded, size: 18, color: _primaryColor),
+            const SizedBox(width: 8),
             Text(
-              _selectedTime == null
-                  ? 'Choisir une heure'
-                  : _selectedTime!.format(context),
+              'Heure de visite (7h - 21h)',
               style: TextStyle(
-                color: _selectedTime == null ? Colors.grey[500] : const Color(0xFF1A1D26),
+                fontWeight: FontWeight.w600,
+                color: _textPrimary,
                 fontSize: 16,
               ),
             ),
-            Icon(
-              Icons.access_time_rounded,
-              color: _primaryColor,
-              size: 20,
-            ),
           ],
         ),
-      ),
+        const SizedBox(height: 16),
+        if (_selectedDate == null)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: _cardColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _borderColor),
+            ),
+            child: Center(
+              child: Column(
+                children: [
+                  Icon(Icons.calendar_today_rounded, size: 40, color: _textLight),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Sélectionnez d\'abord une date',
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 2.2,
+            ),
+            itemCount: _availableHours.length,
+            itemBuilder: (context, index) {
+              final time = _availableHours[index];
+              final isSelected = _selectedTime == time;
+              final isPastTime = _isPastTime(time);
+
+              return InkWell(
+                onTap: isPastTime ? null : () => _selectTime(time),
+                borderRadius: BorderRadius.circular(10),
+                child: AnimatedContainer(
+                  duration: Duration(milliseconds: 300),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? _primaryColor
+                        : isPastTime
+                        ? Colors.grey[100]
+                        : _cardColor,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isSelected
+                          ? _primaryColor
+                          : isPastTime
+                          ? Colors.grey[300]!
+                          : _borderColor,
+                      width: isSelected ? 2 : 1.5,
+                    ),
+                    boxShadow: isSelected
+                        ? [
+                      BoxShadow(
+                        color: _primaryColor.withOpacity(0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ]
+                        : [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${time.hour.toString().padLeft(2, '0')}h${time.minute == 0 ? '' : time.minute.toString().padLeft(2, '0')}',
+                      style: TextStyle(
+                        color: isSelected
+                            ? Colors.white
+                            : isPastTime
+                            ? _textLight
+                            : _textPrimary,
+                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
     );
   }
 
-  Widget _buildNameField() {
-    return TextFormField(
-      controller: _nameController,
-      decoration: InputDecoration(
-        labelText: 'Nom complet',
-        hintText: 'Votre nom',
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        filled: true,
-        fillColor: Colors.white,
-        prefixIcon: const Icon(Icons.person_outline_rounded, color: Color(0xFF6C757D)),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-      ),
-      validator: (value) {
-        if (value == null || value.isEmpty) {
-          return 'Veuillez entrer votre nom';
-        }
-        return null;
-      },
-    );
-  }
+  bool _isPastTime(TimeOfDay time) {
+    if (_selectedDate == null) return false;
 
-  Widget _buildPhoneField() {
-    return TextFormField(
-      controller: _phoneController,
-      keyboardType: TextInputType.phone,
-      decoration: InputDecoration(
-        labelText: 'Téléphone',
-        hintText: '0000000000',
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        filled: true,
-        fillColor: Colors.white,
-        prefixIcon: const Icon(Icons.phone_rounded, color: Color(0xFF6C757D)),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-      ),
-      validator: (value) {
-        if (value == null || value.isEmpty) {
-          return 'Veuillez entrer votre téléphone';
-        }
-        if (!RegExp(r'^[0-9]{10}$').hasMatch(value)) {
-          return 'Numéro invalide (10 chiffres)';
-        }
-        return null;
-      },
+    final now = DateTime.now();
+    final selectedDateTime = DateTime(
+      _selectedDate!.year,
+      _selectedDate!.month,
+      _selectedDate!.day,
+      time.hour,
+      time.minute,
     );
-  }
 
-  Widget _buildEmailField() {
-    return TextFormField(
-      controller: _emailController,
-      keyboardType: TextInputType.emailAddress,
-      decoration: InputDecoration(
-        labelText: 'Email',
-        hintText: 'exemple@email.com',
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        filled: true,
-        fillColor: Colors.white,
-        prefixIcon: const Icon(Icons.email_rounded, color: Color(0xFF6C757D)),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-      ),
-      validator: (value) {
-        if (value == null || value.isEmpty) {
-          return 'Veuillez entrer votre email';
-        }
-        if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-          return 'Email invalide';
-        }
-        return null;
-      },
-    );
+    return selectedDateTime.isBefore(now);
   }
 
   Widget _buildNotesField() {
-    return TextFormField(
-      controller: _notesController,
-      maxLines: 3,
-      decoration: InputDecoration(
-        labelText: 'Notes supplémentaires (optionnel)',
-        alignLabelWithHint: true,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.message_rounded, size: 18, color: _primaryColor),
+            const SizedBox(width: 8),
+            Text(
+              'Message (optionnel)',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: _textPrimary,
+                fontSize: 16,
+              ),
+            ),
+          ],
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: TextFormField(
+            controller: _notesController,
+            maxLines: 4,
+            decoration: InputDecoration(
+              hintText: 'Précisez vos besoins, questions ou contraintes...',
+              alignLabelWithHint: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: _borderColor),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: _borderColor),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: _primaryColor, width: 2),
+              ),
+              filled: true,
+              fillColor: _cardColor,
+              contentPadding: const EdgeInsets.all(18),
+              hintStyle: TextStyle(color: _textLight, fontSize: 15),
+            ),
+            style: TextStyle(fontSize: 15, color: _textPrimary),
+          ),
         ),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.all(16),
-      ),
+      ],
     );
   }
 
   Widget _buildSubmitButton() {
+    final isFormValid = _selectedDate != null && _selectedTime != null;
+
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: _isLoading ? null : _handleBooking,
+        onPressed: isFormValid && !_isLoading ? _handleBooking : null,
         style: ElevatedButton.styleFrom(
-          backgroundColor: _primaryColor,
+          backgroundColor: isFormValid ? _primaryColor : Colors.grey[400],
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
           padding: const EdgeInsets.symmetric(vertical: 18),
-          elevation: 2,
-          shadowColor: _primaryColor.withOpacity(0.3),
+          elevation: 4,
+          shadowColor: isFormValid ? _primaryColor.withOpacity(0.4) : Colors.transparent,
         ),
         child: _isLoading
-            ? const SizedBox(
-          width: 24,
-          height: 24,
+            ? SizedBox(
+          width: 22,
+          height: 22,
           child: CircularProgressIndicator(
             strokeWidth: 3,
             color: Colors.white,
           ),
         )
-            : const Text(
-          'CONFIRMER LA RÉSERVATION',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            letterSpacing: 0.5,
-          ),
+            : Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.calendar_today_rounded, size: 20),
+            const SizedBox(width: 10),
+            Text(
+              'CONFIRMER LA VISITE',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
         ),
       ),
     );
