@@ -1,15 +1,17 @@
-import 'package:casa/screens/FullScreenProfileImage.dart';
+import 'package:casa/screens/FullScreenImageViewer.dart';
+import 'package:casa/screens/FullScreenProfileImage.dart' hide FullScreenImageViewer;
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/Routes.dart';
+import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter_advanced_switch/flutter_advanced_switch.dart';
-
-import 'FullScreenImageViewer.dart';
+import '../models/PropertyImageModel.dart';
+import '../utils/FancyNotification.dart';
 
 class PropertyDetailPage extends StatefulWidget {
   final dynamic property;
@@ -25,11 +27,60 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   final Color _darkColor = Color(0xFF2D3748);
   final Color _lightColor = Color(0xFFF8F9FA);
   final Color _greyColor = Color(0xFF6C757D);
+  final Color _accentColor = Color(0xFFFF6B35);
+  final GetStorage storage = GetStorage();
 
   bool _showMoreFeatures = false;
+  bool _showAllImages = false;
   final _favoriteController = ValueNotifier<bool>(false);
   late final PageController _imageController;
   int _currentImageIndex = 0;
+
+  // Catégories d'images par pièces
+  final List<ImageCategory> _imageCategories = [
+    ImageCategory(
+      id: 'bedroom',
+      name: 'Chambres',
+      icon: FontAwesomeIcons.bed,
+      color: Color(0xFF4CAF50),
+    ),
+    ImageCategory(
+      id: 'living_room',
+      name: 'Salon',
+      icon: FontAwesomeIcons.couch,
+      color: Color(0xFF2196F3),
+    ),
+    ImageCategory(
+      id: 'kitchen',
+      name: 'Cuisine',
+      icon: FontAwesomeIcons.kitchenSet,
+      color: Color(0xFFFF9800),
+    ),
+    ImageCategory(
+      id: 'bathroom',
+      name: 'Salle de bain',
+      icon: FontAwesomeIcons.bath,
+      color: Color(0xFF9C27B0),
+    ),
+    ImageCategory(
+      id: 'exterior_front',
+      name: 'Devant maison',
+      icon: FontAwesomeIcons.home,
+      color: Color(0xFF795548),
+    ),
+    ImageCategory(
+      id: 'exterior_back',
+      name: 'Arrière maison',
+      icon: FontAwesomeIcons.tree,
+      color: Color(0xFF388E3C),
+    ),
+    ImageCategory(
+      id: 'other',
+      name: 'Autres pièces',
+      icon: FontAwesomeIcons.plus,
+      color: Color(0xFF607D8B),
+    ),
+  ];
 
   @override
   void initState() {
@@ -47,15 +98,47 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     super.dispose();
   }
 
+  // Grouper les images par catégorie avec le bon typage
+  // Grouper les images par catégorie avec le bon typage
+  Map<String, List<PropertyImageModel>> _getGroupedImages() {
+    final images = widget.property?.images ?? [];
+    final groupedImages = <String, List<PropertyImageModel>>{};
+
+    // Initialiser toutes les catégories
+    for (var category in _imageCategories) {
+      groupedImages[category.id] = [];
+    }
+
+    // Grouper les images par catégorie
+    for (var image in images) {
+      if (image is PropertyImageModel) {
+        final category = (image.category?.toString().toLowerCase() ?? 'other');
+        if (groupedImages.containsKey(category)) {
+          groupedImages[category]!.add(image);
+        } else {
+          groupedImages['other']!.add(image);
+        }
+      }
+    }
+
+    // Retirer les catégories vides
+    groupedImages.removeWhere((key, value) => value.isEmpty);
+
+    return groupedImages;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final groupedImages = _getGroupedImages();
+    final allImages = (widget.property?.images ?? []).whereType<PropertyImageModel>().toList();
+
     return Scaffold(
       backgroundColor: _lightColor,
       extendBody: true,
       body: CustomScrollView(
         slivers: [
           SliverToBoxAdapter(
-            child: _buildImageCarousel(),
+            child: _buildImageCarousel(allImages),
           ),
           SliverPadding(
             padding: EdgeInsets.symmetric(horizontal: 20),
@@ -70,9 +153,10 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 SizedBox(height: 24),
                 _buildDescriptionSection(),
                 SizedBox(height: 24),
-                _buildAdditionalFeaturesSection(),
+                // Nouvelle section pour les images groupées
+                _buildGroupedImagesSection(groupedImages),
                 SizedBox(height: 24),
-                _buildLocationSection(),
+                _buildAdditionalFeaturesSection(),
                 SizedBox(height: 24),
                 _buildAgentSection(),
                 SizedBox(height: 24),
@@ -83,31 +167,19 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           ),
         ],
       ),
-      // floatingActionButtonLocation: FloatingActionButtonLocation.miniStartTop,
-      // floatingActionButton: Padding(
-      //   padding: const EdgeInsets.only(top: 40),
-      //   child: FloatingActionButton(
-      //     mini: true,
-      //     backgroundColor: Colors.white.withOpacity(0.9),
-      //     elevation: 2,
-      //     onPressed: () => Navigator.pop(context),
-      //     child: Icon(Icons.arrow_back, color: _darkColor),
-      //   ),
-      // ),
       bottomSheet: _buildBottomActionBar(),
     );
   }
 
-  Widget _buildImageCarousel() {
-    final images = widget.property?.images ?? [];
+  Widget _buildImageCarousel(List<PropertyImageModel> images) {
     final carouselHeight = MediaQuery.of(context).size.height * 0.4;
     final property = widget.property;
 
     Future<void> _shareProperty() async {
       if (widget.property == null) return;
 
-      final firstImageUrl = widget.property.images?.isNotEmpty ?? false
-          ? '${Constantes.URL_IMAGES}${widget.property.images!.first.path}'
+      final firstImageUrl = images.isNotEmpty
+          ? '${Constantes.URL_IMAGES}${images.first.path}'
           : null;
 
       bool isForRent = widget.property.transactionType == "location";
@@ -121,7 +193,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         
         💰 ${priceText}
         🛏️ ${widget.property.bedrooms ?? 0} chambres
-        🚿 ${widget.property.bedrooms ?? 0} salles de bain
+        🚿 ${widget.property.bathroom ?? 0} salles de bain
         📐 ${widget.property.surface ?? 0} m²
         
         Découvrez plus de détails sur Yinzo!
@@ -285,6 +357,258 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
+  Widget _buildGroupedImagesSection(Map<String, List<PropertyImageModel>> groupedImages) {
+    if (groupedImages.isEmpty) return SizedBox();
+
+    final displayedCategories = _showAllImages
+        ? groupedImages.entries.toList()
+        : groupedImages.entries.take(3).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Galerie par pièces',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _darkColor,
+              ),
+            ),
+            if (groupedImages.length > 3)
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _showAllImages = !_showAllImages;
+                  });
+                },
+                child: Text(
+                  _showAllImages ? 'Voir moins' : 'Voir tout',
+                  style: TextStyle(
+                    color: _primaryColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        SizedBox(height: 16),
+        ...displayedCategories.map((entry) {
+          final categoryId = entry.key;
+          final images = entry.value;
+          final category = _imageCategories.firstWhere(
+                (cat) => cat.id == categoryId,
+            orElse: () => _imageCategories.last,
+          );
+
+          return _buildImageCategoryCard(category, images);
+        }),
+      ],
+    );
+  }
+
+  Widget _buildImageCategoryCard(ImageCategory category, List<PropertyImageModel> images) {
+    return Container(
+      margin: EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // En-tête de la catégorie
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: category.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    category.icon,
+                    color: category.color,
+                    size: 20,
+                  ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        category.name,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: _darkColor,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        '${images.length} photo(s)',
+                        style: TextStyle(
+                          color: _greyColor,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: category.color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${images.length}',
+                    style: TextStyle(
+                      color: category.color,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Grille d'images
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: 1,
+              ),
+              itemCount: images.length > 6 ? 6 : images.length,
+              itemBuilder: (context, index) {
+                final image = images[index];
+                final imagePath = image.path ?? '';
+                final correctedPath = imagePath.startsWith('/')
+                    ? imagePath.substring(1)
+                    : imagePath;
+                final imageUrl = '${Constantes.URL_IMAGES}$correctedPath';
+
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => FullScreenImageViewer(
+                          images: images,
+                          initialIndex: index,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey[200],
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(category.color),
+                              ),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            color: Colors.grey[200],
+                            child: Icon(
+                              Icons.photo,
+                              color: Colors.grey[400],
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (index == 5 && images.length > 6)
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.6),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Center(
+                            child: Text(
+                              '+${images.length - 6}',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // Bouton "Voir plus" si plus de 6 images
+          if (images.length > 6)
+            Padding(
+              padding: EdgeInsets.all(16),
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FullScreenImageViewer(
+                        images: images,
+                        initialIndex: 0,
+                        categoryName: category.name,
+                      ),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: category.color.withOpacity(0.1),
+                  foregroundColor: category.color,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                ),
+                icon: Icon(Icons.photo_library, size: 18),
+                label: Text(
+                  'Voir toutes les photos ${category.name.toLowerCase()}',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildActionButton({
     required IconData icon,
     Color iconColor = Colors.white,
@@ -311,8 +635,6 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       ),
     );
   }
-
-
 
   Widget _buildHeaderSection() {
     return Column(
@@ -407,22 +729,26 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 ),
               ),
               SizedBox(height: 4),
-              Text(
-                '${widget.property! .price!.toInt()}\$',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: _primaryColor,
-                ),
-              ),
-              if (widget.property?.transactionType == "location")
-                Text(
-                  '/mois',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: _greyColor,
+              Row(
+                children: [
+                  Text(
+                    '${widget.property! .price!.toInt()}\$',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: _primaryColor,
+                    ),
                   ),
-                ),
+                  if (widget.property?.transactionType == "location")
+                    Text(
+                      ' /mois',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _greyColor,
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
           Spacer(),
@@ -479,17 +805,17 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
               _buildFeatureItem(
                 'assets/images/douche.png',
-                '${widget.property!.bedrooms}',
+                '${widget.property!.bathroom}',
                 'SDB',
               ),
               _buildFeatureItem(
                 'assets/images/parking.png',
-                '1',
+                '${(widget.property?.floor ?? 0) >= 1 ? 'Oui' : 'Non'}',
                 'Parking',
               ),
               _buildFeatureItem(
                 'assets/images/bed.png',
-                '${widget.property!.floor}',
+                '${(widget.property?.floor ?? 0) >= 1 ? 'Oui' : 'Non'}',
                 'Étage',
               ),
             ],
@@ -502,22 +828,22 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             children: [
               _buildFeatureItem(
                 'assets/images/salon.png',
-                '2',
+                '${widget.property!.living_room}',
                 'Salons',
               ),
               _buildFeatureItem(
                 'assets/images/quisine.png',
-                '1',
+                '${widget.property!.kitchen}',
                 'Cuisine',
               ),
               _buildFeatureItem(
                 'assets/images/wifi.png',
-                'Oui',
+                '${widget.property?.features?.any((f) => f.name == 'WiFi') ?? false ? 'Oui' : 'Non'}',
                 'Wi-Fi',
               ),
               _buildFeatureItem(
                 'assets/images/clim.png',
-                'Oui',
+                '${widget.property?.features?.any((f) => f.name == 'Climatisation') ?? false ? 'Oui' : 'Non'}',
                 'Clim',
               ),
             ],
@@ -539,8 +865,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           ),
           child: Center(
             child: Image.asset(
-              imagePath, // Chemin de l'image dans vos assets
-              width: 40, // Taille similaire à votre icône originale (18 + padding)
+              imagePath,
+              width: 40,
               height: 40,
               fit: BoxFit.contain,
             ),
@@ -867,7 +1193,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                           user?.email ?? 'Non renseigné',
                           style: TextStyle(
                             color: _greyColor,
-                            fontSize: 13,
+                            fontSize: 12,
                           ),
                         ),
                       ],
@@ -992,7 +1318,20 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
+  void _navigateToBookingPage() {
+    final token = storage.read(StockageKeys.tokenKey);
+    if (token == null) {
+      FancyNotification.show(
+        context,
+        "Vous devez être connecté pour ajouter aux favoris",
+      );
+    } else {
+      Navigator.pushNamed(context, Routes.bookingVisitPageRoute, arguments: widget.property);
+    }
+  }
+
   Widget _buildBottomActionBar() {
+    final token = storage.read(StockageKeys.tokenKey);
     return Container(
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1008,7 +1347,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       child: ElevatedButton(
         onPressed: () {
           print("louuuuuuuuuuuuupe${widget.property}");
-          Navigator.pushNamed(context, Routes.bookingVisitPageRoute, arguments: widget.property);
+          _navigateToBookingPage();
         },
         style: ElevatedButton.styleFrom(
           backgroundColor: _primaryColor,
@@ -1036,6 +1375,18 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       ),
     );
   }
+}
 
+class ImageCategory {
+  final String id;
+  final String name;
+  final IconData icon;
+  final Color color;
 
+  ImageCategory({
+    required this.id,
+    required this.name,
+    required this.icon,
+    required this.color,
+  });
 }
