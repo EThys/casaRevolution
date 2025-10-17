@@ -18,7 +18,8 @@ import 'package:shimmer/shimmer.dart';
 
 import '../models/PropertyModel.dart';
 import '../utils/Routes.dart';
-import 'CategoryPropertiesPage.dart'; // Pour des icônes plus variées
+import 'CategoryPropertiesPage.dart';
+import 'NotificationPage.dart'; // Pour des icônes plus variées
 
 class HomePage extends StatefulWidget {
   @override
@@ -129,67 +130,203 @@ class _HomePageState extends State<HomePage>  {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      leading: IconButton(
-        icon: Icon(Icons.menu_rounded, color: Colors.white, size: 30),
-        onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-      ),
-      title: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Yinzo',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 22,
-              letterSpacing: 1.0,
-              shadows: [
-                Shadow(
-                  blurRadius: 2.0,
-                  color: Colors.black.withOpacity(0.3),
-                  offset: Offset(1, 1),
-                ),
-              ],
-          ),
-          )
-        ],
-      ),
-      centerTitle: true,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      automaticallyImplyLeading: false,
+      titleSpacing: 0,
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [darkBlue, primaryColor],
+            colors: [
+              darkBlue.withOpacity(0.98),
+              primaryColor.withOpacity(0.95),
+            ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
+            stops: [0.0, 0.8],
+          ),
+          borderRadius: BorderRadius.vertical(
+            bottom: Radius.circular(1),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              spreadRadius: 2,
-              blurRadius: 10,
-              offset: Offset(0, 2),
+              color: Colors.black.withOpacity(0.15),
+              blurRadius: 20,
+              offset: Offset(0, 8),
+              spreadRadius: 1,
             ),
           ],
         ),
       ),
-      elevation: 4,
-      actions: [
-        IconButton(
-          icon: Icon(Icons.search_rounded, size: 28, color: Colors.white),
-          onPressed: () {},
-        ),
-        IconButton(
-          icon: Badge(
-            smallSize: 8,
-            backgroundColor: Colors.red,
-            child: Icon(Icons.notifications_none_rounded, size: 28, color: Colors.white),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+      ),
+      leading: Container(
+        margin: EdgeInsets.only(left: 16, top: 8, bottom: 8),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.white.withOpacity(0.2),
+              Colors.white.withOpacity(0.1),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          onPressed: () {},
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
         ),
-        SizedBox(width: 8),
+        child: IconButton(
+          icon: Icon(Icons.menu_rounded, color: Colors.white, size: 24),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+          splashRadius: 20,
+          padding: EdgeInsets.zero,
+        ),
+      ),
+      title: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.2),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.9),
+                shape: BoxShape.circle,
+              ),
+              child: Image.asset(
+                "assets/images/yinzo.png",
+                height: 20,
+                width: 20,
+              ),
+            ),
+            SizedBox(width: 10),
+            Text(
+              "Casa",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: 0.5,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      centerTitle: true,
+      actions: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              margin: EdgeInsets.only(right: 16, top: 8, bottom: 8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.white.withOpacity(0.2),
+                    Colors.white.withOpacity(0.1),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: IconButton(
+                icon: Icon(
+                  Icons.notifications_outlined,
+                  color: Colors.white,
+                  size: 22,
+                ),
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) =>  NotificationsPage()));
+                },
+                splashRadius: 20,
+                padding: EdgeInsets.zero,
+              ),
+            ),
+            Positioned(
+              right: 12,
+              top: 10,
+              child: Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: Colors.redAccent,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.redAccent.withOpacity(0.6),
+                      blurRadius: 6,
+                      spreadRadius: 1,
+                    ),
+                  ],
+                  border: Border.all(
+                    color: Colors.white,
+                    width: 1.5,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    "3",
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      height: 1.2,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
+
+  /// Petit widget pour icônes stylées
+  Widget _buildCircleIcon(IconData icon, {VoidCallback? onTap}) {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(
+        icon: Icon(icon, color: Colors.white, size: 24),
+        onPressed: onTap,
+        splashRadius: 26,
+      ),
+    );
+  }
+
 
   void _confirmLogout() {
     showDialog(
@@ -282,98 +419,294 @@ class _HomePageState extends State<HomePage>  {
   }
 
   Widget _buildDrawer() {
+    final stockage = GetStorage();
+    final token = stockage.read(StockageKeys.tokenKey);
+    final user = stockage.read(StockageKeys.userKey);
+    bool isLoggedIn = token != null;
+
+    // État local pour suivre la route sélectionnée
+    String selectedRoute = ModalRoute.of(context)?.settings.name ?? Routes.bottomPageRoute;
+
     return SizedBox(
-        width: 270,
+      width: 295,
       child: Drawer(
+        elevation: 20,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.only(
-            topRight: Radius.circular(15),
-            bottomRight: Radius.circular(15),
+          borderRadius: BorderRadius.horizontal(
+            right: Radius.circular(10),
           ),
         ),
-        child: Material(
-          color: Colors.white,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.horizontal(
+              right: Radius.circular(24),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: darkBlue.withOpacity(0.15),
+                blurRadius: 30,
+                spreadRadius: 5,
+                offset: Offset(5, 0),
+              ),
+            ],
+          ),
           child: Column(
             children: [
+              // Header avec dégradé amélioré
               Container(
-                height: 230,
+                height: 215,
                 width: double.infinity,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [darkBlue, primaryColor],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
+                    stops: [0.0, 0.8],
                   ),
-                  borderRadius: BorderRadius.only(topRight: Radius.circular(20)),
+                  borderRadius: BorderRadius.only(
+                    topRight: Radius.circular(1),
+                    bottomRight: Radius.circular(1),
+                  ),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 30, 20, 20),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 35,
-                        backgroundColor: Colors.white,
-                        child: Icon(Icons.person, size: 36, color: primaryColor),
+                child: Stack(
+                  children: [
+                    // Effets de fond décoratifs
+                    Positioned(
+                      top: -20,
+                      right: -20,
+                      child: Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.1),
+                        ),
                       ),
-                      SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Bienvenue 👋',
+                    ),
+                    Positioned(
+                      bottom: -30,
+                      left: -30,
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.08),
+                        ),
+                      ),
+                    ),
+
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 50, 24, 20),
+                      child: Column(
+                        children: [
+                          // Avatar avec animation au tap
+                          GestureDetector(
+                            onTap: () {
+                              // Animation de l'avatar
+                              _animateAvatar();
+                            },
+                            child: AnimatedContainer(
+                              duration: Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                              padding: EdgeInsets.all(3),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: [Colors.white, Colors.grey[200]!],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.white.withOpacity(0.4),
+                                    blurRadius: 15,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: CircleAvatar(
+                                radius: 40,
+                                backgroundColor: Colors.white,
+                                child: Icon(
+                                  Icons.person,
+                                  size: 42,
+                                  color: primaryColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: 20),
+
+                          // Texte d'accueil avec animation
+                          AnimatedSwitcher(
+                            duration: Duration(milliseconds: 300),
+                            child: Text(
+                              isLoggedIn ? "Bonjour 👋 ${user?['username']}" : "Bienvenue 👋 Utilisateur",
+                              key: ValueKey(isLoggedIn),
                               style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 20,
+                                fontSize: 17,
                                 fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: 4,
+                                    offset: Offset(0, 1),
+                                  ),
+                                ],
                               ),
                             ),
-                            SizedBox(height: 6),
-                            Text(
-                              'Connectez-vous pour plus de fonctionnalités',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    ],
-                  ),
-                ),
-              ),
-              Expanded(
-                child: ListView(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  children: [
-                    _buildDrawerItem(icon: Icons.home_filled, title: 'Accueil',routeName: Routes.bottomPageRoute,),
-                    _buildDrawerItem(icon: Icons.favorite_rounded, title: 'Favoris',routeName: Routes.addBailleurPageRoute,),
-                    _buildDrawerItem(
-                      icon: Icons.calendar_today_rounded,
-                      title: 'Mes Réservations',
-                      routeName: Routes.bookingHistoryPageRoute,
-                    ),
-                    _buildDrawerItem(icon: Icons.people_alt_rounded, title: 'Parrainer', routeName: Routes.addBailleurPageRoute,),
-                    Divider(indent: 20, endIndent: 20),
-                    _buildDrawerItem(icon: Icons.settings_rounded, title: 'Paramètres',routeName: Routes.addBailleurPageRoute,),
-                    _buildDrawerItem(icon: Icons.help_outline_rounded, title: 'Aide & Support',routeName: Routes.addBailleurPageRoute,),
-                    _buildDrawerItem(icon: Icons.logout_rounded, title: 'Déconnexion',  onTap: () {
-                      _confirmLogout();
-                    },),
-                    Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
-                      child: Center(
-                        child: Text(
-                          'Version 1.0.0',
-                          style: TextStyle(color: Colors.grey, fontSize: 12),
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-              )
+              ),
+
+              // Liste des items avec effet de défilement fluide
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: BouncingScrollPhysics(),
+                  child: Column(
+                    children: [
+                      SizedBox(height: 16),
+
+                      // Section principale
+                      _buildDrawerSection(
+                        title: "PRINCIPAL",
+                        items: [
+                          _buildDrawerItem(
+                            icon: Icons.home_rounded,
+                            title: 'Accueil',
+                            routeName: Routes.bottomPageRoute,
+                            isSelected: selectedRoute == Routes.bottomPageRoute,
+                            onTap: () => _handleNavigation(Routes.bottomPageRoute),
+                          ),
+                          _buildDrawerItem(
+                            icon: Icons.favorite_rounded,
+                            title: 'Favoris',
+                            isSelected: selectedRoute == '/favorites',
+                            onTap: () => _handleNavigation('/favorites'),
+                          ),
+                          _buildDrawerItem(
+                            icon: Icons.calendar_today_rounded,
+                            title: 'Mes Réservations',
+                            routeName: Routes.bookingHistoryPageRoute,
+                            isSelected: selectedRoute == Routes.bookingHistoryPageRoute,
+                            onTap: () => _handleNavigation(Routes.bookingHistoryPageRoute),
+                          ),
+                          _buildDrawerItem(
+                            icon: Icons.dashboard_rounded,
+                            title: 'Ma gestion',
+                            routeName: Routes.commissionnaireDashboardPageRoute,
+                            isSelected: selectedRoute == Routes.commissionnaireDashboardPageRoute,
+                            onTap: () => _handleNavigation(Routes.commissionnaireDashboardPageRoute),
+                          ),
+                        ],
+                      ),
+
+                      // Section social
+                      _buildDrawerSection(
+                        title: "SOCIAL",
+                        items: [
+                          _buildDrawerItem(
+                            icon: Icons.people_alt_rounded,
+                            title: 'Parrainer',
+                            isSelected: selectedRoute == '/referral',
+                            onTap: () => _handleNavigation('/referral'),
+                          ),
+                          _buildDrawerItem(
+                            icon: Icons.share_rounded,
+                            title: 'Partager l\'app',
+                            isSelected: selectedRoute == '/share',
+                            onTap: () => _handleNavigation('/share'),
+                          ),
+                        ],
+                      ),
+
+                      // Section support
+                      _buildDrawerSection(
+                        title: "SUPPORT",
+                        items: [
+                          _buildDrawerItem(
+                            icon: Icons.settings_rounded,
+                            title: 'Paramètres',
+                            isSelected: selectedRoute == '/settings',
+                            onTap: () => _handleNavigation('/settings'),
+                          ),
+                          _buildDrawerItem(
+                            icon: Icons.help_outline_rounded,
+                            title: 'Aide & Support',
+                            isSelected: selectedRoute == '/help',
+                            onTap: () => _handleNavigation('/help'),
+                          ),
+                          _buildDrawerItem(
+                            icon: Icons.info_outline_rounded,
+                            title: 'À propos',
+                            isSelected: selectedRoute == '/about',
+                            onTap: () => _handleNavigation('/about'),
+                          ),
+                        ],
+                      ),
+
+                      // Section compte
+                      if (isLoggedIn)
+                        _buildDrawerSection(
+                          title: "COMPTE",
+                          items: [
+                            _buildDrawerItem(
+                              icon: Icons.logout_rounded,
+                              title: 'Déconnexion',
+                              isSelected: false,
+                              isDestructive: true,
+                              onTap: _confirmLogout,
+                            ),
+                          ],
+                        ),
+
+                      SizedBox(height: 20),
+
+                      // Version avec design moderne
+                      Container(
+                        margin: EdgeInsets.symmetric(horizontal: 24),
+                        padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[50],
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.grey[200]!,
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.verified_user_rounded,
+                              size: 14,
+                              color: primaryColor,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Version 1.0.0',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -381,41 +714,202 @@ class _HomePageState extends State<HomePage>  {
     );
   }
 
+// Méthode pour gérer la navigation
+  void _handleNavigation(String routeName) {
+    Navigator.pop(context); // Ferme le drawer
 
-  String _selectedRoute = Routes.bottomPageRoute; // Route initiale
+    if (routeName == Routes.bottomPageRoute ||
+        routeName == Routes.commissionnaireDashboardPageRoute ||
+        routeName == Routes.bookingHistoryPageRoute) {
+      // Navigation normale pour les routes existantes
+      Navigator.pushNamed(context, routeName);
+    } else {
+      // Pour les routes non implémentées, afficher un message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Fonctionnalité en cours de développement'),
+          backgroundColor: primaryColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+    }
+  }
+
+// Animation de l'avatar
+  void _animateAvatar() {
+    // Vous pouvez ajouter une animation ici si nécessaire
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Modifier le profil'),
+        duration: Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+
+// Widget pour créer une section du drawer
+  Widget _buildDrawerSection({
+    required String title,
+    required List<Widget> items,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          child: Text(
+            title,
+            style: TextStyle(
+              color: Colors.grey[500],
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+        Column(children: items),
+        SizedBox(height: 8),
+      ],
+    );
+  }
+
+// Widget pour un item du drawer avec animations
   Widget _buildDrawerItem({
     required IconData icon,
     required String title,
-    String? routeName, // routeName optionnel
-    VoidCallback? onTap, // callback optionnel pour action personnalisée
+    String? routeName,
+    required bool isSelected,
+    bool isDestructive = false,
+    required VoidCallback onTap,
   }) {
-    final isSelected = routeName != null && _selectedRoute == routeName;
+    final color = isDestructive
+        ? Colors.red
+        : (isSelected ? primaryColor : Colors.grey[700]);
 
-    return ListTile(
-      leading: Icon(icon, color: isSelected ? primaryColor : Colors.grey[700]),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: isSelected ? primaryColor : Colors.grey[800],
-          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+    final bgColor = isSelected ? primaryColor.withOpacity(0.1) : Colors.transparent;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(14),
+          border: isSelected ? Border.all(
+            color: primaryColor.withOpacity(0.3),
+            width: 1,
+          ) : null,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(14),
+            splashColor: isDestructive
+                ? Colors.red.withOpacity(0.1)
+                : primaryColor.withOpacity(0.1),
+            highlightColor: isDestructive
+                ? Colors.red.withOpacity(0.05)
+                : primaryColor.withOpacity(0.05),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              child: Row(
+                children: [
+                  AnimatedContainer(
+                    duration: Duration(milliseconds: 300),
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isSelected ? primaryColor.withOpacity(0.15) : Colors.grey[100],
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      icon,
+                      color: color,
+                      size: 20,
+                    ),
+                  ),
+                  SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 15,
+                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                  if (isSelected)
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 14,
+                      color: primaryColor,
+                    ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
-      selected: isSelected,
-      selectedTileColor: primaryColor.withOpacity(0.1),
-      onTap: () {
-        if (onTap != null) {
-          onTap(); // exécute l'action personnalisée
-        } else if (routeName != null) {
-          setState(() {
-            _selectedRoute = routeName;
-          });
-          Navigator.pushNamed(context, routeName);
-        }
-      },
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
     );
   }
+
+
+
+  String _selectedRoute = Routes.bottomPageRoute;
+
+  // Widget _buildDrawerItem({
+  //   required IconData icon,
+  //   required String title,
+  //   String? routeName,
+  //   VoidCallback? onTap,
+  // }) {
+  //   final isSelected = routeName != null && _selectedRoute == routeName;
+  //   return ListTile(
+  //     leading: Container(
+  //       padding: const EdgeInsets.all(8),
+  //       decoration: BoxDecoration(
+  //         color: isSelected ? primaryColor.withOpacity(0.1) : Colors.transparent,
+  //         shape: BoxShape.circle,
+  //       ),
+  //       child: Icon(
+  //         icon,
+  //         color: isSelected ? primaryColor : Colors.grey[700],
+  //         size: 22,
+  //       ),
+  //     ),
+  //     title: Text(
+  //       title,
+  //       style: TextStyle(
+  //         color: isSelected ? primaryColor : Colors.grey[800],
+  //         fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+  //       ),
+  //     ),
+  //     selected: isSelected,
+  //     selectedTileColor: primaryColor.withOpacity(0.1),
+  //     onTap: () {
+  //       if (onTap != null) {
+  //         onTap();
+  //       } else if (routeName != null) {
+  //         setState(() {
+  //           _selectedRoute = routeName;
+  //         });
+  //         Navigator.pushNamed(context, routeName);
+  //       }
+  //       // Si ni onTap ni routeName, rien ne se passe (pas de bug)
+  //     },
+  //     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  //     contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+  //   );
+  // }
+
 
 
 
