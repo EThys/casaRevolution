@@ -10,6 +10,10 @@ class Endpoints {
   static const String changePassword = "change-password";
   static const String deleteAccount = "delete-account";
 
+  static const String bailleur = "bailleur";
+  static const String commissionnaire = "commissionnaire";
+  static const String locataire = "locataire";
+
   // Property Endpoints
   static const String properties = "properties";
   static const String propertyDetail = "properties/";
@@ -33,8 +37,18 @@ class Endpoints {
   static const String updatePropertyType = "propertyType/";
   static const String deletePropertyType = "propertyType/";
 
+  // Property favorites Endpoints
+  static const String allFavories = "property-favorites";
+  static const String AddFavorite = "property-favorites";
+  static const String getMyfavorites = "users";
+  static const String removeMyfavorites = "property-favorites/remove";
+
   // Visit Endpoints
+  static const String allVisits = "visit/all";
   static const String visitsByStatus = "visits/status/";
   static const String changeVisitStatus = "visits/";
   static const String storeVisit = "visit";
+  static const String visits = "visits";
+  static const String visitsByUser = "visits/user";
+
 }
