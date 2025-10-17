@@ -21,7 +21,13 @@ class MonApplication extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    bool isFirstLaunch = _stockage.read(StockageKeys.firstLaunchKey) ?? true;
     var token = _stockage.read(StockageKeys.tokenKey);
+
+    // if (isFirstLaunch) {
+    //   _stockage.write(StockageKeys.firstLaunchKey, false);
+    // }
+
 
     return MultiProvider(
       providers: [
@@ -36,7 +42,7 @@ class MonApplication extends StatelessWidget {
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        useInheritedMediaQuery: true, // pour support dynamique de dark mode
+        useInheritedMediaQuery: true,
         theme: ThemeData(
           useMaterial3: true,
           colorScheme: ColorScheme.fromSeed(
@@ -55,9 +61,9 @@ class MonApplication extends StatelessWidget {
           Locale('en', 'US'),
         ],
         onGenerateRoute: RoutesManager.route,
-        initialRoute: Routes.bottomPageRoute,
-      ),
-    );
+          initialRoute:  Routes.splashRoute
+    ));
   }
 }
+
 
