@@ -4,30 +4,37 @@
 
 import 'dart:convert';
 
+import 'package:casa/utils/extensions/bool_int_converter.dart';
+
 PropertyImageModel propertyImageFromJson(String str) => PropertyImageModel.fromJson(json.decode(str));
 
 String propertyImageToJson(PropertyImageModel data) => json.encode(data.toJson());
 
 class PropertyImageModel {
-  int? propertyId;
-  String? path;
+  int? PropertyId;
   bool? isMain;
+  String? path;
+  String? category; // Ajout du champ category
 
   PropertyImageModel({
-    this.propertyId,
-    this.path,
+    this.PropertyId,
     this.isMain,
+    this.path,
+    this.category
+
   });
 
   factory PropertyImageModel.fromJson(Map<String, dynamic> json) => PropertyImageModel(
-    propertyId: json["PropertyId"],
+    PropertyId: json["PropertyId"],
+    isMain: json["isMain"] == 1 || json["isMain"] == true,
     path: json["path"],
-    isMain: json["isMain"],
+    category: json["category"],
   );
 
   Map<String, dynamic> toJson() => {
-    "PropertyId": propertyId,
+    "PropertyId": PropertyId,
+    "isMain": isMain == true ? 1 : 0,
     "path": path,
-    "isMain": isMain,
+    "category": category,
   };
 }
