@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 class FullScreenImageViewer extends StatefulWidget {
   final List<PropertyImageModel> images;
   final int initialIndex;
+  final String? categoryName; // Rend le paramètre optionnel
 
   const FullScreenImageViewer({
     required this.images,
     required this.initialIndex,
+    this.categoryName, // Paramètre optionnel
     Key? key,
   }) : super(key: key);
 
@@ -19,10 +21,12 @@ class FullScreenImageViewer extends StatefulWidget {
 
 class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
   late PageController _pageController;
+  late int _currentIndex;
 
   @override
   void initState() {
     super.initState();
+    _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
   }
 
@@ -41,6 +45,11 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
           PageView.builder(
             controller: _pageController,
             itemCount: widget.images.length,
+            onPageChanged: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
             itemBuilder: (context, index) {
               final image = widget.images[index];
               final imagePath = image.path ?? '';
@@ -58,23 +67,90 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
                       imageUrl: imageUrl,
                       fit: BoxFit.contain,
                       placeholder: (context, url) => Center(
-                        child: CircularProgressIndicator(),
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
                       ),
-                      errorWidget: (context, url, error) => Icon(Icons.error),
+                      errorWidget: (context, url, error) => Icon(
+                        Icons.broken_image,
+                        color: Colors.white,
+                        size: 50,
+                      ),
                     ),
                   ),
                 ),
               );
             },
           ),
+
+          // En-tête avec le nom de la catégorie et le compteur
+          if (widget.categoryName != null)
+            Positioned(
+              top: 60,
+              left: 0,
+              right: 0,
+              child: Column(
+                children: [
+                  Text(
+                    widget.categoryName!,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    '${_currentIndex + 1} / ${widget.images.length}',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // Bouton de fermeture
           Positioned(
             top: 40,
             right: 20,
             child: IconButton(
-              icon: Icon(Icons.close, color: Colors.white, size: 30),
+              icon: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.close, color: Colors.white, size: 24),
+              ),
               onPressed: () => Navigator.pop(context),
             ),
           ),
+
+          // Indicateur de page en bas
+          if (widget.images.length > 1)
+            Positioned(
+              bottom: 30,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(widget.images.length, (index) {
+                  return Container(
+                    width: 8,
+                    height: 8,
+                    margin: EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _currentIndex == index
+                          ? Colors.white
+                          : Colors.white.withOpacity(0.5),
+                    ),
+                  );
+                }),
+              ),
+            ),
         ],
       ),
     );
