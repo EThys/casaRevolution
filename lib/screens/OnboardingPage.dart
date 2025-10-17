@@ -1,3 +1,4 @@
+import 'package:casa/screens/BottomNavBar.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:flutter/material.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
@@ -207,7 +208,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                           ? ElevatedButton(
                         key: ValueKey('start_button'),
                         onPressed: () {
-                          Navigator.pushNamed(context, Routes.bottomPageRoute);
+                          Navigator.push(context, MaterialPageRoute(builder: (context) => BottomNavBar(),),);
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _pages[_currentPage].color,
