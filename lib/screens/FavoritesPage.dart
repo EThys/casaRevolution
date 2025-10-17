@@ -393,6 +393,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
     return AppBar(
       elevation: 2,
       backgroundColor: _primaryColor,
+      automaticallyImplyLeading: false,
       title: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -408,14 +409,6 @@ class _FavoritesPageState extends State<FavoritesPage> {
           ),
         ],
       ),
-      actions: [
-        IconButton(
-          icon: Icon(Icons.search_rounded, color: Colors.white),
-          onPressed: () {
-            // Action de recherche
-          },
-        ),
-      ],
 
       bottom: PreferredSize(
         preferredSize: Size.fromHeight(1),
@@ -918,7 +911,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                               'Ajouté ${_dateFormat.format(DateTime.now())}',
                               style: TextStyle(
                                 color: _mediumGrey,
-                                fontSize: 13,
+                                fontSize: 12,
                               ),
                             ),
                             Spacer(),
