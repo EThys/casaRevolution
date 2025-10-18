@@ -1,70 +1,74 @@
 import 'dart:convert';
-import 'package:casa/models/PropertyImageModel.dart';
+import 'TypeCardModel.dart';
+import 'UserModel.dart';
 
 BailleurModel bailleurModelFromJson(String str) => BailleurModel.fromJson(json.decode(str));
 String bailleurModelToJson(BailleurModel data) => json.encode(data.toJson());
 
 class BailleurModel {
-  String? prenom;
-  String? nom;
-  String? nomComplet;
-  String? telephone;
-  String? email;
-  String? adresse;
-  List<PropertyImageModel>? images;
-  int? parrainId;
   int? bailleurId;
-  int? typeCarteId;
-  String? numeroCarte;
+  String? firstName;
+  String? lastName;
+  String? fullName;
+  String? address;
+  dynamic images;
+  dynamic cardFront;
+  dynamic cardBack;
+  dynamic parrain;
+  UserModel? user;
+  TypeCardModel? typeCard;
+  String? numberCard;
   String? note;
 
   BailleurModel({
-    this.prenom,
-    this.nom,
-    this.nomComplet,
-    this.telephone,
-    this.email,
-    this.adresse,
-    this.images,
-    this.parrainId,
     this.bailleurId,
-    this.typeCarteId,
-    this.numeroCarte,
+    this.firstName,
+    this.lastName,
+    this.fullName,
+    this.address,
+    this.images,
+    this.cardFront,
+    this.cardBack,
+    this.parrain,
+    this.user,
+    this.typeCard,
+    this.numberCard,
     this.note,
   });
 
   factory BailleurModel.fromJson(Map<String, dynamic> json) => BailleurModel(
-    prenom: json["prenom"] ?? json["first_name"],
-    nom: json["nom"] ?? json["last_name"],
-    nomComplet: json["nom_complet"] ?? json["fullname"],
-    telephone: json["telephone"] ?? json["phone"],
-    email: json["email"],
-    adresse: json["adresse"] ?? json["address"],
-    images: json["images"] == null
+    bailleurId: json["bailleurId"] ?? json["id"],
+    firstName: json["firstName"] ?? json["prenom"],
+    lastName: json["lastName"] ?? json["nom"],
+    fullName: json["fullName"] ?? json["nomComplet"],
+    address: json["address"] ?? json["adresse"],
+    images: json["images"],
+    cardFront: json["cardFront"],
+    cardBack: json["cardBack"],
+    parrain: json["parrain"],
+    user: json["user"] == null
         ? null
-        : List<PropertyImageModel>.from(
-        json["images"].map((x) => PropertyImageModel.fromJson(x))),
-    parrainId: json["parrainId"] ?? json["ParrainId"],
-    bailleurId: json["bailleurId"] ?? json["UserId"],
-    typeCarteId: json["typeCarteId"] ?? json["TypeCardId"],
-    numeroCarte: json["numeroCarte"] ?? json["number_card"],
+        : UserModel.fromJson(json["user"]),
+    typeCard: json["typeCard"] == null
+        ? null
+        : TypeCardModel.fromJson(json["typeCard"]),
+    numberCard: json["numberCard"] ?? json["numeroCarte"],
     note: json["note"],
   );
 
   Map<String, dynamic> toJson() => {
-    "prenom": prenom,
-    "nom": nom,
-    "nom_complet": nomComplet,
-    "telephone": telephone,
-    "email": email,
-    "adresse": adresse,
-    "images": images == null
-        ? null
-        : List<dynamic>.from(images!.map((x) => x.toJson())),
-    "parrainId": parrainId,
     "bailleurId": bailleurId,
-    "typeCarteId": typeCarteId,
-    "numeroCarte": numeroCarte,
+    "firstName": firstName,
+    "lastName": lastName,
+    "fullName": fullName,
+    "address": address,
+    "images": images,
+    "cardFront": cardFront,
+    "cardBack": cardBack,
+    "parrain": parrain,
+    "user": user?.toJson(),
+    "typeCard": typeCard?.toJson(),
+    "numberCard": numberCard,
     "note": note,
   };
 }
