@@ -10,11 +10,13 @@ import 'package:get_storage/get_storage.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../models/PropertyModel.dart';
 import '../models/PropertyImageModel.dart';
+import '../models/PropertyFeatureModel.dart';
 import '../utils/FancyNotification.dart';
 
 class PropertyDetailPage extends StatefulWidget {
-  final dynamic property;
+  final PropertyModel property;
   const PropertyDetailPage({Key? key, required this.property}) : super(key: key);
 
   @override
@@ -39,46 +41,28 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   // Catégories d'images par pièces
   final List<ImageCategory> _imageCategories = [
     ImageCategory(
-      id: 'bedroom',
+      id: 'propertyImage',
+      name: 'Photos principales',
+      icon: FontAwesomeIcons.home,
+      color: Color(0xFF2196F3),
+    ),
+    ImageCategory(
+      id: 'propertyImageRoom',
       name: 'Chambres',
       icon: FontAwesomeIcons.bed,
       color: Color(0xFF4CAF50),
     ),
     ImageCategory(
-      id: 'living_room',
+      id: 'propertyImageLivingRoom',
       name: 'Salon',
       icon: FontAwesomeIcons.couch,
-      color: Color(0xFF2196F3),
-    ),
-    ImageCategory(
-      id: 'kitchen',
-      name: 'Cuisine',
-      icon: FontAwesomeIcons.kitchenSet,
       color: Color(0xFFFF9800),
     ),
     ImageCategory(
-      id: 'bathroom',
-      name: 'Salle de bain',
-      icon: FontAwesomeIcons.bath,
-      color: Color(0xFF9C27B0),
-    ),
-    ImageCategory(
-      id: 'exterior_front',
-      name: 'Devant maison',
-      icon: FontAwesomeIcons.home,
-      color: Color(0xFF795548),
-    ),
-    ImageCategory(
-      id: 'exterior_back',
-      name: 'Arrière maison',
-      icon: FontAwesomeIcons.tree,
-      color: Color(0xFF388E3C),
-    ),
-    ImageCategory(
-      id: 'other',
-      name: 'Autres pièces',
-      icon: FontAwesomeIcons.plus,
-      color: Color(0xFF607D8B),
+      id: 'propertyImageKitchen',
+      name: 'Cuisine',
+      icon: FontAwesomeIcons.kitchenSet,
+      color: Color(0xFFF44336),
     ),
   ];
 
@@ -101,7 +85,6 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   // Grouper les images par catégorie avec le bon typage
   // Grouper les images par catégorie avec le bon typage
   Map<String, List<PropertyImageModel>> _getGroupedImages() {
-    final images = widget.property?.images ?? [];
     final groupedImages = <String, List<PropertyImageModel>>{};
 
     // Initialiser toutes les catégories
@@ -109,16 +92,30 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       groupedImages[category.id] = [];
     }
 
-    // Grouper les images par catégorie
-    for (var image in images) {
-      if (image is PropertyImageModel) {
-        final category = (image.category?.toString().toLowerCase() ?? 'other');
-        if (groupedImages.containsKey(category)) {
-          groupedImages[category]!.add(image);
-        } else {
-          groupedImages['other']!.add(image);
-        }
-      }
+    // Grouper les images principales
+    if (widget.property.propertyImage != null) {
+      groupedImages['propertyImage'] = widget.property.propertyImage!;
+    }
+
+    // Grouper les images des chambres
+    if (widget.property.propertyImageRoom != null) {
+      groupedImages['propertyImageRoom'] = widget.property.propertyImageRoom!
+          .map((roomImage) => PropertyImageModel(path: roomImage.path))
+          .toList();
+    }
+
+    // Grouper les images du salon
+    if (widget.property.propertyImageLivingRoom != null) {
+      groupedImages['propertyImageLivingRoom'] = widget.property.propertyImageLivingRoom!
+          .map((livingRoomImage) => PropertyImageModel(path: livingRoomImage.path))
+          .toList();
+    }
+
+    // Grouper les images de la cuisine
+    if (widget.property.propertyImageKitchen != null) {
+      groupedImages['propertyImageKitchen'] = widget.property.propertyImageKitchen!
+          .map((kitchenImage) => PropertyImageModel(path: kitchenImage.path))
+          .toList();
     }
 
     // Retirer les catégories vides
@@ -127,10 +124,44 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     return groupedImages;
   }
 
+  // Obtenir toutes les images pour le carousel principal
+  // Obtenir toutes les images pour le carousel principal
+  List<PropertyImageModel> _getAllImages() {
+    final allImages = <PropertyImageModel>[];
+
+    if (widget.property.propertyImage != null) {
+      allImages.addAll(widget.property.propertyImage!);
+    }
+    if (widget.property.propertyImageRoom != null) {
+      // Ne pas caster, mais extraire les PropertyImageModel
+      allImages.addAll(widget.property.propertyImageRoom!.map((roomImage) =>
+          PropertyImageModel(
+            path: roomImage.path,
+            // Ajoutez d'autres propriétés nécessaires selon votre modèle
+          )));
+    }
+    if (widget.property.propertyImageLivingRoom != null) {
+      allImages.addAll(widget.property.propertyImageLivingRoom!.map((livingRoomImage) =>
+          PropertyImageModel(
+            path: livingRoomImage.path,
+            // Ajoutez d'autres propriétés nécessaires selon votre modèle
+          )));
+    }
+    if (widget.property.propertyImageKitchen != null) {
+      allImages.addAll(widget.property.propertyImageKitchen!.map((kitchenImage) =>
+          PropertyImageModel(
+            path: kitchenImage.path,
+            // Ajoutez d'autres propriétés nécessaires selon votre modèle
+          )));
+    }
+
+    return allImages;
+  }
+
   @override
   Widget build(BuildContext context) {
     final groupedImages = _getGroupedImages();
-    final allImages = (widget.property?.images ?? []).whereType<PropertyImageModel>().toList();
+    final allImages = _getAllImages();
 
     return Scaffold(
       backgroundColor: _lightColor,
@@ -158,7 +189,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 SizedBox(height: 24),
                 _buildAdditionalFeaturesSection(),
                 SizedBox(height: 24),
-                _buildAgentSection(),
+                _buildLocationSection(),
                 SizedBox(height: 24),
                 _buildSimilarProperties(),
                 SizedBox(height: 100),
@@ -173,23 +204,20 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
   Widget _buildImageCarousel(List<PropertyImageModel> images) {
     final carouselHeight = MediaQuery.of(context).size.height * 0.4;
-    final property = widget.property;
 
     Future<void> _shareProperty() async {
-      if (widget.property == null) return;
-
       final firstImageUrl = images.isNotEmpty
-          ? '${Constantes.URL_IMAGES}${images.first.path}'
+          ? '${images.first.path ?? images.first.path}'
           : null;
 
-      bool isForRent = widget.property.transactionType == "location";
+      bool isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
 
       final priceText = isForRent
           ? '${widget.property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
           : '${widget.property.price?.toStringAsFixed(0) ?? '0'}\$';
 
       final shareText = '''
-        🏠 ${widget.property.title ?? 'Belle propriété'} - ${widget.property.commune ?? ''}, ${widget.property.city ?? ''}
+        🏠 ${widget.property.title ?? 'Belle propriété'} - ${widget.property.address ?? ''}
         
         💰 ${priceText}
         🛏️ ${widget.property.bedrooms ?? 0} chambres
@@ -203,7 +231,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         final box = context.findRenderObject() as RenderBox?;
         await Share.share(
           shareText,
-          subject: 'Propriété ${widget.property.transactionType == "location" ? 'à louer' : 'à vendre'}',
+          subject: 'Propriété ${isForRent ? 'à louer' : 'à vendre'}',
           sharePositionOrigin: box!.localToGlobal(Offset.zero) & box.size ?? Rect.zero,
         );
       } catch (e) {
@@ -230,11 +258,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             },
             itemBuilder: (context, index) {
               final image = images[index];
-              final imagePath = image.path ?? '';
+              final imagePath = image.path ?? image.path ?? '';
               final correctedPath = imagePath.startsWith('/')
                   ? imagePath.substring(1)
                   : imagePath;
-              final imageUrl = '${Constantes.URL_IMAGES}$correctedPath';
+              final imageUrl = '${correctedPath}';
 
               return GestureDetector(
                 onTap: () {
@@ -249,7 +277,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                   );
                 },
                 child: Hero(
-                  tag: 'property_image_${property?.PropertyId}_$index',
+                  tag: 'property_image_${widget.property.propertyId}_$index',
                   child: CachedNetworkImage(
                     imageUrl: imageUrl,
                     fit: BoxFit.cover,
@@ -342,14 +370,14 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
               const SizedBox(width: 12),
               // Favorite button
-              if (property?.PropertyId != null)
-                FavoriteHeartIcon(
-                  propertyId: property!.PropertyId.toString(),
-                  size: 32,
-                  splashRadius: 24,
-                  activeColor: Colors.red,
-                  inactiveColor: Colors.white,
-                ),
+              // if (widget.property.propertyId != null)
+              //   FavoriteHeartIcon(
+              //     propertyId: widget.property.propertyId.toString(),
+              //     size: 32,
+              //     splashRadius: 24,
+              //     activeColor: Colors.red,
+              //     inactiveColor: Colors.white,
+              //   ),
             ],
           ),
         ),
@@ -401,7 +429,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           final images = entry.value;
           final category = _imageCategories.firstWhere(
                 (cat) => cat.id == categoryId,
-            orElse: () => _imageCategories.last,
+            orElse: () => _imageCategories.first,
           );
 
           return _buildImageCategoryCard(category, images);
@@ -502,11 +530,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               itemCount: images.length > 6 ? 6 : images.length,
               itemBuilder: (context, index) {
                 final image = images[index];
-                final imagePath = image.path ?? '';
+                final imagePath = image.path ?? image.path ?? '';
                 final correctedPath = imagePath.startsWith('/')
                     ? imagePath.substring(1)
                     : imagePath;
-                final imageUrl = '${Constantes.URL_IMAGES}$correctedPath';
+                final imageUrl = '${correctedPath}';
 
                 return GestureDetector(
                   onTap: () {
@@ -637,6 +665,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   Widget _buildHeaderSection() {
+    final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -646,7 +676,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             Chip(
               backgroundColor: _primaryColor.withOpacity(0.1),
               label: Text(
-                widget.property?.transactionType == "location" ? 'À LOUER' : 'À VENDRE',
+                isForRent ? 'À LOUER' : 'À VENDRE',
                 style: TextStyle(
                   color: _primaryColor,
                   fontSize: 12,
@@ -656,24 +686,25 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               shape: StadiumBorder(),
               padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             ),
-            Chip(
-              backgroundColor: _secondaryColor.withOpacity(0.1),
-              label: Text(
-                "${widget.property?.property_type.name}" ?? '',
-                style: TextStyle(
-                  color: _secondaryColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
+            if (widget.property.propertyTypeId != null)
+              Chip(
+                backgroundColor: _secondaryColor.withOpacity(0.1),
+                label: Text(
+                  _getPropertyTypeText(widget.property.propertyTypeId!),
+                  style: TextStyle(
+                    color: _secondaryColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
+                shape: StadiumBorder(),
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               ),
-              shape: StadiumBorder(),
-              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            ),
           ],
         ),
         SizedBox(height: 16),
         Text(
-          widget.property!.title ?? '',
+          widget.property.title ?? 'Sans titre',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
@@ -688,7 +719,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             SizedBox(width: 6),
             Expanded(
               child: Text(
-                widget.property!.address ?? "",
+                widget.property.address ?? "Adresse non disponible",
                 style: TextStyle(
                   color: _greyColor,
                   fontSize: 15,
@@ -701,7 +732,21 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
+  String _getPropertyTypeText(int propertyTypeId) {
+    switch (propertyTypeId) {
+      case 1: return 'Studio';
+      case 2: return 'Appartement';
+      case 3: return 'Maison';
+      case 4: return 'Bureau';
+      case 5: return 'Hôtel';
+      case 6: return 'Résidence vacances';
+      default: return 'Propriété';
+    }
+  }
+
   Widget _buildPriceSection() {
+    final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
+
     return Container(
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -732,14 +777,14 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               Row(
                 children: [
                   Text(
-                    '${widget.property! .price!.toInt()}\$',
+                    '${widget.property.price?.toInt() ?? 0}\$',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                       color: _primaryColor,
                     ),
                   ),
-                  if (widget.property?.transactionType == "location")
+                  if (isForRent)
                     Text(
                       ' /mois',
                       style: TextStyle(
@@ -765,7 +810,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
               SizedBox(height: 4),
               Text(
-                '${widget.property!.surface!.toInt()} m²',
+                '${widget.property.surface?.toInt() ?? 0} m²',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -780,6 +825,10 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   Widget _buildFeaturesSection() {
+    final hasWifi = widget.property.features?.any((f) => f.name?.toLowerCase().contains('wifi') ?? false) ?? false;
+    final hasClim = widget.property.features?.any((f) => f.name?.toLowerCase().contains('climatisation') ?? false) ?? false;
+    final hasParking = widget.property.features?.any((f) => f.name?.toLowerCase().contains('parking') ?? false) ?? false;
+
     return Container(
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -800,22 +849,22 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             children: [
               _buildFeatureItem(
                 'assets/images/bed.png',
-                '${widget.property!.bedrooms}',
+                '${widget.property.bedrooms ?? 0}',
                 'Chambres',
               ),
               _buildFeatureItem(
                 'assets/images/douche.png',
-                '${widget.property!.bathroom}',
+                '${widget.property.bathroom ?? 0}',
                 'SDB',
               ),
               _buildFeatureItem(
                 'assets/images/parking.png',
-                '${(widget.property?.floor ?? 0) >= 1 ? 'Oui' : 'Non'}',
+                hasParking ? 'Oui' : 'Non',
                 'Parking',
               ),
               _buildFeatureItem(
                 'assets/images/bed.png',
-                '${(widget.property?.floor ?? 0) >= 1 ? 'Oui' : 'Non'}',
+                '${widget.property.floor ?? 0}',
                 'Étage',
               ),
             ],
@@ -828,22 +877,22 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             children: [
               _buildFeatureItem(
                 'assets/images/salon.png',
-                '${widget.property!.living_room}',
+                '${widget.property.livingRoom ?? 0}',
                 'Salons',
               ),
               _buildFeatureItem(
                 'assets/images/quisine.png',
-                '${widget.property!.kitchen}',
+                '${widget.property.kitchen ?? 0}',
                 'Cuisine',
               ),
               _buildFeatureItem(
                 'assets/images/wifi.png',
-                '${widget.property?.features?.any((f) => f.name == 'WiFi') ?? false ? 'Oui' : 'Non'}',
+                hasWifi ? 'Oui' : 'Non',
                 'Wi-Fi',
               ),
               _buildFeatureItem(
                 'assets/images/clim.png',
-                '${widget.property?.features?.any((f) => f.name == 'Climatisation') ?? false ? 'Oui' : 'Non'}',
+                hasClim ? 'Oui' : 'Non',
                 'Clim',
               ),
             ],
@@ -907,7 +956,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         ),
         SizedBox(height: 12),
         Text(
-          widget.property!.description ?? "",
+          widget.property.description ?? "Aucune description disponible",
           style: TextStyle(
             color: _darkColor.withOpacity(0.8),
             fontSize: 15,
@@ -919,14 +968,26 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   Widget _buildAdditionalFeaturesSection() {
+    final hasElevator = widget.property.features?.any((f) => f.name?.toLowerCase().contains('ascenseur') ?? false) ?? false;
+    final hasPool = widget.property.features?.any((f) => f.name?.toLowerCase().contains('piscine') ?? false) ?? false;
+    final hasGarden = widget.property.features?.any((f) => f.name?.toLowerCase().contains('jardin') ?? false) ?? false;
+    final hasTerrace = widget.property.features?.any((f) => f.name?.toLowerCase().contains('terrasse') ?? false) ?? false;
+
     final features = {
-      'Construction': '2015',
-      'État du bien': 'Excellent',
-      'Ascenseur': widget.property?.features?.any((f) => f.name == 'Ascenseur') ?? false ? 'Oui' : 'Non',
-      'Parking': 'Sous-sol',
-      'Terrasse': '12 m²',
-      'Piscine': widget.property?.features?.any((f) => f.name == 'Piscine') ?? false ? 'Oui' : 'Non',
+      'Chambres': '${widget.property.bedrooms ?? 0}',
+      'Salles de bain': '${widget.property.bathroom ?? 0}',
+      'Surface': '${widget.property.surface ?? 0} m²',
+      'Étage': '${widget.property.floor ?? 0}',
+      'Ascenseur': hasElevator ? 'Oui' : 'Non',
+      'Piscine': hasPool ? 'Oui' : 'Non',
+      'Jardin': hasGarden ? 'Oui' : 'Non',
+      'Terrasse': hasTerrace ? 'Oui' : 'Non',
     };
+
+    final displayedFeatures = _showMoreFeatures
+        ? features.entries.toList()
+        : features.entries.take(4).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -966,7 +1027,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           Wrap(
             spacing: 12,
             runSpacing: 12,
-            children: features.entries.map((e) => Container(
+            children: displayedFeatures.map((e) => Container(
               width: (MediaQuery.of(context).size.width - 64) / 2,
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -984,7 +1045,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Center(
-                      child: Image.asset("assets/images/check.png",width: 16,height: 20,),
+                      child: Image.asset("assets/images/check.png", width: 16, height: 20),
                     ),
                   ),
                   SizedBox(width: 12),
@@ -1036,9 +1097,18 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             color: Colors.grey[200],
-            image: DecorationImage(
-              image: AssetImage('assets/map_placeholder.jpg'),
-              fit: BoxFit.cover,
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.map, size: 40, color: _greyColor),
+                SizedBox(height: 8),
+                Text(
+                  'Carte non disponible',
+                  style: TextStyle(color: _greyColor),
+                ),
+              ],
             ),
           ),
         ),
@@ -1052,7 +1122,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.property!.address ?? "",
+                    widget.property.address ?? "Adresse non disponible",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
@@ -1060,7 +1130,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    'À 5 min à pied du métro le plus proche',
+                    '${widget.property.quartier ?? ''}, ${widget.property.communeId ?? ''}',
                     style: TextStyle(
                       color: _greyColor,
                       fontSize: 14,
@@ -1069,146 +1139,14 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 ],
               ),
             ),
-            TextButton(
-              onPressed: () {},
-              child: Text('Itinéraire', style: TextStyle(color: _primaryColor)),
-            ),
           ],
         ),
       ],
     );
   }
 
-  Widget _buildAgentSection() {
-    final user = widget.property?.user;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Agent immobilier',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: _darkColor,
-          ),
-        ),
-        SizedBox(height: 16),
-        Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              GestureDetector(
-                onTap: () {
-                  if (user?.profilePicture != null) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => FullScreenProfileImage(
-                          imageUrl: '${Constantes.URL_IMAGES}${user!.profilePicture!}',
-                        ),
-                      ),
-                    );
-                  }
-                },
-                child: Hero(
-                  tag: 'profile_image_${user?.userId}',
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      image: DecorationImage(
-                        image: user?.profilePicture != null
-                            ? NetworkImage('${Constantes.URL_IMAGES}${user!.profilePicture!}')
-                            : AssetImage('assets/images/default_profile.png') as ImageProvider,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      user?.fullname ?? user?.username ?? 'Nom non disponible',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: _darkColor,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    if (user?.isAgent ?? false)
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.verified, size: 16, color: Colors.green),
-                          SizedBox(width: 4),
-                          Text(
-                            "Agent certifié",
-                            style: TextStyle(
-                              color: _primaryColor,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      )
-                    else if (user?.isAdmin ?? false)
-                      Text(
-                        "Administrateur",
-                        style: TextStyle(
-                          color: Colors.red,
-                          fontSize: 13,
-                        ),
-                      )
-                    else
-                      Text(
-                        "Particulier",
-                        style: TextStyle(
-                          color: _greyColor,
-                          fontSize: 13,
-                        ),
-                      ),
-                    SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(Icons.email, size: 16, color: _greyColor),
-                        SizedBox(width: 8),
-                        Text(
-                          user?.email ?? 'Non renseigné',
-                          style: TextStyle(
-                            color: _greyColor,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildSimilarProperties() {
+    // Cette section peut être remplie avec des données réelles plus tard
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1221,97 +1159,17 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           ),
         ),
         SizedBox(height: 16),
-        SizedBox(
-          height: 240,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: 4,
-            separatorBuilder: (_, __) => SizedBox(width: 16),
-            itemBuilder: (context, index) {
-              return Container(
-                width: 180,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                      child: Container(
-                        height: 120,
-                        color: Colors.grey[200],
-                        child: Center(
-                          child: Icon(Icons.home, size: 40, color: Colors.grey[400]),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Appartement moderne',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                              color: _darkColor,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          SizedBox(height: 6),
-                          Row(
-                            children: [
-                              Icon(Icons.location_on, size: 14, color: _greyColor),
-                              SizedBox(width: 4),
-                              Text(
-                                'Paris',
-                                style: TextStyle(color: _greyColor, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                          SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                '\$1,200',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  color: _primaryColor,
-                                ),
-                              ),
-                              Row(
-                                children: [
-                                  Icon(Icons.king_bed, size: 14, color: _greyColor),
-                                  SizedBox(width: 4),
-                                  Text('3', style: TextStyle(fontSize: 12, color: _greyColor)),
-                                  SizedBox(width: 8),
-                                  Icon(Icons.bathtub, size: 14, color: _greyColor),
-                                  SizedBox(width: 4),
-                                  Text('2', style: TextStyle(fontSize: 12, color: _greyColor)),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
+        Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Center(
+            child: Text(
+              'Aucune propriété similaire pour le moment',
+              style: TextStyle(color: _greyColor),
+            ),
           ),
         ),
       ],
@@ -1323,15 +1181,18 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     if (token == null) {
       FancyNotification.show(
         context,
-        "Vous devez être connecté pour ajouter aux favoris",
+        "Vous devez être connecté pour planifier une visite",
       );
     } else {
-      Navigator.pushNamed(context, Routes.bookingVisitPageRoute, arguments: widget.property);
+      Navigator.pushNamed(
+          context,
+          Routes.bookingVisitPageRoute,
+          arguments: widget.property
+      );
     }
   }
 
   Widget _buildBottomActionBar() {
-    final token = storage.read(StockageKeys.tokenKey);
     return Container(
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1345,10 +1206,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         ],
       ),
       child: ElevatedButton(
-        onPressed: () {
-          print("louuuuuuuuuuuuupe${widget.property}");
-          _navigateToBookingPage();
-        },
+        onPressed: _navigateToBookingPage,
         style: ElevatedButton.styleFrom(
           backgroundColor: _primaryColor,
           foregroundColor: Colors.white,
