@@ -210,8 +210,12 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
         : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
 
-    final firstImagePath = property.images?.isNotEmpty ?? false
-        ? property.images!.first.path
+    // Utilisation des vraies images du modèle
+    final firstImage = property.propertyImage?.isNotEmpty ?? false
+        ? property.propertyImage!.first
+        : null;
+    final imageUrl = firstImage != null
+        ? "${firstImage.path ?? firstImage.path}"
         : null;
 
     String propertyType = _getPropertyTypeFromTitle(property.title);
@@ -255,9 +259,9 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                   // Image principale
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: firstImagePath != null
+                    child: imageUrl != null
                         ? CachedNetworkImage(
-                      imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: double.infinity,
@@ -344,13 +348,13 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                           ),
                         ],
                       ),
-                      child: FavoriteHeartIcon(
-                        propertyId: property.PropertyId.toString(),
-                        size: 20,
-                        splashRadius: 18,
-                        activeColor: Colors.red,
-                        inactiveColor: _greyColor,
-                      ),
+                      // child: FavoriteHeartIcon(
+                      //   propertyId: property.propertyId.toString(),
+                      //   size: 20,
+                      //   splashRadius: 18,
+                      //   activeColor: Colors.red,
+                      //   inactiveColor: _greyColor,
+                      // ),
                     ),
                   ),
 
@@ -406,7 +410,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            '${property.commune ?? ''}, ${property.city ?? ''}',
+                            property.address ?? 'Adresse non disponible',
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 13,
@@ -432,7 +436,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                         ),
                         _buildFeatureItem(
                           icon: FontAwesomeIcons.bath,
-                          value: '${property.bedrooms ?? 0}',
+                          value: '${property.bathroom ?? 0}',
                           label: 'SDB',
                         ),
                         _buildFeatureItem(
@@ -456,7 +460,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                         ),
                       ),
                       child: Text(
-                        widget.isForRent ? 'À LOUER' : 'À VENDRE',
+                        _getTransactionTypeText(property.transactionType),
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
@@ -480,9 +484,15 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
         : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
 
-    final firstImagePath = property.images?.isNotEmpty ?? false
-        ? property.images!.first.path
+    // Utilisation des vraies images du modèle
+    final firstImage = property.propertyImage?.isNotEmpty ?? false
+        ? property.propertyImage!.first
         : null;
+    final imageUrl = firstImage != null
+        ? "${firstImage.path ?? firstImage.path}"
+        : null;
+
+    print("MATONDOOOOOOOOOOOOEEEE${imageUrl}");
 
     String propertyType = _getPropertyTypeFromTitle(property.title);
 
@@ -524,9 +534,9 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                     // Image principale
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: firstImagePath != null
+                      child: imageUrl != null
                           ? CachedNetworkImage(
-                        imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
+                        imageUrl: imageUrl,
                         fit: BoxFit.cover,
                         width: double.infinity,
                         height: double.infinity,
@@ -606,13 +616,13 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                             ),
                           ],
                         ),
-                        child: FavoriteHeartIcon(
-                          propertyId: property.PropertyId.toString(),
-                          size: 18,
-                          splashRadius: 16,
-                          activeColor: Colors.red,
-                          inactiveColor: _greyColor,
-                        ),
+                        // child: FavoriteHeartIcon(
+                        //   propertyId: property.propertyId.toString(),
+                        //   size: 18,
+                        //   splashRadius: 16,
+                        //   activeColor: Colors.red,
+                        //   inactiveColor: _greyColor,
+                        // ),
                       ),
                     ),
 
@@ -673,7 +683,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                             SizedBox(width: 2),
                             Expanded(
                               child: Text(
-                                '${property.commune ?? ''}, ${property.city ?? ''}',
+                                property.address ?? 'Adresse non disponible',
                                 style: TextStyle(
                                   color: _greyColor,
                                   fontSize: 10,
@@ -692,7 +702,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         _buildMiniFeatureItem(FontAwesomeIcons.bed, '${property.bedrooms ?? 0}'),
-                        _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bedrooms ?? 0}'),
+                        _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bathroom ?? 0}'),
                         _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}'),
                       ],
                     ),
@@ -708,7 +718,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                         ),
                       ),
                       child: Text(
-                        widget.isForRent ? 'LOCATION' : 'VENTE',
+                        _getTransactionTypeText(property.transactionType),
                         style: TextStyle(
                           fontSize: 8,
                           fontWeight: FontWeight.w600,
@@ -783,11 +793,11 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
 
   // Navigation vers la page de détail
   void _navigateToDetail(PropertyModel property) {
-    Navigator.pushNamed(
-      context,
-      Routes.detailPageRoute,
-      arguments: property,
-    );
+    // Navigator.pushNamed(
+    //   context,
+    //   Routes.detailPageRoute,
+    //   arguments: property,
+    // );
   }
 
   // Méthode pour déterminer le type de propriété depuis le titre
@@ -795,14 +805,14 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
     if (title == null) return 'Propriété';
 
     final lowerTitle = title.toLowerCase();
-    if (lowerTitle.contains('appartement') || lowerTitle.contains('apartement')) {
-      return 'Appartement';
-    } else if (lowerTitle.contains('maison')) {
-      return 'Maison';
-    } else if (lowerTitle.contains('studio')) {
-      return 'Studio';
-    } else if (lowerTitle.contains('villa')) {
-      return 'Villa';
+    if (lowerTitle.contains('appartements') || lowerTitle.contains('apartements')) {
+      return 'Appartements';
+    } else if (lowerTitle.contains('maisons')) {
+      return 'Maisons';
+    } else if (lowerTitle.contains('studios')) {
+      return 'Studios';
+    } else if (lowerTitle.contains('villas')) {
+      return 'Villas';
     } else if (lowerTitle.contains('duplex')) {
       return 'Duplex';
     } else if (lowerTitle.contains('loft')) {
@@ -813,6 +823,19 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
     return 'Propriété';
   }
 
+  // Méthode pour obtenir le texte du type de transaction
+  String _getTransactionTypeText(String? transactionType) {
+    if (transactionType == null) return widget.isForRent ? 'LOCATION' : 'VENTE';
+
+    final lowerType = transactionType.toLowerCase();
+    if (lowerType.contains('rent') || lowerType.contains('location')) {
+      return 'LOCATION';
+    } else if (lowerType.contains('sale') || lowerType.contains('vente')) {
+      return 'VENTE';
+    }
+    return widget.isForRent ? 'LOCATION' : 'VENTE';
+  }
+
   void _applyFilters() {
     setState(() {
       _filteredProperties = widget.initialProperties.where((property) {
@@ -820,8 +843,8 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         return searchText.isEmpty ||
             (property.title?.toLowerCase().contains(searchText) ?? false) ||
             (property.description?.toLowerCase().contains(searchText) ?? false) ||
-            (property.commune?.toLowerCase().contains(searchText) ?? false) ||
-            (property.city?.toLowerCase().contains(searchText) ?? false);
+            (property.address?.toLowerCase().contains(searchText) ?? false) ||
+            (property.quartier?.toLowerCase().contains(searchText) ?? false);
       }).toList();
     });
   }

@@ -9,21 +9,21 @@ PropertyFeatureModel propertyFeatureModelFromJson(String str) => PropertyFeature
 String propertyFeatureModelToJson(PropertyFeatureModel data) => json.encode(data.toJson());
 
 class PropertyFeatureModel {
+  int? featureId;
   String? name;
-  String? description;
 
   PropertyFeatureModel({
+    this.featureId,
     this.name,
-    this.description,
   });
 
   factory PropertyFeatureModel.fromJson(Map<String, dynamic> json) => PropertyFeatureModel(
+    featureId: json["featureId"],
     name: json["name"],
-    description: json["description"],
   );
 
   Map<String, dynamic> toJson() => {
+    "featureId": featureId,
     "name": name,
-    "description": description,
   };
 }
