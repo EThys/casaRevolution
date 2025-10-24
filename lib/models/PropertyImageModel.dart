@@ -1,40 +1,38 @@
 // To parse this JSON data, do
 //
-//     final propertyImage = propertyImageFromJson(jsonString);
+//     final propertyImageModel = propertyImageModelFromJson(jsonString);
 
 import 'dart:convert';
+import 'PropertyModel.dart';
 
-import 'package:casa/utils/extensions/bool_int_converter.dart';
+PropertyImageModel propertyImageModelFromJson(String str) => PropertyImageModel.fromJson(json.decode(str));
 
-PropertyImageModel propertyImageFromJson(String str) => PropertyImageModel.fromJson(json.decode(str));
-
-String propertyImageToJson(PropertyImageModel data) => json.encode(data.toJson());
+String propertyImageModelToJson(PropertyImageModel data) => json.encode(data.toJson());
 
 class PropertyImageModel {
-  int? PropertyId;
-  bool? isMain;
+  int? propertyImageId;
+  PropertyModel? property;
+  String? name;
   String? path;
-  String? category; // Ajout du champ category
 
   PropertyImageModel({
-    this.PropertyId,
-    this.isMain,
+    this.propertyImageId,
+    this.property,
+    this.name,
     this.path,
-    this.category
-
   });
 
   factory PropertyImageModel.fromJson(Map<String, dynamic> json) => PropertyImageModel(
-    PropertyId: json["PropertyId"],
-    isMain: json["isMain"] == 1 || json["isMain"] == true,
+    propertyImageId: json["propertyImageId"],
+    property: json["property"] == null ? null : PropertyModel.fromJson(json["property"]),
+    name: json["name"],
     path: json["path"],
-    category: json["category"],
   );
 
   Map<String, dynamic> toJson() => {
-    "PropertyId": PropertyId,
-    "isMain": isMain == true ? 1 : 0,
+    "propertyImageId": propertyImageId,
+    "property": property?.toJson(),
+    "name": name,
     "path": path,
-    "category": category,
   };
 }
