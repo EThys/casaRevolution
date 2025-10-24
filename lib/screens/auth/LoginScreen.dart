@@ -624,10 +624,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _forceRevalidation() {
-    if (Form.of(context) != null) {
-      Form.of(context)!.validate();
+    if (_formKey.currentState != null) {
+      _formKey.currentState!.validate();
     }
   }
+
 
   String? _validateEmail(String? value) {
     if (value == null || value.isEmpty) {
@@ -654,6 +655,20 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
+  String getErrorMessage(String? detailMessage) {
+    const errorTranslations = {
+      'Invalid credentials.': 'Identifiants incorrects',
+      'Invalid credentials': 'Identifiants incorrects',
+      'User not found': 'Utilisateur non trouvé',
+      'Account locked': 'Compte verrouillé',
+      // Ajoutez d'autres messages d'erreur ici
+    };
+
+    return errorTranslations[detailMessage] ?? "Erreur d'authentification";
+  }
+
+// Utilisation
+
   Future<void> _handleLogin() async {
     if (!(_formKey.currentState?.validate() ?? false)) {
       return;
@@ -673,7 +688,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final userData = {
-        "email": _emailController.text.trim(),
+        "identifiant": _emailController.text.trim(),
         "password": _passwordController.text.trim(),
       };
 
@@ -681,10 +696,11 @@ class _LoginScreenState extends State<LoginScreen> {
       final res = await ctrl.login(userData);
 
       if (!mounted) return;
+      String message = res.data['message']?.toString() ?? '';
+      bool isSuccess = message.toLowerCase().contains('réussie');
 
-      if (res.data['success'] == true) {
-        FancyNotification.show(context, "Connexion réussie!", isError: false);
-        await Future.delayed(const Duration(milliseconds: 1500));
+      if (isSuccess) {
+        await Future.delayed(const Duration(milliseconds: 500));
 
         if (mounted) {
           Navigator.pushNamedAndRemoveUntil(
@@ -694,7 +710,7 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         }
       } else {
-        String errorMessage = res.data['message'] ?? "Identifiants incorrects";
+        String errorMessage = getErrorMessage(res.data['detailMessage']);
         FancyNotification.show(context, errorMessage);
       }
     } catch (e) {
