@@ -1,4 +1,5 @@
 import 'package:casa/controllers/AuthentificationCtrl.dart';
+import 'package:casa/controllers/RegisterBailleurCtrl.dart';
 import 'package:casa/utils/Endpoints.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
@@ -6,6 +7,10 @@ import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+
+import '../../controllers/RegisterCommissionnaireCtrl.dart';
+import '../../controllers/RegisterLocataireCtrl.dart';
+import '../../utils/requetes.dart';
 
 class UserRegistrationPage extends StatefulWidget {
   @override
@@ -19,6 +24,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _cityController = TextEditingController();
 
   bool _isLoading = false;
   bool _showPassword = false;
@@ -38,19 +44,19 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   // Types de compte
   final Map<String, Map<String, dynamic>> _accountTypes = {
     'Locataire': {
-      'value': 2,
+      'value': 4,
       'icon': Icons.home_work_rounded,
       'description': 'Je cherche un logement à louer',
       'color': Color(0xFF4CAF50),
     },
-    'Propriétaire': {
-      'value': 1,
+    'Bailleur': {
+      'value': 3,
       'icon': Icons.house_siding_rounded,
       'description': 'Je propose un logement en location',
       'color': Color(0xFF2196F3),
     },
     'Commissionnaire': {
-      'value': 3,
+      'value': 2,
       'icon': Icons.handshake_rounded,
       'description': 'Je facilite les transactions immobilières',
       'color': Color(0xFFFF9800),
@@ -338,15 +344,15 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           // Email
           _buildEmailField(),
           SizedBox(height: 15),
-
+          // Ville
+          _buildCityField(),
+          SizedBox(height: 15),
           // Type de compte
           _buildAccountTypeField(),
           SizedBox(height: 20),
-
           // Mot de passe
           _buildPasswordField(),
           SizedBox(height: 8),
-
           // Indicateur de force du mot de passe
           _buildPasswordStrengthIndicator(),
         ],
@@ -521,6 +527,61 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       begin: -0.3,
       duration: 500.ms,
       delay: 1500.ms,
+      curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildCityField() {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.05),
+            blurRadius: 10,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: TextFormField(
+        controller: _cityController,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        style: TextStyle(color: textColor, fontSize: 16),
+        decoration: InputDecoration(
+          labelText: 'Ville*',
+          labelStyle: TextStyle(color: secondaryTextColor),
+          prefixIcon: Container(
+            padding: EdgeInsets.all(12),
+            child: Icon(Icons.location_city_rounded, color: primaryColor),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red, width: 2),
+          ),
+          filled: true,
+          fillColor: lightBlue.withOpacity(0.3),
+          hintText: 'Kinshasa',
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+        ),
+        validator: _validateCity,
+        onChanged: (_) => _forceRevalidation(),
+      ),
+    ).animate().slideX(
+      begin: 0.3,
+      duration: 500.ms,
+      delay: 1550.ms,
       curve: Curves.easeOut,
     );
   }
@@ -994,6 +1055,16 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     return null;
   }
 
+  String? _validateCity(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'La ville est obligatoire';
+    }
+    if (value.length < 2) {
+      return 'La ville doit contenir au moins 2 caractères';
+    }
+    return null;
+  }
+
   String? _validatePassword(String? value) {
     if (value == null || value.isEmpty) {
       return 'Le mot de passe est obligatoire';
@@ -1011,8 +1082,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   void _forceRevalidation() {
-    if (Form.of(context) != null) {
-      Form.of(context)!.validate();
+    if (_formKey.currentState != null) {
+      _formKey.currentState!.validate();
     }
   }
 
@@ -1047,57 +1118,107 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
     try {
       final accountType = _accountTypes[_selectedAccountType]!;
+
+      // Structure de base pour l'utilisateur
       final userData = {
-        "TypeAccountId": accountType['value'],
-        "username": _emailController.text.isNotEmpty
-            ? _emailController.text.split('@').first
-            : "user_${DateTime.now().millisecondsSinceEpoch}",
-        "email": _emailController.text.isNotEmpty ? _emailController.text : "",
-        "CityId": 1,
-        "postal_code": "00000",
-        "country": "Congo Kinshasa",
-        "date_of_birth": "1900-01-01",
-        "gender": "male",
-        "profile_picture": "",
-        "images": "",
-        "card_front": "",
-        "card_back": "",
-        "bio": "",
-        "is_agent": _selectedAccountType == "Commissionnaire" || _selectedAccountType == "Locataire",
-        "is_admin": false,
-        "password": _passwordController.text,
-        "first_name": _firstNameController.text,
-        "last_name": _lastNameController.text,
-        "fullname": "${_firstNameController.text} ${_lastNameController.text}",
         "phone": _phoneController.text,
-        "address": "",
-        "TypeCardId": 1,
-        "number_card": "LOC-${DateTime.now().millisecondsSinceEpoch}",
-        "note": "Nouveau membre",
-        "ParrainId": 1,
+        "password": _passwordController.text,
+        "typeAccountId": accountType['value'],
+        "email": _emailController.text.isNotEmpty ? _emailController.text : "",
+        "cityId": 1, // À adapter selon votre système de villes
       };
 
-      String registerUrl;
+      Map<String, dynamic> payload;
+
+      // Construction du payload selon le type de compte
       switch (_selectedAccountType) {
-        case 'Propriétaire':
-          registerUrl = "${Endpoints.bailleur}";
+        case 'Bailleur':
+          payload = {
+            "user": userData,
+            "bailleur": {
+              "lastName": _lastNameController.text,
+              "firstName": _firstNameController.text,
+              "address": _cityController.text,
+              "images": "",
+              "cardFront": "",
+              "cardBack": "",
+              "parrainId": 0,
+              "typeCardId": 1,
+              "numberCard": "",
+              "note": "Nouveau bailleur"
+            }
+          };
           break;
+
         case 'Locataire':
-          registerUrl = "${Endpoints.locataire}";
+          payload = {
+            "user": userData,
+            "locataire": {
+              "lastName": _lastNameController.text,
+              "firstName": _firstNameController.text,
+              "address": _cityController.text,
+              "images": "",
+              "cardFront": "",
+              "cardBack": "",
+              "typeCardId": 1,
+              "numberCard": "",
+            }
+          };
           break;
+
         case 'Commissionnaire':
-          registerUrl = "${Endpoints.commissionnaire}";
+          payload = {
+            "user": userData,
+            "commissionnaire": {
+              "lastName": _lastNameController.text,
+              "firstName": _firstNameController.text,
+              "address": _cityController.text,
+              "images": "",
+              "cardFront": "",
+              "cardBack": "",
+              "typeCardId": 1,
+              "numberCard": "",
+            }
+          };
           break;
+
         default:
-          registerUrl = Endpoints.register;
+          payload = {"user": userData};
       }
 
-      final ctrl = context.read<AuthentificationCtrl>();
-      final res = await ctrl.register(userData, url: registerUrl);
+      HttpResponse response;
+
+      // Redirection vers le contrôleur approprié selon le type de compte
+      switch (_selectedAccountType) {
+        case 'Bailleur':
+          final ctrl = context.read<RegisterBailleurCtrl>();
+          response = await ctrl.registerBailleur(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
+        case 'Locataire':
+          final ctrl = context.read<RegisterLocataireCtrl>();
+          response = await ctrl.registerLocataire(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
+        case 'Commissionnaire':
+          final ctrl = context.read<RegisterCommissionnaireCtrl>();
+          response = await ctrl.registerCommissionnaire(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
+        default:
+          final ctrl = context.read<AuthentificationCtrl>();
+          response = await ctrl.register(payload, url: Endpoints.register);
+      }
 
       if (!mounted) return;
 
-      if (res.data['success'] == true) {
+      if (response.status == true) {
         FancyNotification.show(context, "Inscription réussie!", isError: false);
         await Future.delayed(const Duration(milliseconds: 1500));
 
@@ -1109,7 +1230,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           );
         }
       } else {
-        String errorMessage = res.data['message'] ?? "Erreur lors de l'inscription";
+        String errorMessage = response.errorMsg ?? "Erreur lors de l'inscription";
         FancyNotification.show(context, errorMessage);
       }
     } catch (e) {
@@ -1123,7 +1244,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       }
     }
   }
-
 
   void _showValidationError() {
     ScaffoldMessenger.of(context).showSnackBar(
