@@ -1,110 +1,75 @@
 import 'dart:convert';
-
+import 'UserModel.dart';
 import 'PropertyModel.dart';
 
-enum ReservationStatus { pending, completed, cancelled }
-
 ReservationModel reservationModelFromJson(String str) => ReservationModel.fromJson(json.decode(str));
-
 String reservationModelToJson(ReservationModel data) => json.encode(data.toJson());
 
 class ReservationModel {
-  String? id;
-  String? propertyId;
-  List<PropertyModel>? property;
-  String? propertyTitle;
-  List<String>? propertyImages;
-  String? address;
-  DateTime? date;
-  double? price;
-  ReservationStatus? status;
+  int? reservationId;
+  UserModel? user;
+  PropertyModel? property;
+  String? message;
+  String? status;
+  String? type;
+  String? reservationHeure;
   String? cancellationReason;
-  int? bedrooms;
-  int? bathrooms;
-  int? area;
-  int? floor;
-  List<String>? amenities;
-  String? description;
-  String? agentName;
-  String? agentContact;
+  String? startDate;
+  String? endDate;
+  String? createdAt;
+  bool? active;
 
   ReservationModel({
-    this.id,
-    this.propertyId,
+    this.reservationId,
+    this.user,
     this.property,
-    this.propertyTitle,
-    this.propertyImages,
-    this.address,
-    this.date,
-    this.price,
+    this.message,
     this.status,
+    this.type,
+    this.reservationHeure,
     this.cancellationReason,
-    this.bedrooms,
-    this.bathrooms,
-    this.area,
-    this.floor,
-    this.amenities,
-    this.description,
-    this.agentName,
-    this.agentContact,
+    this.startDate,
+    this.endDate,
+    this.createdAt,
+    this.active,
   });
 
   factory ReservationModel.fromJson(Map<String, dynamic> json) => ReservationModel(
-    id: json["id"],
-    propertyId: json["propertyId"],
-    property: json["property"] == null
-        ? []
-        : List<PropertyModel>.from(json["property"]!.map((x) => PropertyModel.fromJson(x))),
-    propertyTitle: json["propertyTitle"],
-    propertyImages: json["propertyImages"] == null
-        ? []
-        : List<String>.from(json["propertyImages"]!.map((x) => x)),
-    address: json["address"],
-    date: json["date"] == null ? null : DateTime.parse(json["date"]),
-    price: json["price"]?.toDouble(),
-    status: json["status"] == null
+    reservationId: json["reservationId"] ?? json["id"],
+    user: json["user"] == null
         ? null
-        : ReservationStatus.values.firstWhere(
-          (e) => e.toString().split('.').last == json["status"],
-      orElse: () => ReservationStatus.pending,
-    ),
+        : UserModel.fromJson(json["user"]),
+    property: json["property"] == null
+        ? null
+        : PropertyModel.fromJson(json["property"]),
+    message: json["message"],
+    status: json["status"],
+    type: json["type"],
+    reservationHeure: json["reservationHeure"],
     cancellationReason: json["cancellationReason"],
-    bedrooms: json["bedrooms"],
-    bathrooms: json["bathrooms"],
-    area: json["area"],
-    floor: json["floor"],
-    amenities: json["amenities"] == null
-        ? []
-        : List<String>.from(json["amenities"]!.map((x) => x)),
-    description: json["description"],
-    agentName: json["agentName"],
-    agentContact: json["agentContact"],
+    startDate: json["startDate"],
+    endDate: json["endDate"],
+    createdAt: json["createdAt"],
+    active: json["active"] ?? false,
   );
 
   Map<String, dynamic> toJson() => {
-    "id": id,
-    "propertyId": propertyId,
-    "property": property == null
-        ? []
-        : List<dynamic>.from(property!.map((x) => x.toJson())),
-    "propertyTitle": propertyTitle,
-    "propertyImages": propertyImages == null
-        ? []
-        : List<dynamic>.from(propertyImages!.map((x) => x)),
-    "address": address,
-    "date": date?.toIso8601String(),
-    "price": price,
-    "status": status?.toString().split('.').last,
+    "reservationId": reservationId,
+    "user": user?.toJson(),
+    "property": property?.toJson(),
+    "message": message,
+    "status": status,
+    "type": type,
+    "reservationHeure": reservationHeure,
     "cancellationReason": cancellationReason,
-    "bedrooms": bedrooms,
-    "bathrooms": bathrooms,
-    "area": area,
-    "floor": floor,
-    "amenities": amenities == null
-        ? []
-        : List<dynamic>.from(amenities!.map((x) => x)),
-    "description": description,
-    "agentName": agentName,
-    "agentContact": agentContact,
+    "startDate": startDate,
+    "endDate": endDate,
+    "createdAt": createdAt,
+    "active": active,
   };
+
+  @override
+  String toString() {
+    return 'ReservationModel(reservationId: $reservationId, status: $status, type: $type, startDate: $startDate, endDate: $endDate)';
+  }
 }
