@@ -4,6 +4,7 @@ import 'package:casa/screens/termsAndPrivacy/TermsAndPrivacyPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -24,7 +25,33 @@ class _LoginScreenState extends State<LoginScreen> {
   final Color darkBlue = Color(0xFF0D47A1);
   final Color lightBlue = Color(0xFFE3F2FD);
   final Color textColor = Color(0xFF1A237E);
+  final Color errorColor = Color(0xFFD63031);
   final Color secondaryTextColor = Color(0xFF5C6BC0);
+  AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
+  bool _acceptConditions = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Ajouter des listeners pour tous les contrôleurs
+    _emailController.addListener(_updateButtonState);
+    _passwordController.addListener(_updateButtonState);
+  }
+
+// Nouvelle méthode pour mettre à jour l'état du bouton
+  void _updateButtonState() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.removeListener(_updateButtonState);
+    _passwordController.removeListener(_updateButtonState);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -419,27 +446,41 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildAuthButton() {
+    // Vérifier si tous les champs sont valides et les conditions acceptées
+    final isFormValid = _formKey.currentState?.validate() ?? false;
+    final hasRequiredFields = _emailController.text.isNotEmpty &&
+        _passwordController.text.isNotEmpty;
+    final isButtonEnabled = isFormValid && hasRequiredFields && _acceptConditions && !_isLoading;
+
     return Container(
       width: double.infinity,
       height: 56,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        gradient: LinearGradient(
+        gradient: isButtonEnabled
+            ? LinearGradient(
           colors: [primaryColor, darkBlue],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
+        )
+            : LinearGradient(
+          colors: [Colors.grey.shade400, Colors.grey.shade600],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
         ),
-        boxShadow: [
+        boxShadow: isButtonEnabled
+            ? [
           BoxShadow(
             color: primaryColor.withOpacity(0.4),
             blurRadius: 15,
             spreadRadius: 2,
             offset: Offset(0, 5),
           ),
-        ],
+        ]
+            : null,
       ),
       child: ElevatedButton(
-        onPressed: _isLoading ? null : _handleLogin,
+        onPressed: isButtonEnabled ? _handleLogin : null,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -544,20 +585,135 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildPrivacyText() {
     return Column(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              '',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+        // Case à cocher pour les conditions
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Case à cocher
+              Transform.scale(
+                scale: 1.2,
+                child: Checkbox(
+                  value: _acceptConditions,
+                  onChanged: (bool? value) {
+                    setState(() {
+                      _acceptConditions = value ?? false;
+                    });
+                  },
+                  activeColor: primaryColor,
+                  checkColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
-            ),
-          ],
+              SizedBox(width: 8),
+              // Texte des conditions
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RichText(
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: 'J\'accepte les ',
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 14,
+                            ),
+                          ),
+                          TextSpan(
+                            text: 'conditions d\'utilisation',
+                            style: TextStyle(
+                              color: primaryColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
+                                  ),
+                                );
+                              },
+                          ),
+                          TextSpan(
+                            text: ' et la ',
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 14,
+                            ),
+                          ),
+                          TextSpan(
+                            text: 'politique de confidentialité',
+                            style: TextStyle(
+                              color: primaryColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
+                                  ),
+                                );
+                              },
+                          ),
+                          TextSpan(
+                            text: ' de Casa',
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Message d'erreur amélioré - CORRIGÉ POUR LE LOGIN
+                    if (_autoValidateMode == AutovalidateMode.always && !_acceptConditions)
+                      Container(
+                        margin: EdgeInsets.only(top: 6),
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: errorColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: errorColor.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.error_outline_rounded, color: errorColor, size: 14),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Vous devez accepter les conditions pour vous connecter', // MESSAGE CORRIGÉ
+                                style: TextStyle(
+                                  color: errorColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         SizedBox(height: 15),
+        // Texte informatif supplémentaire
         Wrap(
           spacing: 4,
           children: [
@@ -670,7 +826,20 @@ class _LoginScreenState extends State<LoginScreen> {
 // Utilisation
 
   Future<void> _handleLogin() async {
+    setState(() {
+      _autoValidateMode = AutovalidateMode.always;
+    });
+
+    await Future.delayed(Duration(milliseconds: 50));
+
     if (!(_formKey.currentState?.validate() ?? false)) {
+      FancyNotification.show(context, "Veuillez corriger les erreurs ci-dessus");
+      return;
+    }
+
+    // VÉRIFICATION DES CONDITIONS AJOUTÉE ICI
+    if (!_acceptConditions) {
+      FancyNotification.show(context, "Veuillez accepter les conditions d'utilisation", isError: true);
       return;
     }
 
