@@ -249,7 +249,7 @@ class _SplashScreenState extends State<SplashScreen>
                                   ],
                                 ),
                                 child: Image.asset(
-                                  'assets/images/yinzo.png',
+                                  'assets/images/logoCasa.png',
                                   width: 100,
                                   height: 100,
                                   color: Colors.white,
@@ -281,6 +281,24 @@ class _SplashScreenState extends State<SplashScreen>
                                   ),
                                   TextSpan(
                                     text: 'ASA',
+                                    style: GoogleFonts.montserrat(
+                                      fontSize: 42,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 3,
+                                      color: Colors.white.withOpacity(0.95),
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: 'N',
+                                    style: GoogleFonts.montserrat(
+                                      fontSize: 52,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                      letterSpacing: -1,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: 'AYO',
                                     style: GoogleFonts.montserrat(
                                       fontSize: 42,
                                       fontWeight: FontWeight.w600,
