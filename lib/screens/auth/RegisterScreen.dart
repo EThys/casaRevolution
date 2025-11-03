@@ -4,6 +4,7 @@ import 'package:casa/utils/Endpoints.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +12,7 @@ import 'package:provider/provider.dart';
 import '../../controllers/RegisterCommissionnaireCtrl.dart';
 import '../../controllers/RegisterLocataireCtrl.dart';
 import '../../utils/requetes.dart';
+import '../termsAndPrivacy/TermsAndPrivacyPage.dart';
 
 class UserRegistrationPage extends StatefulWidget {
   @override
@@ -26,10 +28,21 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   final _passwordController = TextEditingController();
   final _cityController = TextEditingController();
 
+  // Focus nodes pour la navigation au clavier
+  final _firstNameFocus = FocusNode();
+  final _lastNameFocus = FocusNode();
+  final _phoneFocus = FocusNode();
+  final _emailFocus = FocusNode();
+  final _cityFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+
   bool _isLoading = false;
   bool _showPassword = false;
   String? _selectedAccountType;
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
+
+  // Suivi de la force du mot de passe en temps réel
+  int _passwordStrength = 0;
 
   // Couleurs cohérentes avec le login
   final Color primaryColor = Color(0xFF1976D2);
@@ -40,6 +53,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   final Color secondaryTextColor = Color(0xFF5C6BC0);
   final Color errorColor = Color(0xFFD63031);
   final Color successColor = Color(0xFF38B000);
+
+  bool _acceptConditions = false;
 
   // Types de compte
   final Map<String, Map<String, dynamic>> _accountTypes = {
@@ -62,6 +77,76 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       'color': Color(0xFFFF9800),
     },
   };
+
+  @override
+  void initState() {
+    super.initState();
+
+    _passwordController.addListener(_updatePasswordStrength);
+    _setupFocusNavigation();
+
+    // Ajouter des listeners pour tous les contrôleurs
+    _firstNameController.addListener(_updateButtonState);
+    _lastNameController.addListener(_updateButtonState);
+    _phoneController.addListener(_updateButtonState);
+    _cityController.addListener(_updateButtonState);
+    _passwordController.addListener(_updateButtonState);
+  }
+
+// Nouvelle méthode pour mettre à jour l'état du bouton
+  void _updateButtonState() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _passwordController.removeListener(_updatePasswordStrength);
+    _firstNameController.removeListener(_updateButtonState);
+    _lastNameController.removeListener(_updateButtonState);
+    _phoneController.removeListener(_updateButtonState);
+    _cityController.removeListener(_updateButtonState);
+    _passwordController.removeListener(_updateButtonState);
+
+    _firstNameFocus.dispose();
+    _lastNameFocus.dispose();
+    _phoneFocus.dispose();
+    _emailFocus.dispose();
+    _cityFocus.dispose();
+    _passwordFocus.dispose();
+    super.dispose();
+  }
+  void _setupFocusNavigation() {
+    _firstNameFocus.addListener(() {});
+    _lastNameFocus.addListener(() {});
+    _phoneFocus.addListener(() {});
+    _emailFocus.addListener(() {});
+    _cityFocus.addListener(() {});
+  }
+
+  void _updatePasswordStrength() {
+    final password = _passwordController.text;
+    int strength = 0;
+
+    if (password.length >= 6) strength++;
+    if (password.length >= 8) strength++;
+    if (RegExp(r'[A-Z]').hasMatch(password)) strength++;
+    if (RegExp(r'[a-z]').hasMatch(password)) strength++;
+    if (RegExp(r'[0-9]').hasMatch(password)) strength++;
+    if (RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)) strength++;
+
+    if (mounted && _passwordStrength != strength) {
+      setState(() {
+        _passwordStrength = strength;
+      });
+    }
+  }
+
+  void _goToNextField(FocusNode currentFocus, FocusNode nextFocus) {
+    currentFocus.unfocus();
+    FocusScope.of(context).requestFocus(nextFocus);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -330,12 +415,17 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             controller: _firstNameController,
             label: 'Prénom',
             hint: 'Jean',
+            focusNode: _firstNameFocus,
+            nextFocus: _lastNameFocus,
+            isFirstField: true,
           ),
           SizedBox(height: 15),
           _buildNameField(
             controller: _lastNameController,
             label: 'Nom',
             hint: 'Baka',
+            focusNode: _lastNameFocus,
+            nextFocus: _phoneFocus,
           ),
           SizedBox(height: 15),
           // Téléphone
@@ -353,7 +443,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           // Mot de passe
           _buildPasswordField(),
           SizedBox(height: 8),
-          // Indicateur de force du mot de passe
+          // Indicateur de force du mot de passe en temps réel
           _buildPasswordStrengthIndicator(),
         ],
       ),
@@ -364,6 +454,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     required TextEditingController controller,
     required String label,
     required String hint,
+    required FocusNode focusNode,
+    FocusNode? nextFocus,
+    bool isFirstField = false,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -378,8 +471,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       ),
       child: TextFormField(
         controller: controller,
+        focusNode: focusNode,
         autovalidateMode: AutovalidateMode.onUserInteraction,
         style: TextStyle(color: textColor, fontSize: 16),
+        textInputAction: nextFocus != null ? TextInputAction.next : TextInputAction.done,
+        onFieldSubmitted: nextFocus != null ? (_) => _goToNextField(focusNode, nextFocus!) : null,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -387,6 +483,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             padding: EdgeInsets.all(12),
             child: Icon(Icons.person_rounded, color: primaryColor),
           ),
+          suffixIcon: nextFocus != null ? _buildNextButton(() => _goToNextField(focusNode, nextFocus!)) : null,
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -433,9 +530,12 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       ),
       child: TextFormField(
         controller: _phoneController,
+        focusNode: _phoneFocus,
         autovalidateMode: AutovalidateMode.onUserInteraction,
         style: TextStyle(color: textColor, fontSize: 16),
         keyboardType: TextInputType.phone,
+        textInputAction: TextInputAction.next,
+        onFieldSubmitted: (_) => _goToNextField(_phoneFocus, _emailFocus),
         decoration: InputDecoration(
           labelText: 'Téléphone*',
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -443,6 +543,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             padding: EdgeInsets.all(12),
             child: Icon(Icons.phone_iphone_rounded, color: primaryColor),
           ),
+          suffixIcon: _buildNextButton(() => _goToNextField(_phoneFocus, _emailFocus)),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -489,9 +590,12 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       ),
       child: TextFormField(
         controller: _emailController,
+        focusNode: _emailFocus,
         autovalidateMode: AutovalidateMode.onUserInteraction,
         style: TextStyle(color: textColor, fontSize: 16),
         keyboardType: TextInputType.emailAddress,
+        textInputAction: TextInputAction.next,
+        onFieldSubmitted: (_) => _goToNextField(_emailFocus, _cityFocus),
         decoration: InputDecoration(
           labelText: 'Email (optionnel)',
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -499,6 +603,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             padding: EdgeInsets.all(12),
             child: Icon(Icons.email_rounded, color: primaryColor),
           ),
+          suffixIcon: _buildNextButton(() => _goToNextField(_emailFocus, _cityFocus)),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -545,8 +650,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       ),
       child: TextFormField(
         controller: _cityController,
+        focusNode: _cityFocus,
         autovalidateMode: AutovalidateMode.onUserInteraction,
         style: TextStyle(color: textColor, fontSize: 16),
+        textInputAction: TextInputAction.next,
+        onFieldSubmitted: (_) => _cityFocus.unfocus(),
         decoration: InputDecoration(
           labelText: 'Ville*',
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -554,6 +662,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             padding: EdgeInsets.all(12),
             child: Icon(Icons.location_city_rounded, color: primaryColor),
           ),
+          suffixIcon: _buildNextButton(() => _cityFocus.unfocus()),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -583,6 +692,22 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       duration: 500.ms,
       delay: 1550.ms,
       curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildNextButton(VoidCallback onPressed) {
+    return Container(
+      margin: EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: primaryColor.withOpacity(0.1),
+      ),
+      child: IconButton(
+        icon: Icon(Icons.arrow_forward_rounded, size: 18, color: primaryColor),
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints(minWidth: 36, minHeight: 36),
+      ),
     );
   }
 
@@ -748,10 +873,12 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       ),
       child: TextFormField(
         controller: _passwordController,
+        focusNode: _passwordFocus,
         style: TextStyle(color: textColor, fontSize: 16),
         obscureText: !_showPassword,
         autovalidateMode: AutovalidateMode.onUserInteraction,
-        onChanged: (_) => _forceRevalidation(),
+        textInputAction: TextInputAction.done,
+        onFieldSubmitted: (_) => _passwordFocus.unfocus(),
         decoration: InputDecoration(
           labelText: 'Mot de passe*',
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -761,12 +888,13 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           ),
           suffixIcon: Container(
             padding: EdgeInsets.all(8),
-            child: IconButton(
-              icon: Icon(
-                _showPassword ? Icons.visibility_rounded : Icons.visibility_off_rounded,
-                color: secondaryTextColor,
-              ),
-              onPressed: () => setState(() => _showPassword = !_showPassword),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_passwordController.text.isNotEmpty)
+                  _buildPasswordVisibilityButton(),
+                _buildDoneButton(),
+              ],
             ),
           ),
           enabledBorder: OutlineInputBorder(
@@ -798,61 +926,133 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     );
   }
 
+  Widget _buildPasswordVisibilityButton() {
+    return IconButton(
+      icon: Icon(
+        _showPassword ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+        color: secondaryTextColor,
+        size: 20,
+      ),
+      onPressed: () => setState(() => _showPassword = !_showPassword),
+      padding: EdgeInsets.zero,
+      constraints: BoxConstraints(minWidth: 36, minHeight: 36),
+    );
+  }
+
+  Widget _buildDoneButton() {
+    return Container(
+      margin: EdgeInsets.only(left: 4),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: primaryColor.withOpacity(0.1),
+      ),
+      child: IconButton(
+        icon: Icon(Icons.done_rounded, size: 18, color: primaryColor),
+        onPressed: () => _passwordFocus.unfocus(),
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints(minWidth: 36, minHeight: 36),
+      ),
+    );
+  }
+
   Widget _buildPasswordStrengthIndicator() {
-    final password = _passwordController.text;
-    int strength = 0;
+    return AnimatedContainer(
+      duration: Duration(milliseconds: 300),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(height: 8),
+          Row(
+            children: List.generate(6, (index) {
+              Color color;
+              if (index < _passwordStrength) {
+                if (_passwordStrength <= 2) color = errorColor;
+                else if (_passwordStrength <= 4) color = Colors.orange;
+                else color = successColor;
+              } else {
+                color = Colors.grey.shade300;
+              }
 
-    if (password.length >= 6) strength++;
-    if (password.length >= 8) strength++;
-    if (RegExp(r'[A-Z]').hasMatch(password)) strength++;
-    if (RegExp(r'[0-9]').hasMatch(password)) strength++;
-    if (RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)) strength++;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(height: 8),
-        Row(
-          children: List.generate(5, (index) {
-            Color color;
-            if (index < strength) {
-              if (strength <= 2) color = errorColor;
-              else if (strength <= 4) color = Colors.orange;
-              else color = successColor;
-            } else {
-              color = Colors.grey.shade300;
-            }
-
-            return Expanded(
-              child: Container(
-                height: 4,
-                margin: EdgeInsets.only(right: index < 4 ? 4 : 0),
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(2),
+              return Expanded(
+                child: AnimatedContainer(
+                  duration: Duration(milliseconds: 300),
+                  height: 4,
+                  margin: EdgeInsets.only(right: index < 5 ? 4 : 0),
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-            );
-          }),
-        ),
-        SizedBox(height: 8),
-        Text(
-          _getPasswordStrengthText(strength),
-          style: TextStyle(
-            fontSize: 12,
-            color: _getPasswordStrengthColor(strength),
-            fontWeight: FontWeight.w500,
+              );
+            }),
           ),
-        ),
-      ],
+          SizedBox(height: 8),
+          AnimatedSwitcher(
+            duration: Duration(milliseconds: 300),
+            child: Text(
+              _getPasswordStrengthText(_passwordStrength),
+              key: ValueKey(_passwordStrength),
+              style: TextStyle(
+                fontSize: 12,
+                color: _getPasswordStrengthColor(_passwordStrength),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          if (_passwordController.text.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: _buildPasswordCriteria(),
+              ),
+            ),
+        ],
+      ),
     ).animate().fadeIn(delay: 1800.ms);
+  }
+
+  List<Widget> _buildPasswordCriteria() {
+    final password = _passwordController.text;
+    final criteria = [
+      {'text': '6+ caractères', 'met': password.length >= 6},
+      {'text': '8+ caractères', 'met': password.length >= 8},
+      {'text': 'Majuscule', 'met': RegExp(r'[A-Z]').hasMatch(password)},
+      {'text': 'Minuscule', 'met': RegExp(r'[a-z]').hasMatch(password)},
+      {'text': 'Chiffre', 'met': RegExp(r'[0-9]').hasMatch(password)},
+      {'text': 'Spécial', 'met': RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)},
+    ];
+
+    return criteria.map((criterion) {
+      final isMet = criterion['met'] as bool;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isMet ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+            color: isMet ? successColor : Colors.grey.shade400,
+            size: 12,
+          ),
+          SizedBox(width: 4),
+          Text(
+            criterion['text'] as String,
+            style: TextStyle(
+              fontSize: 10,
+              color: isMet ? successColor : Colors.grey.shade600,
+              fontWeight: isMet ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ],
+      );
+    }).toList();
   }
 
   String _getPasswordStrengthText(int strength) {
     if (strength == 0) return 'Commencez à taper votre mot de passe';
-    if (strength <= 2) return 'Faible';
-    if (strength <= 4) return 'Moyen';
-    return 'Fort';
+    if (strength <= 2) return 'Faible - Ajoutez des chiffres et caractères spéciaux';
+    if (strength <= 4) return 'Moyen - Presque là !';
+    return 'Fort - Excellent mot de passe !';
   }
 
   Color _getPasswordStrengthColor(int strength) {
@@ -861,29 +1061,58 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     if (strength <= 4) return Colors.orange;
     return successColor;
   }
-
   Widget _buildAuthButton() {
+    // Vérifier si tous les champs obligatoires sont remplis et valides
+    final hasRequiredFields = _firstNameController.text.isNotEmpty &&
+        _lastNameController.text.isNotEmpty &&
+        _phoneController.text.isNotEmpty &&
+        _cityController.text.isNotEmpty &&
+        _passwordController.text.isNotEmpty &&
+        _selectedAccountType != null;
+
+    // Vérifier si le formulaire est valide (sans erreurs de validation)
+    final isFormValid = _formKey.currentState?.validate() ?? false;
+
+    // Le bouton est activé seulement si tous les champs sont remplis,
+    // le formulaire est valide ET les conditions sont acceptées
+    final isButtonEnabled = hasRequiredFields && isFormValid && _acceptConditions && !_isLoading;
+
+    print("🔍 État du bouton - "
+        "Champs remplis: $hasRequiredFields, "
+        "Formulaire valide: $isFormValid, "
+        "Conditions: $_acceptConditions, "
+        "Loading: $_isLoading, "
+        "Bouton activé: $isButtonEnabled");
+
     return Container(
       width: double.infinity,
       height: 56,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        gradient: LinearGradient(
+        gradient: isButtonEnabled
+            ? LinearGradient(
           colors: [primaryColor, darkBlue],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
+        )
+            : LinearGradient(
+          colors: [Colors.grey.shade400, Colors.grey.shade600],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
         ),
-        boxShadow: [
+        boxShadow: isButtonEnabled
+            ? [
           BoxShadow(
             color: primaryColor.withOpacity(0.4),
             blurRadius: 15,
             spreadRadius: 2,
             offset: Offset(0, 5),
           ),
-        ],
+        ]
+            : null,
       ),
       child: ElevatedButton(
-        onPressed: _isLoading ? null : _handleRegister,
+        onPressed: isButtonEnabled ? _handleRegister : null,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -961,59 +1190,142 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   Widget _buildPrivacyText() {
-    return Wrap(
-      spacing: 4,
-      alignment: WrapAlignment.center,
+    return Column(
       children: [
-        Text(
-          'En créant un compte, vous acceptez nos',
-          style: TextStyle(
-            color: secondaryTextColor,
-            fontSize: 12,
-          ),
-        ),
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: () {
-              // Navigation vers les conditions
-            },
-            child: Text(
-              'Conditions',
-              style: TextStyle(
-                color: primaryColor,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
+        // Case à cocher pour les conditions
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Case à cocher
+              Transform.scale(
+                scale: 1.2,
+                child: Checkbox(
+                  value: _acceptConditions,
+                  onChanged: (bool? value) {
+                    setState(() {
+                      _acceptConditions = value ?? false;
+                    });
+                  },
+                  activeColor: primaryColor,
+                  checkColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
-            ),
-          ),
-        ),
-        Text(
-          'et',
-          style: TextStyle(
-            color: secondaryTextColor,
-            fontSize: 12,
-          ),
-        ),
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: () {
-              // Navigation vers la politique de confidentialité
-            },
-            child: Text(
-              'Politique de confidentialité',
-              style: TextStyle(
-                color: primaryColor,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
+              SizedBox(width: 8),
+              // Texte des conditions
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RichText(
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: 'J\'accepte les ',
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 14,
+                            ),
+                          ),
+                          TextSpan(
+                            text: 'conditions d\'utilisation',
+                            style: TextStyle(
+                              color: primaryColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
+                                  ),
+                                );
+                              },
+                          ),
+                          TextSpan(
+                            text: ' et la ',
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 14,
+                            ),
+                          ),
+                          TextSpan(
+                            text: 'politique de confidentialité',
+                            style: TextStyle(
+                              color: primaryColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
+                                  ),
+                                );
+                              },
+                          ),
+                          TextSpan(
+                            text: ' de Casa',
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Message d'erreur amélioré
+                    if (_autoValidateMode == AutovalidateMode.always && !_acceptConditions)
+                      Container(
+                        margin: EdgeInsets.only(top: 6),
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: errorColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: errorColor.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.error_outline_rounded, color: errorColor, size: 14),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Vous devez accepter les conditions pour créer votre compte',
+                                style: TextStyle(
+                                  color: errorColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
         ),
+        SizedBox(height: 15),
+        // ... le reste du code reste inchangé ...
       ],
-    ).animate().fadeIn(delay: 2100.ms);
+    ).animate().fadeIn(delay: 2200.ms);
   }
+
+
 
   // Validators
   String? _validateName(String? value, String fieldName) {
@@ -1088,6 +1400,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   Future<void> _handleRegister() async {
+
     setState(() {
       _autoValidateMode = AutovalidateMode.always;
     });
@@ -1101,6 +1414,12 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
     if (_selectedAccountType == null) {
       _showSnackbar("Veuillez sélectionner un type de compte", isError: true);
+      return;
+    }
+
+
+    if (!_acceptConditions) {
+      _showSnackbar("Veuillez accepter les conditions d'utilisation", isError: true);
       return;
     }
 
