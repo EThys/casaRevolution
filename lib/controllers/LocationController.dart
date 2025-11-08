@@ -237,6 +237,25 @@ class LocationController extends ChangeNotifier {
     return [];
   }
 
+  List<CommuneModel> getCommunesForCity(int cityId) {
+    try {
+      print("🔍 Recherche des communes pour la ville ID: $cityId");
+
+      final communesForCity = _communes.where((commune) {
+        return commune.district?.city?.cityId == cityId;
+      }).toList();
+
+      print("✅ ${communesForCity.length} communes trouvées pour la ville $cityId");
+
+      return communesForCity;
+    } catch (e) {
+      if (kDebugMode) {
+        print("❌ Erreur pour récupérer les communes de la ville $cityId: $e");
+      }
+      return [];
+    }
+  }
+
   List<QuartierModel> _extractQuartiersFromCommunes(dynamic response) {
     List<QuartierModel> allQuartiers = [];
 
