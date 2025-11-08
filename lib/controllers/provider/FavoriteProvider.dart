@@ -24,8 +24,8 @@ class FavoriteProvider with ChangeNotifier {
       final favorites = await _dbHelper.getFavoritesByUser(userId);
       final statusMap = <String, bool>{
         for (var fav in favorites)
-          if (fav.property?.PropertyId != null)
-            fav.property!.PropertyId.toString(): true
+          if (fav.property?.propertyId != null)
+            fav.property!.propertyId.toString(): true
       };
 
       _state = _state.copyWith(
@@ -53,8 +53,8 @@ class FavoriteProvider with ChangeNotifier {
       final favorites = await _dbHelper.getFavoritesByUser(userId);
       final statusMap = <String, bool>{
         for (var fav in favorites)
-          if (fav.property?.PropertyId != null)
-            fav.property!.PropertyId.toString(): true
+          if (fav.property?.propertyId != null)
+            fav.property!.propertyId.toString(): true
       };
 
       _state = _state.copyWith(
