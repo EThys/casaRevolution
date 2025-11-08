@@ -5,6 +5,7 @@ class Routes {
   static const String splashRoute = "splashscreen";
   static const String homeRoute = "home";
   static const String detailPageRoute = "detailPage";
+  static const String ParrainagePageRoute = "ParrainagePage";
   static const String visitPageRoute = "visitPage";
   static const String bottomPageRoute = "bottomPage";
   static const String commissionnaireDashboardPageRoute = "commissionnaireDashboardPage";

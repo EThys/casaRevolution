@@ -5,19 +5,29 @@ class Endpoints {
   static const String forgotPassword = "forgot-password";
   static const String resetPassword = "reset-password";
   static const String profile = "profile";
+  static const String reservations = "reservations";
+
+  static const String reservationsByUser = "user";
+
   static const String updateProfile = "profile";
   static const String logout = "logout";
   static const String changePassword = "change-password";
   static const String deleteAccount = "delete-account";
 
-  static const String bailleur = "bailleur";
-  static const String commissionnaire = "commissionnaire";
-  static const String locataire = "locataire";
+  static const String bailleur = "bailleurs";
+  static const String commissionnaire = "commissionnaires";
+  static const String locataire = "locataires";
+
+  // location Endpoints
+  static const String cities = "cities";
+  static const String communes = "communes";
+  static const String districts = "districts";
+  static const String quartiers = "quartiers";
 
   // Property Endpoints
-  static const String properties = "properties";
+  static const String properties = "property";
   static const String propertyDetail = "properties/";
-  static const String storeProperty = "properties";
+  static const String storeProperty = "property";
   static const String updateProperty = "properties/";
   static const String deleteProperty = "properties/";
 
@@ -44,11 +54,11 @@ class Endpoints {
   static const String removeMyfavorites = "property-favorites/remove";
 
   // Visit Endpoints
-  static const String allVisits = "visit/all";
-  static const String visitsByStatus = "visits/status/";
-  static const String changeVisitStatus = "visits/";
-  static const String storeVisit = "visit";
-  static const String visits = "visits";
-  static const String visitsByUser = "visits/user";
+  static const String allReservations = "reservations/";
+  static const String addReservations= "reservations";
+
+  // Search Endpoints
+  static const String propertyFilter = "property/filter";
+  static const String propertySearch = "roperty/search";
 
 }

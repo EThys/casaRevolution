@@ -4,16 +4,16 @@ import 'package:casa/screens/ParrainagePage.dart';
 import 'package:casa/screens/BookingHistoryPage.dart';
 import 'package:casa/screens/BookingVisitPage.dart';
 import 'package:casa/screens/CommissionDashboardPage.dart';
-import 'package:casa/screens/CreatePropertyPost.dart';
+import 'package:casa/screens/CreatePropertyPostPage.dart';
 import 'package:casa/screens/HomePage.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/screens/Splashcreen.dart';
-import 'package:casa/screens/auth/RegisterScreen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import '../screens/BottomNavBar.dart';
 import '../screens/OnboardingPage.dart';
 import '../screens/auth/LoginScreen.dart';
+import '../screens/auth/RegisterScreen.dart';
 import 'Routes.dart';
 
 
@@ -35,8 +35,6 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>SplashScreen());
       case Routes.bottomPageRoute:
         return MaterialPageRoute(builder: (_)=>BottomNavBar());
-      case Routes.addBailleurPageRoute:
-        return MaterialPageRoute(builder: (_)=>ParrainagePage());
       case Routes.commissionnaireDashboardPageRoute:
         return MaterialPageRoute(builder: (_)=>CommissionDashboardPage());
       case Routes.bookingVisitPageRoute:
@@ -44,6 +42,8 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>BookingVisitPage(property: property));
       case Routes.bookingHistoryPageRoute:
         return MaterialPageRoute(builder: (_)=>BookingHistoryPage());
+      case Routes.ParrainagePageRoute:
+        return MaterialPageRoute(builder: (_)=>ParrainagePage());
       case Routes.createPropertyRoute:
         return MaterialPageRoute(builder: (_)=>CreatePropertyPostPage());
       // case Routes.visitPageRoute:
