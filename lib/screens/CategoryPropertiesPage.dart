@@ -38,6 +38,19 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
     final filteredProperties = _applyFilter(properties, _selectedFilter);
 
+    // DEBUG: Afficher les propriétés filtrées
+    if (propertyCtrl.properties.isNotEmpty) {
+      print("=== DEBUG CATEGORY FILTER ===");
+      print("Catégorie sélectionnée: ${widget.category}");
+      print("Total propriétés: ${propertyCtrl.properties.length}");
+      print("Propriétés filtrées: ${properties.length}");
+      print("Types de propriétés disponibles:");
+      propertyCtrl.properties.forEach((p) {
+        print("- ${p.propertyType?.name} (ID: ${p.propertyType?.propertyTypeId})");
+      });
+      print("=============================");
+    }
+
     return Scaffold(
       backgroundColor: _lightColor,
       appBar: _buildAppBar(),
@@ -59,32 +72,70 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   bool _matchesCategory(PropertyModel property, String category) {
     if (category == 'Tous') return true;
 
-    final propertyTypeName = property.property_type?.name?.toLowerCase();
-    if (propertyTypeName == null) return false;
+    // Récupérer l'ID du type de propriété
+    final propertyTypeId = property.propertyType?.propertyTypeId?.toString();
+    if (propertyTypeId == null) return false;
 
     final categoryMap = {
-      'Apparts': ['appartement', 'Apparts', 'loft'],
-      'Maisons': ['maison', 'duplex', 'villa'],
-      'Studios': ['studio'],
-      'Bureaux': ['bureau', 'espace commercial'],
-      'Hotels': ['hotel'],
-      'Vacances': ['résidence de vacances', 'maison de vacances'],
+      'Apparts': ['2'], // ID pour Apparts
+      'Maisons': ['3'], // ID pour Maisons
+      'Studio': ['1'], // ID pour Studios
+      'Bureau': ['4'], // ID pour Bureaux
+      'Hotels': ['5'], // ID pour Hotels
+      'Vacances': ['6'],
     };
 
-    return categoryMap[category]?.any((type) => propertyTypeName.contains(type)) ?? false;
+
+    // Vérifier aussi le nom du type de propriété pour plus de fiabilité
+    final propertyTypeName = property.propertyType?.name?.toLowerCase() ?? '';
+
+    bool matchesById = categoryMap[category]?.contains(propertyTypeId) ?? false;
+    bool matchesByName = _matchesCategoryByName(propertyTypeName, category);
+
+    print("Property: ${property.title}, TypeID: $propertyTypeId, TypeName: $propertyTypeName, MatchesById: $matchesById, MatchesByName: $matchesByName");
+
+    return matchesById || matchesByName;
+  }
+
+  bool _matchesCategoryByName(String propertyTypeName, String category) {
+    switch (category) {
+      case 'Apparts':
+        return propertyTypeName.contains('appart') ||
+            propertyTypeName.contains('apart') ||
+            propertyTypeName.contains('studio') && !propertyTypeName.contains('studio seul');
+      case 'Maisons':
+        return propertyTypeName.contains('maison') ||
+            propertyTypeName.contains('house') ||
+            propertyTypeName.contains('villa');
+      case 'Studio':
+        return propertyTypeName.contains('studio') ||
+            propertyTypeName.contains('studio seul') ||
+            propertyTypeName.contains('studette');
+      case 'Bureau':
+        return propertyTypeName.contains('bureau') ||
+            propertyTypeName.contains('office') ||
+            propertyTypeName.contains('commercial');
+      case 'Hotels':
+        return propertyTypeName.contains('hotel') ||
+            propertyTypeName.contains('hotel') ||
+            propertyTypeName.contains('resort');
+      case 'Vacances':
+        return propertyTypeName.contains('vacance') ||
+            propertyTypeName.contains('holiday') ||
+            propertyTypeName.contains('location saisonnière');
+      default:
+        return false;
+    }
   }
 
   List<PropertyModel> _applyFilter(List<PropertyModel> properties, String filter) {
     switch (filter) {
       case 'Location':
-        return properties.where((p) => p.transactionType == 'location').toList();
+        return properties.where((p) => p.transactionType?.toLowerCase().contains('location') ?? false).toList();
       case 'Vente':
-        return properties.where((p) => p.transactionType == 'vente').toList();
-      case 'Populaires':
-        return properties..sort((a, b) => ( 0).compareTo( 0));
+        return properties.where((p) => p.transactionType?.toLowerCase().contains('vente') ?? false).toList();
       case 'Nouveautés':
-        return properties..sort((a, b) => ( DateTime.now())
-            .compareTo( DateTime.now()));
+        return properties..sort((a, b) => (b.propertyId ?? 0).compareTo(a.propertyId ?? 0));
       default:
         return properties;
     }
@@ -98,6 +149,8 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       'Studios': FontAwesomeIcons.buildingCircleCheck,
       'Bureaux': FontAwesomeIcons.buildingColumns,
       'Résidences': FontAwesomeIcons.buildingUser,
+      'Hotels': FontAwesomeIcons.hotel,
+      'Vacances': FontAwesomeIcons.umbrellaBeach,
     };
 
     return AppBar(
@@ -239,7 +292,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         itemCount: properties.length,
         itemBuilder: (context, index) {
           final property = properties[index];
-          final isForRent = property.transactionType == 'location';
+          final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
           return _buildPropertyCard(property, isForRent);
         },
       )
@@ -247,7 +300,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         itemCount: properties.length,
         itemBuilder: (context, index) {
           final property = properties[index];
-          final isForRent = property.transactionType == 'location';
+          final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
           return _buildPropertyListItem(property, isForRent);
         },
       ),
@@ -260,11 +313,15 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
         : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
 
-    final firstImagePath = property.images?.isNotEmpty ?? false
-        ? property.images!.first.path
+    // Utilisation des vraies images du modèle PropertyModel
+    final firstImage = property.propertyImage?.isNotEmpty ?? false
+        ? property.propertyImage!.first
+        : null;
+    final imageUrl = firstImage != null
+        ? "${firstImage.path ?? firstImage.path}"
         : null;
 
-    String propertyType = _getPropertyTypeFromTitle(property.title);
+    String propertyType = _getPropertyTypeFromTitle(property.propertyType?.name);
 
     return InkWell(
       onTap: () => _navigateToDetail(property),
@@ -288,7 +345,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
             // Section Image avec superposition moderne
             Container(
               width: 140,
-              height: 140,
+              height: 175,
               margin: EdgeInsets.all(12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
@@ -305,9 +362,9 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                   // Image principale
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: firstImagePath != null
+                    child: imageUrl != null
                         ? CachedNetworkImage(
-                      imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: double.infinity,
@@ -394,13 +451,13 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                           ),
                         ],
                       ),
-                      child: FavoriteHeartIcon(
-                        propertyId: property.PropertyId.toString(),
-                        size: 20,
-                        splashRadius: 18,
-                        activeColor: Colors.red,
-                        inactiveColor: _greyColor,
-                      ),
+                      // child: FavoriteHeartIcon(
+                      //   propertyId: property.propertyId.toString(),
+                      //   size: 20,
+                      //   splashRadius: 18,
+                      //   activeColor: Colors.red,
+                      //   inactiveColor: _greyColor,
+                      // ),
                     ),
                   ),
 
@@ -456,7 +513,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            '${property.commune ?? ''}, ${property.city ?? ''}',
+                            property.address ?? 'Adresse non disponible',
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 13,
@@ -482,7 +539,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         ),
                         _buildFeatureItem(
                           icon: FontAwesomeIcons.bath,
-                          value: '${property.bedrooms ?? 0}',
+                          value: '${property.bathroom ?? 0}',
                           label: 'SDB',
                         ),
                         _buildFeatureItem(
@@ -524,17 +581,42 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     );
   }
 
-  // Carte en mode grille - Design moderne avec superposition
+  String _getPropertyTypeFromTitle(String? title) {
+    if (title == null) return 'Propriété';
+
+    final lowerTitle = title.toLowerCase();
+    if (lowerTitle.contains('appart') || lowerTitle.contains('apart')) {
+      return 'Appartement';
+    } else if (lowerTitle.contains('maison')) {
+      return 'Maison';
+    } else if (lowerTitle.contains('studio')) {
+      return 'Studio';
+    } else if (lowerTitle.contains('villa')) {
+      return 'Villa';
+    } else if (lowerTitle.contains('bureau')) {
+      return 'Bureau';
+    } else if (lowerTitle.contains('hotel')) {
+      return 'Hôtel';
+    } else if (lowerTitle.contains('penthouse')) {
+      return 'Penthouse';
+    }
+    return 'Propriété';
+  }
+
   Widget _buildPropertyCard(PropertyModel property, bool isForRent) {
     final priceText = isForRent
         ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
         : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
 
-    final firstImagePath = property.images?.isNotEmpty ?? false
-        ? property.images!.first.path
+    // Utilisation des vraies images du modèle PropertyModel
+    final firstImage = property.propertyImage?.isNotEmpty ?? false
+        ? property.propertyImage!.first
+        : null;
+    final imageUrl = firstImage != null
+        ? "${firstImage.path ?? firstImage.path}"
         : null;
 
-    String propertyType = _getPropertyTypeFromTitle(property.title);
+    String propertyType = _getPropertyTypeFromTitle(property.propertyType?.name);
 
     return InkWell(
       onTap: () => _navigateToDetail(property),
@@ -574,9 +656,9 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     // Image principale
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: firstImagePath != null
+                      child: imageUrl != null
                           ? CachedNetworkImage(
-                        imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
+                        imageUrl: imageUrl,
                         fit: BoxFit.cover,
                         width: double.infinity,
                         height: double.infinity,
@@ -656,13 +738,13 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                             ),
                           ],
                         ),
-                        child: FavoriteHeartIcon(
-                          propertyId: property.PropertyId.toString(),
-                          size: 18,
-                          splashRadius: 16,
-                          activeColor: Colors.red,
-                          inactiveColor: _greyColor,
-                        ),
+                        // child: FavoriteHeartIcon(
+                        //   propertyId: property.propertyId.toString(),
+                        //   size: 18,
+                        //   splashRadius: 16,
+                        //   activeColor: Colors.red,
+                        //   inactiveColor: _greyColor,
+                        // ),
                       ),
                     ),
 
@@ -723,7 +805,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                             SizedBox(width: 2),
                             Expanded(
                               child: Text(
-                                '${property.commune ?? ''}, ${property.city ?? ''}',
+                                property.address ?? 'Adresse non disponible',
                                 style: TextStyle(
                                   color: _greyColor,
                                   fontSize: 10,
@@ -742,7 +824,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         _buildMiniFeatureItem(FontAwesomeIcons.bed, '${property.bedrooms ?? 0}'),
-                        _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bedrooms ?? 0}'),
+                        _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bathroom ?? 0}'),
                         _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}'),
                       ],
                     ),
@@ -841,27 +923,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   }
 
   // Méthode pour déterminer le type de propriété depuis le titre
-  String _getPropertyTypeFromTitle(String? title) {
-    if (title == null) return 'Propriété';
-
-    final lowerTitle = title.toLowerCase();
-    if (lowerTitle.contains('appartement') || lowerTitle.contains('apartement')) {
-      return 'Appartement';
-    } else if (lowerTitle.contains('maison')) {
-      return 'Maison';
-    } else if (lowerTitle.contains('studio')) {
-      return 'Studio';
-    } else if (lowerTitle.contains('villa')) {
-      return 'Villa';
-    } else if (lowerTitle.contains('duplex')) {
-      return 'Duplex';
-    } else if (lowerTitle.contains('loft')) {
-      return 'Loft';
-    } else if (lowerTitle.contains('penthouse')) {
-      return 'Penthouse';
-    }
-    return 'Propriété';
-  }
 
   Widget _buildShimmerLoading() {
     return Padding(

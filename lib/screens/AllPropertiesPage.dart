@@ -218,7 +218,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         ? "${firstImage.path ?? firstImage.path}"
         : null;
 
-    String propertyType = _getPropertyTypeFromTitle(property.title);
+    String propertyType = _getPropertyTypeFromTitle(property.propertyType?.name);
 
     return InkWell(
       onTap: () => _navigateToDetail(property),
@@ -242,7 +242,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
             // Section Image avec superposition moderne
             Container(
               width: 140,
-              height: 140,
+              height: 175,
               margin: EdgeInsets.all(12),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
@@ -494,7 +494,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
 
     print("MATONDOOOOOOOOOOOOEEEE${imageUrl}");
 
-    String propertyType = _getPropertyTypeFromTitle(property.title);
+    String propertyType = _getPropertyTypeFromTitle(property.propertyType?.name);
 
     return InkWell(
       onTap: () => _navigateToDetail(property),
@@ -793,11 +793,11 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
 
   // Navigation vers la page de détail
   void _navigateToDetail(PropertyModel property) {
-    // Navigator.pushNamed(
-    //   context,
-    //   Routes.detailPageRoute,
-    //   arguments: property,
-    // );
+    Navigator.pushNamed(
+      context,
+      Routes.detailPageRoute,
+      arguments: property,
+    );
   }
 
   // Méthode pour déterminer le type de propriété depuis le titre
@@ -805,18 +805,18 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
     if (title == null) return 'Propriété';
 
     final lowerTitle = title.toLowerCase();
-    if (lowerTitle.contains('appartements') || lowerTitle.contains('apartements')) {
+    if (lowerTitle.contains('apparts') || lowerTitle.contains('apparts')) {
       return 'Appartements';
     } else if (lowerTitle.contains('maisons')) {
-      return 'Maisons';
-    } else if (lowerTitle.contains('studios')) {
-      return 'Studios';
+      return 'Maison';
+    } else if (lowerTitle.contains('studio')) {
+      return 'Studio';
     } else if (lowerTitle.contains('villas')) {
       return 'Villas';
-    } else if (lowerTitle.contains('duplex')) {
-      return 'Duplex';
-    } else if (lowerTitle.contains('loft')) {
-      return 'Loft';
+    } else if (lowerTitle.contains('bureau')) {
+      return 'Bureau';
+    } else if (lowerTitle.contains('hotels')) {
+      return 'Hotel';
     } else if (lowerTitle.contains('penthouse')) {
       return 'Penthouse';
     }
