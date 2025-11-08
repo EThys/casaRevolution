@@ -8,6 +8,8 @@ import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -19,37 +21,110 @@ import 'package:shimmer/shimmer.dart';
 import '../models/PropertyModel.dart';
 import '../utils/Routes.dart';
 import 'CategoryPropertiesPage.dart';
-import 'NotificationPage.dart'; // Pour des icônes plus variées
+import 'NotificationPage.dart';
 
 class HomePage extends StatefulWidget {
   @override
   _HomePageState createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage>  {
+class _HomePageState extends State<HomePage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final Color primaryColor = Color(0xFF1976D2);
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
 
-  bool _isLoading =true;
-  bool _hasError=false;
+  bool _isLoading = true;
+  bool _hasError = false;
   final GetStorage storage = GetStorage();
+
+  // Firebase Analytics
+  final FirebaseAnalytics analytics = FirebaseAnalytics.instance;
+  final FirebaseCrashlytics crashlytics = FirebaseCrashlytics.instance;
 
   @override
   void initState() {
     super.initState();
+    _initializeFirebase();
+
     // Attendre que le widget soit complètement construit
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Utiliser Provider pour accéder au contrôleur
       final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
       propertyCtrl.getAllProperty().then((_) {
         print("Données chargées: ${propertyCtrl.properties.length} propriétés");
+        // Envoyer l'événement à Firebase Analytics
+        _logHomePageLoaded(propertyCtrl.properties.length);
       });
     });
   }
 
+  void _initializeFirebase() async {
+    try {
+      // Configuration de Crashlytics pour capturer toutes les erreurs
+      FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterError;
 
+      // Envoyer un événement d'ouverture de l'application
+      await analytics.logAppOpen();
+      await analytics.logEvent(
+        name: 'home_page_view',
+        parameters: {
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        },
+      );
+    } catch (e) {
+      print("Erreur d'initialisation Firebase: $e");
+    }
+  }
+
+  // Méthode pour logger le chargement de la page d'accueil
+  void _logHomePageLoaded(int propertyCount) {
+    analytics.logEvent(
+      name: 'home_page_loaded',
+      parameters: {
+        'property_count': propertyCount,
+        'user_id': storage.read(StockageKeys.userKey)?['id'] ?? 'anonymous',
+        'loaded_at': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+
+  void _logPropertyView(PropertyModel property, bool isForRent) {
+    analytics.logEvent(
+      name: 'property_viewed',
+      parameters: {
+        'property_id': property.propertyId?.toString() ?? 'unknown',
+        'property_title': property.title ?? 'Sans titre',
+        'property_type': isForRent ? 'location' : 'vente',
+        'price': property.price?.toStringAsFixed(0) ?? '0',
+        'bedrooms': property.bedrooms?.toString() ?? '0',
+        'bathrooms': property.bathroom?.toString() ?? '0',
+        'surface': property.surface?.toStringAsFixed(0) ?? '0',
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+  // Méthode pour logger l'ouverture d'une catégorie
+  void _logCategoryTap(String category) {
+    analytics.logEvent(
+      name: 'category_tapped',
+      parameters: {
+        'category_name': category,
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+
+  // Méthode pour logger la déconnexion
+  void _logUserLogout() {
+    analytics.logEvent(
+      name: 'user_logout',
+      parameters: {
+        'user_id': storage.read(StockageKeys.userKey)?['id'] ?? 'anonymous',
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,9 +133,8 @@ class _HomePageState extends State<HomePage>  {
 
     final rentalProperties = properties.where((p) => p.transactionType == 'location').toList();
     final saleProperties = properties.where((p) => p.transactionType == 'vente').toList();
-   // final images = properties.where((p) => p.transactionType == 'vente').toList();
 
-    print("ICIIIIIIIIIIIIIIIIIIIIIIIIIII${properties}");
+    print("matadiiiiiiii${properties}");
     print("Données chargées: ${properties}");
 
     return Scaffold(
@@ -74,7 +148,7 @@ class _HomePageState extends State<HomePage>  {
           children: [
             // Section Hero
             _buildHeroSection(),
-            SizedBox(height: 13,),
+            SizedBox(height: 13),
             _buildCategorySection(),
 
             // Section Locations
@@ -82,6 +156,7 @@ class _HomePageState extends State<HomePage>  {
               title: "Maisons en Location",
               subtitle: "Découvrez nos meilleures offres",
               onSeeAll: () {
+                _logCategoryTap('locations_see_all');
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -96,14 +171,15 @@ class _HomePageState extends State<HomePage>  {
             _buildPropertyCarousel(
               isForRent: true,
               properties: rentalProperties,
-              isLoading: propertyCtrl.loading
+              isLoading: propertyCtrl.loading,
             ),
-            SizedBox(height: 20,),
+            SizedBox(height: 20),
             PromoBanner(),
             _buildSectionHeader(
               title: "Maisons en Vente",
               subtitle: "Investissez dans votre avenir",
               onSeeAll: () {
+                _logCategoryTap('ventes_see_all');
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -118,7 +194,7 @@ class _HomePageState extends State<HomePage>  {
             _buildPropertyCarousel(
               isForRent: false,
               properties: saleProperties,
-                isLoading: propertyCtrl.loading
+              isLoading: propertyCtrl.loading,
             ),
 
             SizedBox(height: 30),
@@ -183,7 +259,10 @@ class _HomePageState extends State<HomePage>  {
         ),
         child: IconButton(
           icon: Icon(Icons.menu_rounded, color: Colors.white, size: 24),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+          onPressed: () {
+            analytics.logEvent(name: 'drawer_opened');
+            _scaffoldKey.currentState?.openDrawer();
+          },
           splashRadius: 20,
           padding: EdgeInsets.zero,
         ),
@@ -208,14 +287,14 @@ class _HomePageState extends State<HomePage>  {
                 shape: BoxShape.circle,
               ),
               child: Image.asset(
-                "assets/images/yinzo.png",
+                'assets/images/logoCasa.png',
                 height: 20,
                 width: 20,
               ),
             ),
             SizedBox(width: 10),
             Text(
-              "Casa",
+              "CasaNayo",
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
@@ -265,7 +344,8 @@ class _HomePageState extends State<HomePage>  {
                   size: 22,
                 ),
                 onPressed: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (context) =>  NotificationsPage()));
+                  analytics.logEvent(name: 'notifications_opened');
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => NotificationsPage()));
                 },
                 splashRadius: 20,
                 padding: EdgeInsets.zero,
@@ -311,7 +391,6 @@ class _HomePageState extends State<HomePage>  {
     );
   }
 
-  /// Petit widget pour icônes stylées
   Widget _buildCircleIcon(IconData icon, {VoidCallback? onTap}) {
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
@@ -327,11 +406,12 @@ class _HomePageState extends State<HomePage>  {
     );
   }
 
-
   void _confirmLogout() {
+    analytics.logEvent(name: 'logout_dialog_shown');
+
     showDialog(
       context: context,
-      barrierDismissible: false, // Empêche la fermeture en cliquant à l'extérieur
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Déconnexion'),
         content: const Text('Voulez-vous vraiment vous déconnecter ?'),
@@ -340,22 +420,22 @@ class _HomePageState extends State<HomePage>  {
         ),
         actionsAlignment: MainAxisAlignment.spaceBetween,
         actions: [
-          // Bouton Annuler
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              analytics.logEvent(name: 'logout_cancelled');
+              Navigator.pop(context);
+            },
             style: TextButton.styleFrom(
               foregroundColor: Theme.of(context).primaryColor,
               padding: const EdgeInsets.symmetric(horizontal: 16),
             ),
             child: const Text('Annuler'),
           ),
-
-          // Bouton Déconnexion
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context); // Ferme la boîte de dialogue
+              analytics.logEvent(name: 'logout_confirmed');
+              Navigator.pop(context);
 
-              // Affiche un indicateur de chargement
               final scaffold = ScaffoldMessenger.of(context);
               scaffold.showSnackBar(
                 SnackBar(
@@ -374,17 +454,17 @@ class _HomePageState extends State<HomePage>  {
               );
 
               try {
-                // 1. Suppression du token
+                // Logger la déconnexion avant de la traiter
+                _logUserLogout();
+
                 await storage.erase();
-                // await storage.erase(); // Option: Tout supprimer
                 if (!mounted) return;
                 Navigator.pushAndRemoveUntil(
                   context,
-                  MaterialPageRoute(builder: (context) =>  LoginScreen()),
+                  MaterialPageRoute(builder: (context) => LoginScreen()),
                       (Route<dynamic> route) => false,
                 );
 
-                // 4. Confirmation visuelle
                 scaffold.showSnackBar(
                   const SnackBar(
                     content: Text('Déconnexion réussie'),
@@ -393,7 +473,10 @@ class _HomePageState extends State<HomePage>  {
                   ),
                 );
 
-              } catch (e) {
+              } catch (e, stack) {
+                // Envoyer l'erreur à Crashlytics
+                await crashlytics.recordError(e, stack, reason: 'Erreur lors de la déconnexion');
+
                 if (!mounted) return;
                 scaffold.showSnackBar(
                   SnackBar(
@@ -424,7 +507,6 @@ class _HomePageState extends State<HomePage>  {
     final user = stockage.read(StockageKeys.userKey);
     bool isLoggedIn = token != null;
 
-    // État local pour suivre la route sélectionnée
     String selectedRoute = ModalRoute.of(context)?.settings.name ?? Routes.bottomPageRoute;
 
     return SizedBox(
@@ -453,7 +535,6 @@ class _HomePageState extends State<HomePage>  {
           ),
           child: Column(
             children: [
-              // Header avec dégradé amélioré
               Container(
                 height: 215,
                 width: double.infinity,
@@ -471,7 +552,6 @@ class _HomePageState extends State<HomePage>  {
                 ),
                 child: Stack(
                   children: [
-                    // Effets de fond décoratifs
                     Positioned(
                       top: -20,
                       right: -20,
@@ -496,15 +576,13 @@ class _HomePageState extends State<HomePage>  {
                         ),
                       ),
                     ),
-
                     Padding(
                       padding: const EdgeInsets.fromLTRB(24, 50, 24, 20),
                       child: Column(
                         children: [
-                          // Avatar avec animation au tap
                           GestureDetector(
                             onTap: () {
-                              // Animation de l'avatar
+                              analytics.logEvent(name: 'profile_avatar_tapped');
                               _animateAvatar();
                             },
                             child: AnimatedContainer(
@@ -536,8 +614,6 @@ class _HomePageState extends State<HomePage>  {
                             ),
                           ),
                           SizedBox(height: 20),
-
-                          // Texte d'accueil avec animation
                           AnimatedSwitcher(
                             duration: Duration(milliseconds: 300),
                             child: Text(
@@ -564,16 +640,12 @@ class _HomePageState extends State<HomePage>  {
                   ],
                 ),
               ),
-
-              // Liste des items avec effet de défilement fluide
               Expanded(
                 child: SingleChildScrollView(
                   physics: BouncingScrollPhysics(),
                   child: Column(
                     children: [
                       SizedBox(height: 16),
-
-                      // Section principale
                       _buildDrawerSection(
                         title: "PRINCIPAL",
                         items: [
@@ -606,17 +678,17 @@ class _HomePageState extends State<HomePage>  {
                           ),
                         ],
                       ),
-
-                      // Section social
                       _buildDrawerSection(
                         title: "SOCIAL",
                         items: [
-                          _buildDrawerItem(
-                            icon: Icons.people_alt_rounded,
-                            title: 'Parrainer',
-                            isSelected: selectedRoute == '/referral',
-                            onTap: () => _handleNavigation('/referral'),
-                          ),
+                          if(isLoggedIn)
+                            _buildDrawerItem(
+                              icon: Icons.people_alt_rounded,
+                              title: 'Parrainer',
+                              routeName: Routes.ParrainagePageRoute,
+                              isSelected: selectedRoute == Routes.ParrainagePageRoute,
+                              onTap: () => _handleNavigation(Routes.ParrainagePageRoute),
+                            ),
                           _buildDrawerItem(
                             icon: Icons.share_rounded,
                             title: 'Partager l\'app',
@@ -625,8 +697,6 @@ class _HomePageState extends State<HomePage>  {
                           ),
                         ],
                       ),
-
-                      // Section support
                       _buildDrawerSection(
                         title: "SUPPORT",
                         items: [
@@ -650,8 +720,6 @@ class _HomePageState extends State<HomePage>  {
                           ),
                         ],
                       ),
-
-                      // Section compte
                       if (isLoggedIn)
                         _buildDrawerSection(
                           title: "COMPTE",
@@ -665,10 +733,7 @@ class _HomePageState extends State<HomePage>  {
                             ),
                           ],
                         ),
-
                       SizedBox(height: 20),
-
-                      // Version avec design moderne
                       Container(
                         margin: EdgeInsets.symmetric(horizontal: 24),
                         padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
@@ -701,7 +766,6 @@ class _HomePageState extends State<HomePage>  {
                           ],
                         ),
                       ),
-
                       SizedBox(height: 24),
                     ],
                   ),
@@ -714,17 +778,25 @@ class _HomePageState extends State<HomePage>  {
     );
   }
 
-// Méthode pour gérer la navigation
   void _handleNavigation(String routeName) {
-    Navigator.pop(context); // Ferme le drawer
+    analytics.logEvent(
+      name: 'navigation',
+      parameters: {
+        'from': 'drawer',
+        'to': routeName,
+        'timestamp': DateTime.now().toIso8601String(),
+      },
+    );
+
+    Navigator.pop(context);
 
     if (routeName == Routes.bottomPageRoute ||
         routeName == Routes.commissionnaireDashboardPageRoute ||
+        routeName == Routes.ParrainagePageRoute ||
         routeName == Routes.bookingHistoryPageRoute) {
-      // Navigation normale pour les routes existantes
       Navigator.pushNamed(context, routeName);
     } else {
-      // Pour les routes non implémentées, afficher un message
+      analytics.logEvent(name: 'feature_not_implemented', parameters: {'feature': routeName});
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Fonctionnalité en cours de développement'),
@@ -738,9 +810,7 @@ class _HomePageState extends State<HomePage>  {
     }
   }
 
-// Animation de l'avatar
   void _animateAvatar() {
-    // Vous pouvez ajouter une animation ici si nécessaire
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Modifier le profil'),
@@ -753,7 +823,6 @@ class _HomePageState extends State<HomePage>  {
     );
   }
 
-// Widget pour créer une section du drawer
   Widget _buildDrawerSection({
     required String title,
     required List<Widget> items,
@@ -779,7 +848,6 @@ class _HomePageState extends State<HomePage>  {
     );
   }
 
-// Widget pour un item du drawer avec animations
   Widget _buildDrawerItem({
     required IconData icon,
     required String title,
@@ -861,63 +929,7 @@ class _HomePageState extends State<HomePage>  {
     );
   }
 
-
-
-  String _selectedRoute = Routes.bottomPageRoute;
-
-  // Widget _buildDrawerItem({
-  //   required IconData icon,
-  //   required String title,
-  //   String? routeName,
-  //   VoidCallback? onTap,
-  // }) {
-  //   final isSelected = routeName != null && _selectedRoute == routeName;
-  //   return ListTile(
-  //     leading: Container(
-  //       padding: const EdgeInsets.all(8),
-  //       decoration: BoxDecoration(
-  //         color: isSelected ? primaryColor.withOpacity(0.1) : Colors.transparent,
-  //         shape: BoxShape.circle,
-  //       ),
-  //       child: Icon(
-  //         icon,
-  //         color: isSelected ? primaryColor : Colors.grey[700],
-  //         size: 22,
-  //       ),
-  //     ),
-  //     title: Text(
-  //       title,
-  //       style: TextStyle(
-  //         color: isSelected ? primaryColor : Colors.grey[800],
-  //         fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-  //       ),
-  //     ),
-  //     selected: isSelected,
-  //     selectedTileColor: primaryColor.withOpacity(0.1),
-  //     onTap: () {
-  //       if (onTap != null) {
-  //         onTap();
-  //       } else if (routeName != null) {
-  //         setState(() {
-  //           _selectedRoute = routeName;
-  //         });
-  //         Navigator.pushNamed(context, routeName);
-  //       }
-  //       // Si ni onTap ni routeName, rien ne se passe (pas de bug)
-  //     },
-  //     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-  //     contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-  //   );
-  // }
-
-
-
-
-
-
-
   Widget _buildHeroSection() {
-    // Liste des traductions avec la langue et le texte
     final List<Map<String, String>> translations = [
       {'lang': 'Français', 'text': 'Trouvez votre\nmaison idéale'},
       {'lang': 'Lingala', 'text': 'Luka ndaku nayo\nya malamu'},
@@ -927,11 +939,9 @@ class _HomePageState extends State<HomePage>  {
       {'lang': 'English', 'text': 'Find your\ndream home'},
     ];
 
-    // Contrôleur pour le carrousel de texte
     final PageController _textController = PageController();
     int _currentLangIndex = 0;
 
-    // Animation automatique du carrousel
     void _startAutoScroll() {
       Future.delayed(Duration(seconds: 3), () {
         if (_textController.hasClients) {
@@ -946,7 +956,6 @@ class _HomePageState extends State<HomePage>  {
       });
     }
 
-    // Démarrer l'animation au premier build
     WidgetsBinding.instance.addPostFrameCallback((_) => _startAutoScroll());
 
     return Padding(
@@ -992,13 +1001,12 @@ class _HomePageState extends State<HomePage>  {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Conteneur pour le carrousel de texte
                     SizedBox(
-                      height: 80, // Hauteur fixe pour éviter le saut de contenu
+                      height: 80,
                       child: PageView.builder(
                         controller: _textController,
                         itemCount: translations.length,
-                        physics: NeverScrollableScrollPhysics(), // Désactive le scroll manuel
+                        physics: NeverScrollableScrollPhysics(),
                         itemBuilder: (context, index) {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1037,7 +1045,9 @@ class _HomePageState extends State<HomePage>  {
                         ],
                       ),
                       child: ElevatedButton.icon(
-                        onPressed: () {},
+                        onPressed: () {
+                          analytics.logEvent(name: 'explore_button_tapped');
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: primaryColor,
@@ -1067,15 +1077,16 @@ class _HomePageState extends State<HomePage>  {
       ),
     );
   }
+
   Widget _buildCategorySection() {
     final categories = [
       {
         'image': 'assets/images/studio.png',
-        'label': 'Studio',
-        'value': 'Studios'
+        'label': 'Studios',
+        'value': 'Studio'
       },
       {
-        'image': 'assets/images/apart.png', // Chemin local
+        'image': 'assets/images/apart.png',
         'label': 'Apparts',
         'value': 'Apparts'
       },
@@ -1087,7 +1098,7 @@ class _HomePageState extends State<HomePage>  {
       {
         'image': 'assets/images/office.png',
         'label': 'Bureaux',
-        'value': 'Bureaux'
+        'value': 'Bureau'
       },
       {
         'image': 'assets/images/hotel.png',
@@ -1099,7 +1110,6 @@ class _HomePageState extends State<HomePage>  {
         'label': 'Vacances',
         'value': 'Vacances'
       },
-
     ];
 
     return Container(
@@ -1134,6 +1144,8 @@ class _HomePageState extends State<HomePage>  {
                     child: InkWell(
                       borderRadius: BorderRadius.circular(18),
                       onTap: () async {
+                        _logCategoryTap(categories[index]['value'] as String);
+                        print("MUZOLLAAAA${categories[index]['value'] }");
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -1191,104 +1203,6 @@ class _HomePageState extends State<HomePage>  {
       ),
     );
   }
-
-
-  // Widget _buildCategorySection() {
-  //   final categories = [
-  //     {'icon': FontAwesomeIcons.building, 'label': 'Apparts', 'value': 'Apparts'},
-  //     {'icon': FontAwesomeIcons.house, 'label': 'Maisons', 'value': 'Maisons'},
-  //     {'icon': FontAwesomeIcons.houseChimney, 'label': 'Villas', 'value': 'Villas'},
-  //     {'icon': FontAwesomeIcons.buildingColumns, 'label': 'Bureaux', 'value': 'Bureaux'},
-  //     {'icon': FontAwesomeIcons.umbrellaBeach, 'label': 'Vacances', 'value': 'Vacances'},
-  //     {'icon': FontAwesomeIcons.city, 'label': 'Résidences', 'value': 'Résidences'},
-  //     {'icon': FontAwesomeIcons.hotel, 'label': 'Hôtels', 'value': 'Hôtels'},
-  //   ];
-  //
-  //   return Container(
-  //     height: 140,
-  //     margin: EdgeInsets.only(bottom: 10),
-  //     child: Column(
-  //       crossAxisAlignment: CrossAxisAlignment.start,
-  //       children: [
-  //         Padding(
-  //           padding: EdgeInsets.symmetric(horizontal: 24),
-  //           child: Text(
-  //             'Catégories',
-  //             style: TextStyle(
-  //               fontSize: 18,
-  //               fontWeight: FontWeight.bold,
-  //               color: Colors.grey[800],
-  //             ),
-  //           ),
-  //         ),
-  //         SizedBox(height: 12),
-  //         Expanded(
-  //           child: ListView.builder(
-  //             scrollDirection: Axis.horizontal,
-  //             padding: EdgeInsets.symmetric(horizontal: 20),
-  //             itemCount: categories.length,
-  //             itemBuilder: (context, index) {
-  //               return Container(
-  //                 width: 90,
-  //                 margin: EdgeInsets.only(right: 8),
-  //                 child: Material(
-  //                   color: Colors.transparent,
-  //                   child: InkWell(
-  //                     borderRadius: BorderRadius.circular(18),
-  //                     onTap: () async {
-  //                       Navigator.push(
-  //                         context,
-  //                         MaterialPageRoute(
-  //                           builder: (context) => CategoryPropertiesPage(
-  //                             category: categories[index]['value'] as String,
-  //                           ),
-  //                         ),
-  //                       );
-  //                     },
-  //                     splashColor: primaryColor.withOpacity(0.1),
-  //                     highlightColor: primaryColor.withOpacity(0.05),
-  //                     child: Padding(
-  //                       padding: EdgeInsets.all(8),
-  //                       child: Column(
-  //                         mainAxisAlignment: MainAxisAlignment.center,
-  //                         children: [
-  //                           Container(
-  //                             width: 56,
-  //                             height: 56,
-  //                             decoration: BoxDecoration(
-  //                               color: primaryColor.withOpacity(0.1),
-  //                               borderRadius: BorderRadius.circular(16),
-  //                             ),
-  //                             child: Icon(
-  //                               categories[index]['icon'] as IconData,
-  //                               size: 24,
-  //                               color: primaryColor,
-  //                             ),
-  //                           ),
-  //                           SizedBox(height: 10),
-  //                           Text(
-  //                             categories[index]['label'] as String,
-  //                             style: TextStyle(
-  //                               fontSize: 12,
-  //                               fontWeight: FontWeight.w600,
-  //                               color: Colors.grey[700],
-  //                             ),
-  //                             textAlign: TextAlign.center,
-  //                             maxLines: 2,
-  //                           ),
-  //                         ],
-  //                       ),
-  //                     ),
-  //                   ),
-  //                 ),
-  //               );
-  //             },
-  //           ),
-  //         ),
-  //       ],
-  //     ),
-  //   );
-  // }
 
   Widget _buildSectionHeader({
     required String title,
@@ -1356,14 +1270,13 @@ class _HomePageState extends State<HomePage>  {
     );
   }
 
-
   Widget _buildShimmerLoading() {
     return Container(
       height: 320,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.only(left: 24, right: 8),
-        itemCount: 3, // Nombre d'éléments shimmer à afficher
+        itemCount: 3,
         itemBuilder: (context, index) {
           return Container(
             width: 260,
@@ -1380,48 +1293,46 @@ class _HomePageState extends State<HomePage>  {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                  // Placeholder pour l'image
-                  Container(
-                  height: 160,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(20),
-                    ),
-                  ),
-                  // Placeholder pour les détails
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: double.infinity,
-                          height: 20,
-                          color: Colors.white,
+                    Container(
+                      height: 160,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(20),
                         ),
-                        SizedBox(height: 10),
-                        Container(
-                          width: 150,
-                          height: 15,
-                          color: Colors.white,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              height: 20,
+                              color: Colors.white,
+                            ),
+                            SizedBox(height: 10),
+                            Container(
+                              width: 150,
+                              height: 15,
+                              color: Colors.white,
+                            ),
+                            SizedBox(height: 20),
+                            Container(
+                              height: 40,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                children: [
+                                  Container(width: 60, height: 15, color: Colors.white),
+                                  Container(width: 60, height: 15, color: Colors.white),
+                                  Container(width: 60, height: 15, color: Colors.white),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        SizedBox(height: 20),
-                        Container(
-                          height: 40,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              Container(width: 60, height: 15, color: Colors.white),
-                              Container(width: 60, height: 15, color: Colors.white),
-                              Container(width: 60, height: 15, color: Colors.white),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  )
+                      ),
+                    )
                   ],
                 ),
               ),
@@ -1437,7 +1348,6 @@ class _HomePageState extends State<HomePage>  {
     required bool isForRent,
     required bool isLoading,
   }) {
-
     if (isLoading) {
       return _buildShimmerLoading();
     }
@@ -1482,8 +1392,12 @@ class _HomePageState extends State<HomePage>  {
         itemCount: min(5, properties.length),
         itemBuilder: (context, index) {
           final property = properties[index];
-          final firstImagePath = property.images?.isNotEmpty ?? false
-              ? property.images!.first.path
+
+          final firstImage = property.propertyImage?.isNotEmpty ?? false
+              ? property.propertyImage!.first
+              : null;
+          final imageUrl = firstImage != null
+              ? "${firstImage.path ?? firstImage.path}"
               : null;
 
           final priceText = isForRent
@@ -1500,6 +1414,7 @@ class _HomePageState extends State<HomePage>  {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(24),
                   onTap: () {
+                    _logPropertyView(property, isForRent);
                     Navigator.pushNamed(
                       context,
                       Routes.detailPageRoute,
@@ -1522,17 +1437,16 @@ class _HomePageState extends State<HomePage>  {
                     ),
                     child: Stack(
                       children: [
-                        // Image de fond avec effet de parallaxe
                         Positioned.fill(
                           child: Hero(
-                            tag: 'property-image-${property.PropertyId}',
+                            tag: 'property-image-${property.propertyId}',
                             child: AnimatedSwitcher(
                               duration: Duration(milliseconds: 500),
-                              child: firstImagePath != null
+                              child: imageUrl != null
                                   ? CachedNetworkImage(
-                                imageUrl: "${Constantes.URL_IMAGES}${firstImagePath}",
+                                imageUrl: imageUrl,
                                 fit: BoxFit.cover,
-                                key: ValueKey(firstImagePath),
+                                key: ValueKey(imageUrl),
                               )
                                   : Container(
                                 color: Colors.grey[200],
@@ -1547,8 +1461,6 @@ class _HomePageState extends State<HomePage>  {
                             ),
                           ),
                         ),
-
-                        // Gradient overlay moderne
                         Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
@@ -1562,15 +1474,12 @@ class _HomePageState extends State<HomePage>  {
                             ),
                           ),
                         ),
-
-                        // Contenu principal
                         Padding(
                           padding: const EdgeInsets.all(20),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
-                              // Titre avec effet de surbrillance au hover
                               MouseRegion(
                                 cursor: SystemMouseCursors.click,
                                 child: AnimatedContainer(
@@ -1598,10 +1507,7 @@ class _HomePageState extends State<HomePage>  {
                                   ),
                                 ),
                               ),
-
                               SizedBox(height: 8),
-
-                              // Adresse avec animation subtile
                               AnimatedOpacity(
                                 opacity: 0.9,
                                 duration: Duration(milliseconds: 300),
@@ -1615,7 +1521,7 @@ class _HomePageState extends State<HomePage>  {
                                     SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
-                                        '${property.commune ?? ''}, ${property.city ?? ''}',
+                                        property.address ?? 'Adresse non disponible',
                                         style: GoogleFonts.inter(
                                           color: Colors.white.withOpacity(0.8),
                                           fontSize: 14,
@@ -1628,10 +1534,7 @@ class _HomePageState extends State<HomePage>  {
                                   ],
                                 ),
                               ),
-
                               SizedBox(height: 20),
-
-                              // Prix - Design moderne avec effet de profondeur
                               Transform.translate(
                                 offset: Offset(0, 0),
                                 child: AnimatedContainer(
@@ -1674,10 +1577,7 @@ class _HomePageState extends State<HomePage>  {
                                   ),
                                 ),
                               ),
-
                               SizedBox(height: 16),
-
-                              // Caractéristiques - Design minimaliste
                               Container(
                                 height: 50,
                                 decoration: BoxDecoration(
@@ -1710,8 +1610,6 @@ class _HomePageState extends State<HomePage>  {
                             ],
                           ),
                         ),
-
-                        // Badge type + bouton favoris
                         Positioned(
                           top: 16,
                           left: 16,
@@ -1719,7 +1617,6 @@ class _HomePageState extends State<HomePage>  {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              // Badge type avec animation
                               AnimatedContainer(
                                 duration: Duration(milliseconds: 300),
                                 padding: EdgeInsets.symmetric(
@@ -1748,15 +1645,6 @@ class _HomePageState extends State<HomePage>  {
                                     letterSpacing: 1,
                                   ),
                                 ),
-                              ),
-
-                              // Remplacement du InkWell par FavoriteHeartIcon
-                              FavoriteHeartIcon(
-                                propertyId: property.PropertyId.toString(),
-                                size: 30,
-                                splashRadius: 5,
-                                activeColor: primaryColor,
-                                inactiveColor: primaryColor,
                               ),
                             ],
                           ),
@@ -1800,7 +1688,6 @@ class _HomePageState extends State<HomePage>  {
     );
   }
 
-
   String _getFeatureLabel(IconData icon, String value) {
     if (icon == FontAwesomeIcons.bed) return '$value Chambre${int.parse(value) > 1 ? 's' : ''}';
     if (icon == FontAwesomeIcons.bath) return '$value Salle${int.parse(value) > 1 ? 's' : ''} de bain';
@@ -1840,5 +1727,4 @@ class _HomePageState extends State<HomePage>  {
       ],
     );
   }
-
 }
