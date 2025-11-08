@@ -17,12 +17,13 @@ class BottomNavBar extends StatefulWidget {
   State<BottomNavBar> createState() => _BottomNavBarState();
 }
 
-class _BottomNavBarState extends State<BottomNavBar> {
+class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver {
   int _currentIndex = 0;
   final GetStorage _stockage = GetStorage();
   final PageStorageBucket _bucket = PageStorageBucket();
+  bool _isKeyboardVisible = false;
 
-  final List<Widget> _screens = [
+  late final List<Widget> _screens = [
     HomePage(),
     PropertySearchPage(),
     FavoritesPage(),
@@ -32,6 +33,7 @@ class _BottomNavBarState extends State<BottomNavBar> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
       final authCtr = context.read<AuthentificationCtrl>();
       final idUser = 1; //authCtr.user;
@@ -41,62 +43,85 @@ class _BottomNavBarState extends State<BottomNavBar> {
   }
 
   @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    // Vérifier si le clavier est visible
+    final bottomInset = WidgetsBinding.instance.window.viewInsets.bottom;
+    final newValue = bottomInset > 0;
+
+    if (newValue != _isKeyboardVisible) {
+      setState(() {
+        _isKeyboardVisible = newValue;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: PageStorage(
         child: _screens[_currentIndex],
         bucket: _bucket,
       ),
-      floatingActionButton: FloatingActionButton(
-        child: Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [
-                Color(0xFF1976D2), // Bleu plus foncé
-                Color(0xFF2196F3), // Votre couleur bleue
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                spreadRadius: 1,
-                blurRadius: 5,
-                offset: Offset(0, 3),
+      floatingActionButton: Visibility(
+        visible: !_isKeyboardVisible,
+        child: FloatingActionButton(
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF1976D2), // Bleu plus foncé
+                  Color(0xFF2196F3), // Votre couleur bleue
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-            ],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  spreadRadius: 1,
+                  blurRadius: 5,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.add, // Icône pour publier une maison
+              color: Colors.white,
+              size: 28,
+            ),
           ),
-          child: Icon(
-            Icons.add, // Icône pour publier une maison
-            color: Colors.white,
-            size: 28,
-          ),
-        ),
-        elevation: 0,
-        onPressed: () {
-          var token = _stockage.read(StockageKeys.tokenKey);
-          var typeAccount = _stockage.read(StockageKeys.userKey)?['TypeAccountId'];
+          elevation: 0,
+          onPressed: () {
+            var token = _stockage.read(StockageKeys.tokenKey);
+            var typeAccount = _stockage.read(StockageKeys.userKey)?['TypeAccountId'];
 
-          if (token != null) {
-            if (typeAccount != 2) {
-              Navigator.pushNamed(context, Routes.createPropertyRoute);
+            if (token != null) {
+              if (typeAccount != 2) {
+                Navigator.pushNamed(context, Routes.createPropertyRoute);
+              } else {
+                FancyNotification.show(
+                  context,
+                  "Votre type de compte ne permet pas de publier une annonce",
+                );
+              }
             } else {
               FancyNotification.show(
                 context,
-                "Votre type de compte ne permet pas de publier une annonce",
+                "Vous devez être connecté pour publier une annonce",
               );
             }
-          } else {
-            FancyNotification.show(
-              context,
-              "Vous devez être connecté pour publier une annonce",
-            );
-          }
-        },
+          },
+        ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: Container(
@@ -182,10 +207,9 @@ class _BottomNavBarState extends State<BottomNavBar> {
               color: isActive ? Color(0xFF2196F3) : Color(0xFF95A5A6),
             ),
           ),
-          // Supprimé : aucun label en dessous de l’icône
+          // Supprimé : aucun label en dessous de l'icône
         ],
       ),
     );
   }
-
 }
