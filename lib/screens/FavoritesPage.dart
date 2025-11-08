@@ -7,7 +7,9 @@ import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
@@ -33,6 +35,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
   final Color _successColor = Color(0xFF00B894);
   final Color _errorColor = Color(0xFFD63031);
   final Color _cardBackground = Colors.white;
+  final Color _lightColor = Color(0xFFF5F6FA);
+  final Color _greyColor = Color(0xFF7F8C8D);
+  final Color _accentColor = Color(0xFF4CAF50);
+
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -133,15 +139,20 @@ class _FavoritesPageState extends State<FavoritesPage> {
   Widget _buildPropertyDetails(PropertyFavoriteModel property) {
     final propertyData = property.property;
     final isForRent = propertyData?.transactionType == 'location';
-    final firstImagePath = propertyData?.images != null && propertyData!.images!.isNotEmpty
-        ? propertyData.images!.first.path
+
+    final firstImage = propertyData?.propertyImage?.isNotEmpty ?? false
+        ? propertyData?.propertyImage?.first
         : null;
+    final imageUrl = firstImage != null
+        ? "${firstImage.path ?? firstImage.path}"
+        : null;
+
 
     final priceText = isForRent
         ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$/mois'
         : '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$';
 
-    final isAvailable = propertyData?.isAvailable ?? false;
+    final isAvailable = propertyData?.sold ?? false;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
@@ -189,9 +200,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
                   },
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(15),
-                    child: firstImagePath != null
+                    child: imageUrl != null
                         ? CachedNetworkImage(
-                      imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
+                      imageUrl: imageUrl,
                       height: 180,
                       width: double.infinity,
                       fit: BoxFit.cover,
@@ -354,6 +365,46 @@ class _FavoritesPageState extends State<FavoritesPage> {
       },
     );
   }
+
+  Widget _buildImagePlaceholder() {
+    return Container(
+      color: Colors.grey[200],
+      child: Center(
+        child: Icon(
+          Icons.photo_outlined,
+          size: 32,
+          color: Colors.grey[400],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureChip(IconData icon, String text) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: _lightColor,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: _greyColor),
+          SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 10,
+              color: _greyColor,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
 
 
 
@@ -692,7 +743,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
         itemCount: propertyCtrl.propertyFavorites.length,
         itemBuilder: (context, index) {
           final property = propertyCtrl.propertyFavorites[index];
-          final isDeleting = _deletingIds.contains(property.property?.PropertyId);
+          final isDeleting = _deletingIds.contains(property.property?.propertyId);
 
           return SlideTransition(
             position: Tween<Offset>(
@@ -711,26 +762,26 @@ class _FavoritesPageState extends State<FavoritesPage> {
       ),
     );
   }
-
   Widget _buildFavoriteCard(PropertyFavoriteModel property, {bool isDeleting = false}) {
     final propertyData = property.property;
-    final isForRent = propertyData?.transactionType == "location";
-    final isAvailable = propertyData?.isAvailable ?? false;
-    final firstImagePath = propertyData?.images?.isNotEmpty == true
-        ? propertyData?.images!.first.path
+
+    // CORRECTION : Gestion des images comme dans _buildPropertyListItem
+    final firstImage = propertyData?.propertyImage?.isNotEmpty ?? false
+        ? propertyData?.propertyImage?.first
         : null;
+    final imageUrl = firstImage != null
+        ? "${firstImage.path ?? firstImage.path}"
+        : null;
+
+    final isForRent = propertyData?.transactionType == "location";
+    final isAvailable = propertyData?.sold ?? false;
 
     final priceText = isForRent
         ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$/mois'
         : '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$';
 
-    // if (propertyData == null) {
-    //   return SizedBox.shrink(); // Ou retournez un widget vide
-    // }
-
-
     return Dismissible(
-      key: Key(propertyData?.PropertyId?.toString() ?? UniqueKey().toString()),
+      key: Key(propertyData?.propertyId?.toString() ?? UniqueKey().toString()),
       direction: DismissDirection.endToStart,
       background: Container(
         margin: EdgeInsets.only(bottom: 20),
@@ -743,8 +794,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
         child: Icon(Icons.delete, color: _errorColor, size: 30),
       ),
       confirmDismiss: (direction) async {
-        if (propertyData?.PropertyId != null) {
-          await _removeFavorite(propertyData!.PropertyId);
+        if (propertyData?.propertyId != null) {
+          await _removeFavorite(propertyData!.propertyId!);
           return false; // Nous gérons la suppression nous-mêmes
         }
         return false;
@@ -780,23 +831,21 @@ class _FavoritesPageState extends State<FavoritesPage> {
                 children: [
                   Stack(
                     children: [
+                      // CORRECTION : Image identique à _buildPropertyListItem
                       ClipRRect(
                         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                        child: firstImagePath != null
-                            ? CachedNetworkImage(
-                          imageUrl: "${Constantes.URL_IMAGES}$firstImagePath",
-                          fit: BoxFit.cover,
+                        child: Container(
                           width: double.infinity,
                           height: 180,
-                          placeholder: (context, url) => Center(
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: _primaryColor,
-                            ),
-                          ),
-                          errorWidget: (context, url, error) => _buildPlaceholderImage(),
-                        )
-                            : _buildPlaceholderImage(),
+                          child: imageUrl != null
+                              ? CachedNetworkImage(
+                            imageUrl: imageUrl,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => _buildImagePlaceholder(),
+                            errorWidget: (context, url, error) => _buildImagePlaceholder(),
+                          )
+                              : _buildImagePlaceholder(),
+                        ),
                       ),
                       Positioned(
                         top: 15,
@@ -865,10 +914,11 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // CORRECTION : Style de titre identique
                         Text(
                           propertyData?.title ?? 'Propriété sans titre',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w600,
                             fontSize: 18,
                             color: _darkColor,
                           ),
@@ -876,19 +926,20 @@ class _FavoritesPageState extends State<FavoritesPage> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         SizedBox(height: 8),
+                        // CORRECTION : Style d'adresse identique
                         Row(
                           children: [
                             Icon(
                               Icons.location_on_outlined,
                               size: 16,
-                              color: _mediumGrey,
+                              color: _greyColor,
                             ),
                             SizedBox(width: 5),
                             Expanded(
                               child: Text(
                                 propertyData?.address ?? 'Adresse non disponible',
                                 style: TextStyle(
-                                  color: _mediumGrey,
+                                  color: _greyColor,
                                   fontSize: 14,
                                 ),
                                 maxLines: 1,
@@ -896,6 +947,26 @@ class _FavoritesPageState extends State<FavoritesPage> {
                               ),
                             ),
                           ],
+                        ),
+                        SizedBox(height: 15),
+                        // CORRECTION : Caractéristiques identiques
+                        Container(
+                          height: 30,
+                          child: ListView(
+                            scrollDirection: Axis.horizontal,
+                            children: [
+                              if (propertyData?.bedrooms != null)
+                                _buildFeatureChip(Icons.king_bed_rounded, '${propertyData!.bedrooms} ch.'),
+                              SizedBox(width: 8),
+                              if (propertyData?.bathroom != null)
+                                _buildFeatureChip(Icons.bathtub_rounded, '${propertyData!.bathroom} sdb'),
+                              SizedBox(width: 8),
+                              if (propertyData?.surface != null)
+                                _buildFeatureChip(Icons.square_foot_rounded, '${propertyData!.surface}m²'),
+                              if (propertyData?.rooms != null)
+                                _buildFeatureChip(FontAwesomeIcons.doorClosed, '${propertyData!.rooms} pièces'),
+                            ].where((element) => element != null).cast<Widget>().toList(),
+                          ),
                         ),
                         SizedBox(height: 15),
                         Row(
@@ -907,7 +978,6 @@ class _FavoritesPageState extends State<FavoritesPage> {
                             ),
                             SizedBox(width: 8),
                             Text(
-                              // 'Ajouté le ${_dateFormat.format(property.createdAt ?? DateTime.now())}'
                               'Ajouté ${_dateFormat.format(DateTime.now())}',
                               style: TextStyle(
                                 color: _mediumGrey,
@@ -931,8 +1001,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
                               IconButton(
                                 icon: Icon(Icons.delete_outline, color: _errorColor),
                                 onPressed: () {
-                                  if (propertyData?.PropertyId != null) {
-                                    _removeFavorite(propertyData!.PropertyId);
+                                  if (propertyData?.propertyId != null) {
+                                    _removeFavorite(propertyData!.propertyId!);
                                   }
                                 },
                               ),
