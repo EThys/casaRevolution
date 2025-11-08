@@ -1,4 +1,17 @@
+import 'dart:async';
+
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import '../controllers/PropertyCtrl.dart';
+import '../controllers/LocationController.dart';
+import '../models/CityModel.dart';
+import '../models/CommuneModel.dart';
+import '../models/PropertyModel.dart';
+import '../utils/FavoriteEartIcon.dart';
+import '../utils/Routes.dart';
 
 class PropertySearchPage extends StatefulWidget {
   @override
@@ -17,8 +30,11 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   String _selectedPropertyType = 'Tous';
   String? _selectedBedrooms;
   bool _showFilters = false;
+  TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
+  bool _showSearchLoader = false;
 
-  // Nouveaux contrôles
+  // Contrôles de localisation
   String? _selectedCity;
   String? _selectedCommune;
   TextEditingController _minPriceController = TextEditingController();
@@ -30,12 +46,25 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
   // Options
   String _selectedTransaction = 'Location';
-  final List<String> _propertyTypes = ['Tous', 'Appartement', 'Maison', 'Studio'];
-  final List<String> _cities = ['Paris', 'Lyon', 'Marseille', 'Toulouse', 'Nice', 'Nantes'];
-  final List<String> _communes = [
-    '1er arrondissement', '2ème arrondissement', '3ème arrondissement',
-    '4ème arrondissement', '5ème arrondissement', '6ème arrondissement'
-  ];
+  final List<String> _propertyTypes = ['Tous', 'Studio', 'Apparts', 'Maisons', 'Bureau', 'Hotels', 'Vacances'];
+
+  // Remplacement des listes statiques par des données dynamiques
+  List<String> _cities = [];
+  List<String> _communes = [];
+
+  // Mappings des types de propriétés
+  final Map<String, int> _propertyTypeMapping = {
+    'Tous': 0,
+    'Studio': 1,
+    'Apparts': 2,
+    'Maisons': 3,
+    'Bureau': 4,
+    'Hotels': 5,
+    'Vacances': 6,
+  };
+
+  // Timer pour le debounce de recherche
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -43,9 +72,62 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     _minPriceController.text = _priceRange.start.toInt().toString();
     _maxPriceController.text = _priceRange.end.toInt().toString();
 
-    // Listeners pour synchroniser les prix
     _minPriceController.addListener(_updatePriceRange);
     _maxPriceController.addListener(_updatePriceRange);
+
+    // Charger les propriétés et les données de localisation
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeData();
+    });
+  }
+
+  void _initializeData() async {
+    final propertyController = Provider.of<PropertyController>(context, listen: false);
+    final locationController = Provider.of<LocationController>(context, listen: false);
+
+    // Charger les propriétés
+    propertyController.getAllProperty();
+
+    // Charger les données de localisation
+    await locationController.loadAllData();
+
+    // Vérifier les relations entre villes, districts et communes
+    print("=== VERIFICATION DES RELATIONS ===");
+    print("🏙️ Villes chargées: ${locationController.cities.length}");
+    print("📊 Districts chargés: ${locationController.districts.length}");
+    print("🏘️ Communes chargées: ${locationController.communes.length}");
+
+    // Vérifier quelques exemples de relations
+    if (locationController.cities.isNotEmpty && locationController.communes.isNotEmpty) {
+      final testCity = locationController.cities.first;
+      print("🔍 Test pour la ville: ${testCity.name} (ID: ${testCity.cityId})");
+
+      final communesForTestCity = locationController.communes.where((commune) {
+        return commune.district?.city?.cityId == testCity.cityId;
+      }).toList();
+
+      print("🏘️ Communes liées à ${testCity.name}: ${communesForTestCity.length}");
+      for (var commune in communesForTestCity.take(3)) {
+        print("   - ${commune.name} (District: ${commune.district?.name})");
+      }
+    }
+
+    // Mettre à jour les listes de villes et communes
+    if (mounted) {
+      setState(() {
+        _cities = locationController.cities
+            .where((city) => city.name != null && city.name!.isNotEmpty)
+            .map((city) => city.name!)
+            .toList();
+
+        _communes = locationController.communes
+            .where((commune) => commune.name != null && commune.name!.isNotEmpty)
+            .map((commune) => commune.name!)
+            .toList();
+      });
+
+      print("✅ Interface initialisée: ${_cities.length} villes, ${_communes.length} communes");
+    }
   }
 
   void _updatePriceRange() {
@@ -56,6 +138,197 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         _priceRange = RangeValues(min.toDouble(), max.toDouble());
       });
     }
+  }
+
+  void _onCityChanged(String? selectedCity) {
+    final locationController = Provider.of<LocationController>(context, listen: false);
+
+    setState(() {
+      _selectedCity = selectedCity;
+      _selectedCommune = null;
+    });
+
+    if (selectedCity != null) {
+      print("🏙️ Ville sélectionnée: $selectedCity");
+
+      try {
+        // Trouver la ville sélectionnée
+        final city = locationController.cities.firstWhere(
+              (city) => city.name == selectedCity,
+          orElse: () => CityModel(),
+        );
+
+        if (city.cityId != null) {
+          print("🔍 Recherche des communes pour: ${city.name} (ID: ${city.cityId})");
+
+          // Utiliser la méthode directe
+          final communesForCity = locationController.getCommunesForCity(city.cityId!);
+
+          if (communesForCity.isNotEmpty) {
+            setState(() {
+              _communes = communesForCity
+                  .where((commune) => commune.name != null && commune.name!.isNotEmpty)
+                  .map((commune) => commune.name!)
+                  .toList();
+            });
+            print("✅ ${_communes.length} communes chargées pour ${city.name}");
+          } else {
+            print("⚠️ Aucune commune trouvée pour ${city.name}");
+            _showAllCommunes(locationController);
+          }
+        } else {
+          print("❌ Aucun ID trouvé pour la ville: $selectedCity");
+          _showAllCommunes(locationController);
+        }
+      } catch (e) {
+        print("❌ Erreur lors du filtrage des communes: $e");
+        _showAllCommunes(locationController);
+      }
+    } else {
+      _showAllCommunes(locationController);
+    }
+  }
+
+  void _showAllCommunes(LocationController locationController) {
+    setState(() {
+      _communes = locationController.communes
+          .where((commune) => commune.name != null && commune.name!.isNotEmpty)
+          .map((commune) => commune.name!)
+          .toList();
+    });
+    print("🌍 Affichage de toutes les communes: ${_communes.length}");
+  }
+
+
+  void _applyFilters() {
+    final propertyController = Provider.of<PropertyController>(context, listen: false);
+    final locationController = Provider.of<LocationController>(context, listen: false);
+
+    // Convertir les filtres UI en paramètres API
+    int? propertyTypeId = _propertyTypeMapping[_selectedPropertyType];
+    if (propertyTypeId == 0) propertyTypeId = null; // "Tous" = pas de filtre
+
+    // Gérer le type de transaction (sold parameter)
+    bool? sold;
+    if (_selectedTransaction == 'Location') {
+      sold = false; // Properties disponibles pour location
+    } else if (_selectedTransaction == 'Achat') {
+      sold = true; // Properties vendues (ou à vendre)
+    }
+
+    // Récupérer les IDs des villes et communes sélectionnées
+    int? cityId;
+    int? communeId;
+
+    if (_selectedCity != null) {
+      final city = locationController.cities.firstWhere(
+            (c) => c.name == _selectedCity,
+        orElse: () => CityModel(),
+      );
+      cityId = city.cityId;
+    }
+
+    if (_selectedCommune != null) {
+      final commune = locationController.communes.firstWhere(
+            (c) => c.name == _selectedCommune,
+        orElse: () => CommuneModel(),
+      );
+      communeId = commune.communeId;
+    }
+
+    int? bedrooms = _selectedBedrooms != null ? int.tryParse(_selectedBedrooms!) : null;
+
+    // Appliquer les filtres selon l'API
+    propertyController.filterProperties(
+      sold: sold,
+      minPrice: _priceRange.start,
+      maxPrice: _priceRange.end,
+      typeMaison: propertyTypeId,
+      city: cityId,
+      commune: communeId,
+      room: bedrooms,
+      sortBy: 'price',
+      sortOrder: 'asc',
+    );
+
+    setState(() {
+      _showFilters = false;
+    });
+  }
+
+  void _performSearch() {
+    final controller = Provider.of<PropertyController>(context, listen: false);
+    final searchTerm = _searchController.text.trim();
+
+    if (searchTerm.isNotEmpty) {
+      setState(() {
+        _showSearchLoader = true;
+      });
+
+      controller.searchProperties(searchTerm).then((_) {
+        if (mounted) {
+          setState(() {
+            _showSearchLoader = false;
+          });
+        }
+      });
+    } else {
+      controller.resetFilters();
+      setState(() {
+        _showSearchLoader = false;
+      });
+    }
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+
+    if (value.trim().isEmpty) {
+      setState(() {
+        _showSearchLoader = false;
+        _isSearching = false;
+      });
+      final controller = Provider.of<PropertyController>(context, listen: false);
+      controller.resetFilters();
+      return;
+    }
+
+    setState(() {
+      _isSearching = true;
+      _showSearchLoader = true;
+    });
+
+    _searchDebounce = Timer(Duration(milliseconds: 500), () {
+      _performSearch();
+    });
+  }
+
+  void _resetFilters() {
+    final locationController = Provider.of<LocationController>(context, listen: false);
+
+    setState(() {
+      _priceRange = RangeValues(500, 2500);
+      _selectedPropertyType = 'Tous';
+      _selectedBedrooms = null;
+      _selectedCity = null;
+      _selectedCommune = null;
+      _selectedTransaction = 'Location';
+      _minPriceController.text = '500';
+      _maxPriceController.text = '2500';
+      _bedroomsController.clear();
+      _searchController.clear();
+      _isSearching = false;
+      _showSearchLoader = false;
+
+      // Réinitialiser les communes pour montrer toutes
+      _communes = locationController.communes
+          .where((commune) => commune.name != null)
+          .map((commune) => commune.name!)
+          .toList();
+    });
+
+    final controller = Provider.of<PropertyController>(context, listen: false);
+    controller.resetFilters();
   }
 
   @override
@@ -76,6 +349,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       elevation: 1,
       backgroundColor: Colors.white,
       automaticallyImplyLeading: false,
+      toolbarHeight: 80,
       actions: [
         _buildFilterBadge(),
         SizedBox(width: 8),
@@ -86,42 +360,45 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   Widget _buildFilterBadge() {
     final filterCount = _getActiveFilterCount();
 
-    return Stack(
-      children: [
-        IconButton(
-          icon: Icon(Icons.filter_list_rounded, color: _primaryColor),
-          onPressed: () {
-            setState(() {
-              _showFilters = true;
-            });
-          },
-        ),
-        if (filterCount > 0)
-          Positioned(
-            right: 8,
-            top: 8,
-            child: Container(
-              padding: EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: _accentColor,
-                shape: BoxShape.circle,
-              ),
-              constraints: BoxConstraints(
-                minWidth: 16,
-                minHeight: 16,
-              ),
-              child: Text(
-                filterCount.toString(),
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+    return Container(
+      margin: EdgeInsets.only(top: 8, bottom: 8), // AJOUT: Espacement vertical
+      child: Stack(
+        children: [
+          IconButton(
+            icon: Icon(Icons.filter_list_rounded, color: _primaryColor),
+            onPressed: () {
+              setState(() {
+                _showFilters = true;
+              });
+            },
+          ),
+          if (filterCount > 0)
+            Positioned(
+              right: 8,
+              top: 8, // Ajuster si nécessaire
+              child: Container(
+                padding: EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: _accentColor,
+                  shape: BoxShape.circle,
                 ),
-                textAlign: TextAlign.center,
+                constraints: BoxConstraints(
+                  minWidth: 16,
+                  minHeight: 16,
+                ),
+                child: Text(
+                  filterCount.toString(),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -132,13 +409,13 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     if (_priceRange.start > 500 || _priceRange.end < 2500) count++;
     if (_selectedCity != null) count++;
     if (_selectedCommune != null) count++;
+    if (_selectedTransaction != 'Location') count++;
     return count;
   }
 
   Widget _buildSimplifiedFilterPanel() {
     return GestureDetector(
       onTap: () {
-        // Fermer le clavier quand on tape ailleurs
         FocusScope.of(context).unfocus();
       },
       child: Container(
@@ -248,6 +525,51 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   }
 
   Widget _buildLocationSection() {
+    return Consumer<LocationController>(
+      builder: (context, locationController, child) {
+        // Afficher un loader si les données ne sont pas encore chargées
+        if (locationController.loading && _cities.isEmpty) {
+          return _buildLocationLoader();
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Localisation',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: _darkColor,
+              ),
+            ),
+            SizedBox(height: 16),
+            _buildDropdownField(
+              'Ville',
+              _selectedCity,
+              _cities,
+              Icons.location_city,
+              _onCityChanged,
+            ),
+            SizedBox(height: 16),
+            _buildDropdownField(
+              'Commune',
+              _selectedCommune,
+              _communes,
+              Icons.map,
+                  (value) {
+                setState(() {
+                  _selectedCommune = value;
+                });
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildLocationLoader() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -260,30 +582,30 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           ),
         ),
         SizedBox(height: 16),
-        _buildDropdownField(
-          'Ville',
-          _selectedCity,
-          _cities,
-          Icons.location_city,
-              (value) {
-            setState(() {
-              _selectedCity = value;
-            });
-          },
-        ),
+        _buildShimmerLoader(height: 56),
         SizedBox(height: 16),
-        _buildDropdownField(
-          'Commune',
-          _selectedCommune,
-          _communes,
-          Icons.map,
-              (value) {
-            setState(() {
-              _selectedCommune = value;
-            });
-          },
-        ),
+        _buildShimmerLoader(height: 56),
       ],
+    );
+  }
+
+  Widget _buildShimmerLoader({required double height}) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.grey[300],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: _primaryColor,
+          ),
+        ),
+      ),
     );
   }
 
@@ -413,12 +735,18 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
   IconData _getPropertyTypeIcon(String type) {
     switch (type) {
-      case 'Appartement':
-        return Icons.apartment;
-      case 'Maison':
-        return Icons.house;
       case 'Studio':
         return Icons.weekend;
+      case 'Apparts':
+        return Icons.apartment;
+      case 'Maisons':
+        return Icons.house;
+      case 'Bureau':
+        return Icons.business_center;
+      case 'Hotels':
+        return Icons.hotel;
+      case 'Vacances':
+        return Icons.beach_access;
       default:
         return Icons.category;
     }
@@ -614,160 +942,535 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   }
 
   Widget _buildPropertyList() {
-    return ListView.builder(
-      padding: EdgeInsets.all(16),
-      itemCount: 10,
-      itemBuilder: (context, index) => _buildPropertyListItem(index),
+    return Consumer<PropertyController>(
+      builder: (context, controller, child) {
+        // Afficher le loader de recherche
+        if (_showSearchLoader) {
+          return _buildSearchLoader();
+        }
+
+        if (controller.loading && controller.properties.isEmpty) {
+          return Center(
+            child: _buildMainLoader(),
+          );
+        }
+
+        if (controller.properties.isEmpty) {
+          return _buildEmptyState(controller);
+        }
+
+        return RefreshIndicator(
+          color: _primaryColor,
+          onRefresh: () async {
+            await controller.forceSync();
+          },
+          child: ListView.builder(
+            padding: EdgeInsets.all(16),
+            itemCount: controller.properties.length,
+            itemBuilder: (context, index) => _buildPropertyListItem(controller.properties[index]),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildPropertyListItem(int index) {
-    final propertyImages = [
-      'assets/images/one.jpg',
-      'assets/images/two.jpg',
-      'assets/images/three.jpg',
-    ];
-    final imageIndex = index % propertyImages.length;
-    final price = 800 + index * 200;
-    final bedrooms = index % 3 + 1;
-    final bathrooms = index % 2 + 1;
-    final surface = 70 + index * 10;
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildSearchLoader() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Image
-          Container(
+          // Animation de recherche
+          AnimatedContainer(
+            duration: Duration(milliseconds: 1000),
             width: 120,
             height: 120,
-            margin: EdgeInsets.all(12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: Colors.grey[200],
+              color: _lightColor,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: _primaryColor.withOpacity(0.1),
+                  blurRadius: 20,
+                  spreadRadius: 5,
+                ),
+              ],
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.asset(
-                propertyImages[imageIndex],
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.grey[200],
-                    child: Icon(Icons.home_rounded, size: 32, color: Colors.grey[400]),
-                  );
-                },
-              ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Icône de recherche avec rotation
+                AnimatedRotation(
+                  duration: Duration(milliseconds: 2000),
+                  turns: 1,
+                  child: Icon(
+                    Icons.search_rounded,
+                    size: 50,
+                    color: _primaryColor.withOpacity(0.7),
+                  ),
+                ),
+
+                // Points tournants autour de l'icône
+                ...List.generate(3, (index) => Positioned(
+                  right: 15 + index * 10,
+                  top: 30 + index * 15,
+                  child: AnimatedContainer(
+                    duration: Duration(milliseconds: 1500 + index * 300),
+                    curve: Curves.easeInOut,
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: _primaryColor.withOpacity(0.5),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                )),
+              ],
             ),
           ),
 
-          // Détails
-          Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(top: 12, right: 12, bottom: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _primaryColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          _propertyTypes[(index % (_propertyTypes.length - 1)) + 1],
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
-                            color: _primaryColor,
-                          ),
-                        ),
-                      ),
-                      Spacer(),
-                      Icon(Icons.favorite_border_rounded, size: 20, color: _greyColor),
-                    ],
-                  ),
+          SizedBox(height: 40),
 
-                  SizedBox(height: 8),
-                  Text(
-                    'Appartement moderne ${index + 1}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                      color: _darkColor,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+          // Texte de recherche
+          Text(
+            'Recherche en cours...',
+            style: GoogleFonts.inter(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: _darkColor,
+            ),
+          ),
 
-                  SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(Icons.location_on_outlined, size: 14, color: _greyColor),
-                      SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Paris, ${index + 1}ème arrondissement',
-                          style: TextStyle(
-                            color: _greyColor,
-                            fontSize: 13,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
+          SizedBox(height: 12),
 
-                  SizedBox(height: 8),
-                  Container(
-                    height: 30,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      children: [
-                        _buildFeatureChip(Icons.king_bed_rounded, '$bedrooms ch.'),
-                        SizedBox(width: 8),
-                        _buildFeatureChip(Icons.bathtub_rounded, '$bathrooms sdb'),
-                        SizedBox(width: 8),
-                        _buildFeatureChip(Icons.square_foot_rounded, '${surface}m²'),
-                      ],
-                    ),
-                  ),
+          Text(
+            'Nous cherchons les propriétés correspondant\nà votre recherche',
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              color: _greyColor,
+              height: 1.5,
+            ),
+            textAlign: TextAlign.center,
+          ),
 
-                  SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Text(
-                        '$price\$/mois',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: _primaryColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+          SizedBox(height: 20),
+
+          // Loader personnalisé
+          Container(
+            width: 40,
+            height: 40,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: _primaryColor,
+              backgroundColor: _primaryColor.withOpacity(0.1),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildMainLoader() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 80,
+          height: 80,
+          child: CircularProgressIndicator(
+            strokeWidth: 4,
+            color: _primaryColor,
+            backgroundColor: _primaryColor.withOpacity(0.1),
+          ),
+        ),
+        SizedBox(height: 20),
+        Text(
+          'Chargement des propriétés...',
+          style: GoogleFonts.inter(
+            fontSize: 16,
+            color: _greyColor,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState(PropertyController controller) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Illustration animée
+            AnimatedContainer(
+              duration: Duration(milliseconds: 800),
+              curve: Curves.easeInOut,
+              width: 180,
+              height: 180,
+              decoration: BoxDecoration(
+                color: _lightColor,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.1),
+                    blurRadius: 20,
+                    spreadRadius: 5,
+                  ),
+                ],
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Icône principale avec effet de pulsation
+                  AnimatedScale(
+                    duration: Duration(milliseconds: 2000),
+                    scale: 1.0,
+                    curve: Curves.elasticOut,
+                    child: Icon(
+                      Icons.search_off_rounded,
+                      size: 80,
+                      color: _primaryColor.withOpacity(0.7),
+                    ),
+                  ),
+
+                  // Effet de particules autour de l'icône
+                  ...List.generate(3, (index) => Positioned(
+                    right: 20 + index * 15,
+                    top: 40 + index * 20,
+                    child: AnimatedContainer(
+                      duration: Duration(milliseconds: 1500 + index * 300),
+                      curve: Curves.easeInOut,
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _primaryColor.withOpacity(0.3),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  )),
+                ],
+              ),
+            ),
+
+            SizedBox(height: 40),
+
+            // Titre avec animation de fade
+            AnimatedOpacity(
+              duration: Duration(milliseconds: 600),
+              opacity: 1.0,
+              child: Text(
+                _isSearching ? 'Aucun résultat trouvé' : 'Aucune propriété disponible',
+                style: GoogleFonts.inter(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: _darkColor,
+                  height: 1.3,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+
+            SizedBox(height: 12),
+
+            // Description avec animation décalée
+            AnimatedOpacity(
+              duration: Duration(milliseconds: 800),
+              opacity: 1.0,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  controller.loading
+                      ? 'Recherche en cours...'
+                      : _isSearching
+                      ? 'Aucune propriété ne correspond à votre recherche. '
+                      'Essayez de modifier vos termes de recherche ou élargissez vos critères.'
+                      : 'Aucune propriété ne correspond à vos critères de recherche. '
+                      'Essayez de modifier vos filtres ou élargissez votre recherche.',
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    color: _greyColor,
+                    height: 1.5,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPropertyListItem(PropertyModel property) {
+    // Utilisation des vraies images du modèle PropertyModel
+    final firstImage = property.propertyImage?.isNotEmpty ?? false
+        ? property.propertyImage!.first
+        : null;
+    final imageUrl = firstImage != null
+        ? "${firstImage.path ?? firstImage.path}"
+        : null;
+
+    final priceText = _selectedTransaction == 'Location'
+        ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
+        : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
+
+    return InkWell(
+      onTap: () {_navigateToDetail(property);},
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Image avec le même style que votre composant horizontal
+            Container(
+              width: 120,
+              height: 175,
+              margin: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.grey[200],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: imageUrl != null
+                    ? CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => _buildImagePlaceholder(),
+                  errorWidget: (context, url, error) => _buildImagePlaceholder(),
+                )
+                    : _buildImagePlaceholder(),
+              ),
+            ),
+
+            // Détails
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(top: 12, right: 12, bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // En-tête avec type et favoris
+                    Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _primaryColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            _getPropertyTypeLabel(property.propertyType?.propertyTypeId ?? 0),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: _primaryColor,
+                            ),
+                          ),
+                        ),
+                        Spacer(),
+
+                        if (property.propertyId != null)
+                          FavoriteHeartIcon(
+                            propertyId: property.propertyId.toString(),
+                            size: 24,
+                            splashRadius: 20,
+                          ),
+                      ],
+                    ),
+                    SizedBox(height: 4),
+                    // Titre
+                    Text(
+                      property.title ?? 'Sans titre',
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                        color: _darkColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+
+                    SizedBox(height: 4),
+
+                    // Adresse
+                    Row(
+                      children: [
+                        Icon(Icons.location_on_outlined, size: 14, color: _greyColor),
+                        SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            property.address ?? 'Adresse non disponible',
+                            style: TextStyle(
+                              color: _greyColor,
+                              fontSize: 13,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    SizedBox(height: 8),
+
+                    // Caractéristiques
+                    Container(
+                      height: 30,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          if (property.bedrooms != null)
+                            _buildFeatureChip(Icons.king_bed_rounded, '${property.bedrooms} ch.'),
+                          SizedBox(width: 8),
+                          if (property.bathroom != null)
+                            _buildFeatureChip(Icons.bathtub_rounded, '${property.bathroom} sdb'),
+                          SizedBox(width: 8),
+                          if (property.surface != null)
+                            _buildFeatureChip(Icons.square_foot_rounded, '${property.surface}m²'),
+                          if (property.rooms != null)
+                            _buildFeatureChip(FontAwesomeIcons.doorClosed, '${property.rooms} pièces'),
+                        ].where((element) => element != null).cast<Widget>().toList(),
+                      ),
+                    ),
+
+                    SizedBox(height: 8),
+
+                    // Prix et statut
+                    Row(
+                      children: [
+                        Text(
+                          priceText,
+                          style: GoogleFonts.inter(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: _primaryColor,
+                          ),
+                        ),
+                        Spacer(),
+                        if (property.sold == true)
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'Vendu',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.red,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _navigateToDetail(PropertyModel property) {
+    Navigator.pushNamed(
+      context,
+      Routes.detailPageRoute,
+      arguments: property,
+    );
+  }
+
+
+  Widget _buildSuggestionChip(String text) {
+    return GestureDetector(
+      onTap: () {
+        switch (text) {
+          case 'Élargir la zone de recherche':
+            setState(() {
+              _selectedCity = null;
+              _selectedCommune = null;
+            });
+            break;
+          case 'Augmenter le budget':
+            setState(() {
+              _priceRange = RangeValues(0, 10000);
+              _minPriceController.text = '0';
+              _maxPriceController.text = '10000';
+            });
+            break;
+          case 'Tous types de biens':
+            setState(() {
+              _selectedPropertyType = 'Tous';
+            });
+            break;
+        }
+        _applyFilters();
+      },
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _primaryColor.withOpacity(0.3)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Text(
+          text,
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            color: _primaryColor,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImagePlaceholder() {
+    return Container(
+      color: Colors.grey[200],
+      child: Center(
+        child: Icon(
+          Icons.photo_outlined,
+          size: 32,
+          color: Colors.grey[400],
+        ),
+      ),
+    );
+  }
+
+  String _getPropertyTypeLabel(int type) {
+    switch (type) {
+      case 1: return 'Studio';
+      case 2: return 'Apparts';
+      case 3: return 'Maisons';
+      case 4: return 'Bureau';
+      case 5: return 'Hotels';
+      case 6: return 'Vacances';
+      default: return 'Autre';
+    }
   }
 
   Widget _buildFeatureChip(IconData icon, String text) {
@@ -798,19 +1501,54 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   Widget _buildSearchField() {
     return Container(
       height: 44,
-      margin: EdgeInsets.only(right: 8),
+      margin: EdgeInsets.only(top: 8, bottom: 8, right: 8), // AJOUT: top et bottom
       decoration: BoxDecoration(
         color: _lightColor,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: TextField(
-        decoration: InputDecoration(
-          hintText: 'Rechercher une ville, un quartier...',
-          prefixIcon: Icon(Icons.search_rounded, color: _greyColor),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(vertical: 12),
-        ),
-        style: TextStyle(fontSize: 15),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Rechercher une ville, un quartier, une adresse...',
+                prefixIcon: Icon(Icons.search_rounded, color: _greyColor),
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                  icon: Icon(Icons.clear_rounded, color: _greyColor, size: 18),
+                  onPressed: () {
+                    setState(() {
+                      _searchController.clear();
+                      _isSearching = false;
+                      _showSearchLoader = false;
+                    });
+                    _performSearch();
+                  },
+                )
+                    : null,
+              ),
+              style: TextStyle(fontSize: 15),
+              onSubmitted: (value) => _performSearch(),
+              onChanged: _onSearchChanged,
+            ),
+          ),
+
+          if (_showSearchLoader)
+            Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _primaryColor,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -820,13 +1558,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       width: MediaQuery.of(context).size.width * 0.9,
       height: 56,
       child: ElevatedButton(
-        onPressed: () {
-          // Fermer le clavier avant de changer de page
-          FocusScope.of(context).unfocus();
-          setState(() {
-            _showFilters = false;
-          });
-        },
+        onPressed: _applyFilters,
         style: ElevatedButton.styleFrom(
           backgroundColor: _primaryColor,
           shape: RoundedRectangleBorder(
@@ -853,24 +1585,13 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  void _resetFilters() {
-    setState(() {
-      _priceRange = RangeValues(500, 2500);
-      _selectedPropertyType = 'Tous';
-      _selectedBedrooms = null;
-      _selectedCity = null;
-      _selectedCommune = null;
-      _minPriceController.text = '500';
-      _maxPriceController.text = '2500';
-      _bedroomsController.clear();
-    });
-  }
-
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _minPriceController.dispose();
     _maxPriceController.dispose();
     _bedroomsController.dispose();
+    _searchController.dispose();
     _minPriceFocus.dispose();
     _maxPriceFocus.dispose();
     _bedroomsFocus.dispose();
