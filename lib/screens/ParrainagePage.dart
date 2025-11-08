@@ -1,17 +1,12 @@
-import 'dart:convert';
-
-import 'package:casa/controllers/AuthentificationCtrl.dart';
-import 'package:casa/utils/Endpoints.dart';
+import 'package:casa/controllers/RegisterBailleurCtrl.dart';
+import 'package:casa/screens/termsAndPrivacy/TermsAndPrivacyPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
+import 'package:casa/utils/requetes.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
-import 'dart:io';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
-
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
 class ParrainagePage extends StatefulWidget {
@@ -20,327 +15,526 @@ class ParrainagePage extends StatefulWidget {
 }
 
 class _ParrainagePageState extends State<ParrainagePage> {
+  final _formKey = GlobalKey<FormState>();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _parrainSearchController = TextEditingController();
 
-  InputDecoration _dropdownDecoration(String label) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: TextStyle(
-        color: _greyColor,
-        fontSize: 14,
-      ),
-      floatingLabelStyle: TextStyle(
-        color: _primaryColor,
-      ),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: _borderColor, width: 1.5),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: _borderColor, width: 1.5),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: _primaryColor, width: 2),
-      ),
-      filled: true,
-      fillColor: _cardColor,
-      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      suffixIcon: Icon(Icons.arrow_drop_down_rounded, color: _greyColor),
-    );
-  }
-  // Couleurs modernes
-  final Color _primaryColor = Color(0xFF4361EE); // Bleu vif mais professionnel
-  final Color _secondaryColor = Color(0xFF3F37C9); // Bleu foncé
-  final Color _accentColor = Color(0xFF4CC9F0); // Bleu clair
-  final Color _darkColor = Color(0xFF1A1D26); // Noir profond
-  final Color _lightColor = Color(0xFFF8F9FA); // Blanc cassé
-  final Color _greyColor = Color(0xFF6C757D); // Gris moyen
-  final Color _lightGrey = Color(0xFFE9ECEF); // Gris très clair
-  final Color _successColor = Color(0xFF38B000); // Vert
-  final Color _errorColor = Color(0xFFD63031); // Rouge
-  final Color _cardColor = Colors.white; // Blanc pur
-  final Color _borderColor = Color(0xFFE9ECEF);
-  final Color _textColor = Color(0xFF495057); // Gris foncé pour texte
+  // Focus nodes pour la navigation au clavier
+  final _firstNameFocus = FocusNode();
+  final _lastNameFocus = FocusNode();
+  final _phoneFocus = FocusNode();
+  final _emailFocus = FocusNode();
+  final _cityFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+  final _parrainFocus = FocusNode();
 
-  // Styles de texte réutilisables
-  final TextStyle _headerStyle = TextStyle(
-    fontSize: 22,
-    fontWeight: FontWeight.w700,
-    color: Colors.black87,
-  );
-
-  final TextStyle _sectionTitleStyle = TextStyle(
-    fontSize: 18,
-    fontWeight: FontWeight.w600,
-    color: Colors.black87,
-    letterSpacing: 0.5,
-  );
-
-  final TextStyle _labelStyle = TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.w500,
-    color: Colors.black87,
-  );
-
-  final TextStyle _hintStyle = TextStyle(
-    fontSize: 14,
-    color: Color(0xFFADB5BD),
-  );
-
+  bool _isLoading = false;
+  bool _showPassword = false;
+  bool _isSearchingParrains = false;
+  bool _acceptConditions = false;
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
 
+  // Suivi de la force du mot de passe en temps réel
+  int _passwordStrength = 0;
 
-  final List<String> _genders = ['Homme', 'Femme'];
-  final List<String> _rdcCities = [
-    'Kinshasa', 'Lubumbashi', 'Mbuji-Mayi', 'Kananga', 'Kisangani',
-    'Bukavu', 'Goma', 'Kolwezi', 'Likasi', 'Tshikapa',
-    'Matadi', 'Kikwit', 'Uvira', 'Bunia', 'Mbandaka',
-    'Butembo', 'Kalemie', 'Gbadolite', 'Isiro', 'Kindu',
-    'Bandundu', 'Gemena', 'Mwene-Ditu', 'Kamina', 'Boma',
-    'Kabinda', 'Lisala', 'Kipushi', 'Kasongo', 'Beni',
-    'Mweka', 'Bumba', 'Kabalo', 'Luebo', 'Basoko',
-    'Gandajika', 'Lodja', 'Dibaya', 'Demba', 'Kasangulu',
-    'Lubao', 'Lusambo', 'Inongo', 'Kenge', 'Bolobo',
-    'Businga', 'Bosobolo', 'Bongandanga', 'Bafwasende', 'Aketi'
-  ];
+  // Variables pour le parrainage
+  List<Map<String, dynamic>> _availableParrains = [];
+  List<Map<String, dynamic>> _filteredParrains = [];
+  Map<String, dynamic>? _selectedParrain;
 
+  // Variables pour suivre l'interaction utilisateur avec chaque champ
+  bool _firstNameTouched = false;
+  bool _lastNameTouched = false;
+  bool _phoneTouched = false;
+  bool _emailTouched = false;
+  bool _cityTouched = false;
+  bool _passwordTouched = false;
 
-  // Contrôleurs de formulaire
-  final _formKey = GlobalKey<FormState>();
-  final TextEditingController _firstNameController = TextEditingController();
-  final TextEditingController _lastNameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
-  final TextEditingController _birthDateController = TextEditingController();
-  final TextEditingController _addressController = TextEditingController();
-  final TextEditingController _bioController = TextEditingController();
-  final TextEditingController _documentNumberController = TextEditingController();
+  // Couleurs cohérentes avec le login - uniquement bleu
+  final Color primaryColor = Color(0xFF1976D2);
+  final Color accentColor = Color(0xFF64B5F6);
+  final Color darkBlue = Color(0xFF0D47A1);
+  final Color lightBlue = Color(0xFFE3F2FD);
+  final Color textColor = Color(0xFF1A237E);
+  final Color secondaryTextColor = Color(0xFF5C6BC0);
+  final Color errorColor = Color(0xFFD63031);
+  final Color successColor = Color(0xFF38B000);
 
-  // États
-
-  String? _selectedGender;
-  String? _selectedCity = 'Kinshasa';
-  bool _isLoading = false;
-  bool _acceptTerms = false;
-  bool _showPassword = false;
-  File? _profileImage;
-  File? _idCardFront;
-  File? _idCardBack;
-  final ImagePicker _picker = ImagePicker();
-  String? _selectedAccountType;
-  DateTime? _selectedDate;
-  String? _selectedDocumentType = 'Carte d\'électeur';
-
-  final Map<String, int> _accountTypes = {
-    'Propriétaire': 1,
-    'Locataire': 2,
-    'Commissionnaire': 3,
-  };
-
-  final Map<String, int> _documentTypes = {
-    'Carte d\'électeur': 1,
-    'Passeport': 2,
-    'Autres': 3,
+  String _selectedAccountType = 'Bailleur';
+  final Map<String, Map<String, dynamic>> _accountTypes = {
+    'Bailleur': {
+      'value': 3,
+      'icon': Icons.house_siding_rounded,
+      'description': 'Je propose un logement en location',
+      'color': Color(0xFF2196F3),
+    },
   };
 
   @override
-  void dispose() {
-    _firstNameController.dispose();
-    _lastNameController.dispose();
-    _phoneController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
-    _confirmPasswordController.dispose();
-    _birthDateController.dispose();
-    _addressController.dispose();
-    _bioController.dispose();
-    super.dispose();
-  }
+  void initState() {
+    super.initState();
 
-  Future<void> _pickImage(ImageSource source, {bool isProfile = false, bool isFront = true}) async {
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: source,
-        imageQuality: 70,
-        maxWidth: 1024,
-        maxHeight: 1024,
-      );
+    _passwordController.addListener(_updatePasswordStrength);
+    _setupFocusNavigation();
+    _loadInitialParrains();
 
-      if (image != null) {
-        await Future.delayed(Duration(milliseconds: 100));
-        if (!mounted) return;
+    _firstNameController.addListener(_updateButtonState);
+    _lastNameController.addListener(_updateButtonState);
+    _phoneController.addListener(_updateButtonState);
+    _cityController.addListener(_updateButtonState);
+    _passwordController.addListener(_updateButtonState);
+    _emailController.addListener(_updateButtonState);
 
+    _setupFieldTouchListeners();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
         setState(() {
-          if (isProfile) {
-            _profileImage = File(image.path);
-          } else if (isFront) {
-            _idCardFront = File(image.path);
-          } else {
-            _idCardBack = File(image.path);
-          }
         });
       }
-    } catch (e) {
-      if (!mounted) return;
-      _showSnackbar("Erreur lors de la sélection de l'image", isError: true);
-      print("Image picker error: $e");
+    });
+  }
+
+  void _setupFieldTouchListeners() {
+    _firstNameFocus.addListener(() {
+      if (!_firstNameFocus.hasFocus && _firstNameController.text.isNotEmpty) {
+        setState(() => _firstNameTouched = true);
+      }
+    });
+
+    _lastNameFocus.addListener(() {
+      if (!_lastNameFocus.hasFocus && _lastNameController.text.isNotEmpty) {
+        setState(() => _lastNameTouched = true);
+      }
+    });
+
+    _phoneFocus.addListener(() {
+      if (!_phoneFocus.hasFocus && _phoneController.text.isNotEmpty) {
+        setState(() => _phoneTouched = true);
+      }
+    });
+
+    _emailFocus.addListener(() {
+      if (!_emailFocus.hasFocus && _emailController.text.isNotEmpty) {
+        setState(() => _emailTouched = true);
+      }
+    });
+
+    _cityFocus.addListener(() {
+      if (!_cityFocus.hasFocus && _cityController.text.isNotEmpty) {
+        setState(() => _cityTouched = true);
+      }
+    });
+
+    _passwordFocus.addListener(() {
+      if (!_passwordFocus.hasFocus && _passwordController.text.isNotEmpty) {
+        setState(() => _passwordTouched = true);
+      }
+    });
+  }
+
+  // Nouvelle méthode pour mettre à jour l'état du bouton
+  void _updateButtonState() {
+    if (mounted) {
+      setState(() {});
     }
   }
 
-  void _showImageSourceDialog({bool isProfile = false, bool isFront = true}) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: _cardColor,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 20,
-              spreadRadius: 5,
-            )
-          ],
-        ),
-        padding: EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              "Choisir la source",
-              style: _sectionTitleStyle.copyWith(fontSize: 20),
-            ),
-            SizedBox(height: 20),
-            _buildImageSourceOption(
-              icon: Icons.camera_alt,
-              text: "Prendre une photo",
-              color: _primaryColor,
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.camera, isProfile: isProfile, isFront: isFront);
-              },
-            ),
-            SizedBox(height: 16),
-            Divider(height: 1, color: _lightGrey),
-            SizedBox(height: 16),
-            _buildImageSourceOption(
-              icon: Icons.photo_library,
-              text: "Choisir depuis la galerie",
-              color: _secondaryColor,
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.gallery, isProfile: isProfile, isFront: isFront);
-              },
-            ),
-            SizedBox(height: 10),
-          ],
-        ),
-      ),
-    );
+  @override
+  void dispose() {
+    _passwordController.removeListener(_updatePasswordStrength);
+    _firstNameController.removeListener(_updateButtonState);
+    _lastNameController.removeListener(_updateButtonState);
+    _phoneController.removeListener(_updateButtonState);
+    _cityController.removeListener(_updateButtonState);
+    _passwordController.removeListener(_updateButtonState);
+    _emailController.removeListener(_updateButtonState);
+
+    _firstNameFocus.dispose();
+    _lastNameFocus.dispose();
+    _phoneFocus.dispose();
+    _emailFocus.dispose();
+    _cityFocus.dispose();
+    _passwordFocus.dispose();
+    _parrainFocus.dispose();
+    super.dispose();
   }
 
-  Widget _buildImageSourceOption({
-    required IconData icon,
-    required String text,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: color.withOpacity(0.1),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: color, size: 24),
-            SizedBox(width: 16),
-            Text(
-              text,
-              style: TextStyle(
-                fontSize: 16,
-                color: _darkColor,
-                fontWeight: FontWeight.w500,
+  void _setupFocusNavigation() {
+    // Navigation entre les champs
+    _firstNameFocus.addListener(() {
+      if (!_firstNameFocus.hasFocus) {
+        if (_firstNameController.text.isNotEmpty && !_firstNameTouched) {
+          setState(() => _firstNameTouched = true);
+        }
+      }
+    });
+
+    _lastNameFocus.addListener(() {
+      if (!_lastNameFocus.hasFocus) {
+        if (_lastNameController.text.isNotEmpty && !_lastNameTouched) {
+          setState(() => _lastNameTouched = true);
+        }
+      }
+    });
+
+    _phoneFocus.addListener(() {
+      if (!_phoneFocus.hasFocus) {
+        if (_phoneController.text.isNotEmpty && !_phoneTouched) {
+          setState(() => _phoneTouched = true);
+        }
+      }
+    });
+
+    _emailFocus.addListener(() {
+      if (!_emailFocus.hasFocus) {
+        if (_emailController.text.isNotEmpty && !_emailTouched) {
+          setState(() => _emailTouched = true);
+        }
+      }
+    });
+
+    _cityFocus.addListener(() {
+      if (!_cityFocus.hasFocus) {
+        if (_cityController.text.isNotEmpty && !_cityTouched) {
+          setState(() => _cityTouched = true);
+        }
+      }
+    });
+
+    _passwordFocus.addListener(() {
+      if (!_passwordFocus.hasFocus) {
+        if (_passwordController.text.isNotEmpty && !_passwordTouched) {
+          setState(() => _passwordTouched = true);
+        }
+      }
+    });
+  }
+
+  void _updatePasswordStrength() {
+    final password = _passwordController.text;
+    int strength = 0;
+
+    if (password.length >= 6) strength++;
+    if (password.length >= 8) strength++;
+    if (RegExp(r'[A-Z]').hasMatch(password)) strength++;
+    if (RegExp(r'[a-z]').hasMatch(password)) strength++;
+    if (RegExp(r'[0-9]').hasMatch(password)) strength++;
+    if (RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)) strength++;
+
+    if (mounted && _passwordStrength != strength) {
+      setState(() {
+        _passwordStrength = strength;
+      });
+    }
+  }
+
+  void _goToNextField(FocusNode currentFocus, FocusNode nextFocus) {
+    currentFocus.unfocus();
+    FocusScope.of(context).requestFocus(nextFocus);
+  }
+
+  void _searchParrains(String query) {
+    if (query.isEmpty) {
+      setState(() {
+        _isSearchingParrains = false;
+        _filteredParrains = [];
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearchingParrains = true;
+    });
+
+    final filtered = _availableParrains.where((parrain) {
+      return parrain['name'].toLowerCase().contains(query.toLowerCase()) ||
+          parrain['phone'].contains(query) ||
+          parrain['type'].toLowerCase().contains(query.toLowerCase());
+    }).toList();
+
+    setState(() {
+      _filteredParrains = filtered;
+    });
+  }
+
+  // Simulation du chargement des parrains
+  void _loadInitialParrains() async {
+    await Future.delayed(Duration(milliseconds: 500));
+
+    if (mounted) {
+      setState(() {
+        _availableParrains = [
+          {
+            'id': 1,
+            'name': 'Jean Kabasele',
+            'type': 'Locataire',
+            'phone': '+243810000001'
+          },
+          {
+            'id': 2,
+            'name': 'Marie Lukusa',
+            'type': 'Commissionnaire',
+            'phone': '+243810000002'
+          },
+          {
+            'id': 3,
+            'name': 'Paul Mbayo',
+            'type': 'Locataire',
+            'phone': '+243810000003'
+          },
+          {
+            'id': 4,
+            'name': 'Sarah Ntumba',
+            'type': 'Commissionnaire',
+            'phone': '+243810000004'
+          },
+          {
+            'id': 5,
+            'name': 'David Mutombo',
+            'type': 'Locataire',
+            'phone': '+243810000005'
+          },
+        ];
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          // Arrière-plan identique au login
+          _buildBackground(),
+
+          // Contenu principal
+          SafeArea(
+            child: SingleChildScrollView(
+              physics: BouncingScrollPhysics(),
+              padding: EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  SizedBox(height: 20),
+                  _buildLogo(),
+                  SizedBox(height: 30),
+                  _buildAuthCard(),
+                ],
               ),
             ),
-            Spacer(),
-            Icon(Icons.chevron_right, color: _greyColor),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildBenefitsSection() {
-    return Container(
-      padding: EdgeInsets.all(20),
-      margin: EdgeInsets.only(bottom: 20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            _primaryColor.withOpacity(0.05),
-            _accentColor.withOpacity(0.05),
-          ],
+  Widget _buildBackground() {
+    return Stack(
+      children: [
+        // Grand cercle en haut à droite
+        Positioned(
+          top: -100,
+          right: -100,
+          child: Container(
+            width: 300,
+            height: 300,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  primaryColor.withOpacity(0.08),
+                  primaryColor.withOpacity(0.02),
+                ],
+              ),
+            ),
+          ).animate().fadeIn(delay: 100.ms),
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _primaryColor.withOpacity(0.2)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 20,
-            offset: Offset(0, 10),
-          )
-        ],
+
+        // Petit cercle en haut à gauche
+        Positioned(
+          top: 50,
+          left: -50,
+          child: Container(
+            width: 150,
+            height: 150,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  primaryColor.withOpacity(0.06),
+                  primaryColor.withOpacity(0.02),
+                ],
+              ),
+            ),
+          ).animate().fadeIn(delay: 200.ms),
+        ),
+
+        // Cercle en bas au centre
+        Positioned(
+          bottom: -150,
+          left: MediaQuery.of(context).size.width / 2 - 150,
+          child: Container(
+            width: 300,
+            height: 300,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  darkBlue.withOpacity(0.05),
+                  darkBlue.withOpacity(0.01),
+                ],
+              ),
+            ),
+          ).animate().fadeIn(delay: 300.ms),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLogo() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // Logo container avec badge de parrainage
+        Stack(
+          children: [
+            Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [primaryColor, darkBlue],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: primaryColor.withOpacity(0.3),
+                    blurRadius: 25,
+                    spreadRadius: 2,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  Icon(Icons.people_alt_rounded, size: 40, color: Colors.white),
+                  Positioned(
+                    top: 4,
+                    left: 4,
+                    child: Icon(Icons.people_alt_rounded, size: 40, color: Colors.white.withOpacity(0.3)),
+                  ),
+                ],
+              ),
+            ),
+            // Badge parrainage
+            Positioned(
+              top: -2,
+              right: -2,
+              child: Container(
+                padding: EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                  border: Border.all(color: primaryColor, width: 2),
+                ),
+                child: Icon(Icons.star, size: 12, color: primaryColor),
+              ),
+            ),
+          ],
+        ).animate()
+            .scale(delay: 500.ms, duration: 800.ms, curve: Curves.elasticOut)
+            .shake(delay: 1500.ms, duration: 1000.ms),
+
+        SizedBox(width: 16),
+
+        // Texte avec séparateur
+        Container(
+          height: 40,
+          width: 1,
+          color: Colors.grey.withOpacity(0.3),
+          margin: EdgeInsets.symmetric(horizontal: 8),
+        ).animate().fadeIn(delay: 650.ms),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ShaderMask(
+                shaderCallback: (bounds) => LinearGradient(
+                  colors: [primaryColor, darkBlue],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ).createShader(bounds),
+                child: Text(
+                  'Parrainage',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Rejoignez Casa grâce à un parrain',
+                style: TextStyle(
+                  color: secondaryTextColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ).animate().slideX(
+            begin: 0.3,
+            duration: 600.ms,
+            delay: 700.ms,
+            curve: Curves.easeOutCubic,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildParrainageBenefits() {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: lightBlue.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primaryColor.withOpacity(0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                padding: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _primaryColor.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.star_rounded, color: _primaryColor, size: 24),
-              ),
-              SizedBox(width: 12),
+              Icon(Icons.workspace_premium_rounded, color: primaryColor, size: 18),
+              SizedBox(width: 8),
               Text(
-                'Avantages du parrainage',
-                style: _headerStyle.copyWith(fontSize: 18, color: _primaryColor),
+                'Avantages du Parrainage',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: primaryColor,
+                  fontSize: 14,
+                ),
               ),
             ],
           ),
-          SizedBox(height: 16),
-          _buildBenefitItem('✓ Un compte actif pour publier ses propriétés'),
-          _buildBenefitItem('✓ Sa première publication offerte'),
-          _buildBenefitItem('✓ Un abonnement à seulement 5\$ par an pour les publications suivantes'),
-          SizedBox(height: 12),
-          Container(
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: _primaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              'Vous serez rémunéré pour chaque bailleur actif que vous parrainez.',
-              style: TextStyle(
-                color: _primaryColor,
-                fontStyle: FontStyle.italic,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
+          SizedBox(height: 8),
+          _buildBenefitItem('✓ Commission réduite sur votre première location'),
+          _buildBenefitItem('✓ Accompagnement personnalisé par votre parrain'),
+          _buildBenefitItem('✓ Le commissionnaire parrain reçoit un % sur tous vos nouveaux contrats'),
+          _buildBenefitItem('✓ Support dédié pour vos premières locations'),
         ],
       ),
     );
@@ -348,19 +542,17 @@ class _ParrainagePageState extends State<ParrainagePage> {
 
   Widget _buildBenefitItem(String text) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.check_circle, color: _successColor, size: 18),
-          SizedBox(width: 10),
+          SizedBox(width: 24),
           Expanded(
             child: Text(
               text,
               style: TextStyle(
-                color: _textColor,
-                fontSize: 14,
-                height: 1.4,
+                color: secondaryTextColor,
+                fontSize: 12,
               ),
             ),
           ),
@@ -369,876 +561,1415 @@ class _ParrainagePageState extends State<ParrainagePage> {
     );
   }
 
-  Widget _buildProfileImageField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Photo de profil (optionnelle)',
-          style: _labelStyle,
-        ),
-        SizedBox(height: 8),
-        GestureDetector(
-          onTap: () => _showImageSourceDialog(isProfile: true),
-          child: Container(
-            height: 50,
-            decoration: BoxDecoration(
-              color: _cardColor,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _lightGrey),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
-                  blurRadius: 8,
-                  offset: Offset(0, 4),
-                )
-              ],
-            ),
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                Icon(Icons.camera_alt, color: _greyColor, size: 24),
-                SizedBox(width: 16),
-                Text(
-                  _profileImage == null ? 'Ajouter une photo' : 'Photo sélectionnée',
-                  style: TextStyle(color: _greyColor),
-                ),
-                Spacer(),
-                if (_profileImage != null)
-                  Container(
-                    padding: EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: _successColor.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.check, color: _successColor, size: 18),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  Widget _buildAccountTypeOption(String type, Map<String, dynamic> config) {
+    final isSelected = _selectedAccountType == type;
+    final Color color = config['color'] as Color;
 
-  Widget _buildAccountTypeDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Type de compte*',
-          style: _labelStyle,
-        ),
-        SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.03),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              )
-            ],
-          ),
-          child: DropdownButtonFormField<String>(
-            value: _selectedAccountType,
-            items: _accountTypes.keys.map((String key) {
-              return DropdownMenuItem<String>(
-                value: key,
-                child: Text(
-                  key,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: _darkColor,
-                  ),
-                ),
-              );
-            }).toList(),
-            onChanged: (newValue) {
-              setState(() {
-                _selectedAccountType = newValue;
-              });
-            },
-            decoration: _dropdownDecoration(''),
-            style: TextStyle(
-              fontSize: 15,
-              color: _darkColor,
-            ),
-            icon: SizedBox.shrink(),
-            dropdownColor: _cardColor,
-            borderRadius: BorderRadius.circular(12),
-            menuMaxHeight: 250,
-            isExpanded: true,
-            validator: (value) => value == null ? 'Ce champ est requis' : null,
-          ),
-        ),
-      ],
-    );
-  }
-
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      title: Text(
-        'Parrainer un membre',
-        style: _headerStyle.copyWith(
-          color: _darkColor,
-          fontSize: 20,
-        ),
-      ),
-      centerTitle: true,
-      elevation: 0,
-      backgroundColor: Colors.transparent,
-      leading: IconButton(
-        icon: Icon(Icons.arrow_back_ios_new_rounded, color: _darkColor, size: 22),
-        onPressed: () => Navigator.pop(context),
-      ),
-      flexibleSpace: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-                color: _lightGrey,
-                width: 1
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: _sectionTitleStyle,
-      ),
-    );
-  }
-
-  Widget _buildModernTextField({
-    required TextEditingController? controller,
-    required String label,
-    String? hint,
-    IconData? icon,
-    Widget? suffixIcon,
-    int maxLines = 1,
-    bool obscureText = false,
-    TextInputType? keyboardType,
-    String? Function(String?)? validator,
-  }) {
-    return Container(
-      margin: EdgeInsets.only(bottom: 16),
+    return AnimatedContainer(
+      duration: Duration(milliseconds: 300),
+      margin: EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [color.withOpacity(0.15), color.withOpacity(0.05)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(
+          color: color,
+          width: 2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: color.withOpacity(0.2),
             blurRadius: 8,
             offset: Offset(0, 4),
           ),
         ],
       ),
-      child: TextFormField(
-        controller: controller,
-        obscureText: obscureText,
-        keyboardType: keyboardType,
-        maxLines: maxLines,
-        validator: validator,
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: hint,
-          prefixIcon: icon != null ? Icon(icon, color: Color(0xFF6C757D)) : null,
-          suffixIcon: suffixIcon,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey[300]!),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: null, // ← Rendre non cliquable
+          child: Container(
+            padding: EdgeInsets.all(16),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: Duration(milliseconds: 300),
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    config['icon'] as IconData,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        type,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: color,
+                          fontSize: 15,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        config['description'] as String,
+                        style: TextStyle(
+                          color: color.withOpacity(0.8),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Toujours afficher la coche puisque c'est sélectionné par défaut
+                Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color,
+                  ),
+                  child: Icon(Icons.check_rounded, color: Colors.white, size: 12),
+                ),
+              ],
+            ),
           ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey[300]!),
-          ),
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: EdgeInsets.symmetric(
-            vertical: 16,
-            horizontal: 16,
-          ),
-          labelStyle: TextStyle(color: Color(0xFF6C757D)),
         ),
       ),
     );
   }
 
-
-  Widget _buildBirthDateField() {
-    return Container(
-      margin: EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Date de naissance*',
-            style: _labelStyle,
-          ),
-          SizedBox(height: 8),
-          GestureDetector(
-            onTap: () => _selectDate(context),
-            child: Container(
-              decoration: BoxDecoration(
-                color: _cardColor,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 8,
-                    offset: Offset(0, 4),
-                  )
-                ],
-              ),
-              child: AbsorbPointer(
-                child: TextFormField(
-                  controller: _birthDateController,
-                  readOnly: true,
-                  decoration: InputDecoration(
-                    hintText: 'JJ/MM/AAAA',
-                    hintStyle: _hintStyle,
-                    prefixIcon: Icon(Icons.calendar_today, color: _greyColor),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: _lightGrey),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: _lightGrey),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: _primaryColor, width: 1.5),
-                    ),
-                    filled: true,
-                    fillColor: _cardColor,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  validator: (value) {
-                    if (value?.isEmpty ?? true) {
-                      return 'Requis';
-                    }
-                    return null;
-                  },
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<bool> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(1900),
-      lastDate: DateTime.now(),
-      locale: const Locale('fr', 'FR'),
-      builder: (BuildContext context, Widget? child) {
-        return Theme(
-          data: ThemeData.light().copyWith(
-            colorScheme: ColorScheme.light(
-              primary: _primaryColor,
-              onPrimary: Colors.white,
-              surface: _cardColor,
-              onSurface: _darkColor,
-            ),
-            dialogBackgroundColor: _cardColor,
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
-        _birthDateController.text = DateFormat('dd/MM/yyyy').format(picked);
-      });
-      return true;
-    }
-    return false;
-  }
-
-  Widget _buildDocumentNumberField() {
-    return _buildModernTextField(
-      controller: _documentNumberController,
-      label: 'Numéro du document',
-      hint: 'Entrez le numéro de votre pièce',
-      icon: Icons.credit_card_rounded,
-      validator: (value) {
-        if ((_selectedAccountType == 'Propriétaire' || _selectedAccountType == 'Commissionnaire') &&
-            (value?.isEmpty ?? true)) {
-          return 'Ce champ est requis';
-        }
-        return null;
-      },
-    );
-  }
-
-  Widget _buildDocumentTypeSelector() {
+  Widget _buildParrainField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Type de document*',
-          style: _labelStyle,
+        Row(
+          children: [
+            Text(
+              'Votre Parrain',
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
         SizedBox(height: 8),
+
+        // Champ de recherche avec dropdown
         Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              )
+                color: primaryColor.withOpacity(0.05),
+                blurRadius: 10,
+                spreadRadius: 2,
+              ),
             ],
           ),
-          child: DropdownButtonFormField<String>(
-            value: _selectedDocumentType,
-            items: _documentTypes.keys.map((String key) {
-              return DropdownMenuItem<String>(
-                value: key,
-                child: Text(
-                  key,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: _darkColor,
-                  ),
-                ),
-              );
-            }).toList(),
-            onChanged: (newValue) {
-              setState(() {
-                _selectedDocumentType = newValue;
-              });
+          child: TextFormField(
+            controller: _parrainSearchController,
+            focusNode: _parrainFocus,
+            style: TextStyle(color: textColor, fontSize: 16),
+            textInputAction: TextInputAction.done,
+            onChanged: (value) {
+              _searchParrains(value);
             },
-            decoration: _dropdownDecoration(''),
-            style: TextStyle(
-              fontSize: 15,
-              color: _darkColor,
+            decoration: InputDecoration(
+              labelText: 'Rechercher un parrain',
+              labelStyle: TextStyle(color: secondaryTextColor),
+              prefixIcon: Container(
+                padding: EdgeInsets.all(12),
+                child: Icon(Icons.person_search_rounded, color: primaryColor),
+              ),
+              suffixIcon: _parrainSearchController.text.isNotEmpty
+                  ? IconButton(
+                icon: Icon(Icons.close_rounded, size: 20, color: secondaryTextColor),
+                onPressed: () {
+                  setState(() {
+                    _parrainSearchController.clear();
+                    _selectedParrain = null;
+                    _isSearchingParrains = false;
+                    _filteredParrains = [];
+                  });
+                },
+              )
+                  : null,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: primaryColor, width: 2),
+              ),
+              filled: true,
+              fillColor: lightBlue.withOpacity(0.3),
+              hintText: 'Tapez le nom ou téléphone du parrain...',
+              hintStyle: TextStyle(color: Colors.grey.shade500),
             ),
-            icon: SizedBox.shrink(),
-            dropdownColor: _cardColor,
-            borderRadius: BorderRadius.circular(12),
-            menuMaxHeight: 250,
-            isExpanded: true,
-            validator: (value) {
-              if ((_selectedAccountType == 'Propriétaire' ||
-                  _selectedAccountType == 'Commissionnaire') &&
-                  value == null) {
-                return 'Ce champ est requis';
-              }
-              return null;
-            },
           ),
         ),
+
+        // Dropdown des résultats de recherche
+        if (_isSearchingParrains && _filteredParrains.isNotEmpty)
+          Container(
+            margin: EdgeInsets.only(top: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: Offset(0, 5),
+                ),
+              ],
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: 200),
+              child: ListView.builder(
+                shrinkWrap: true,
+                physics: BouncingScrollPhysics(),
+                itemCount: _filteredParrains.length,
+                itemBuilder: (context, index) {
+                  final parrain = _filteredParrains[index];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: primaryColor.withOpacity(0.2),
+                      child: Icon(
+                        Icons.person_rounded,
+                        color: primaryColor,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      parrain['name'],
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${parrain['type']} • ${parrain['phone']}',
+                      style: TextStyle(
+                        color: secondaryTextColor,
+                        fontSize: 12,
+                      ),
+                    ),
+                    trailing: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.grey),
+                    onTap: () {
+                      setState(() {
+                        _selectedParrain = parrain;
+                        _parrainSearchController.text = parrain['name'];
+                        _isSearchingParrains = false;
+                        _filteredParrains = [];
+                      });
+                      _parrainFocus.unfocus();
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+
+        // Affichage du parrain sélectionné
+        if (_selectedParrain != null)
+          Container(
+            margin: EdgeInsets.only(top: 8),
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: primaryColor.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.verified_user_rounded, color: primaryColor, size: 16),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Parrain sélectionné:',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: primaryColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        '${_selectedParrain!['name']} (${_selectedParrain!['type']})',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: textColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.close_rounded, size: 16, color: primaryColor),
+                  onPressed: () {
+                    setState(() {
+                      _selectedParrain = null;
+                      _parrainSearchController.clear();
+                    });
+                  },
+                  padding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+          ),
       ],
+    ).animate().slideY(
+      begin: 0.2,
+      duration: 500.ms,
+      delay: 1650.ms,
+      curve: Curves.easeOut,
     );
   }
 
-  Widget _buildDocumentUploadCard({
-    required String title,
-    required File? image,
-    required bool isRequired,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildAccountTypeField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (isRequired)
-          FormField<bool>(
-            builder: (formFieldState) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RichText(
-                    text: TextSpan(
-                      text: title,
-                      style: _labelStyle,
-                      children: [
-                        TextSpan(
-                          text: '*',
-                          style: TextStyle(color: _errorColor),
-                        )
-                      ],
-                    ),
-                  ),
-                  if (formFieldState.hasError)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        formFieldState.errorText!,
-                        style: TextStyle(
-                          color: _errorColor,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-            validator: (value) {
-              if (isRequired && image == null) {
-                return 'Ce document est requis';
-              }
-              return null;
-            },
-          )
-        else
-          Text(title, style: _labelStyle),
-        SizedBox(height: 8),
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            height: 140,
-            decoration: BoxDecoration(
-              color: image == null ? _lightColor : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: image == null ? _lightGrey : Colors.transparent,
-                width: 1.5,
-              ),
-              boxShadow: [
-                if (image != null)
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: Offset(0, 4),
-                  )
-              ],
-            ),
-            child: image == null
-                ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: _primaryColor.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.add_a_photo,
-                      color: _primaryColor,
-                      size: 28,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    title.contains('Recto') ? 'Recto' : 'Verso',
-                    style: TextStyle(
-                      color: _greyColor,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            )
-                : ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.file(image, fit: BoxFit.cover),
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.6),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 8,
-                    left: 8,
-                    right: 8,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title.replaceAll('*', '').trim(),
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        IconButton(
-                          icon: Container(
-                            padding: EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.4),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(Icons.delete,
-                                color: Colors.white, size: 18),
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              if (title.contains('Recto')) {
-                                _idCardFront = null;
-                              } else {
-                                _idCardBack = null;
-                              }
-                            });
-                          },
-                          padding: EdgeInsets.zero,
-                          constraints: BoxConstraints(),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTermsCheckbox() {
-    return FormField<bool>(
-      builder: (formFieldState) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // En-tête avec badge "Recommandé"
+        Row(
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _acceptTerms = !_acceptTerms;
-                      formFieldState.didChange(_acceptTerms);
-                    });
-                  },
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: _acceptTerms ? _primaryColor : _cardColor,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: _acceptTerms ? _primaryColor : _lightGrey,
-                        width: 2,
-                      ),
-                    ),
-                    child: _acceptTerms
-                        ? Icon(Icons.check, size: 16, color: Colors.white)
-                        : null,
-                  ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: RichText(
-                    text: TextSpan(
-                      style: TextStyle(color: _greyColor, fontSize: 13),
-                      children: [
-                        TextSpan(text: "J'accepte les "),
-                        TextSpan(
-                          text: "conditions d'utilisation",
-                          style: TextStyle(
-                            color: _primaryColor,
-                            decoration: TextDecoration.underline,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        TextSpan(text: " et la "),
-                        TextSpan(
-                          text: "politique de confidentialité",
-                          style: TextStyle(
-                            color: _primaryColor,
-                            decoration: TextDecoration.underline,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        TextSpan(text: "*"),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            Text(
+              'Type de compte*',
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-            if (formFieldState.hasError)
-              Padding(
-                padding: const EdgeInsets.only(left: 36, top: 4),
+            SizedBox(width: 8),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: primaryColor.withOpacity(0.3)),
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 8),
+
+        // Message informatif
+        Container(
+          padding: EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: primaryColor.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: primaryColor.withOpacity(0.2)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline_rounded, color: primaryColor, size: 16),
+              SizedBox(width: 8),
+              Expanded(
                 child: Text(
-                  formFieldState.errorText!,
+                  'Le parrainage est disponible uniquement pour les bailleurs',
                   style: TextStyle(
-                    color: _errorColor,
+                    color: primaryColor,
                     fontSize: 12,
                   ),
                 ),
               ),
-          ],
-        );
-      },
-      validator: (value) {
-        if (value == null || !value) {
-          return 'Vous devez accepter les conditions';
-        }
-        return null;
-      },
+            ],
+          ),
+        ),
+        SizedBox(height: 12),
+
+        // Options de compte (seulement Bailleur disponible)
+        ..._accountTypes.entries.map((entry) =>
+            _buildAccountTypeOption(entry.key, entry.value)
+        ),
+      ],
+    ).animate().slideY(
+      begin: 0.2,
+      duration: 500.ms,
+      delay: 1600.ms,
+      curve: Curves.easeOut,
+    );
+  }
+  Widget _buildPasswordStrengthIndicator() {
+    return AnimatedContainer(
+      duration: Duration(milliseconds: 300),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(height: 8),
+          Row(
+            children: List.generate(6, (index) {
+              Color color;
+              if (index < _passwordStrength) {
+                if (_passwordStrength <= 2) color = errorColor;
+                else if (_passwordStrength <= 4) color = Colors.orange;
+                else color = successColor;
+              } else {
+                color = Colors.grey.shade300;
+              }
+
+              return Expanded(
+                child: AnimatedContainer(
+                  duration: Duration(milliseconds: 300),
+                  height: 4,
+                  margin: EdgeInsets.only(right: index < 5 ? 4 : 0),
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              );
+            }),
+          ),
+          SizedBox(height: 8),
+          AnimatedSwitcher(
+            duration: Duration(milliseconds: 300),
+            child: Text(
+              _getPasswordStrengthText(_passwordStrength),
+              key: ValueKey(_passwordStrength),
+              style: TextStyle(
+                fontSize: 12,
+                color: _getPasswordStrengthColor(_passwordStrength),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          if (_passwordController.text.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: _buildPasswordCriteria(),
+              ),
+            ),
+        ],
+      ),
+    ).animate().fadeIn(delay: 1800.ms);
+  }
+
+  Widget _buildAuthForm() {
+    return Form(
+      key: _formKey,
+      autovalidateMode: _autoValidateMode,
+      child: Column(
+        children: [
+          _buildNameField(
+            controller: _firstNameController,
+            label: 'Prénom',
+            hint: 'Jean',
+            focusNode: _firstNameFocus,
+            nextFocus: _lastNameFocus,
+            isFirstField: true,
+          ),
+          SizedBox(height: 15),
+          _buildNameField(
+            controller: _lastNameController,
+            label: 'Nom',
+            hint: 'Baka',
+            focusNode: _lastNameFocus,
+            nextFocus: _phoneFocus,
+          ),
+          SizedBox(height: 15),
+          // Téléphone
+          _buildPhoneField(),
+          SizedBox(height: 15),
+          // Email
+          _buildEmailField(),
+          SizedBox(height: 15),
+          // Ville
+          _buildCityField(),
+          SizedBox(height: 15),
+          // Type de compte (fixé à Bailleur)
+          _buildAccountTypeField(),
+          SizedBox(height: 15),
+          // Champ de parrain
+          _buildParrainField(),
+          SizedBox(height: 20),
+          // Mot de passe
+          _buildPasswordField(),
+          SizedBox(height: 8),
+          // Indicateur de force du mot de passe en temps réel
+          _buildPasswordStrengthIndicator(),
+        ],
+      ),
     );
   }
 
-  Widget _buildSubmitButton() {
+  Widget _buildPrivacyText() {
+    return Column(
+      children: [
+        // Case à cocher pour les conditions
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Case à cocher
+              Transform.scale(
+                scale: 1.2,
+                child: Checkbox(
+                  value: _acceptConditions,
+                  onChanged: (bool? value) {
+                    setState(() {
+                      _acceptConditions = value ?? false;
+                    });
+                  },
+                  activeColor: primaryColor,
+                  checkColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              SizedBox(width: 8),
+              // Texte des conditions
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RichText(
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: 'J\'accepte les ',
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 14,
+                            ),
+                          ),
+                          TextSpan(
+                            text: 'conditions d\'utilisation',
+                            style: TextStyle(
+                              color: primaryColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
+                                  ),
+                                );
+                              },
+                          ),
+                          TextSpan(
+                            text: ' et la ',
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 14,
+                            ),
+                          ),
+                          TextSpan(
+                            text: 'politique de confidentialité',
+                            style: TextStyle(
+                              color: primaryColor,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.underline,
+                            ),
+                            recognizer: TapGestureRecognizer()
+                              ..onTap = () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
+                                  ),
+                                );
+                              },
+                          ),
+                          TextSpan(
+                            text: ' de Casa',
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_autoValidateMode == AutovalidateMode.always && !_acceptConditions)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Veuillez accepter les conditions pour continuer',
+                          style: TextStyle(
+                            color: errorColor,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 15),
+        // Texte informatif supplémentaire
+        Wrap(
+          spacing: 4,
+          children: [
+            Text(
+              'En continuant, vous acceptez nos',
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontSize: 12,
+              ),
+            ),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
+                    ),
+                  );
+                },
+                child: Text(
+                  'Conditions',
+                  style: TextStyle(
+                    color: primaryColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            Text(
+              'et',
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontSize: 12,
+              ),
+            ),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
+                    ),
+                  );
+                },
+                child: Text(
+                  'Politique de confidentialité',
+                  style: TextStyle(
+                    color: primaryColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ).animate().fadeIn(delay: 2200.ms);
+  }
+
+  Widget _buildAuthCard() {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(30),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 30,
+            spreadRadius: 5,
+            offset: Offset(0, 10),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade100, width: 1),
+      ),
+      child: Column(
+        children: [
+          // Badge de parrainage
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [primaryColor, darkBlue],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.emoji_events_rounded, color: Colors.white, size: 16),
+                SizedBox(width: 6),
+                Text(
+                  'Programme de Parrainage',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          SizedBox(height: 15),
+
+          Text(
+            'Inscription avec Parrain',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
+          ).animate().fadeIn(delay: 1100.ms),
+
+          SizedBox(height: 10),
+
+          Text(
+            'Créez votre compte Bailleur et bénéficiez des avantages du parrainage',
+            style: TextStyle(
+              color: secondaryTextColor,
+              fontSize: 14,
+            ),
+            textAlign: TextAlign.center,
+          ).animate().fadeIn(delay: 1200.ms),
+
+          SizedBox(height: 20),
+
+          // Avantages du parrainage
+          _buildParrainageBenefits(),
+
+          SizedBox(height: 25),
+
+          _buildAuthForm(),
+          SizedBox(height: 20),
+          // Case à cocher pour les conditions
+          _buildPrivacyText(),
+          SizedBox(height: 25),
+          _buildAuthButton(),
+          SizedBox(height: 20),
+          _buildLoginLink(),
+        ],
+      ),
+    ).animate().slideY(
+      begin: 0.5,
+      duration: 600.ms,
+      delay: 1000.ms,
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Widget _buildNameField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required FocusNode focusNode,
+    FocusNode? nextFocus,
+    bool isFirstField = false,
+  }) {
+    // Déterminer si ce champ doit afficher les erreurs
+    bool shouldValidate = _autoValidateMode == AutovalidateMode.always ||
+        (isFirstField ? _firstNameTouched : _lastNameTouched);
+
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: _primaryColor.withOpacity(0.3),
+            color: primaryColor.withOpacity(0.05),
             blurRadius: 10,
-            offset: Offset(0, 4),
-          )
+            spreadRadius: 2,
+          ),
         ],
       ),
+      child: TextFormField(
+        controller: controller,
+        focusNode: focusNode,
+        autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
+        style: TextStyle(color: textColor, fontSize: 16),
+        textInputAction: nextFocus != null ? TextInputAction.next : TextInputAction.done,
+        onFieldSubmitted: nextFocus != null ? (_) => _goToNextField(focusNode, nextFocus!) : null,
+        onChanged: (value) {
+          // Marquer comme touché seulement si l'utilisateur a vraiment tapé quelque chose
+          if (value.isNotEmpty) {
+            if (isFirstField && !_firstNameTouched) {
+              setState(() => _firstNameTouched = true);
+            } else if (!isFirstField && !_lastNameTouched) {
+              setState(() => _lastNameTouched = true);
+            }
+          }
+        },
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: TextStyle(color: secondaryTextColor),
+          prefixIcon: Container(
+            padding: EdgeInsets.all(12),
+            child: Icon(Icons.person_rounded, color: primaryColor),
+          ),
+          suffixIcon: nextFocus != null ? _buildNextButton(() => _goToNextField(focusNode, nextFocus!)) : null,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red, width: 2),
+          ),
+          filled: true,
+          fillColor: lightBlue.withOpacity(0.3),
+          hintText: hint,
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+        ),
+        validator: (value) => _validateName(value, label.toLowerCase()),
+      ),
+    ).animate().slideX(
+      begin: -0.3,
+      duration: 500.ms,
+      delay: 1300.ms,
+      curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildPhoneField() {
+    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _phoneTouched;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.05),
+            blurRadius: 10,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: TextFormField(
+        controller: _phoneController,
+        focusNode: _phoneFocus,
+        autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
+        style: TextStyle(color: textColor, fontSize: 16),
+        keyboardType: TextInputType.phone,
+        textInputAction: TextInputAction.next,
+        onFieldSubmitted: (_) => _goToNextField(_phoneFocus, _emailFocus),
+        onChanged: (value) {
+          if (value.isNotEmpty && !_phoneTouched) {
+            setState(() => _phoneTouched = true);
+          }
+        },
+        decoration: InputDecoration(
+          labelText: 'Téléphone*',
+          labelStyle: TextStyle(color: secondaryTextColor),
+          prefixIcon: Container(
+            padding: EdgeInsets.all(12),
+            child: Icon(Icons.phone_iphone_rounded, color: primaryColor),
+          ),
+          suffixIcon: _buildNextButton(() => _goToNextField(_phoneFocus, _emailFocus)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red, width: 2),
+          ),
+          filled: true,
+          fillColor: lightBlue.withOpacity(0.3),
+          hintText: '+243 81 000 0000',
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+        ),
+        validator: _validatePhone,
+      ),
+    ).animate().slideX(
+      begin: 0.3,
+      duration: 500.ms,
+      delay: 1400.ms,
+      curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildEmailField() {
+    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _emailTouched;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.05),
+            blurRadius: 10,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: TextFormField(
+        controller: _emailController,
+        focusNode: _emailFocus,
+        autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
+        style: TextStyle(color: textColor, fontSize: 16),
+        keyboardType: TextInputType.emailAddress,
+        textInputAction: TextInputAction.next,
+        onFieldSubmitted: (_) => _goToNextField(_emailFocus, _cityFocus),
+        onChanged: (value) {
+          if (value.isNotEmpty && !_emailTouched) {
+            setState(() => _emailTouched = true);
+          }
+        },
+        decoration: InputDecoration(
+          labelText: 'Email (optionnel)',
+          labelStyle: TextStyle(color: secondaryTextColor),
+          prefixIcon: Container(
+            padding: EdgeInsets.all(12),
+            child: Icon(Icons.email_rounded, color: primaryColor),
+          ),
+          suffixIcon: _buildNextButton(() => _goToNextField(_emailFocus, _cityFocus)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red, width: 2),
+          ),
+          filled: true,
+          fillColor: lightBlue.withOpacity(0.3),
+          hintText: 'exemple@email.com',
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+        ),
+        validator: _validateEmail,
+      ),
+    ).animate().slideX(
+      begin: -0.3,
+      duration: 500.ms,
+      delay: 1500.ms,
+      curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildCityField() {
+    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _cityTouched;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.05),
+            blurRadius: 10,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: TextFormField(
+        controller: _cityController,
+        focusNode: _cityFocus,
+        autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
+        style: TextStyle(color: textColor, fontSize: 16),
+        textInputAction: TextInputAction.next,
+        onFieldSubmitted: (_) => _goToNextField(_cityFocus, _parrainFocus),
+        onChanged: (value) {
+          if (value.isNotEmpty && !_cityTouched) {
+            setState(() => _cityTouched = true);
+          }
+        },
+        decoration: InputDecoration(
+          labelText: 'Ville*',
+          labelStyle: TextStyle(color: secondaryTextColor),
+          prefixIcon: Container(
+            padding: EdgeInsets.all(12),
+            child: Icon(Icons.location_city_rounded, color: primaryColor),
+          ),
+          suffixIcon: _buildNextButton(() => _goToNextField(_cityFocus, _parrainFocus)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red, width: 2),
+          ),
+          filled: true,
+          fillColor: lightBlue.withOpacity(0.3),
+          hintText: 'Kinshasa',
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+        ),
+        validator: _validateCity,
+      ),
+    ).animate().slideX(
+      begin: 0.3,
+      duration: 500.ms,
+      delay: 1550.ms,
+      curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildNextButton(VoidCallback onPressed) {
+    return Container(
+      margin: EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: primaryColor.withOpacity(0.1),
+      ),
+      child: IconButton(
+        icon: Icon(Icons.arrow_forward_rounded, size: 18, color: primaryColor),
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints(minWidth: 36, minHeight: 36),
+      ),
+    );
+  }
+
+  Widget _buildPasswordVisibilityButton() {
+    return IconButton(
+      icon: Icon(
+        _showPassword ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+        color: secondaryTextColor,
+        size: 20,
+      ),
+      onPressed: () => setState(() => _showPassword = !_showPassword),
+      padding: EdgeInsets.zero,
+      constraints: BoxConstraints(minWidth: 36, minHeight: 36),
+    );
+  }
+
+  Widget _buildDoneButton() {
+    return Container(
+      margin: EdgeInsets.only(left: 4),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: primaryColor.withOpacity(0.1),
+      ),
+      child: IconButton(
+        icon: Icon(Icons.done_rounded, size: 18, color: primaryColor),
+        onPressed: () => _passwordFocus.unfocus(),
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints(minWidth: 36, minHeight: 36),
+      ),
+    );
+  }
+
+  Widget _buildPasswordField() {
+    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _passwordTouched;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.05),
+            blurRadius: 10,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: TextFormField(
+        controller: _passwordController,
+        focusNode: _passwordFocus,
+        style: TextStyle(color: textColor, fontSize: 16),
+        obscureText: !_showPassword,
+        autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
+        textInputAction: TextInputAction.done,
+        onFieldSubmitted: (_) => _passwordFocus.unfocus(),
+        onChanged: (value) {
+          if (value.isNotEmpty && !_passwordTouched) {
+            setState(() => _passwordTouched = true);
+          }
+        },
+        decoration: InputDecoration(
+          labelText: 'Mot de passe*',
+          labelStyle: TextStyle(color: secondaryTextColor),
+          prefixIcon: Container(
+            padding: EdgeInsets.all(12),
+            child: Icon(Icons.lock_rounded, color: primaryColor),
+          ),
+          suffixIcon: Container(
+            padding: EdgeInsets.all(8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_passwordController.text.isNotEmpty)
+                  _buildPasswordVisibilityButton(),
+                _buildDoneButton(),
+              ],
+            ),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.red, width: 2),
+          ),
+          filled: true,
+          fillColor: lightBlue.withOpacity(0.3),
+        ),
+        validator: _validatePassword,
+      ),
+    ).animate().slideX(
+      begin: 0.3,
+      duration: 500.ms,
+      delay: 1700.ms,
+      curve: Curves.easeOut,
+    );
+  }
+
+  List<Widget> _buildPasswordCriteria() {
+    final password = _passwordController.text;
+    final criteria = [
+      {'text': '6+ caractères', 'met': password.length >= 6},
+      {'text': '8+ caractères', 'met': password.length >= 8},
+      {'text': 'Majuscule', 'met': RegExp(r'[A-Z]').hasMatch(password)},
+      {'text': 'Minuscule', 'met': RegExp(r'[a-z]').hasMatch(password)},
+      {'text': 'Chiffre', 'met': RegExp(r'[0-9]').hasMatch(password)},
+      {'text': 'Spécial', 'met': RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)},
+    ];
+
+    return criteria.map((criterion) {
+      final isMet = criterion['met'] as bool;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isMet ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+            color: isMet ? successColor : Colors.grey.shade400,
+            size: 12,
+          ),
+          SizedBox(width: 4),
+          Text(
+            criterion['text'] as String,
+            style: TextStyle(
+              fontSize: 10,
+              color: isMet ? successColor : Colors.grey.shade600,
+              fontWeight: isMet ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ],
+      );
+    }).toList();
+  }
+
+  String _getPasswordStrengthText(int strength) {
+    if (strength == 0) return 'Commencez à taper votre mot de passe';
+    if (strength <= 2) return 'Faible - Ajoutez des chiffres et caractères spéciaux';
+    if (strength <= 4) return 'Moyen - Presque là !';
+    return 'Fort - Excellent mot de passe !';
+  }
+
+  Color _getPasswordStrengthColor(int strength) {
+    if (strength == 0) return secondaryTextColor;
+    if (strength <= 2) return errorColor;
+    if (strength <= 4) return Colors.orange;
+    return successColor;
+  }
+
+  Widget _buildAuthButton() {
+    // Vérifier si tous les champs sont valides
+    final isFormValid = _isFormValid();
+
+    // Le bouton est activé seulement si le formulaire est valide ET les conditions sont acceptées
+    final isButtonEnabled = isFormValid && _acceptConditions && !_isLoading;
+
+    return Container(
+      width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: isButtonEnabled
+            ? LinearGradient(
+          colors: [primaryColor, darkBlue],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        )
+            : LinearGradient(
+          colors: [Colors.grey.shade400, Colors.grey.shade600],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        boxShadow: isButtonEnabled
+            ? [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.4),
+            blurRadius: 15,
+            spreadRadius: 2,
+            offset: Offset(0, 5),
+          ),
+        ]
+            : null,
+      ),
       child: ElevatedButton(
-        onPressed: _handleRegister,
+        onPressed: isButtonEnabled ? _handleRegister : null,
         style: ElevatedButton.styleFrom(
-          backgroundColor: _primaryColor,
-          foregroundColor: Colors.white,
-          padding: EdgeInsets.symmetric(vertical: 16),
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          elevation: 0,
-          minimumSize: Size(double.infinity, 50),
         ),
         child: _isLoading
             ? SizedBox(
-          width: 24,
-          height: 24,
+          width: 20,
+          height: 20,
           child: CircularProgressIndicator(
-            strokeWidth: 3,
-            color: Colors.white,
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation(Colors.white),
           ),
         )
             : Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Icon(Icons.people_alt_rounded, size: 20, color: Colors.white),
+            SizedBox(width: 10),
             Text(
-              'Parrainer',
+              'Créer mon compte',
               style: TextStyle(
-                fontWeight: FontWeight.w600,
                 fontSize: 16,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
               ),
             ),
-            SizedBox(width: 8),
-            Icon(Icons.arrow_forward_rounded, size: 20),
           ],
         ),
       ),
+    ).animate().scale(
+      delay: 1900.ms,
+      duration: 500.ms,
+    ).then().shake(
+      delay: 100.ms,
+      duration: 400.ms,
     );
   }
 
-  Widget _buildGenderDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  // CORRECTION : Méthode améliorée pour vérifier la validité du formulaire
+  bool _isFormValid() {
+    // Vérifier d'abord que tous les champs requis sont remplis
+    if (_firstNameController.text.isEmpty ||
+        _lastNameController.text.isEmpty ||
+        _phoneController.text.isEmpty ||
+        _cityController.text.isEmpty ||
+        _passwordController.text.isEmpty) {
+      return false;
+    }
+
+    // Ensuite vérifier que chaque champ est valide en utilisant les validateurs
+    if (_validateName(_firstNameController.text, 'prénom') != null) return false;
+    if (_validateName(_lastNameController.text, 'nom') != null) return false;
+    if (_validatePhone(_phoneController.text) != null) return false;
+    if (_validateCity(_cityController.text) != null) return false;
+    if (_validatePassword(_passwordController.text) != null) return false;
+
+    // L'email est optionnel, donc on ne le valide que s'il est rempli
+    if (_emailController.text.isNotEmpty && _validateEmail(_emailController.text) != null) return false;
+
+    return true;
+  }
+
+  Widget _buildLoginLink() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          'Genre*',
-          style: _labelStyle,
-        ),
-        SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.03),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              )
-            ],
+          'Déjà un compte ? ',
+          style: TextStyle(
+            color: secondaryTextColor,
+            fontSize: 14,
           ),
-          child: DropdownButtonFormField<String>(
-            value: _selectedGender,
-            items: _genders.map((String value) {
-              return DropdownMenuItem<String>(
-                value: value,
-                child: Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: _darkColor,
-                  ),
-                ),
-              );
-            }).toList(),
-            onChanged: (newValue) {
-              setState(() {
-                _selectedGender = newValue;
-              });
+        ),
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: TextButton(
+            onPressed: () {
+              Navigator.pushNamed(context, Routes.loginRoute);
             },
-            decoration: _dropdownDecoration(''),
-            style: TextStyle(
-              fontSize: 15,
-              color: _darkColor,
+            style: TextButton.styleFrom(
+              foregroundColor: primaryColor,
+              padding: EdgeInsets.zero,
             ),
-            icon: SizedBox.shrink(),
-            dropdownColor: _cardColor,
-            borderRadius: BorderRadius.circular(12),
-            menuMaxHeight: 250,
-            isExpanded: true,
-            validator: (value) => value == null ? 'Ce champ est requis' : null,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCityDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Ville*',
-          style: _labelStyle,
-        ),
-        SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.03),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              )
-            ],
-          ),
-          child: DropdownButtonFormField<String>(
-            value: _selectedCity,
-            items: _rdcCities.map((String city) {
-              return DropdownMenuItem<String>(
-                value: city,
-                child: Text(
-                  city,
-                  style: TextStyle(
-                    fontSize: 15,
-                    color: _darkColor,
-                  ),
-                ),
-              );
-            }).toList(),
-            onChanged: (newValue) {
-              setState(() {
-                _selectedCity = newValue;
-              });
-            },
-            decoration: _dropdownDecoration(''),
-            style: TextStyle(
-              fontSize: 15,
-              color: _darkColor,
-            ),
-            icon: SizedBox.shrink(),
-            dropdownColor: _cardColor,
-            borderRadius: BorderRadius.circular(12),
-            menuMaxHeight: 250,
-            isExpanded: true,
-            validator: (value) => value == null ? 'Ce champ est requis' : null,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBioField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Bio (optionnelle)',
-          style: _labelStyle,
-        ),
-        SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: _cardColor,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.03),
-                blurRadius: 8,
-                offset: Offset(0, 4),
-              )
-            ],
-          ),
-          child: TextFormField(
-            controller: _bioController,
-            maxLines: 3,
-            style: TextStyle(color: _textColor),
-            decoration: InputDecoration(
-              hintText: 'Décrivez-vous en quelques mots...',
-              hintStyle: _hintStyle,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: _lightGrey),
+            child: Text(
+              'Se connecter',
+              style: TextStyle(
+                color: primaryColor,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
               ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: _lightGrey),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: _primaryColor, width: 1.5),
-              ),
-              filled: true,
-              fillColor: _cardColor,
-              contentPadding: EdgeInsets.all(16),
             ),
           ),
         ),
       ],
-    );
+    ).animate().fadeIn(delay: 2000.ms);
   }
 
-  void _showSnackbar(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? _errorColor : _successColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-    );
+  // Validators
+  String? _validateName(String? value, String fieldName) {
+    if (value == null || value.isEmpty) {
+      return 'Le $fieldName est obligatoire';
+    }
+    if (value.length < 2) {
+      return 'Le $fieldName doit contenir au moins 2 caractères';
+    }
+    if (!RegExp(r'^[a-zA-ZÀ-ÿ\s\-]+$').hasMatch(value)) {
+      return 'Le $fieldName ne doit contenir que des lettres';
+    }
+    return null;
+  }
+
+  String? _validatePhone(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Le numéro de téléphone est obligatoire';
+    }
+
+    // Nettoyer le numéro
+    String cleanedPhone = value.replaceAll(RegExp(r'[^\d+]'), '');
+
+    // Vérification plus simple
+    if (cleanedPhone.length < 9) {
+      return 'Le numéro doit contenir au moins 9 chiffres';
+    }
+
+    // Regex plus permissive pour les tests
+    if (!RegExp(r'^(\+?243|0)?[1-9]\d{8}$').hasMatch(cleanedPhone)) {
+      return 'Format invalide. Ex: +243810000000 ou 0810000000';
+    }
+    return null;
+  }
+
+  String? _validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Le mot de passe est obligatoire';
+    }
+    if (value.length < 6) {
+      return 'Le mot de passe doit contenir au moins 6 caractères';
+    }
+    return null;
+  }
+  String? _validateEmail(String? value) {
+    if (value != null && value.isNotEmpty) {
+      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+        return 'Adresse email invalide. Ex: exemple@mail.com';
+      }
+      if (value.length > 100) {
+        return 'L\'email ne peut pas dépasser 100 caractères';
+      }
+    }
+    return null;
+  }
+
+  String? _validateCity(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'La ville est obligatoire';
+    }
+    if (value.length < 2) {
+      return 'La ville doit contenir au moins 2 caractères';
+    }
+    return null;
+  }
+
+  void _forceRevalidation() {
+    if (_formKey.currentState != null) {
+      _formKey.currentState!.validate();
+    }
   }
 
   Future<void> _handleRegister() async {
+    // Activer la validation pour tous les champs
     setState(() {
       _autoValidateMode = AutovalidateMode.always;
+      // Marquer tous les champs comme touchés pour forcer l'affichage des erreurs
+      _firstNameTouched = true;
+      _lastNameTouched = true;
+      _phoneTouched = true;
+      _emailTouched = true;
+      _cityTouched = true;
+      _passwordTouched = true;
     });
 
     await Future.delayed(Duration(milliseconds: 50));
 
+    // Vérifier la validation avec la méthode standard du formulaire
     if (!(_formKey.currentState?.validate() ?? false)) {
+      FancyNotification.show(context, "Veuillez corriger les erreurs ci-dessus");
       return;
     }
-
+    if (!_acceptConditions) {
+      FancyNotification.show(context, "Veuillez accepter les conditions d'utilisation");
+      return;
+    }
     if (!mounted || _isLoading) return;
     setState(() => _isLoading = true);
 
@@ -1252,98 +1983,57 @@ class _ParrainagePageState extends State<ParrainagePage> {
     }
 
     try {
-      String? profileImageBase64;
-      String? idCardFrontBase64;
-      String? idCardBackBase64;
+      final accountType = _accountTypes[_selectedAccountType]!;
 
-      if (_profileImage != null) {
-        final bytes = await _profileImage!.readAsBytes();
-        profileImageBase64 = base64Encode(bytes);
-      }
-
-      if (_idCardFront != null) {
-        final bytes = await _idCardFront!.readAsBytes();
-        idCardFrontBase64 = base64Encode(bytes);
-      }
-
-      if (_idCardBack != null) {
-        final bytes = await _idCardBack!.readAsBytes();
-        idCardBackBase64 = base64Encode(bytes);
-      }
-
+      // Structure de base pour l'utilisateur
       final userData = {
-        "TypeAccountId": _accountTypes[_selectedAccountType],
-        "username": _emailController.text.split('@').first,
-        "email": _emailController.text,
-        "CityId": 1,
-        "postal_code": "00000",
-        "country": "Congo Kinshasa",
-        "date_of_birth": _selectedDate != null
-            ? "${_selectedDate!.year}-${_selectedDate!.month.toString().padLeft(2, '0')}-${_selectedDate!.day.toString().padLeft(2, '0')}"
-            : "1900-01-01",
-        "gender": _selectedGender == "Homme" ? "male" : "female",
-        "profile_picture": profileImageBase64 ?? "",
-        "images": profileImageBase64 ?? "",
-        "card_front":idCardFrontBase64 ?? "",
-        "card_back":idCardBackBase64 ?? "",
-        "bio": _bioController.text,
-        "is_agent": _selectedAccountType == "Commissionnaire" || _selectedAccountType == "Locataire",
-        "is_admin": false,
-        "password": _passwordController.text,
-        "first_name": _firstNameController.text,
-        "last_name": _lastNameController.text,
-        "fullname": "${_firstNameController.text} ${_lastNameController.text}",
         "phone": _phoneController.text,
-        "address": _addressController.text,
-        "TypeCardId": _documentTypes[_selectedDocumentType],
-        "number_card": _documentNumberController.text,
-        "note": "Nouveau membre",
-        "ParrainId": 1,
+        "password": _passwordController.text,
+        "typeAccountId": accountType['value'],
+        "email": _emailController.text.isNotEmpty ? _emailController.text : "",
+        "cityId": 1, // À adapter selon votre système de villes
       };
 
-      String registerUrl;
+      Map<String, dynamic> payload;
 
-      switch (_selectedAccountType) {
-        case 'Propriétaire':
-          registerUrl = "${Endpoints.bailleur}";
-          break;
-        case 'Locataire':
-          registerUrl = "${Endpoints.locataire}";
-          break;
-        case 'Commissionnaire':
-          registerUrl = "${Endpoints.commissionnaire}";
-          break;
-        default:
-          registerUrl = Endpoints.register;
-      }
+      // Construction du payload avec le parrain
+      payload = {
+        "user": userData,
+        "bailleur": {
+          "lastName": _lastNameController.text,
+          "firstName": _firstNameController.text,
+          "address": _cityController.text,
+          "images": "",
+          "cardFront": "",
+          "cardBack": "",
+          "parrainId": _selectedParrain != null ? _selectedParrain!['id'] : 0,
+          "typeCardId": 1,
+          "numberCard": "",
+          "note": "Nouveau bailleur parrainé"
+        }
+      };
 
-      final ctrl = context.read<AuthentificationCtrl>();
-      final res = await ctrl.register(userData, url: registerUrl);
+      HttpResponse response;
+
+      // Utiliser le contrôleur Bailleur pour l'inscription
+      final ctrl = context.read<RegisterBailleurCtrl>();
+      response = await ctrl.registerBailleur(
+        payload,
+        typeCompteId: accountType['value'],
+      );
 
       if (!mounted) return;
 
-      if (res.data['success'] == true) {
-        FancyNotification.show(context, "Inscription réussie!", isError: false);
+      if (response.status == true) {
+        String successMessage = "Inscription réussie!";
+        if (_selectedParrain != null) {
+          successMessage += " Votre parrain ${_selectedParrain!['name']} a été notifié.";
+        }
+
+        FancyNotification.show(context, successMessage, isError: false);
         await Future.delayed(const Duration(milliseconds: 1500));
 
         if (mounted) {
-          // String routeName
-          //
-          // // Déterminer la route en fonction du type de compte
-          // switch (_selectedAccountType) {
-          //   case 'Propriétaire':
-          //     routeName = Routes.BailleurRoute;
-          //     break;
-          //   case 'Locataire':
-          //     routeName = Routes.LocataireRoute;
-          //     break;
-          //   case 'Commissionnaire':
-          //     routeName = Routes.CommissionnaireRoute;
-          //     break;
-          //   default:
-          //     routeName = Routes.loginRoute;
-          // }
-
           Navigator.pushNamedAndRemoveUntil(
             context,
             Routes.loginRoute,
@@ -1351,7 +2041,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
           );
         }
       } else {
-        String errorMessage = res.data['message'] ?? "Erreur lors de l'inscription";
+        String errorMessage = response.errorMsg ?? "Erreur lors de l'inscription";
         FancyNotification.show(context, errorMessage);
       }
     } catch (e) {
@@ -1365,213 +2055,4 @@ class _ParrainagePageState extends State<ParrainagePage> {
       }
     }
   }
-
-
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _lightColor,
-      appBar: _buildAppBar(),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        child: Form(
-          autovalidateMode: _autoValidateMode,
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Section avantages
-              _buildBenefitsSection(),
-              SizedBox(height: 24),
-
-              // Informations personnelles
-              _buildSectionHeader('Informations personnelles'),
-              SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildModernTextField(
-                      controller: _firstNameController,
-                      label: 'Prénom',
-                      hint: 'Jean',
-                      icon: Icons.person_outline,
-                      validator: (value) => value?.isEmpty ?? true ? 'Requis' : null,
-                    ),
-                  ),
-                  SizedBox(width: 16),
-                  Expanded(
-                    child: _buildModernTextField(
-                      controller: _lastNameController,
-                      label: 'Nom',
-                      hint: 'Dupont',
-                      icon: Icons.supervised_user_circle_rounded,
-                      validator: (value) => value?.isEmpty ?? true ? 'Requis' : null,
-                    ),
-                  ),
-                ],
-              ),
-              _buildBirthDateField(),
-              _buildModernTextField(
-                controller: _phoneController,
-                label: 'Téléphone',
-                hint: '243810000000',
-                icon: Icons.phone_rounded,
-                keyboardType: TextInputType.phone,
-                validator: (value) {
-                  if (value?.isEmpty ?? true) return 'Requis';
-                  if (value!.length < 9) return 'Numéro invalide';
-                  return null;
-                },
-              ),
-              _buildModernTextField(
-                controller: _emailController,
-                label: 'Email',
-                hint: 'jean.dupont@example.com',
-                icon: Icons.email_rounded,
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value?.isEmpty ?? true) return 'Requis';
-                  if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value!)) {
-                    return 'Email invalide';
-                  }
-                  return null;
-                },
-              ),
-              _buildModernTextField(
-                controller: _addressController,
-                label: 'Adresse',
-                hint: '123 Avenue de la République, Kinshasa',
-                icon: Icons.home_rounded,
-                validator: (value) => value?.isEmpty ?? true ? 'Requis' : null,
-              ),
-              _buildBioField(),
-              SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildGenderDropdown(),
-                  ),
-                  SizedBox(width: 16),
-                  Expanded(
-                    child: _buildCityDropdown(),
-                  ),
-                ],
-              ),
-              SizedBox(height: 16),
-              _buildProfileImageField(),
-              SizedBox(height: 16),
-              _buildAccountTypeDropdown(),
-
-              // Documents
-              if (_selectedAccountType == 'Propriétaire' || _selectedAccountType == 'Commissionnaire') ...[
-                SizedBox(height: 10),
-                _buildSectionHeader('Documents d\'identité'),
-                SizedBox(height: 8),
-                Text(
-                  'Prenez des photos claires et lisibles de votre pièce d\'identité',
-                  style: TextStyle(
-                    color: _greyColor,
-                    fontSize: 13,
-                  ),
-                ),
-                SizedBox(height: 16),
-                _buildDocumentTypeSelector(),
-                SizedBox(height: 16),
-                _buildDocumentNumberField(),
-                SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildDocumentUploadCard(
-                        title: 'Recto*',
-                        image: _idCardFront,
-                        isRequired: true,
-                        onTap: () => _showImageSourceDialog(isProfile: false, isFront: true),
-                      ),
-                    ),
-                    SizedBox(width: 16),
-                    Expanded(
-                      child: _buildDocumentUploadCard(
-                        title: 'Verso',
-                        image: _idCardBack,
-                        isRequired: false,
-                        onTap: () => _showImageSourceDialog(isProfile: false, isFront: false),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Assurez-vous que toutes les informations sont visibles et lisibles',
-                  style: TextStyle(
-                    color: Colors.orange,
-                    fontSize: 12,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-
-              SizedBox(height: 24),
-
-              // Sécurité
-              _buildSectionHeader('Sécurité'),
-              SizedBox(height: 16),
-              _buildModernTextField(
-                controller: _passwordController,
-                label: 'Mot de passe',
-                hint: '••••••••',
-                icon: Icons.lock_outline,
-                obscureText: !_showPassword,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _showPassword ? Icons.visibility : Icons.visibility_off,
-                    color: _greyColor,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _showPassword = !_showPassword;
-                    });
-                  },
-                ),
-                validator: (value) {
-                  if (value?.isEmpty ?? true) return 'Requis';
-                  if (value!.length < 8) return '8 caractères minimum';
-                  return null;
-                },
-              ),
-              _buildModernTextField(
-                controller: _confirmPasswordController,
-                label: 'Confirmer le mot de passe',
-                hint: '••••••••',
-                icon: Icons.lock_outline,
-                obscureText: !_showPassword,
-                validator: (value) {
-                  if (value?.isEmpty ?? true) return 'Requis';
-                  if (value != _passwordController.text) {
-                    return 'Les mots de passe ne correspondent pas';
-                  }
-                  return null;
-                },
-              ),
-              SizedBox(height: 24),
-
-              // Conditions
-              _buildTermsCheckbox(),
-              SizedBox(height: 24),
-
-              // Bouton d'inscription
-              _buildSubmitButton(),
-              SizedBox(height: 40),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-
-
-
-
 }
