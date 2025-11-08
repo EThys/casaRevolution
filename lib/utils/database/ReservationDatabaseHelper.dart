@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../models/ReservationModel.dart';
 
-class VisitDatabaseHelper {
+class ReservationDatabaseHelper {
   static const _databaseName = "reservations.db";
   static const _databaseVersion = 1;
   static const table = 'reservations';
@@ -20,8 +20,8 @@ class VisitDatabaseHelper {
   static const columnEndDate = 'endDate';
 
   // Singleton
-  VisitDatabaseHelper._privateConstructor();
-  static final VisitDatabaseHelper instance = VisitDatabaseHelper._privateConstructor();
+  ReservationDatabaseHelper._privateConstructor();
+  static final ReservationDatabaseHelper instance = ReservationDatabaseHelper._privateConstructor();
 
   static Database? _database;
   Future<Database> get database async {
