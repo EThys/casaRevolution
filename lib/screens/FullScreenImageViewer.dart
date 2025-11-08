@@ -56,13 +56,13 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
               final correctedPath = imagePath.startsWith('/')
                   ? imagePath.substring(1)
                   : imagePath;
-              final imageUrl = '${Constantes.URL_IMAGES}$correctedPath';
+              final imageUrl = '${correctedPath}';
 
               return GestureDetector(
                 onTap: () => Navigator.pop(context),
                 child: Center(
                   child: Hero(
-                    tag: 'property_image_${widget.images[index].PropertyId}_$index',
+                    tag: 'property_image_${widget.images[index].propertyImageId}_$index',
                     child: CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.contain,
