@@ -7,6 +7,7 @@ import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -38,7 +39,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   late final PageController _imageController;
   int _currentImageIndex = 0;
 
-  // Catégories d'images par pièces
+  bool get _showSurface => (widget.property.surface ?? 0) > 0;
+  bool get _showFloor => (widget.property.floor ?? 0) > 0;
+  bool get _isAvailable => widget.property.transactionType?.toLowerCase() != 'vente' &&
+      widget.property.transactionType?.toLowerCase() != 'location';
+
   final List<ImageCategory> _imageCategories = [
     ImageCategory(
       id: 'propertyImage',
@@ -50,19 +55,19 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       id: 'propertyImageRoom',
       name: 'Chambres',
       icon: FontAwesomeIcons.bed,
-      color: Color(0xFF4CAF50),
+      color: Color(0xFFFF9800),
     ),
     ImageCategory(
       id: 'propertyImageLivingRoom',
       name: 'Salon',
       icon: FontAwesomeIcons.couch,
-      color: Color(0xFFFF9800),
+      color: Color(0xFF2196F3),
     ),
     ImageCategory(
       id: 'propertyImageKitchen',
       name: 'Cuisine',
       icon: FontAwesomeIcons.kitchenSet,
-      color: Color(0xFFF44336),
+      color: Color(0xFFFF9800),
     ),
   ];
 
@@ -159,6 +164,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     final groupedImages = _getGroupedImages();
     final allImages = _getAllImages();
@@ -177,20 +183,23 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               delegate: SliverChildListDelegate([
                 SizedBox(height: 20),
                 _buildHeaderSection(),
-                SizedBox(height: 24),
+                SizedBox(height: 20),
                 _buildPriceSection(),
-                SizedBox(height: 24),
+                SizedBox(height: 20),
+                _buildPublicationInfoSection(),
+                SizedBox(height: 20),
                 _buildFeaturesSection(),
-                SizedBox(height: 24),
+                SizedBox(height: 20),
+                _buildEssentialServicesSection(),
+                SizedBox(height: 20),
                 _buildDescriptionSection(),
-                SizedBox(height: 24),
-                // Nouvelle section pour les images groupées
+                SizedBox(height: 20),
                 _buildGroupedImagesSection(groupedImages),
-                SizedBox(height: 24),
+                SizedBox(height: 20),
                 _buildAdditionalFeaturesSection(),
-                SizedBox(height: 24),
+                SizedBox(height: 20),
                 _buildLocationSection(),
-                SizedBox(height: 24),
+                SizedBox(height: 20),
                 _buildSimilarProperties(),
                 SizedBox(height: 100),
               ]),
@@ -797,37 +806,67 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             ],
           ),
           Spacer(),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'SURFACE',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: _greyColor,
-                  fontWeight: FontWeight.bold,
+          if (_showSurface)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'SURFACE',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _greyColor,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                '${widget.property.surface?.toInt() ?? 0} m²',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: _darkColor,
+                SizedBox(height: 4),
+                Text(
+                  '${widget.property.surface?.toInt() ?? 0} m²',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: _darkColor,
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );
   }
-
   Widget _buildFeaturesSection() {
     final hasWifi = widget.property.features?.any((f) => f.name?.toLowerCase().contains('wifi') ?? false) ?? false;
     final hasClim = widget.property.features?.any((f) => f.name?.toLowerCase().contains('climatisation') ?? false) ?? false;
     final hasParking = widget.property.features?.any((f) => f.name?.toLowerCase().contains('parking') ?? false) ?? false;
+
+    // Créer une liste dynamique des éléments à afficher
+    final featureItems = <Widget>[
+      _buildFeatureItem(
+        'assets/images/bed.png',
+        '${widget.property.bedrooms ?? 0}',
+        'Chambres',
+      ),
+      _buildFeatureItem(
+        'assets/images/douche.png',
+        '${widget.property.bathroom ?? 0}',
+        'SDB',
+      ),
+      _buildFeatureItem(
+        'assets/images/parking.png',
+        hasParking ? 'Oui' : 'Non',
+        'Parking',
+      ),
+    ];
+
+    // Ajouter l'étage seulement si > 0
+    if (_showFloor) {
+      featureItems.add(
+        _buildFeatureItem(
+          'assets/images/wifi.png',
+          '${widget.property.floor ?? 0}',
+          'Étage',
+        ),
+      );
+    }
 
     return Container(
       padding: EdgeInsets.all(16),
@@ -845,29 +884,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       child: Column(
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildFeatureItem(
-                'assets/images/bed.png',
-                '${widget.property.bedrooms ?? 0}',
-                'Chambres',
-              ),
-              _buildFeatureItem(
-                'assets/images/douche.png',
-                '${widget.property.bathroom ?? 0}',
-                'SDB',
-              ),
-              _buildFeatureItem(
-                'assets/images/parking.png',
-                hasParking ? 'Oui' : 'Non',
-                'Parking',
-              ),
-              _buildFeatureItem(
-                'assets/images/bed.png',
-                '${widget.property.floor ?? 0}',
-                'Étage',
-              ),
-            ],
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: featureItems,
           ),
           SizedBox(height: 12),
           Divider(height: 1),
@@ -966,6 +984,147 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       ],
     );
   }
+
+  Widget _buildPublicationInfoSection() {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Informations du publieur
+          if (widget.property.user?.email != null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Publié par',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: _greyColor,
+                  ),
+                ),
+                SizedBox(height: 12),
+                Row(
+                  children: [
+                    // Photo de profil
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: widget.property.user?.email != null
+                          ? ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: CachedNetworkImage(
+                          imageUrl: "dedde",
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Icon(
+                            Icons.person,
+                            color: _primaryColor,
+                            size: 20,
+                          ),
+                        ),
+                      )
+                          : Icon(
+                        Icons.person,
+                        color: _primaryColor,
+                        size: 20,
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "${widget.property}",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                              color: _darkColor,
+                            ),
+                          ),
+                          if (widget.property.createdStart != null)
+                            Text(
+                              'Publié ${_formatDate(widget.property.createdStart!)}',
+                              style: TextStyle(
+                                color: _greyColor,
+                                fontSize: 12,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+
+  String _formatDate(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      final now = DateTime.now();
+      final difference = now.difference(date);
+
+      if (difference.inDays == 0) {
+        return "aujourd'hui";
+      } else if (difference.inDays == 1) {
+        return 'hier';
+      } else if (difference.inDays < 7) {
+        return 'il y a ${difference.inDays} jours';
+      } else if (difference.inDays < 30) {
+        final weeks = (difference.inDays / 7).floor();
+        return 'il y a $weeks semaine${weeks > 1 ? 's' : ''}';
+      } else {
+        return 'le ${DateFormat('dd/MM/yyyy').format(date)}';
+      }
+    } catch (e) {
+
+      return dateString;
+    }
+  }
+
+  // String _formatDate(DateTime date) {
+  //   final now = DateTime.now();
+  //   final difference = now.difference(date);
+  //
+  //   if (difference.inDays == 0) {
+  //     return "aujourd'hui";
+  //   } else if (difference.inDays == 1) {
+  //     return 'hier';
+  //   } else if (difference.inDays < 7) {
+  //     return 'il y a ${difference.inDays} jours';
+  //   } else if (difference.inDays < 30) {
+  //     final weeks = (difference.inDays / 7).floor();
+  //     return 'il y a $weeks semaine${weeks > 1 ? 's' : ''}';
+  //   } else {
+  //     return 'le ${DateFormat('dd/MM/yyyy').format(date)}';
+  //   }
+  // }
 
   Widget _buildAdditionalFeaturesSection() {
     final hasElevator = widget.property.features?.any((f) => f.name?.toLowerCase().contains('ascenseur') ?? false) ?? false;
@@ -1175,6 +1334,236 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       ],
     );
   }
+
+  // Dans la classe _PropertyDetailPageState, ajoutez ces méthodes :
+
+  String _getElectricText(int? electricValue) {
+    if (electricValue == null) return 'Non spécifié';
+
+    switch (electricValue) {
+      case 80:
+        return 'Élevée - Coupe rarement';
+      case 60:
+        return 'Bonne - Quelques coupures';
+      case 40:
+        return 'Moyenne - Coupures régulières';
+      case 20:
+        return 'Faible - Coupe souvent';
+      default:
+        return 'Non spécifié';
+    }
+  }
+
+  String _getWaterText(int? waterValue) {
+    if (waterValue == null) return 'Non spécifié';
+
+    switch (waterValue) {
+      case 80:
+        return 'Excellente - Coupures très rares';
+      case 60:
+        return 'Bonne - Quelques coupures';
+      case 40:
+        return 'Moyenne - Coupures régulières';
+      case 20:
+        return 'Faible - Coupures fréquentes';
+      default:
+        return 'Non spécifié';
+    }
+  }
+
+  Widget _buildEssentialServicesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Services essentiels',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: _darkColor,
+          ),
+        ),
+        SizedBox(height: 16),
+
+        // Service Électricité
+        Container(
+          margin: EdgeInsets.only(bottom: 12),
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: _getServiceColor(widget.property.electric).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.electrical_services_rounded,
+                  color: _getServiceColor(widget.property.electric),
+                  size: 24,
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Électricité',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            color: _darkColor,
+                          ),
+                        ),
+                        Spacer(),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _getServiceColor(widget.property.electric).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _getServiceColor(widget.property.electric).withOpacity(0.3),
+                            ),
+                          ),
+                          child: Text(
+                            _getServicePercentage(widget.property.electric),
+                            style: TextStyle(
+                              color: _getServiceColor(widget.property.electric),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      _getElectricText(widget.property.electric),
+                      style: TextStyle(
+                        color: _greyColor,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Service Eau
+        Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: _getServiceColor(widget.property.water).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.water_drop_rounded,
+                  color: _getServiceColor(widget.property.water),
+                  size: 24,
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Eau',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            color: _darkColor,
+                          ),
+                        ),
+                        Spacer(),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _getServiceColor(widget.property.water).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _getServiceColor(widget.property.water).withOpacity(0.3),
+                            ),
+                          ),
+                          child: Text(
+                            _getServicePercentage(widget.property.water),
+                            style: TextStyle(
+                              color: _getServiceColor(widget.property.water),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      _getWaterText(widget.property.water),
+                      style: TextStyle(
+                        color: _greyColor,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Color _getServiceColor(int? value) {
+    if (value == null) return _greyColor;
+
+    if (value >= 80) return Colors.green;
+    if (value >= 60) return Colors.lightGreen;
+    if (value >= 40) return Colors.orange;
+    return Colors.red;
+  }
+
+  String _getServicePercentage(int? value) {
+    if (value == null) return '?%';
+    return '$value%';
+  }
+
+
 
   void _navigateToBookingPage() {
     final token = storage.read(StockageKeys.tokenKey);
