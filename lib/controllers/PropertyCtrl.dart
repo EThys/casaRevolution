@@ -1,6 +1,7 @@
 import 'package:casa/utils/database/DatabaseHelper.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:http/http.dart';
 import '../models/PropertyModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
@@ -11,58 +12,134 @@ class PropertyController with ChangeNotifier {
 
   GetStorage? stockage;
   bool loading = false;
+  bool syncing = false;
   List<PropertyModel> properties = [];
   PropertyModel? currentProperty;
 
+  Future<void> syncProperties() async {
+    syncing = true;
+    notifyListeners();
+
+    try {
+      final url = "${Endpoints.properties}";
+      var response = await getData(url);
+
+      // Vérification plus robuste du type de réponse
+      if (response != null && response is Map<String, dynamic>) {
+        // Vérifier les différentes structures possibles de réponse
+        dynamic propertiesData;
+
+        if (response.containsKey('properties')) {
+          propertiesData = response['properties'];
+        } else if (response.containsKey('data')) {
+          propertiesData = response['data'];
+        } else {
+          // Si la structure est différente, utiliser la réponse entière
+          propertiesData = response;
+        }
+
+        // Vérifier que propertiesData est une List
+        if (propertiesData is List && propertiesData.isNotEmpty) {
+          List<PropertyModel> onlineProperties = propertiesData
+              .where((e) => e != null) // Filtrer les éléments null
+              .map<PropertyModel>((e) {
+            try {
+              return PropertyModel.fromJson(e);
+            } catch (e) {
+              print("Erreur lors du parsing d'une propriété: $e");
+              // Retourner une propriété vide ou gérer l'erreur
+              return PropertyModel(); // Assurez-vous que PropertyModel a un constructeur par défaut
+            }
+          })
+              .where((property) => property.propertyId != null) // Filtrer les propriétés invalides
+              .toList();
+
+          // Synchroniser avec la base locale
+          await _syncWithLocalDatabase(onlineProperties);
+
+          // Mettre à jour la liste en mémoire
+          properties = onlineProperties;
+        } else {
+          print("Aucune donnée de propriété valide trouvée");
+          await _loadFromCache();
+        }
+      } else {
+        print("Réponse invalide ou nulle: $response");
+        await _loadFromCache();
+      }
+    } catch (e) {
+      print("Erreur lors de la synchronisation: $e");
+      // En cas d'erreur, charger depuis le cache
+      await _loadFromCache();
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
+  }
+
+  // Méthode pour synchroniser les données en ligne avec le cache local
+  Future<void> _syncWithLocalDatabase(List<PropertyModel> onlineProperties) async {
+    final db = DatabaseHelper.instance;
+
+    // Récupérer toutes les propriétés locales
+    final localProperties = await db.getAllProperties();
+
+    // Identifier les propriétés supprimées en ligne
+    final onlineIds = onlineProperties.map((p) => p.propertyId).toSet();
+    final localIds = localProperties.map((p) => p.propertyId).toSet();
+
+    // Supprimer les propriétés qui n'existent plus en ligne
+    final deletedIds = localIds.difference(onlineIds);
+    for (final id in deletedIds) {
+      await db.deleteProperty(id!);
+    }
+
+    // Mettre à jour/insérer les propriétés en ligne
+    for (var property in onlineProperties) {
+      await db.insertOrUpdateProperty(property);
+    }
+
+    print("Synchronisation terminée: ${onlineProperties.length} propriétés en ligne, ${deletedIds.length} supprimées localement");
+  }
+
   Future<List<PropertyModel>> getAllProperty() async {
-    final url = "${Endpoints.properties}";
     loading = true;
     notifyListeners();
 
     try {
-      // Essayer de récupérer depuis le réseau
-      var response = await getData(url);
-
-      print("muzolaaaaa${response}");
-
-      // Vérifier si la requête a réussi en cherchant la clé "properties" ou "data"
-      if (response != null &&
-          (response['properties'] != null || response['data'] != null)) {
-
-        // Déterminer quelle clé contient les données
-        List<dynamic> propertiesData = response['properties'] ?? response['data'];
-
-        // Vérifier que la liste n'est pas vide
-        if (propertiesData is List && propertiesData.isNotEmpty) {
-          List<PropertyModel> properties = propertiesData
-              .map<PropertyModel>((e) => PropertyModel.fromJson(e))
-              .toList();
-
-          // Sauvegarder en local
-          final db = DatabaseHelper.instance;
-          for (var property in properties) {
-            await db.insertOrUpdateProperty(property);
-          }
-
-          this.properties = properties;
-          loading = false;
-          notifyListeners();
-          return properties;
-        }
-      }
+      // Essayer d'abord de synchroniser avec les données en ligne
+      await syncProperties();
+      return properties;
     } catch (e) {
-      print("Erreur réseau: $e");
-      // Continuer avec le cache si échec réseau
+      print("Erreur lors du chargement: $e");
+      // En cas d'erreur, charger depuis le cache
+      await _loadFromCache();
+      return properties;
+    } finally {
+      loading = false;
+      notifyListeners();
     }
+  }
 
-    // Si échec réseau ou réponse invalide, charger depuis SQLite
+  // Méthode pour charger depuis le cache seulement
+  Future<void> _loadFromCache() async {
     final db = DatabaseHelper.instance;
     final cachedProperties = await db.getAllProperties();
+    properties = cachedProperties;
+    print("Chargement depuis le cache: ${properties.length} propriétés");
+  }
 
-    this.properties = cachedProperties;
-    loading = false;
+  // Méthode pour forcer une synchronisation manuelle
+  Future<void> forceSync() async {
+    await syncProperties();
+  }
+
+  // Méthode pour vider le cache local
+  Future<void> clearLocalCache() async {
+    final db = DatabaseHelper.instance;
+    await db.clearProperties();
+    properties.clear();
     notifyListeners();
-    return cachedProperties;
   }
 
   Future<PropertyModel?> getPropertyById(int propertyId) async {
@@ -70,21 +147,36 @@ class PropertyController with ChangeNotifier {
     notifyListeners();
 
     try {
+      // Essayer d'abord de récupérer depuis l'API
       var url = "${Endpoints.properties}/$propertyId";
       var response = await getData(url);
 
-      // Vérifier si la requête a réussi
       if (response != null && response['data'] != null) {
         PropertyModel property = PropertyModel.fromJson(response['data']);
         currentProperty = property;
+
+        // Mettre à jour le cache local
+        final db = DatabaseHelper.instance;
+        await db.insertOrUpdateProperty(property);
+
         loading = false;
         notifyListeners();
         return property;
-      } else {
-        print("Aucune donnée reçue pour la propriété $propertyId");
       }
     } catch (e) {
-      print("Erreur lors de la récupération de la propriété $propertyId : $e");
+      print("Erreur réseau pour la propriété $propertyId : $e");
+      // Si échec réseau, chercher dans le cache local
+    }
+
+    // Chercher dans le cache local
+    final db = DatabaseHelper.instance;
+    final cachedProperty = await db.getPropertyById(propertyId);
+
+    if (cachedProperty != null) {
+      currentProperty = cachedProperty;
+      loading = false;
+      notifyListeners();
+      return cachedProperty;
     }
 
     loading = false;
@@ -97,38 +189,105 @@ class PropertyController with ChangeNotifier {
       loading = true;
       notifyListeners();
 
+      print("🚀 Envoi de la requête createProperty...");
+      print("📊 Données envoyées: ${propertyData.keys.toList()}");
+
       final url = Endpoints.properties;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-      print("URL: $url");
-      print("TOKEN: $tkn");
 
       HttpResponse response = await postData(url, propertyData, token: tkn);
-      print("REPONSE: ${response.data}");
 
-      // Vérifier si la création a réussi
-      if (response.data != null &&
-          (response.data['properties'] != null || response.data['data'] != null)) {
+      // Vérifier si la requête a réussi (basé sur le status)
+      if (response.status == true) {
+        // Traitement de la réponse réussie
+        if (response.data != null && response.data is Map) {
+          // Vérifier différentes structures de réponse possibles
+          dynamic propertyJson;
 
-        // Déterminer quelle clé contient la propriété créée
-        dynamic propertyJson = response.data['properties'] ?? response.data['data'];
+          if (response.data['properties'] != null) {
+            propertyJson = response.data['properties'];
+            print("📦 Structure 'properties' détectée");
+          } else if (response.data['data'] != null) {
+            propertyJson = response.data['data'];
+            print("📦 Structure 'data' détectée");
+          } else if (response.data['propertyId'] != null) {
+            propertyJson = response.data; // La réponse EST la propriété
+            print("📦 Structure directe de propriété détectée");
+          } else if (response.data['message'] != null) {
+            // Réponse avec seulement un message de succès
+            print("✅ Réponse avec message: ${response.data['message']}");
+            propertyJson = null;
+          }
 
-        if (propertyJson != null) {
-          final newProperty = PropertyModel.fromJson(propertyJson);
-          properties.add(newProperty);
-          notifyListeners();
+          if (propertyJson != null && propertyJson is Map) {
+            try {
+              //print("🔄 Tentative de parsing PropertyModel...");
+
+              // Créer une copie sécurisée des données
+              final safePropertyJson = Map<String, dynamic>.from(propertyJson);
+
+              // Nettoyer les données problématiques
+              safePropertyJson.removeWhere((key, value) => value == null);
+
+              final newProperty = PropertyModel.fromJson(safePropertyJson);
+
+              // Vérifier que la propriété a un ID valide
+              if (newProperty.propertyId != null && newProperty.propertyId! > 0) {
+                properties.add(newProperty);
+
+                // Mettre à jour le cache local
+                final db = DatabaseHelper.instance;
+                await db.insertOrUpdateProperty(newProperty);
+
+                notifyListeners();
+                print("✅ Propriété ajoutée avec succès: ${newProperty.propertyId}");
+              } else {
+                print("⚠️ Propriété parsée mais ID invalide ou manquant: ${newProperty.propertyId}");
+              }
+            } catch (e) {
+              print("❌ Erreur lors du parsing de la propriété: $e");
+              print("❌ Données qui ont échoué: $propertyJson");
+
+              // Mais on continue car l'API a répondu positivement
+              // La propriété est créée côté serveur même si le parsing échoue
+            }
+          } else {
+            print("ℹ️ Aucune donnée de propriété trouvée dans la réponse, mais requête réussie");
+            if (response.data['message'] != null) {
+              print("📝 Message du serveur: ${response.data['message']}");
+            }
+          }
+        } else {
+          print("⚠️ Réponse data est null ou non-Map, mais requête réussie selon le status");
+        }
+      } else {
+        // Requête échouée
+        print("❌ Requête échouée selon le status");
+        if (response.errorMsg != null) {
+          print("❌ Message d'erreur: ${response.errorMsg}");
         }
       }
 
       loading = false;
       notifyListeners();
+
+      // RETOURNER TOUJOURS LA RÉPONSE
       return response;
+
     } catch (e) {
+      print("❌ Erreur critique dans createProperty: $e");
+
       loading = false;
       notifyListeners();
+
       return HttpResponse(
-        status: false,
-        errorMsg: "Failed to create property: $e",
-        isException: true,
+          status: false,
+          errorMsg: "Erreur lors de la création: ${e.toString()}",
+          isException: true,
+          data: {
+            'error': e.toString(),
+            'timestamp': DateTime.now().toIso8601String()
+          }
       );
     }
   }
@@ -143,15 +302,15 @@ class PropertyController with ChangeNotifier {
 
       HttpResponse response = await patchData(url, propertyData, token: tkn);
 
-      // Vérifier si la mise à jour a réussi
       if (response.data != null &&
           (response.data['property'] != null || response.data['data'] != null)) {
 
-        // Déterminer quelle clé contient la propriété mise à jour
         dynamic propertyJson = response.data['property'] ?? response.data['data'];
 
         if (propertyJson != null) {
           final updatedProperty = PropertyModel.fromJson(propertyJson);
+
+          // Mettre à jour la liste en mémoire
           final index = properties.indexWhere((p) => p.propertyId == id);
           if (index != -1) {
             properties[index] = updatedProperty;
@@ -159,6 +318,11 @@ class PropertyController with ChangeNotifier {
           if (currentProperty?.propertyId == id) {
             currentProperty = updatedProperty;
           }
+
+          // Mettre à jour le cache local
+          final db = DatabaseHelper.instance;
+          await db.insertOrUpdateProperty(updatedProperty);
+
           notifyListeners();
         }
       }
@@ -185,14 +349,20 @@ class PropertyController with ChangeNotifier {
   //     final url = "${Endpoints.properties}/$id";
   //     final tkn = stockage?.read<String>(StockageKeys.tokenKey);
   //
-  //     HttpResponse response = await deleteProperty(url, token: tkn);
+  //     HttpResponse response = await delete(url, token: tkn);
   //
-  //     // Vérifier si la suppression a réussi
-  //     if (response.statusCode == 200 || response.statusCode == 204) {
+  //     // Vérifier le succès basé sur la structure de votre HttpResponse
+  //     if (response.status == true) {
+  //       // Supprimer de la liste en mémoire
   //       properties.removeWhere((p) => p.propertyId == id);
   //       if (currentProperty?.propertyId == id) {
   //         currentProperty = null;
   //       }
+  //
+  //       // Supprimer du cache local
+  //       final db = DatabaseHelper.instance;
+  //       await db.deleteProperty(id);
+  //
   //       notifyListeners();
   //     }
   //
@@ -209,7 +379,284 @@ class PropertyController with ChangeNotifier {
   //     );
   //   }
   // }
+
+  // Méthode utilitaire pour vérifier si une propriété existe en ligne
+  Future<bool> isPropertyOnline(int propertyId) async {
+    try {
+      final url = "${Endpoints.properties}/$propertyId";
+      final response = await getData(url);
+      return response != null && response['data'] != null;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Méthode pour filtrer seulement les propriétés en ligne
+  Future<List<PropertyModel>> getOnlinePropertiesOnly() async {
+    await syncProperties(); // Synchroniser d'abord
+    return properties; // Maintenant properties contient seulement les propriétés en ligne
+  }
+
+  Future<HttpResponse> filterProperties({
+    bool? sold,
+    double? minPrice,
+    double? maxPrice,
+    int? typeMaison,
+    int? city,
+    int? commune,
+    int? room,
+    int page = 0,
+    int size = 20,
+    String sortBy = 'title',
+    String sortOrder = 'asc',
+  }) async {
+    try {
+      loading = true;
+      notifyListeners();
+      final Map<String, dynamic> queryParams = {};
+
+      if (sold != null) queryParams['sold'] = sold.toString();
+      if (minPrice != null) queryParams['minPrice'] = minPrice.toString();
+      if (maxPrice != null) queryParams['maxPrice'] = maxPrice.toString();
+      if (typeMaison != null) queryParams['typeMaison'] = typeMaison.toString();
+      if (city != null) queryParams['city'] = city.toString();
+      if (commune != null) queryParams['commune'] = commune.toString();
+      if (room != null) queryParams['room'] = room.toString();
+
+      queryParams['page'] = page.toString();
+      queryParams['size'] = size.toString();
+      queryParams['sortBy'] = sortBy;
+      queryParams['sortOrder'] = sortOrder;
+
+      final url = "${Endpoints.propertyFilter}?${_buildQueryString(queryParams)}";
+
+      print("🔍 URL de filtrage: $url");
+
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      HttpResponse response = await getData(url, token: tkn);
+
+      if (response.status == true && response.data != null) {
+        dynamic propertiesData;
+
+        if (response.data.containsKey('properties')) {
+          propertiesData = response.data['properties'];
+        } else if (response.data.containsKey('data')) {
+          propertiesData = response.data['data'];
+        } else if (response.data.containsKey('content')) {
+          propertiesData = response.data['content']; // Pour la pagination Spring
+        } else {
+          propertiesData = response.data;
+        }
+
+        // Convertir en liste de PropertyModel
+        if (propertiesData is List && propertiesData.isNotEmpty) {
+          List<PropertyModel> filteredProperties = propertiesData
+              .where((e) => e != null)
+              .map<PropertyModel>((e) {
+            try {
+              return PropertyModel.fromJson(e);
+            } catch (e) {
+              print("Erreur lors du parsing d'une propriété filtrée: $e");
+              return PropertyModel();
+            }
+          })
+              .where((property) => property.propertyId != null)
+              .toList();
+
+          // Mettre à jour la liste des propriétés avec les résultats filtrés
+          properties = filteredProperties;
+
+          print("✅ Filtrage réussi: ${filteredProperties.length} propriétés trouvées");
+        } else {
+          print("ℹ️ Aucune propriété trouvée avec les critères spécifiés");
+          properties = []; // Vider la liste si aucun résultat
+        }
+      } else {
+        print("❌ Erreur lors du filtrage: ${response.errorMsg}");
+        // En cas d'erreur, charger depuis le cache local avec les mêmes critères
+        await _filterLocalProperties(
+          sold: sold,
+          minPrice: minPrice,
+          maxPrice: maxPrice,
+          typeMaison: typeMaison,
+          city: city,
+          commune: commune,
+          room: room,
+        );
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+
+    } catch (e) {
+      print("❌ Erreur critique dans filterProperties: $e");
+
+      // En cas d'erreur réseau, essayer de filtrer localement
+      await _filterLocalProperties(
+        sold: sold,
+        minPrice: minPrice,
+        maxPrice: maxPrice,
+        typeMaison: typeMaison,
+        city: city,
+        commune: commune,
+        room: room,
+      );
+
+      loading = false;
+      notifyListeners();
+
+      return HttpResponse(
+        status: false,
+        errorMsg: "Erreur lors du filtrage: ${e.toString()}",
+        isException: true,
+      );
+    }
+  }
+
+  // Méthode pour filtrer les propriétés en cache local
+  Future<void> _filterLocalProperties({
+    bool? sold,
+    double? minPrice,
+    double? maxPrice,
+    int? typeMaison,
+    int? city,
+    int? commune,
+    int? room,
+  }) async {
+    final db = DatabaseHelper.instance;
+    final allProperties = await db.getAllProperties();
+
+    // Appliquer les filtres
+    List<PropertyModel> filtered = allProperties.where((property) {
+      // Filtre sold
+      if (sold != null && property.sold != sold) return false;
+
+      // Filtre prix minimum
+      if (minPrice != null && (property.price ?? 0) < minPrice) return false;
+
+      // Filtre prix maximum
+      if (maxPrice != null && (property.price ?? double.maxFinite) > maxPrice) return false;
+
+      // Filtre type de maison
+      if (typeMaison != null && property.propertyType != typeMaison) return false;
+
+      // Filtre ville
+      if (city != null && property.cityId != city) return false;
+
+      // Filtre commune
+      if (commune != null && property.communeId != commune) return false;
+
+      // Filtre nombre de pièces
+      if (room != null && property.rooms != room) return false;
+
+      return true;
+    }).toList();
+
+    properties = filtered;
+    print("🔍 Filtrage local: ${filtered.length} propriétés trouvées");
+  }
+
+  // Méthode utilitaire pour construire la query string
+  String _buildQueryString(Map<String, dynamic> params) {
+    return params.entries
+        .where((entry) => entry.value != null)
+        .map((entry) => '${Uri.encodeComponent(entry.key)}=${Uri.encodeComponent(entry.value)}')
+        .join('&');
+  }
+
+  // Méthode pour réinitialiser les filtres et charger toutes les propriétés
+  Future<void> resetFilters() async {
+    await getAllProperty();
+  }
+
+  // Méthode pour rechercher par texte (titre, description, etc.)
+  Future<HttpResponse> searchProperties(String searchTerm) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      final url = "${Endpoints.propertySearch}?query=${Uri.encodeComponent(searchTerm)}";
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      HttpResponse response = await getData(url, token: tkn);
+
+      if (response.status == true && response.data != null) {
+        dynamic propertiesData;
+
+        if (response.data.containsKey('properties')) {
+          propertiesData = response.data['properties'];
+        } else if (response.data.containsKey('data')) {
+          propertiesData = response.data['data'];
+        } else {
+          propertiesData = response.data;
+        }
+
+        if (propertiesData is List && propertiesData.isNotEmpty) {
+          List<PropertyModel> searchResults = propertiesData
+              .where((e) => e != null)
+              .map<PropertyModel>((e) => PropertyModel.fromJson(e))
+              .where((property) => property.propertyId != null)
+              .toList();
+
+          properties = searchResults;
+          print("🔍 Recherche réussie: ${searchResults.length} résultats pour '$searchTerm'");
+        } else {
+          properties = [];
+          print("ℹ️ Aucun résultat pour la recherche: '$searchTerm'");
+        }
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+
+    } catch (e) {
+      print("❌ Erreur lors de la recherche: $e");
+
+      // Recherche locale en fallback
+      await _searchLocalProperties(searchTerm);
+
+      loading = false;
+      notifyListeners();
+
+      return HttpResponse(
+        status: false,
+        errorMsg: "Erreur lors de la recherche: ${e.toString()}",
+        isException: true,
+      );
+    }
+  }
+
+  // Méthode pour rechercher localement
+  Future<void> _searchLocalProperties(String searchTerm) async {
+    final db = DatabaseHelper.instance;
+    final allProperties = await db.getAllProperties();
+
+    final searchResults = allProperties.where((property) {
+      final term = searchTerm.toLowerCase();
+
+      // Rechercher dans le titre
+      if (property.title?.toLowerCase().contains(term) == true) return true;
+
+      // Rechercher dans la description
+      if (property.description?.toLowerCase().contains(term) == true) return true;
+
+      // Rechercher dans l'adresse
+      if (property.address?.toLowerCase().contains(term) == true) return true;
+
+      return false;
+    }).toList();
+
+    properties = searchResults;
+    print("🔍 Recherche locale: ${searchResults.length} résultats pour '$searchTerm'");
+  }
+
+
+
 }
+
+
 
 void main() async {
   await GetStorage.init();
@@ -219,30 +666,12 @@ void main() async {
   // Exemple d'utilisation
   ctrl.getAllProperty();
 
-  // Exemple de création avec images
-  // ctrl.createPropertyWithImages(
-  //   title: "Belle maison avec jardin",
-  //   description: "Maison spacieuse avec 3 chambres et grand jardin",
-  //   price: 350000,
-  //   surface: 120,
-  //   rooms: 5,
-  //   bedrooms: 3,
-  //   address: "123 Rue de la République",
-  //   city: "Paris",
-  //   postalCode: "75001",
-  //   transactionType: "location",
-  //   propertyTypeId: 1,
-  //   userId: 1,
-  //   latitude: 48.8566,
-  //   longitude: 2.3522,
-  //   base64Images: [
-  //     "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxERADwD3+iiigD//2Q==",
-  //   ],
-  //   features: [1, 2, 3],
-  //   kitchen: 1,
-  //   livingRoom: 1,
-  //   bathroom: 2,
-  //   floor: 1,
-  //   commune: "lemba",
-  // );
+  // Pour forcer une synchronisation manuelle
+  // ctrl.forceSync();
+
+  // Pour vider le cache
+  // ctrl.clearLocalCache();
+
+  // Pour vérifier si une propriété spécifique existe en ligne
+  // bool exists = await ctrl.isPropertyOnline(123);
 }
