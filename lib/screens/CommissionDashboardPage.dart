@@ -110,6 +110,16 @@ class _CommissionDashboardPageState extends State<CommissionDashboardPage> {
       pinned: true,
       backgroundColor: _cardColor,
       elevation: _scrollOffset > 50 ? 4 : 0,
+      leading: IconButton(
+        icon: Icon(
+          Icons.arrow_back_ios_rounded,
+          color: Colors.white,
+          size: 20,
+        ),
+        onPressed: () {
+          Navigator.of(context).pop();
+        },
+      ),
       flexibleSpace: FlexibleSpaceBar(
         collapseMode: CollapseMode.pin,
         title: AnimatedOpacity(
