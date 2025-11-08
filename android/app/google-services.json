@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "720211543735",
+    "project_id": "casanayo-d8809",
+    "storage_bucket": "casanayo-d8809.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:720211543735:android:7c9d532a9d2ae126056f32",
+        "android_client_info": {
+          "package_name": "com.casa.casa.casa"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA2ZJgqwzbXMiCcTvrMsesuORL80LEzmXc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -35,15 +35,14 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  font_awesome_flutter: ^10.8.0
-  google_maps_flutter: ^2.10.1
+  font_awesome_flutter: ^10.12.0
+  google_maps_flutter: ^2.13.1
   image_picker: ^1.1.2
   get_storage: ^2.1.1
   intl: 0.20.2
   cached_network_image: ^3.4.1
   google_fonts: ^6.2.1
   smooth_page_indicator: ^1.2.1
-  flutter_rating_bar: ^4.0.1
   flutter_datetime_picker_plus: ^2.2.0
   connectivity_plus: ^6.1.4
   internet_connection_checker: ^3.0.1
@@ -52,13 +51,19 @@ dependencies:
   http: ^1.4.0
   shimmer: ^3.0.0
   flutter_localization: ^0.3.3
-  flutter_image_compress: ^2.4.0
   sqflite: ^2.4.1
-  flutter_advanced_switch: ^3.1.0
-  readmore: ^3.0.0
   share_plus: ^11.0.0
   photo_view: ^0.15.0
   infinite_scroll_pagination: ^5.1.1
+  permission_handler: ^12.0.1
+  camera: ^0.11.2
+  web_socket_channel: ^3.0.3
+  firebase_core: ^4.2.0
+  firebase_analytics: ^12.0.3
+  firebase_crashlytics: ^5.0.3
+  firebase_performance: ^0.11.1+1
+  pull_to_refresh: ^2.0.0
+  flutter_keyboard_visibility: ^6.0.0
 
 dev_dependencies:
   flutter_test:
@@ -85,6 +90,8 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/images/
+    - assets/images/LOGO CASA 2.png
+    - assets/images/logoCasa.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
