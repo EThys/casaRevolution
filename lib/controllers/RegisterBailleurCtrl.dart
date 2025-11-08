@@ -4,21 +4,17 @@ import '../models/BailleurModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/requetes.dart';
 
-class RegisterBailleur with ChangeNotifier {
+class RegisterBailleurCtrl with ChangeNotifier {
+
   BailleurModel? bailleur;
 
   Future<HttpResponse> registerBailleur(
-      Map<String, dynamic> bailleurData,
+      Map<String, dynamic> payload,
       {required int typeCompteId}
       ) async {
     try {
       var url = Endpoints.bailleur;
-      print("Payload d'inscription bailleur: ${(bailleurData)}");
-
-      final payload = {
-        ...bailleurData,
-        'typeCompteId': typeCompteId,
-      };
+      print("Payload d'inscription bailleur: ${(payload)}");
 
       HttpResponse response = await postData(url, payload);
 
@@ -32,12 +28,10 @@ class RegisterBailleur with ChangeNotifier {
 
       print("Réponse API bailleur: ${(response.data)}");
 
-      // Vérification basée sur le message de succès
-      if (response.data['message']?.toLowerCase().contains('succès') == true ||
-          response.status == 200 ||
-          response.status == 201) {
+      // Vérification basée sur le message de succès ou statut HTTP
+      if (response.data['message']?.toLowerCase().contains('succès')) {
 
-        // Vérifier si les données du bailleur sont présentes directement dans la réponse
+        // Vérifier si les données du bailleur sont présentes dans la réponse
         if (response.data is Map<String, dynamic>) {
           try {
             BailleurModel bailleur = BailleurModel.fromJson(response.data);
@@ -51,7 +45,6 @@ class RegisterBailleur with ChangeNotifier {
             );
           } catch (e) {
             print("Erreur parsing BailleurModel: $e");
-            // Si le parsing échoue mais l'API a répondu positivement
             return HttpResponse(
               status: true,
               data: response.data,
@@ -59,7 +52,6 @@ class RegisterBailleur with ChangeNotifier {
             );
           }
         } else {
-          // Réponse positive mais structure de données différente
           return HttpResponse(
             status: true,
             data: response.data,
@@ -67,7 +59,6 @@ class RegisterBailleur with ChangeNotifier {
           );
         }
       } else {
-        // Gestion des erreurs - utiliser le message de l'API ou un message par défaut
         String errorMsg = response.data['message'] ??
             "Erreur lors de l'inscription du bailleur";
         return HttpResponse(
