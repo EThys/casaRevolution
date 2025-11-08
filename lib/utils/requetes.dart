@@ -55,6 +55,30 @@ Future<dynamic> getData(String url_api, {String? token}) async {
     }
   }
 
+Future<HttpResponse> postDataForAuth(String api_url, Map data, {String? token}) async {
+  try {
+    var url = Uri.parse("${Constantes.URL_AUTH}$api_url");
+    String dataStr = json.encode(data);
+    var tkn = token ?? Constantes.DefaultToken;
+    var response = await http.post(url, body: dataStr, headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer $tkn"
+    }).timeout(Duration(seconds: 30));
+    /* if(!kReleaseMode){
+        alice.onHttpResponse(response);
+      }*/
+    var successList = [200, 201];
+    var msg = json.decode(response.body);
+    var st = successList.contains(response.statusCode);
+    return HttpResponse(status: st, data: msg);
+  } catch (e, trace) {
+    print(e.toString());
+    print(trace.toString());
+    return HttpResponse(
+        status: false, errorMsg: "Erreur inattendue", isException: true);
+  }
+}
+
 Future<HttpResponse> postDataList(String api_url, Map<String, dynamic> data, {String? token}) async {
   try {
     var url = Uri.parse("${Constantes.BASE_URL}$api_url");
