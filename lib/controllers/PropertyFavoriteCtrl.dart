@@ -121,7 +121,7 @@ class PropertyFavoriteCtrl with ChangeNotifier{
         // Vérifier que l'élément existe avant de le supprimer
         final index = propertyFavorites.indexWhere((fav) =>
         fav.userId.toString() == userId &&
-            fav.property?.PropertyId.toString() == propertyId);
+            fav.property?.propertyId.toString() == propertyId);
 
         if (index != -1) {
           propertyFavorites.removeAt(index);
