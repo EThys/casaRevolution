@@ -1,4 +1,4 @@
-import 'package:casa/controllers/PropertyVisitCtrl.dart';
+import 'package:casa/controllers/ReservationController.dart';
 import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
@@ -46,7 +46,12 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   int? _userId;
 
   String get safeUsername {
-    return storage.read(StockageKeys.userKey)?['username']?.toString() ?? 'Visiteur';
+    final dynamic userData = storage.read(StockageKeys.userKey);
+    if (userData != null) {
+      final Map<String, dynamic> user = _convertToStringMap(userData);
+      return user['username']?.toString() ?? user['name']?.toString() ?? 'Visiteur';
+    }
+    return 'Visiteur';
   }
 
   final List<TimeOfDay> _availableHours = [
@@ -82,8 +87,10 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         final Map<String, dynamic> user = _convertToStringMap(userData);
 
         setState(() {
-          _userId = user['UserId'] as int?;
-          _userName = '${user['username'] ?? ''}'.trim();
+          _userId = user['userId'] is int
+              ? user['userId']
+              : int.tryParse(user['userId']?.toString() ?? '');
+          _userName = '${user['username'] ?? user['name'] ?? ''}'.trim();
           _userEmail = user['email']?.toString() ?? '';
           _userPhone = user['phone']?.toString() ?? '';
         });
@@ -100,6 +107,20 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       return data.map((key, value) => MapEntry(key.toString(), value));
     }
     return {};
+  }
+
+  // Ajoutez cette méthode utilitaire
+  int? _getUserId() {
+    final dynamic userData = storage.read(StockageKeys.userKey);
+
+    if (userData != null) {
+      final Map<String, dynamic> user = _convertToStringMap(userData);
+      final dynamic userId = user['userId'];
+
+      if (userId is int) return userId;
+      if (userId is String) return int.tryParse(userId);
+    }
+    return null;
   }
 
   String _getPartialAddress(String fullAddress) {
@@ -166,7 +187,8 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       return;
     }
 
-    if (_userId == null) {
+    final userId = _getUserId();
+    if (userId == null) {
       FancyNotification.show(context, "Utilisateur non connecté");
       return;
     }
@@ -189,36 +211,60 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       final formattedDate = DateFormat('yyyy-MM-dd').format(_selectedDate!);
       final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}';
 
-      final bookingData = {
-        "PropertyId": widget.property.PropertyId,
-        "UserId": _userId,
-        "name": _userName,
-        "secondName": "",
-        "email": _userEmail,
-        "phone": _userPhone,
+      // CALCUL DE LA FIN DE VISITE (1 HEURE APRÈS LE DÉBUT)
+      final visitStartDateTime = DateTime(
+        _selectedDate!.year,
+        _selectedDate!.month,
+        _selectedDate!.day,
+        _selectedTime!.hour,
+        _selectedTime!.minute,
+      );
+
+      final visitEndDateTime = visitStartDateTime.add(Duration(hours: 1));
+      final formattedEndDate = DateFormat('yyyy-MM-dd').format(visitEndDateTime);
+      final formattedEndTime = '${visitEndDateTime.hour.toString().padLeft(2, '0')}:${visitEndDateTime.minute.toString().padLeft(2, '0')}';
+
+      // Timestamp actuel pour createdAt
+      final now = DateTime.now();
+      final formattedCreatedAt = DateFormat('yyyy-MM-ddTHH:mm:ss').format(now);
+
+      final reservationData = {
+        "propertyId": widget.property.propertyId,
+        "userId": userId,
         "message": _notesController.text.isNotEmpty
             ? _notesController.text
-            : "Intéressé par la propriété",
-        "address": widget.property.address ?? "",
-        "visitDate": formattedDate,
-        "visitHour": formattedTime,
-        "ipAddress": "192.168.1.1"
+            : "Intéressé par la propriété ${widget.property.title}",
+        "status": "PENDING",
+        "type": "STANDARD",
+        "reservationHeure": formattedTime,
+        "startDate": formattedDate,
+        "endDate": formattedEndDate,
+        "createdAt": formattedCreatedAt,
       };
 
-      final ctrl = context.read<PropertyVisitCtrl>();
-      final res = await ctrl.createVisitProperty(bookingData);
+      print("Données de réservation: $reservationData");
+      print("Détails de la visite:");
+      print("- Début: $formattedDate à $formattedTime");
+      print("- Fin: $formattedEndDate à $formattedEndTime");
+      print("- Durée: 1 heure");
+
+      final ctrl = context.read<ReservationController>();
+      final response = await ctrl.createReservation(reservationData);
 
       if (!mounted) return;
 
-      if (res.data['success'] == true) {
+      if (response.status == true) {
         _showConfirmationDialog();
       } else {
-        final errorMessage = res.data['message'] ?? "Erreur lors de la réservation";
+        final errorMessage = response.data?['message'] ??
+            response.errorMsg ??
+            "Erreur lors de la réservation";
         FancyNotification.show(context, errorMessage);
+        print("Erreur réponse: ${response.data}");
       }
     } catch (e) {
       if (mounted) {
-        FancyNotification.show(context, "Erreur technique lors de la réservation");
+        FancyNotification.show(context, "Erreur technique lors de la réservation: $e");
       }
       print("Booking error: $e");
     } finally {
@@ -229,7 +275,6 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       }
     }
   }
-
   void _showConfirmationDialog() {
     final formattedDate = DateFormat('EEEE d MMMM y', 'fr_FR').format(_selectedDate!);
     final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}h${_selectedTime!.minute == 0 ? '' : _selectedTime!.minute.toString().padLeft(2, '0')}';
@@ -444,7 +489,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
             _buildPropertyHeader(),
             const SizedBox(height: 24),
 
-            if (_userId != null) _buildUserInfoSection(),
+            if (_getUserId() != null) _buildUserInfoSection(),
             const SizedBox(height: 24),
 
             Form(
@@ -490,6 +535,14 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   }
 
   Widget _buildPropertyHeader() {
+    // Utilisation des vraies images du modèle PropertyModel
+    final firstImage = widget.property.propertyImage?.isNotEmpty ?? false
+        ? widget.property.propertyImage!.first
+        : null;
+    final imageUrl = firstImage != null
+        ? "${Constantes.URL_IMAGES}${firstImage.path ?? firstImage.path}"
+        : null;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -520,8 +573,9 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                "${Constantes.URL_IMAGES}${widget.property.images?.first.path ?? ''}",
+              child: imageUrl != null
+                  ? Image.network(
+                imageUrl,
                 width: 80,
                 height: 80,
                 fit: BoxFit.cover,
@@ -529,6 +583,10 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                   color: Colors.grey[100],
                   child: Icon(Icons.home_rounded, color: Colors.grey[400], size: 30),
                 ),
+              )
+                  : Container(
+                color: Colors.grey[100],
+                child: Icon(Icons.home_rounded, color: Colors.grey[400], size: 30),
               ),
             ),
           ),
@@ -538,7 +596,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.property.title ?? "",
+                  widget.property.title ?? "Sans titre",
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 16,
@@ -622,9 +680,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    widget.property.transactionType == "location"
-                        ? '${widget.property.price?.toInt() ?? 0}\$ / mois'
-                        : '${widget.property.price?.toInt() ?? 0}\$',
+                    _getPriceText(),
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       color: _primaryColor,
@@ -638,6 +694,13 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         ],
       ),
     );
+  }
+
+  String _getPriceText() {
+    final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
+    final price = widget.property.price?.toInt() ?? 0;
+
+    return isForRent ? '${price}\$ / mois' : '${price}\$';
   }
 
   void _showAddressVerification() {
@@ -830,6 +893,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       },
     );
   }
+
   void _navigateToContactPage() {
     // Navigation vers la page de contact/rendez-vous
     // Navigator.push(context, MaterialPageRoute(builder: (context) => ContactPage()));

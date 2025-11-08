@@ -1,6 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:casa/controllers/PropertyVisitCtrl.dart';
-import 'package:casa/models/PropertyVisitModel.dart';
+import 'package:casa/models/ReservationModel.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
@@ -12,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../controllers/ReservationController.dart';
 import '../utils/networkCheck.dart';
 
 class BookingHistoryPage extends StatefulWidget {
@@ -48,9 +48,9 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    print("aliceeeeeeeeeeee");
-    _loadVisits();
+    _loadReservations();
   }
+
   Widget _buildShimmerEffect() {
     return ListView.separated(
       padding: EdgeInsets.all(20),
@@ -72,21 +72,17 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  Future<void> _loadVisits() async {
+  Future<void> _loadReservations() async {
     try {
       if (!mounted) return;
 
       setState(() => _isLoadingData = true);
 
-      final userId = storage.read(StockageKeys.userKey)?['UserId'];
-      if (userId != null) {
-        final propertyCtrl = Provider.of<PropertyVisitCtrl>(context, listen: false);
-        await propertyCtrl.getVisitsByUser(userId.toString());
-        print("Visites chargées: ${propertyCtrl.propertyVisits.length}"); // Debug
-      }
+      final reservationCtrl = Provider.of<ReservationController>(context, listen: false);
+      await reservationCtrl.getAllReservations();
+      print("Réservations chargées: ${reservationCtrl.reservations.length}");
     } catch (e) {
-      print("Erreur lors du c hargement des visites: $e");
-      // Vous pourriez aussi afficher un message d'erreur à l'utilisateur
+      print("Erreur lors du chargement des réservations: $e");
     } finally {
       if (mounted) {
         setState(() => _isLoadingData = false);
@@ -103,23 +99,30 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
   @override
   Widget build(BuildContext context) {
-    final propertyCtrl = Provider.of<PropertyVisitCtrl>(context);
+    final reservationCtrl = Provider.of<ReservationController>(context);
 
     return Scaffold(
       backgroundColor: _lightGrey,
-      appBar: _buildVisitesAppBar(),
-      body: TabBarView(
-        controller: _tabController,
+      appBar: _buildReservationsAppBar(),
+      body: Column(
         children: [
-          _buildVisitList(_filterVisits(propertyCtrl.propertyVisits, 'pending')),
-          _buildVisitList(_filterVisits(propertyCtrl.propertyVisits, 'validated')),
-          _buildVisitList(_filterVisits(propertyCtrl.propertyVisits, 'cancelled')),
+          _buildTabBar(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildReservationList(_filterReservations(reservationCtrl.reservations, 'PENDING')),
+                _buildReservationList(_filterReservations(reservationCtrl.reservations, 'CONFIRMED')),
+                _buildReservationList(_filterReservations(reservationCtrl.reservations, 'CANCELLED')),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  PreferredSizeWidget _buildVisitesAppBar() {
+  PreferredSizeWidget _buildReservationsAppBar() {
     return AppBar(
       elevation: 0,
       flexibleSpace: Container(
@@ -138,10 +141,10 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       title: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.calendar_month, color: Colors.white, size: 20),
+          Icon(Icons.book_online, color: Colors.white, size: 20),
           SizedBox(width: 8),
           Text(
-            'Mes visites',
+            'Mes réservations',
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w600,
@@ -153,13 +156,10 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       ),
       actions: [
         IconButton(
-          icon: Icon(Icons.search_rounded, color: Colors.white),
-          onPressed: () {
-            // Action de recherche
-          },
+          icon: Icon(Icons.refresh, color: Colors.white),
+          onPressed: _loadReservations,
         ),
       ],
-
       bottom: PreferredSize(
         preferredSize: Size.fromHeight(1),
         child: Container(
@@ -170,8 +170,44 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  List<PropertyVisitModel> _filterVisits(List<PropertyVisitModel> visits, String status) {
-    return visits.where((visit) => visit.status == status).toList();
+  Widget _buildTabBar() {
+    return Container(
+      color: Colors.white,
+      child: TabBar(
+        controller: _tabController,
+        labelColor: _primaryColor,
+        unselectedLabelColor: _mediumGrey,
+        indicatorColor: _primaryColor,
+        indicatorWeight: 3,
+        indicatorSize: TabBarIndicatorSize.tab,
+        labelStyle: TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+        ),
+        unselectedLabelStyle: TextStyle(
+          fontWeight: FontWeight.w500,
+          fontSize: 13,
+        ),
+        tabs: [
+          Tab(
+            icon: Icon(Icons.pending_actions, size: 20),
+            text: 'En attente',
+          ),
+          Tab(
+            icon: Icon(Icons.check_circle_outline, size: 20),
+            text: 'Confirmées',
+          ),
+          Tab(
+            icon: Icon(Icons.cancel_outlined, size: 20),
+            text: 'Annulées',
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<ReservationModel> _filterReservations(List<ReservationModel> reservations, String status) {
+    return reservations.where((reservation) => reservation.status == status).toList();
   }
 
   Widget _buildDetailRow({
@@ -227,18 +263,17 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  Widget _buildVisitDetails(PropertyVisitModel visit) {
-    final isForRent = visit.property.transactionType == 'location';
-    final isPending = visit.status == 'pending';
-    final isCancelled = visit.status == 'cancelled';
+  Widget _buildReservationDetails(ReservationModel reservation) {
+    final isPending = reservation.status == 'PENDING';
+    final isCancelled = reservation.status == 'CANCELLED';
 
-    final firstImagePath = visit.property.images!.isNotEmpty
-        ? visit.property.images!.first.path
+    // Utilisation des images de la propriété
+    final firstImage = reservation.property?.propertyImage?.isNotEmpty ?? false
+        ? reservation.property!.propertyImage!.first
         : null;
-
-    final priceText = isForRent
-        ? '${visit.property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${visit.property.price?.toStringAsFixed(0) ?? '0'}\$';
+    final imageUrl = firstImage != null
+        ? "${Constantes.URL_IMAGES}${firstImage.path ?? firstImage.path}"
+        : null;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.9,
@@ -268,7 +303,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 ),
                 SizedBox(height: 20),
                 Text(
-                  'Détails de la visite',
+                  'Détails de la réservation',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -278,11 +313,13 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 SizedBox(height: 20),
                 GestureDetector(
                   onTap: () {
-                    Navigator.pushNamed(
-                      context,
-                      Routes.detailPageRoute,
-                      arguments: visit.property,
-                    );
+                    if (reservation.property != null) {
+                      Navigator.pushNamed(
+                        context,
+                        Routes.detailPageRoute,
+                        arguments: reservation.property,
+                      );
+                    }
                   },
                   child: Container(
                     height: 180,
@@ -290,11 +327,11 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       borderRadius: BorderRadius.circular(15),
                       color: _lightGrey,
                     ),
-                    child: firstImagePath != null
+                    child: imageUrl != null
                         ? ClipRRect(
                       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                       child: CachedNetworkImage(
-                        imageUrl: "${Constantes.URL_IMAGES}${firstImagePath}",
+                        imageUrl: imageUrl,
                         fit: BoxFit.cover,
                         width: double.infinity,
                         placeholder: (context, url) => Center(
@@ -315,7 +352,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 ),
                 SizedBox(height: 20),
                 Text(
-                  "${visit.property.title}",
+                  "${reservation.property?.title ?? 'Sans titre'}",
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 18,
@@ -328,7 +365,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                     Icon(Icons.location_on_outlined, size: 16, color: _mediumGrey),
                     SizedBox(width: 4),
                     Text(
-                      "${visit.property.address}",
+                      "${reservation.property?.address ?? 'Adresse non disponible'}",
                       style: TextStyle(
                         color: _mediumGrey,
                         fontSize: 14,
@@ -340,38 +377,43 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 Divider(height: 1, color: Colors.grey[200]),
                 SizedBox(height: 15),
                 _buildDetailRow(
-                  icon: Icons.calendar_today_outlined,
-                  label: 'Date',
-                  value: _dateFormat.format(visit.visitDate),
+                  icon: Icons.date_range,
+                  label: 'Date de début',
+                  value: reservation.startDate ?? 'Non spécifiée',
                 ),
                 _buildDetailRow(
-                  icon: Icons.access_time_outlined,
+                  icon: Icons.date_range,
+                  label: 'Date de fin',
+                  value: reservation.endDate ?? 'Non spécifiée',
+                ),
+                _buildDetailRow(
+                  icon: Icons.access_time,
                   label: 'Heure',
-                  value: visit.visitHour,
+                  value: reservation.reservationHeure ?? 'Non spécifiée',
                 ),
                 _buildDetailRow(
-                  icon: Icons.attach_money,
-                  label: 'Prix',
-                  value: '${priceText}',
+                  icon: Icons.message,
+                  label: 'Message',
+                  value: reservation.message ?? 'Aucun message',
                 ),
                 _buildDetailRow(
                   icon: Icons.info_outline_rounded,
                   label: 'Statut',
-                  value: _getStatusText(visit.status),
-                  valueColor: _getStatusColor(visit.status),
+                  value: _getStatusText(reservation.status),
+                  valueColor: _getStatusColor(reservation.status),
                 ),
-                if (isCancelled && visit.cancellationReason != null)
+                if (isCancelled && reservation.cancellationReason != null)
                   _buildDetailRow(
                     icon: Icons.cancel_outlined,
                     label: 'Motif d\'annulation',
-                    value: visit.cancellationReason!,
+                    value: reservation.cancellationReason!,
                     valueColor: _errorColor,
                   ),
                 SizedBox(height: 15),
                 Divider(height: 1, color: Colors.grey[200]),
                 SizedBox(height: 15),
                 Text(
-                  'Caractéristiques',
+                  'Caractéristiques de la propriété',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -380,7 +422,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 ),
                 SizedBox(height: 10),
                 Text(
-                  '${visit.property.bedrooms} chambres · ${visit.property.surface}m² · ${visit.property.floor}ème étage',
+                  '${reservation.property?.bedrooms ?? 0} chambres · ${reservation.property?.surface ?? 0}m² · ${reservation.property?.floor ?? 0}ème étage',
                   style: TextStyle(
                     color: _darkColor.withOpacity(0.8),
                     fontSize: 15,
@@ -393,7 +435,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                     child: ElevatedButton(
                       onPressed: () {
                         Navigator.pop(context);
-                        _showCancelConfirmationDialog(visit);
+                        _showCancelConfirmationDialog(reservation);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _errorColor.withOpacity(0.1),
@@ -405,7 +447,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                         padding: EdgeInsets.symmetric(vertical: 16),
                       ),
                       child: Text(
-                        'ANNULER LA VISITE',
+                        'ANNULER LA RÉSERVATION',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
@@ -422,39 +464,34 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-
-  Color _getStatusColor(String status) {
+  Color _getStatusColor(String? status) {
     switch (status) {
-      case 'pending':
+      case 'PENDING':
         return _warningColor;
-      case 'validated':
+      case 'CONFIRMED':
         return _successColor;
-      case 'cancelled':
+      case 'CANCELLED':
         return _errorColor;
       default:
         return _mediumGrey;
     }
   }
 
-  String _getStatusText(String status) {
+  String _getStatusText(String? status) {
     switch (status) {
-      case 'pending':
+      case 'PENDING':
         return 'En attente';
-      case 'validated':
-        return 'Déjà visité';
-      case 'cancelled':
+      case 'CONFIRMED':
+        return 'Confirmée';
+      case 'CANCELLED':
         return 'Annulée';
       default:
-        return status;
+        return status ?? 'Inconnu';
     }
   }
 
-  Future<void> _cancelVisit(PropertyVisitModel visit, String reason) async {
+  Future<void> _cancelReservation(ReservationModel reservation, String reason) async {
     if (!mounted || _isLoading) return;
-
-    // Supprimez immédiatement la visite de la liste avant l'animation
-    final propertyCtrl = Provider.of<PropertyVisitCtrl>(context, listen: false);
-    propertyCtrl.removeVisit(visit.propertyVisitId.toString());
 
     setState(() {
       _isLoading = true;
@@ -467,44 +504,34 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     if (!isConnected) {
       FancyNotification.show(context, "Pas de connexion internet");
       setState(() => _isLoading = false);
-      // Remettre la visite si échec
-      propertyCtrl.addVisit(visit);
       return;
     }
 
     try {
-      final requestData = {
-        'status': 'cancelled',
-        'cancellation_reason': reason,
-      };
-
-      final response = await propertyCtrl.changeVisitStatus(
-        visitId: visit.propertyVisitId.toString(),
-        requestData: requestData,
+      final reservationCtrl = Provider.of<ReservationController>(context, listen: false);
+      final response = await reservationCtrl.cancelReservation(
+        reservation.reservationId!,
+        reason,
       );
 
       if (!mounted) return;
 
-      if (response.status == 200 && response.data['success'] == true) {
-        FancyNotification.show(context, "Visite annulée avec succès", isError: false);
+      if (response == 200) {
+        FancyNotification.show(context, "Réservation annulée avec succès", isError: false);
 
         // Recharger les données
-        await _loadVisits();
+        await _loadReservations();
 
         if (mounted) {
           Navigator.of(context).pop(); // Fermer le bottom sheet des détails
         }
       } else {
-        String errorMsg = response.data['message'] ?? "Échec de l'annulation";
+        String errorMsg = response.errorMsg ?? "Échec de l'annulation";
         FancyNotification.show(context, errorMsg);
-        // Remettre la visite si échec
-        propertyCtrl.addVisit(visit);
       }
     } catch (e) {
       print("Erreur d'annulation: $e");
       FancyNotification.show(context, "Erreur technique lors de l'annulation");
-      // Remettre la visite si erreur
-      propertyCtrl.addVisit(visit);
     } finally {
       if (mounted) {
         setState(() {
@@ -515,17 +542,16 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     }
   }
 
-
-  void _showVisitDetails(PropertyVisitModel visit) {
+  void _showReservationDetails(ReservationModel reservation) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _buildVisitDetails(visit),
+      builder: (context) => _buildReservationDetails(reservation),
     );
   }
 
-  Widget _buildVisitList(List<PropertyVisitModel> visits) {
+  Widget _buildReservationList(List<ReservationModel> reservations) {
     return AnimatedSwitcher(
       duration: Duration(milliseconds: 300),
       transitionBuilder: (Widget child, Animation<double> animation) {
@@ -539,9 +565,9 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       },
       child: _isLoadingData
           ? _buildShimmerEffect()
-          : visits.isEmpty
+          : reservations.isEmpty
           ? _buildEmptyState()
-          : _buildVisitListContent(visits),
+          : _buildReservationListContent(reservations),
     );
   }
 
@@ -551,13 +577,13 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            Icons.calendar_today_outlined,
+            Icons.book_online_outlined,
             size: 60,
             color: _mediumGrey.withOpacity(0.3),
           ),
           SizedBox(height: 20),
           Text(
-            'Aucune visite',
+            'Aucune réservation',
             style: TextStyle(
               color: _mediumGrey,
               fontSize: 18,
@@ -569,10 +595,10 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
             padding: EdgeInsets.symmetric(horizontal: 40),
             child: Text(
               _tabController.index == 0
-                  ? 'Vous n\'avez pas de visite à venir'
+                  ? 'Vous n\'avez pas de réservation en attente'
                   : _tabController.index == 1
-                  ? 'Aucune visite passée'
-                  : 'Aucune visite annulée',
+                  ? 'Aucune réservation confirmée'
+                  : 'Aucune réservation annulée',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: _mediumGrey.withOpacity(0.8),
@@ -585,28 +611,27 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  Widget _buildVisitListContent(List<PropertyVisitModel> visits) {
+  Widget _buildReservationListContent(List<ReservationModel> reservations) {
     return RefreshIndicator(
       color: _primaryColor,
       backgroundColor: Colors.white,
-      onRefresh: _loadVisits,
+      onRefresh: _loadReservations,
       child: ListView.separated(
         padding: EdgeInsets.all(20),
-        itemCount: visits.length,
+        itemCount: reservations.length,
         separatorBuilder: (_, __) => SizedBox(height: 20),
         itemBuilder: (context, index) {
-          final visit = visits[index];
+          final reservation = reservations[index];
           return AnimatedSwitcher(
             duration: Duration(milliseconds: 300),
-            child: _buildVisitCard(visit),
+            child: _buildReservationCard(reservation),
           );
         },
       ),
     );
   }
 
-  void _showCancelConfirmationDialog(PropertyVisitModel visit) {
-    // Créez un nouveau TextEditingController local pour ce dialogue
+  void _showCancelConfirmationDialog(ReservationModel reservation) {
     final reasonController = TextEditingController();
 
     showDialog(
@@ -622,7 +647,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Annuler la visite',
+                  'Annuler la réservation',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -639,7 +664,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 ),
                 SizedBox(height: 15),
                 TextField(
-                  controller: reasonController, // Utilisez le contrôleur local
+                  controller: reasonController,
                   decoration: InputDecoration(
                     hintText: 'Motif de l\'annulation...',
                     border: OutlineInputBorder(
@@ -660,7 +685,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   children: [
                     TextButton(
                       onPressed: () {
-                        reasonController.dispose(); // Nettoyez le contrôleur
+                        reasonController.dispose();
                         Navigator.pop(context);
                       },
                       style: TextButton.styleFrom(
@@ -680,8 +705,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       onPressed: () async {
                         if (reasonController.text.trim().isNotEmpty) {
                           Navigator.pop(context);
-                          await _cancelVisit(visit,reasonController.text);
-                          reasonController.dispose(); // Nettoyez le contrôleur
+                          await _cancelReservation(reservation, reasonController.text);
+                          reasonController.dispose();
                         } else {
                           FancyNotification.show(context, "Veuillez indiquer un motif d\'annulation");
                         }
@@ -712,24 +737,21 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  Widget _buildVisitCard(PropertyVisitModel visit) {
-    final isPending = visit.status == 'pending';
-    final isCancelled = visit.status == 'cancelled';
-    final isForRent = visit.property.transactionType == 'location';
-    // Récupération de la première image de la propriété
-    final firstImagePath = visit.property.images!.isNotEmpty
-        ? visit.property.images!.first.path
+  Widget _buildReservationCard(ReservationModel reservation) {
+    final isPending = reservation.status == 'PENDING';
+    final isCancelled = reservation.status == 'CANCELLED';
+
+    // Utilisation des images de la propriété
+    final firstImage = reservation.property?.propertyImage?.isNotEmpty ?? false
+        ? reservation.property!.propertyImage!.first
         : null;
-
-    final priceText = isForRent
-        ? '${visit.property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${visit.property.price?.toStringAsFixed(0) ?? '0'}\$';
-
-
+    final imageUrl = firstImage != null
+        ? "${Constantes.URL_IMAGES}${firstImage.path ?? firstImage.path}"
+        : null;
 
     return InkWell(
       borderRadius: BorderRadius.circular(20),
-      onTap: () => _showVisitDetails(visit),
+      onTap: () => _showReservationDetails(reservation),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
@@ -748,18 +770,17 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
           children: [
             Stack(
               children: [
-                // Conteneur d'image avec CachedNetworkImage
                 Container(
                   height: 180,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                     color: _lightGrey,
                   ),
-                  child: firstImagePath != null
+                  child: imageUrl != null
                       ? ClipRRect(
                     borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                     child: CachedNetworkImage(
-                      imageUrl: "${Constantes.URL_IMAGES}${firstImagePath}",
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
                       width: double.infinity,
                       placeholder: (context, url) => Center(
@@ -778,42 +799,16 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   ),
                 ),
                 Positioned(
-                  top: 15,
-                  right: 15,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
-                          offset: Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: Text(
-                      '${priceText}',
-                      style: TextStyle(
-                        color: _primaryColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
                   bottom: 15,
                   left: 15,
                   child: Container(
                     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: _getStatusColor(visit.status).withOpacity(0.9),
+                      color: _getStatusColor(reservation.status).withOpacity(0.9),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      _getStatusText(visit.status),
+                      _getStatusText(reservation.status),
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -830,7 +825,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "${visit.property.title}",
+                    "${reservation.property?.title ?? 'Sans titre'}",
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 18,
@@ -850,7 +845,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       SizedBox(width: 5),
                       Expanded(
                         child: Text(
-                         "${visit.property.address}",
+                          "${reservation.property?.address ?? 'Adresse non disponible'}",
                           style: TextStyle(
                             color: _mediumGrey,
                             fontSize: 14,
@@ -865,28 +860,26 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   Row(
                     children: [
                       Icon(
-                        Icons.calendar_today_outlined,
+                        Icons.date_range,
                         size: 18,
                         color: _mediumGrey,
                       ),
                       SizedBox(width: 8),
-                      Text(
-                        _dateFormat.format(visit.visitDate),
-                        style: TextStyle(
-                          color: _darkColor,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                      Expanded(
+                        child: Text(
+                          '${reservation.startDate ?? 'N/A'} - ${reservation.endDate ?? 'N/A'}',
+                          style: TextStyle(
+                            color: _darkColor,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                      Spacer(),
                       if (isPending)
                         InkWell(
                           onTap: () {
-                            print("TESTTTTTTTT${Constantes.URL_IMAGES}${firstImagePath}");
-                            _showCancelConfirmationDialog(visit);
+                            _showCancelConfirmationDialog(reservation);
                           },
-
-
                           borderRadius: BorderRadius.circular(8),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -898,9 +891,18 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  Icons.delete_outline,
+                                  Icons.cancel_outlined,
                                   size: 20,
                                   color: _errorColor,
+                                ),
+                                SizedBox(width: 5),
+                                Text(
+                                  'Annuler',
+                                  style: TextStyle(
+                                    color: _errorColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ],
                             ),
