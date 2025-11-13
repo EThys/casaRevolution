@@ -122,6 +122,7 @@ class AuthentificationCtrl with ChangeNotifier {
         String? newToken = response.data['token'];
         String? refreshToken = response.data['refresh_token'];
         var userJson = response.data['user'];
+        var profileJson = response.data['profile']; // Récupérer le profile
 
         // Vérification des données requises
         if (newToken != null && userJson != null) {
@@ -130,12 +131,12 @@ class AuthentificationCtrl with ChangeNotifier {
             print("Refresh token reçu: ${refreshToken.substring(0, 20)}...");
           }
           print("Données utilisateur reçues");
+          print("Données profile reçues: $profileJson");
 
           // Stockage sécurisé des données
-          await _storeAuthData(newToken, refreshToken, userJson);
+          await _storeAuthData(newToken, refreshToken, userJson, profileJson);
 
-          print("✅ Connexion et stockage réussis pour: ${userJson['email']}");
-          print("✅ Connexion et stockage réussis pour: $_storeAuthData");
+          print("✅ Connexion et stockage réussis");
         } else {
           print("❌ Token ou utilisateur manquant dans la réponse");
           throw Exception("Données d'authentification incomplètes");
@@ -166,6 +167,53 @@ class AuthentificationCtrl with ChangeNotifier {
     }
   }
 
+// Méthode pour stocker les données d'authentification
+  Future<void> _storeAuthData(String token, String? refreshToken, Map<String, dynamic> userJson, Map<String, dynamic>? profileJson) async {
+    try {
+      print("💾 Début du stockage des données d'authentification...");
+
+      // Stockage des tokens
+      await stockage?.write(StockageKeys.tokenKey, token);
+      print("✅ Token stocké");
+
+      if (refreshToken != null) {
+        await stockage?.write(StockageKeys.refreshTokenKey, refreshToken);
+        print("✅ Refresh token stocké");
+      }
+
+      // Conversion et stockage de l'utilisateur
+      UserModel user = UserModel.fromJson(userJson);
+      await stockage?.write(StockageKeys.userKey, user.toJson());
+      print("✅ Données utilisateur stockées");
+
+      // Stockage du profile si disponible
+      if (profileJson != null) {
+        await stockage?.write(StockageKeys.profileKey, profileJson);
+        print("✅ Données profile stockées");
+
+        // Afficher les infos du profile pour debug
+        print("📋 Profile stocké - Prénom: ${profileJson['firstname']}, Nom: ${profileJson['lastname']}");
+      } else {
+        print("⚠️ Aucun profile reçu dans la réponse");
+      }
+
+      // Mise à jour des propriétés en mémoire
+      _token = token;
+      _user = user;
+
+      print("📊 Données stockées - User ID: ${user.userId}, Email: ${user.email}");
+      print("🎫 Token en mémoire: ${_token.substring(0, 20)}...");
+
+    } catch (e) {
+      print("❌ Erreur lors du stockage des données: $e");
+      // Nettoyage en cas d'erreur
+      await _cleanupStorage();
+      throw Exception("Erreur de stockage des données: $e");
+    }
+  }
+
+// Ajouter cette clé dans StockageKeys.dart
+// static const String profileKey = 'profile';
 
   Future<HttpResponse> register(Map<String, dynamic> userData, {required String url}) async {
     try {
@@ -229,41 +277,6 @@ class AuthentificationCtrl with ChangeNotifier {
   }
 
 
-
-  // Méthode pour stocker les données d'authentification
-  Future<void> _storeAuthData(String token, String? refreshToken, Map<String, dynamic> userJson) async {
-    try {
-      print("💾 Début du stockage des données d'authentification...");
-
-      // Stockage des tokens
-      await stockage?.write(StockageKeys.tokenKey, token);
-      print("✅ Token stocké");
-
-      if (refreshToken != null) {
-        await stockage?.write(StockageKeys.refreshTokenKey, refreshToken);
-        print("✅ Refresh token stocké");
-      }
-
-      // Conversion et stockage de l'utilisateur
-      UserModel user = UserModel.fromJson(userJson);
-      await stockage?.write(StockageKeys.userKey, user.toJson());
-      print("✅ Données utilisateur stockées");
-
-      // Mise à jour des propriétés en mémoire
-      _token = token;
-      _user = user;
-
-      print("📊 Données stockées - User ID: ${user.userId}, Email: ${user.email}");
-      print("🎫 Token en mémoire: ${_token.substring(0, 20)}...");
-
-    } catch (e) {
-      print("❌ Erreur lors du stockage des données: $e");
-      // Nettoyage en cas d'erreur
-      await _cleanupStorage();
-      throw Exception("Erreur de stockage des données: $e");
-    }
-  }
-
   // Nettoyage du stockage en cas d'erreur
   Future<void> _cleanupStorage() async {
     try {
@@ -322,7 +335,6 @@ class AuthentificationCtrl with ChangeNotifier {
     }
   }
 
-  // Nettoyage des données d'authentification locales
   Future<void> _clearLocalAuthData() async {
     try {
       _token = "";
@@ -333,6 +345,7 @@ class AuthentificationCtrl with ChangeNotifier {
       await stockage?.remove(StockageKeys.refreshTokenKey);
       await stockage?.remove(StockageKeys.userKey);
       await stockage?.remove(StockageKeys.userPreferenceKey);
+      await stockage?.remove(StockageKeys.profileKey);
 
       print("✅ Données d'authentification locales supprimées");
     } catch (e) {
