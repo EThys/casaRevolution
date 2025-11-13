@@ -1,13 +1,14 @@
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/screens/HomePage.dart';
 import 'package:casa/screens/termsAndPrivacy/TermsAndPrivacyPage.dart';
-import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+
+import '../../utils/FancyNotification.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -30,6 +31,37 @@ class _LoginScreenState extends State<LoginScreen> {
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
   bool _acceptConditions = false;
 
+  // États pour la gestion de la validation
+  bool _emailTouched = false;
+  bool _passwordTouched = false;
+
+  // États pour le sélecteur de pays
+  String _selectedCountryCode = '+243'; // RDC par défaut
+  bool _isPhoneInput = false;
+  final FocusNode _emailFocusNode = FocusNode();
+  final FocusNode _passwordFocusNode = FocusNode();
+
+  // Dictionnaire des indicatifs avec drapeaux
+  final Map<String, String> _countryFlags = {
+    '+243': '🇨🇩', // RDC
+    '+33': '🇫🇷', // France
+    '+1': '🇺🇸', // USA
+    '+44': '🇬🇧', // UK
+    '+49': '🇩🇪', // Allemagne
+    '+34': '🇪🇸', // Espagne
+    '+39': '🇮🇹', // Italie
+    '+32': '🇧🇪', // Belgique
+    '+41': '🇨🇭', // Suisse
+    '+212': '🇲🇦', // Maroc
+    '+225': '🇨🇮', // Côte d'Ivoire
+    '+221': '🇸🇳', // Sénégal
+    '+229': '🇧🇯', // Bénin
+    '+226': '🇧🇫', // Burkina Faso
+    '+228': '🇹🇬', // Togo
+    '+237': '🇨🇲', // Cameroun
+    '+242': '🇨🇬', // Congo
+  };
+
   @override
   void initState() {
     super.initState();
@@ -37,19 +69,56 @@ class _LoginScreenState extends State<LoginScreen> {
     // Ajouter des listeners pour tous les contrôleurs
     _emailController.addListener(_updateButtonState);
     _passwordController.addListener(_updateButtonState);
+
+    // Listeners pour les focus nodes
+    _emailFocusNode.addListener(_onEmailFocusChange);
+    _passwordFocusNode.addListener(_onPasswordFocusChange);
   }
 
-// Nouvelle méthode pour mettre à jour l'état du bouton
+  void _onEmailFocusChange() {
+    if (!_emailFocusNode.hasFocus && _emailController.text.isNotEmpty) {
+      setState(() {
+        _emailTouched = true;
+      });
+    }
+  }
+
+  void _onPasswordFocusChange() {
+    if (!_passwordFocusNode.hasFocus && _passwordController.text.isNotEmpty) {
+      setState(() {
+        _passwordTouched = true;
+      });
+    }
+  }
+
+  // Nouvelle méthode pour mettre à jour l'état du bouton
   void _updateButtonState() {
     if (mounted) {
-      setState(() {});
+      setState(() {
+        // Détecter si l'utilisateur saisit un numéro de téléphone
+        final text = _emailController.text.trim();
+        _isPhoneInput = _looksLikePhoneNumber(text);
+      });
     }
+  }
+  bool _looksLikePhoneNumber(String text) {
+    if (text.isEmpty) return false;
+
+    // Si commence par un + ou un chiffre, ou ne contient pas @ et a des chiffres
+    final hasDigits = RegExp(r'\d').hasMatch(text);
+    final hasAtSymbol = text.contains('@');
+    final startsWithPlus = text.startsWith('+');
+    final startsWithDigit = text.isNotEmpty && RegExp(r'^\d').hasMatch(text);
+
+    return hasDigits && !hasAtSymbol && (startsWithPlus || startsWithDigit || text.length >= 8);
   }
 
   @override
   void dispose() {
     _emailController.removeListener(_updateButtonState);
     _passwordController.removeListener(_updateButtonState);
+    _emailFocusNode.dispose();
+    _passwordFocusNode.dispose();
     super.dispose();
   }
 
@@ -174,27 +243,18 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               child: Stack(
                 children: [
-                  Icon(Icons.home_rounded, size: 40, color: Colors.white),
-                  Positioned(
-                    top: 4,
-                    left: 4,
-                    child: Icon(Icons.home_rounded, size: 40, color: Colors.white.withOpacity(0.3)),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      image: DecorationImage(
+                        image: AssetImage('assets/images/icon.png'),
+                        fit: BoxFit.contain,
+                      ),
+                    ),
                   ),
                 ],
-              ),
-            ),
-            // Badge premium
-            Positioned(
-              top: -2,
-              right: -2,
-              child: Container(
-                padding: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.amber,
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-                child: Icon(Icons.star, size: 12, color: Colors.white),
               ),
             ),
           ],
@@ -202,9 +262,7 @@ class _LoginScreenState extends State<LoginScreen> {
             .scale(delay: 500.ms, duration: 800.ms, curve: Curves.elasticOut)
             .shake(delay: 1500.ms, duration: 1000.ms),
 
-        SizedBox(width: 16),
-
-        // Texte avec séparateur
+        SizedBox(width: 8),
         Container(
           height: 40,
           width: 1,
@@ -224,7 +282,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   end: Alignment.centerRight,
                 ).createShader(bounds),
                 child: Text(
-                  'Casa',
+                  'CasaNayo',
                   style: TextStyle(
                     fontSize: 30,
                     fontWeight: FontWeight.bold,
@@ -315,6 +373,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildAuthForm() {
     return Form(
       key: _formKey,
+      autovalidateMode: _autoValidateMode,
       child: Column(
         children: [
           _buildEmailField(),
@@ -339,12 +398,15 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       child: TextFormField(
         controller: _emailController,
-        autovalidateMode: AutovalidateMode.onUserInteraction,
+        focusNode: _emailFocusNode,
+        autovalidateMode: AutovalidateMode.disabled, // Désactivé car on gère manuellement
         style: TextStyle(color: textColor, fontSize: 16),
         decoration: InputDecoration(
           labelText: 'Email ou Téléphone',
           labelStyle: TextStyle(color: secondaryTextColor),
-          prefixIcon: Container(
+          prefixIcon: _isPhoneInput && _emailController.text.isNotEmpty
+              ? _buildCountryCodeDropdown()
+              : Container(
             padding: EdgeInsets.all(12),
             child: Icon(Icons.email_rounded, color: primaryColor),
           ),
@@ -366,18 +428,64 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           filled: true,
           fillColor: lightBlue.withOpacity(0.3),
-          hintText: 'exemple@email.com ou 0854434000',
+          hintText: 'exemple@email.com ou 810000000',
           hintStyle: TextStyle(color: Colors.grey.shade500),
+          errorText: _emailTouched ? _validateEmail(_emailController.text) : null,
         ),
-        keyboardType: TextInputType.emailAddress,
-        onChanged: (_) => _forceRevalidation(),
-        validator: _validateEmail,
+        keyboardType: _isPhoneInput ? TextInputType.phone : TextInputType.emailAddress,
+        onChanged: (_) {
+          _updateButtonState();
+          if (_emailTouched) {
+            _forceRevalidation();
+          }
+        },
+        onEditingComplete: () {
+          setState(() {
+            _emailTouched = true;
+          });
+        },
+        validator: null, // Désactivé car on utilise errorText
       ),
     ).animate().slideX(
       begin: -0.3,
       duration: 500.ms,
       delay: 1300.ms,
       curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildCountryCodeDropdown() {
+    return Container(
+      width: 120,
+      padding: EdgeInsets.only(left: 8, right: 4),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedCountryCode,
+          isExpanded: true,
+          icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor, size: 20),
+          style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500),
+          items: _countryFlags.entries.map((entry) {
+            return DropdownMenuItem(
+              value: entry.key,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(entry.value, style: TextStyle(fontSize: 16)),
+                  SizedBox(width: 6),
+                  Text(entry.key, style: TextStyle(fontSize: 13)),
+                ],
+              ),
+            );
+          }).toList(),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              setState(() {
+                _selectedCountryCode = newValue;
+              });
+            }
+          },
+        ),
+      ),
     );
   }
 
@@ -395,10 +503,20 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       child: TextFormField(
         controller: _passwordController,
+        focusNode: _passwordFocusNode,
         style: TextStyle(color: textColor, fontSize: 16),
         obscureText: !_showPassword,
-        autovalidateMode: AutovalidateMode.onUserInteraction,
-        onChanged: (_) => _forceRevalidation(),
+        autovalidateMode: AutovalidateMode.disabled, // Désactivé car on gère manuellement
+        onChanged: (_) {
+          if (_passwordTouched) {
+            _forceRevalidation();
+          }
+        },
+        onEditingComplete: () {
+          setState(() {
+            _passwordTouched = true;
+          });
+        },
         decoration: InputDecoration(
           labelText: 'Mot de passe',
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -434,8 +552,9 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           filled: true,
           fillColor: lightBlue.withOpacity(0.3),
+          errorText: _passwordTouched ? _validatePassword(_passwordController.text) : null,
         ),
-        validator: _validatePassword,
+        validator: null, // Désactivé car on utilise errorText
       ),
     ).animate().slideX(
       begin: 0.3,
@@ -447,10 +566,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _buildAuthButton() {
     // Vérifier si tous les champs sont valides et les conditions acceptées
-    final isFormValid = _formKey.currentState?.validate() ?? false;
+    final isEmailValid = _validateEmail(_emailController.text) == null;
+    final isPasswordValid = _validatePassword(_passwordController.text) == null;
     final hasRequiredFields = _emailController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty;
-    final isButtonEnabled = isFormValid && hasRequiredFields && _acceptConditions && !_isLoading;
+    final isButtonEnabled = isEmailValid && isPasswordValid && hasRequiredFields && _acceptConditions && !_isLoading;
 
     return Container(
       width: double.infinity,
@@ -550,11 +670,13 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            'Nouveau sur Casa ? ',
-            style: TextStyle(
-              color: secondaryTextColor,
-              fontSize: 14,
+          Flexible(
+            child: Text(
+              'Nouveau sur CasaNayo ? ',
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontSize: 13,
+              ),
             ),
           ),
           MouseRegion(
@@ -670,7 +792,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               },
                           ),
                           TextSpan(
-                            text: ' de Casa',
+                            text: ' de CasaNayo',
                             style: TextStyle(
                               color: secondaryTextColor,
                               fontSize: 14,
@@ -780,11 +902,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _forceRevalidation() {
-    if (_formKey.currentState != null) {
-      _formKey.currentState!.validate();
+    if (mounted) {
+      setState(() {});
     }
   }
-
 
   String? _validateEmail(String? value) {
     if (value == null || value.isEmpty) {
@@ -792,12 +913,37 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-    final phoneRegex = RegExp(r'^(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}$');
-    final cleanedValue = value.replaceAll(RegExp(r'\s+'), '');
+    final phoneRegex = RegExp(r'^[\d\s\-\+\(\)]{8,}$');
 
-    if (!emailRegex.hasMatch(value) && !phoneRegex.hasMatch(cleanedValue)) {
-      return 'Email ou téléphone invalide';
+    // Nettoyer le numéro de téléphone pour la validation
+    final cleanedValue = value.replaceAll(RegExp(r'[\s\-\+\(\)]'), '');
+    final isPhone = _looksLikePhoneNumber(value);
+
+    if (isPhone) {
+      // Validation spécifique selon le pays sélectionné
+      if (_selectedCountryCode == '+243') {
+        // Validation pour la RDC
+        if (cleanedValue.length != 9) {
+          return 'Le numéro RDC doit avoir 9 chiffres';
+        }
+        if (!RegExp(r'^[89]').hasMatch(cleanedValue)) {
+          return 'Le numéro RDC doit commencer par 8 ou 9';
+        }
+      } else {
+        // Validation générale pour les autres pays
+        if (cleanedValue.length < 8) {
+          return 'Numéro de téléphone trop court';
+        }
+        if (!RegExp(r'^\d+$').hasMatch(cleanedValue)) {
+          return 'Numéro de téléphone invalide';
+        }
+      }
+    } else {
+      if (!emailRegex.hasMatch(value)) {
+        return 'Email invalide';
+      }
     }
+
     return null;
   }
 
@@ -817,29 +963,38 @@ class _LoginScreenState extends State<LoginScreen> {
       'Invalid credentials': 'Identifiants incorrects',
       'User not found': 'Utilisateur non trouvé',
       'Account locked': 'Compte verrouillé',
+      'Invalid phone number': 'Numéro de téléphone invalide',
+      'Invalid email': 'Email invalide',
+      'User disabled': 'Compte désactivé',
+      'Network error': 'Erreur de connexion',
       // Ajoutez d'autres messages d'erreur ici
     };
 
     return errorTranslations[detailMessage] ?? "Erreur d'authentification";
   }
 
-// Utilisation
-
   Future<void> _handleLogin() async {
+    // Marquer tous les champs comme touchés pour afficher les erreurs
     setState(() {
+      _emailTouched = true;
+      _passwordTouched = true;
       _autoValidateMode = AutovalidateMode.always;
     });
 
     await Future.delayed(Duration(milliseconds: 50));
 
-    if (!(_formKey.currentState?.validate() ?? false)) {
-      FancyNotification.show(context, "Veuillez corriger les erreurs ci-dessus");
+    // Valider les champs
+    final emailError = _validateEmail(_emailController.text);
+    final passwordError = _validatePassword(_passwordController.text);
+
+    if (emailError != null || passwordError != null) {
+      SnackbarForCasa.error(context, "Veuillez corriger les erreurs ci-dessus");
       return;
     }
 
     // VÉRIFICATION DES CONDITIONS AJOUTÉE ICI
     if (!_acceptConditions) {
-      FancyNotification.show(context, "Veuillez accepter les conditions d'utilisation", isError: true);
+      SnackbarForCasa.error(context, "Veuillez accepter les conditions d'utilisation");
       return;
     }
 
@@ -850,14 +1005,32 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final isConnected = await NetworkUtils.checkInternetConnectivity();
     if (!isConnected) {
-      FancyNotification.show(context, "Pas de connexion internet");
+      SnackbarForCasa.error(context, "Pas de connexion internet");
       setState(() => _isLoading = false);
       return;
     }
 
     try {
+      // Préparer l'identifiant en fonction du type (email ou téléphone)
+      String identifiant = _emailController.text.trim();
+
+      // Si c'est un numéro de téléphone, NE PAS AJOUTER L'INDICATIF
+      // Envoyer exactement ce que l'utilisateur a saisi
+      if (_isPhoneInput) {
+        // Nettoyer le numéro (supprimer les espaces, tirets, etc.) - garder seulement les chiffres
+        identifiant = identifiant.replaceAll(RegExp(r'[^\d]'), '');
+
+        if (identifiant.startsWith('0') || identifiant.startsWith('8') || identifiant.startsWith('9')) {
+          identifiant = identifiant; // Garder tel quel
+        }
+        // Si le numéro commence par l'indicatif, le supprimer
+        else if (identifiant.startsWith(_selectedCountryCode.replaceAll('+', ''))) {
+          identifiant = identifiant.substring(_selectedCountryCode.replaceAll('+', '').length);
+        }
+      }
+
       final userData = {
-        "identifiant": _emailController.text.trim(),
+        "identifiant": identifiant, // Envoyer le numéro SANS indicatif
         "password": _passwordController.text.trim(),
       };
 
@@ -869,6 +1042,7 @@ class _LoginScreenState extends State<LoginScreen> {
       bool isSuccess = message.toLowerCase().contains('réussie');
 
       if (isSuccess) {
+        SnackbarForCasa.success(context, "Connexion réussie!");
         await Future.delayed(const Duration(milliseconds: 500));
 
         if (mounted) {
@@ -880,10 +1054,10 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       } else {
         String errorMessage = getErrorMessage(res.data['detailMessage']);
-        FancyNotification.show(context, errorMessage);
+        SnackbarForCasa.error(context, errorMessage);
       }
     } catch (e) {
-      FancyNotification.show(context, "Erreur technique");
+      SnackbarForCasa.error(context, "Erreur technique lors de la connexion");
       print("Login error: $e");
     } finally {
       if (mounted) {
