@@ -102,6 +102,211 @@ class PropertyController with ChangeNotifier {
     print("Synchronisation terminée: ${onlineProperties.length} propriétés en ligne, ${deletedIds.length} supprimées localement");
   }
 
+  Future<void> refreshProperties({bool forceSync = false}) async {
+    syncing = true;
+    notifyListeners();
+
+    try {
+      final url = "${Endpoints.properties}";
+      var response = await getData(url);
+
+      if (response != null && response is Map<String, dynamic>) {
+        dynamic propertiesData;
+
+        if (response.containsKey('properties')) {
+          propertiesData = response['properties'];
+        } else if (response.containsKey('data')) {
+          propertiesData = response['data'];
+        } else {
+          propertiesData = response;
+        }
+
+        if (propertiesData is List && propertiesData.isNotEmpty) {
+          List<PropertyModel> onlineProperties = propertiesData
+              .where((e) => e != null)
+              .map<PropertyModel>((e) {
+            try {
+              return PropertyModel.fromJson(e);
+            } catch (e) {
+              print("Erreur parsing: $e");
+              return PropertyModel();
+            }
+          }).where((property) => property.propertyId != null).toList();
+
+          // Synchronisation intelligente basée sur le contenu
+          await _smartSyncByContent(onlineProperties, forceSync: forceSync);
+        } else {
+          print("Aucune donnée valide en ligne");
+        }
+      }
+    } catch (e) {
+      print("Erreur lors du refresh: $e");
+      _showErrorNotification("Impossible de rafraîchir les données");
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
+  }
+
+  // Synchronisation intelligente basée sur le contenu
+  Future<void> _smartSyncByContent(List<PropertyModel> onlineProperties, {bool forceSync = false}) async {
+    final db = DatabaseHelper.instance;
+    final localProperties = await db.getAllProperties();
+
+    // Calculer les hash pour détecter les changements
+    final bool hasChanges = await _detectChanges(localProperties, onlineProperties);
+
+    if (forceSync || hasChanges) {
+      print("🔄 Changements détectés, synchronisation...");
+      await _performSmartSync(localProperties, onlineProperties);
+
+      // Loguer l'événement
+     // await _logSyncEvent(onlineProperties.length, localProperties.length, true);
+    } else {
+      print("✅ Aucun changement détecté, utilisation du cache");
+      properties = localProperties;
+
+      // Petit délai pour une meilleure UX même sans changement
+      await Future.delayed(Duration(milliseconds: 500));
+
+      //await _logSyncEvent(onlineProperties.length, localProperties.length, false);
+    }
+  }
+
+  // Détection des changements basée sur le contenu
+  Future<bool> _detectChanges(List<PropertyModel> local, List<PropertyModel> online) async {
+    // 1. Vérification rapide du nombre d'éléments
+    if (local.length != online.length) {
+      print("📊 Différence de nombre: local=${local.length}, online=${online.length}");
+      return true;
+    }
+
+    // 2. Vérification des IDs
+    final localIds = local.map((p) => p.propertyId).toSet();
+    final onlineIds = online.map((p) => p.propertyId).toSet();
+
+    final missingInLocal = onlineIds.difference(localIds);
+    final missingInOnline = localIds.difference(onlineIds);
+
+    if (missingInLocal.isNotEmpty || missingInOnline.isNotEmpty) {
+      print("🆔 Différence d'IDs: +${missingInLocal.length}, -${missingInOnline.length}");
+      return true;
+    }
+
+    // 3. Vérification détaillée du contenu pour chaque propriété
+    for (var onlineProp in online) {
+      final localProp = local.firstWhere(
+            (p) => p.propertyId == onlineProp.propertyId,
+        orElse: () => PropertyModel(),
+      );
+
+      if (localProp.propertyId == null) continue;
+
+      // Comparaison des champs critiques
+      if (_hasPropertyChanged(localProp, onlineProp)) {
+        print("📝 Propriété ${onlineProp.propertyId} a changé");
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  // Comparaison détaillée des propriétés
+  bool _hasPropertyChanged(PropertyModel local, PropertyModel online) {
+    // Liste des champs critiques à comparer
+    return
+          local.title != online.title ||
+          local.price != online.price ||
+          local.surface != online.surface ||
+          local.rooms != online.rooms ||
+          local.bedrooms != online.bedrooms ||
+          local.bathroom != online.bathroom ||
+          local.address != online.address ||
+          local.sold != online.sold ||
+          local.transactionType != online.transactionType ||
+          _hasImagesChanged(local, online);
+  }
+
+  // Vérification des changements d'images
+  bool _hasImagesChanged(PropertyModel local, PropertyModel online) {
+    final localImages = local.propertyImage?.length ?? 0;
+    final onlineImages = online.propertyImage?.length ?? 0;
+
+    if (localImages != onlineImages) return true;
+
+    // Comparaison basique des URLs des premières images
+    if (localImages > 0 && onlineImages > 0) {
+      final localFirstImage = local.propertyImage!.first.path ?? '';
+      final onlineFirstImage = online.propertyImage!.first.path ?? '';
+      return localFirstImage != onlineFirstImage;
+    }
+
+    return false;
+  }
+
+  // Synchronisation intelligente
+  Future<void> _performSmartSync(List<PropertyModel> local, List<PropertyModel> online) async {
+    final db = DatabaseHelper.instance;
+
+    // Identifier les propriétés à supprimer (présentes en local mais pas en ligne)
+    final localIds = local.map((p) => p.propertyId).toSet();
+    final onlineIds = online.map((p) => p.propertyId).toSet();
+    final toDelete = localIds.difference(onlineIds);
+
+    // Supprimer les propriétés absentes en ligne
+    for (final id in toDelete) {
+      await db.deleteProperty(id!);
+      print("🗑️ Propriété $id supprimée");
+    }
+
+    // Mettre à jour/insérer les propriétés
+    int updatedCount = 0;
+    int insertedCount = 0;
+
+    for (var onlineProp in online) {
+      final existingProp = local.firstWhere(
+            (p) => p.propertyId == onlineProp.propertyId,
+        orElse: () => PropertyModel(),
+      );
+
+      if (existingProp.propertyId != null) {
+        // Vérifier si la propriété a vraiment changé avant de mettre à jour
+        if (_hasPropertyChanged(existingProp, onlineProp)) {
+          await db.insertOrUpdateProperty(onlineProp);
+          updatedCount++;
+        }
+      } else {
+        // Nouvelle propriété
+        await db.insertOrUpdateProperty(onlineProp);
+        insertedCount++;
+      }
+    }
+
+    // Mettre à jour la liste en mémoire
+    properties = await db.getAllProperties();
+
+    print("🔄 Sync terminée: +$insertedCount nouveau, $updatedCount modifié, ${toDelete.length} supprimé");
+  }
+
+  // Méthode pour forcer une synchronisation complète
+  Future<void> forceFullSync() async {
+    await refreshProperties(forceSync: true);
+  }
+
+  void _logSyncEvent(int onlineCount, int localCount, bool hadChanges) {
+    print("📊 Sync - En ligne: $onlineCount, Local: $localCount, Changements: $hadChanges");
+  }
+
+  void _showErrorNotification(String message) {
+    // Cette méthode sera utilisée par l'UI pour afficher les erreurs
+    print("❌ $message");
+  }
+
+
+
+
+
   Future<List<PropertyModel>> getAllProperty() async {
     loading = true;
     notifyListeners();
