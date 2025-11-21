@@ -1,5 +1,6 @@
 
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/screens/FavoritesPage.dart';
 import 'package:casa/screens/ParrainagePage.dart';
 import 'package:casa/screens/BookingHistoryPage.dart';
 import 'package:casa/screens/BookingVisitPage.dart';
@@ -44,6 +45,8 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>BookingHistoryPage());
       case Routes.ParrainagePageRoute:
         return MaterialPageRoute(builder: (_)=>ParrainagePage());
+      case Routes.favoriteRoute:
+        return MaterialPageRoute(builder: (_)=>FavoritesPage());
       case Routes.createPropertyRoute:
         return MaterialPageRoute(builder: (_)=>CreatePropertyPostPage());
       // case Routes.visitPageRoute:

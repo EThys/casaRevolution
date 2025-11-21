@@ -16,6 +16,8 @@ class Routes {
   static const String CommissionnaireRoute = "commissionnaire";
   static const String LocataireRoute = "locataire";
   static const String BailleurRoute = "bailleur";
+  static const String favoriteRoute = "favorite";
+
 
   static const String createPropertyRoute = "createProperty";
 }

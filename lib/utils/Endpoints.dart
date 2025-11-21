@@ -48,10 +48,10 @@ class Endpoints {
   static const String deletePropertyType = "propertyType/";
 
   // Property favorites Endpoints
-  static const String allFavories = "property-favorites";
-  static const String AddFavorite = "property-favorites";
-  static const String getMyfavorites = "users";
-  static const String removeMyfavorites = "property-favorites/remove";
+  static const String allFavories = "favorite";
+  static const String AddFavorite = "favorite";
+  static const String getMyfavorites = "favorite/user";
+  static const String removeMyfavorites = "favorite/user/delete";
 
   // Visit Endpoints
   static const String allReservations = "reservations/";
