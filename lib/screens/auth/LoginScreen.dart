@@ -43,23 +43,36 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // Dictionnaire des indicatifs avec drapeaux
   final Map<String, String> _countryFlags = {
-    '+243': '🇨🇩', // RDC
-    '+33': '🇫🇷', // France
+    '+243': '🇨🇩', // RDC (toujours en premier)
     '+1': '🇺🇸', // USA
-    '+44': '🇬🇧', // UK
-    '+49': '🇩🇪', // Allemagne
+    '+20': '🇪🇬', // Égypte
+    '+31': '🇳🇱', // Pays-Bas
+    '+32': '🇧🇪', // Belgique
+    '+33': '🇫🇷', // France
     '+34': '🇪🇸', // Espagne
     '+39': '🇮🇹', // Italie
-    '+32': '🇧🇪', // Belgique
     '+41': '🇨🇭', // Suisse
+    '+44': '🇬🇧', // UK
+    '+45': '🇩🇰', // Danemark
+    '+46': '🇸🇪', // Suède
+    '+47': '🇳🇴', // Norvège
+    '+49': '🇩🇪', // Allemagne
     '+212': '🇲🇦', // Maroc
-    '+225': '🇨🇮', // Côte d'Ivoire
+    '+213': '🇩🇿', // Algérie
+    '+216': '🇹🇳', // Tunisie
     '+221': '🇸🇳', // Sénégal
-    '+229': '🇧🇯', // Bénin
+    '+225': '🇨🇮', // Côte d'Ivoire
     '+226': '🇧🇫', // Burkina Faso
-    '+228': '🇹🇬', // Togo
-    '+237': '🇨🇲', // Cameroun
-    '+242': '🇨🇬', // Congo
+    '+229': '🇧🇯', // Bénin
+    '+233': '🇬🇭', // Ghana
+    '+234': '🇳🇬', // Nigeria
+    '+242': '🇨🇬', // Congo Brazzaville
+    '+251': '🇪🇹', // Éthiopie
+    '+254': '🇰🇪', // Kenya
+    '+255': '🇹🇿', // Tanzanie
+    '+258': '🇲🇿', // Mozambique
+    '+260': '🇿🇲', // Zambie
+    '+351': '🇵🇹', // Portugal
   };
 
   @override
@@ -142,8 +155,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   _buildLogo(),
                   SizedBox(height: 50),
                   _buildAuthCard(),
-                  SizedBox(height: 30),
-                  _buildAlternativeAuth(),
+                  SizedBox(height: 10)
                 ],
               ),
             ),
@@ -355,11 +367,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
           _buildAuthForm(),
           SizedBox(height: 25),
-          _buildAuthButton(),
-          SizedBox(height: 20),
-          _buildForgotPassword(),
-          SizedBox(height: 25),
           _buildPrivacyText(),
+          SizedBox(height: 25),
+          _buildAuthButton(),
+          SizedBox(height: 10),
+          _buildForgotPassword(),
+          _buildAlternativeAuth(),
         ],
       ),
     ).animate().slideY(
@@ -564,146 +577,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildAuthButton() {
-    // Vérifier si tous les champs sont valides et les conditions acceptées
-    final isEmailValid = _validateEmail(_emailController.text) == null;
-    final isPasswordValid = _validatePassword(_passwordController.text) == null;
-    final hasRequiredFields = _emailController.text.isNotEmpty &&
-        _passwordController.text.isNotEmpty;
-    final isButtonEnabled = isEmailValid && isPasswordValid && hasRequiredFields && _acceptConditions && !_isLoading;
-
-    return Container(
-      width: double.infinity,
-      height: 56,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: isButtonEnabled
-            ? LinearGradient(
-          colors: [primaryColor, darkBlue],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        )
-            : LinearGradient(
-          colors: [Colors.grey.shade400, Colors.grey.shade600],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        boxShadow: isButtonEnabled
-            ? [
-          BoxShadow(
-            color: primaryColor.withOpacity(0.4),
-            blurRadius: 15,
-            spreadRadius: 2,
-            offset: Offset(0, 5),
-          ),
-        ]
-            : null,
-      ),
-      child: ElevatedButton(
-        onPressed: isButtonEnabled ? _handleLogin : null,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: _isLoading
-            ? SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation(Colors.white),
-          ),
-        )
-            : Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Se connecter',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(width: 10),
-            Icon(Icons.arrow_forward_rounded, size: 20, color: Colors.white),
-          ],
-        ),
-      ),
-    ).animate().scale(
-      delay: 1700.ms,
-      duration: 500.ms,
-    ).then().shake(
-      delay: 100.ms,
-      duration: 400.ms,
-    );
-  }
-
-  Widget _buildForgotPassword() {
-    return TextButton(
-      onPressed: () {},
-      style: TextButton.styleFrom(
-        foregroundColor: primaryColor,
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      ),
-      child: Text(
-        'Mot de passe oublié ?',
-        style: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    ).animate().fadeIn(delay: 1800.ms);
-  }
-
-  Widget _buildAlternativeAuth() {
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Flexible(
-            child: Text(
-              'Nouveau sur CasaNayo ? ',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 13,
-              ),
-            ),
-          ),
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: TextButton(
-              onPressed: () {
-                Navigator.pushNamed(context, Routes.registerRoute);
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: primaryColor,
-                padding: EdgeInsets.zero,
-              ),
-              child: Text(
-                'Créer un compte',
-                style: TextStyle(
-                  color: primaryColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(delay: 2000.ms);
-  }
-
   Widget _buildPrivacyText() {
     return Column(
       children: [
@@ -817,7 +690,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                'Vous devez accepter les conditions pour vous connecter', // MESSAGE CORRIGÉ
+                                'Vous devez accepter les conditions pour vous connecter',
                                 style: TextStyle(
                                   color: errorColor,
                                   fontSize: 12,
@@ -898,8 +771,141 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
         ),
       ],
+    ).animate().fadeIn(delay: 1700.ms);
+  }
+
+  Widget _buildAuthButton() {
+    // Vérifier si tous les champs sont valides et les conditions acceptées
+    final isEmailValid = _validateEmail(_emailController.text) == null;
+    final isPasswordValid = _validatePassword(_passwordController.text) == null;
+    final hasRequiredFields = _emailController.text.isNotEmpty &&
+        _passwordController.text.isNotEmpty;
+    final isButtonEnabled = isEmailValid && isPasswordValid && hasRequiredFields && _acceptConditions && !_isLoading;
+
+    return Container(
+      width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: isButtonEnabled
+            ? LinearGradient(
+          colors: [primaryColor, darkBlue],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        )
+            : LinearGradient(
+          colors: [Colors.grey.shade300, Colors.grey.shade400],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        boxShadow: isButtonEnabled
+            ? [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.4),
+            blurRadius: 15,
+            spreadRadius: 2,
+            offset: Offset(0, 5),
+          ),
+        ]
+            : null,
+      ),
+      child: ElevatedButton(
+        onPressed: isButtonEnabled ? _handleLogin : null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: _isLoading
+            ? SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation(Colors.white),
+          ),
+        )
+            : Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Se connecter',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(width: 10),
+            Icon(Icons.arrow_forward_rounded, size: 20, color: Colors.white),
+          ],
+        ),
+      ),
+    ).animate().scale(
+      delay: 1900.ms,
+      duration: 500.ms,
+    ).then().shake(
+      delay: 100.ms,
+      duration: 400.ms,
+    );
+  }
+
+  Widget _buildForgotPassword() {
+    return TextButton(
+      onPressed: () {},
+      style: TextButton.styleFrom(
+        foregroundColor: primaryColor,
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      ),
+      child: Text(
+        'Mot de passe oublié ?',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    ).animate().fadeIn(delay: 2000.ms);
+  }
+
+  Widget _buildAlternativeAuth() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Flexible(
+          child: Text(
+            'Pas de compte ? ',
+            style: TextStyle(
+              color: primaryColor,
+              fontSize: 13,
+            ),
+          ),
+        ),
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: TextButton(
+            onPressed: () {
+              Navigator.pushNamed(context, Routes.registerRoute);
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: primaryColor,
+              padding: EdgeInsets.zero,
+            ),
+            child: Text(
+              'Créer un compte',
+              style: TextStyle(
+                color: primaryColor,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+      ],
     ).animate().fadeIn(delay: 2200.ms);
   }
+
 
   void _forceRevalidation() {
     if (mounted) {
@@ -1042,8 +1048,8 @@ class _LoginScreenState extends State<LoginScreen> {
       bool isSuccess = message.toLowerCase().contains('réussie');
 
       if (isSuccess) {
-        SnackbarForCasa.success(context, "Connexion réussie!");
-        await Future.delayed(const Duration(milliseconds: 500));
+        // SnackbarForCasa.success(context, "Connexion réussie!");`
+        // await Future.delayed(const Duration(milliseconds: 500));
 
         if (mounted) {
           Navigator.pushNamedAndRemoveUntil(
