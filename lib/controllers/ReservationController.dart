@@ -14,106 +14,71 @@ class ReservationController with ChangeNotifier {
   List<ReservationModel> reservations = [];
   ReservationModel? currentReservation;
 
+  // Récupérer l'ID de l'utilisateur connecté
+  String? _getCurrentUserId() {
+    final dynamic userData = stockage?.read(StockageKeys.userKey);
+    return userData?['userId']?.toString();
+  }
+
   // Récupérer toutes les réservations de l'utilisateur connecté
   Future<List<ReservationModel>> getAllReservations() async {
+    final userId = _getCurrentUserId();
+    if (userId == null) {
+      print("❌ Aucun user ID trouvé pour récupérer les réservations");
+      return [];
+    }
+
+    final tkn = stockage?.read<String>(StockageKeys.tokenKey);
     final url = "${Endpoints.allReservations}";
     loading = true;
     notifyListeners();
 
     try {
       // Essayer de récupérer depuis le réseau
-      var response = await getData(url);
-
-      print("Réponse des réservations: ${response}");
+      var response = await getData(url, token: tkn);
+      print("🌐 Requête réservations: ${url}");
+      print("📡 Réponse des réservations: ${response}");
 
       // Vérifier si la requête a réussi en cherchant la clé "reservations" ou "data"
       if (response != null &&
-          (response['reservations'] != null || response['data'] != null)) {
+          (response['reservation'] != null || response['data'] != null)) {
 
         // Déterminer quelle clé contient les données
-        List<dynamic> reservationsData = response['reservations'] ?? response['data'];
+        List<dynamic> reservationsData = response['reservation'] ?? response['data'];
 
         // Vérifier que la liste n'est pas vide
         if (reservationsData is List && reservationsData.isNotEmpty) {
-          List<ReservationModel> reservations = reservationsData
+          List<ReservationModel> allReservations = reservationsData
               .map<ReservationModel>((e) => ReservationModel.fromJson(e))
               .toList();
 
+          // Filtrer pour ne garder que les réservations de l'utilisateur connecté
+          List<ReservationModel> userReservations = allReservations
+              .where((reservation) => reservation.user?.userId.toString() == userId)
+              .toList();
+
+          print("👤 Réservations filtrées pour user $userId: ${userReservations.length}");
+
           // Sauvegarder en local
           final db = ReservationDatabaseHelper.instance;
-          final dynamic userData = stockage?.read(StockageKeys.userKey);
-          final userId = userData?['userId']?.toString() ?? 'default_user';
-
-          for (var reservation in reservations) {
+          for (var reservation in userReservations) {
             await db.insertOrUpdateReservation(reservation, userId);
           }
 
-          this.reservations = reservations;
+          this.reservations = userReservations;
           loading = false;
           notifyListeners();
-          return reservations;
+          return userReservations;
         }
       }
     } catch (e) {
-      print("Erreur réseau: $e");
+      print("❌ Erreur réseau: $e");
       // Continuer avec le cache si échec réseau
     }
 
     // Si échec réseau ou réponse invalide, charger depuis SQLite
     final db = ReservationDatabaseHelper.instance;
-    final dynamic userData = stockage?.read(StockageKeys.userKey);
-    final userId = userData?['userId']?.toString() ?? 'default_user';
-
     final cachedReservations = await db.getReservationsByUser(userId);
-
-    this.reservations = cachedReservations;
-    loading = false;
-    notifyListeners();
-    return cachedReservations;
-  }
-
-  // Récupérer les réservations par ID utilisateur
-  Future<List<ReservationModel>> getReservationsByUserId(int userId) async {
-    loading = true;
-    notifyListeners();
-
-    try {
-      final url = "${Endpoints.reservationsByUser}/$userId";
-      var response = await getData(url);
-
-      print("📡 Réservations pour user $userId: $response");
-
-      if (response != null && (response['reservations'] != null || response['data'] != null)) {
-        List<dynamic> reservationsData = response['reservations'] ?? response['data'];
-
-        if (reservationsData is List && reservationsData.isNotEmpty) {
-          List<ReservationModel> userReservations = reservationsData
-              .map<ReservationModel>((e) => ReservationModel.fromJson(e))
-              .toList();
-
-          // Sauvegarder en local
-          final db = ReservationDatabaseHelper.instance;
-          final currentUserId = userId.toString();
-
-          for (var reservation in userReservations) {
-            await db.insertOrUpdateReservation(reservation, currentUserId);
-          }
-
-          // Filtrer pour ne garder que celles de l'utilisateur courant
-          this.reservations = userReservations.where((r) => r.user?.userId == userId).toList();
-
-          loading = false;
-          notifyListeners();
-          return this.reservations;
-        }
-      }
-    } catch (e) {
-      print("❌ Erreur réseau pour réservations par user $userId: $e");
-    }
-
-    // Fallback vers le cache local
-    final db = ReservationDatabaseHelper.instance;
-    final cachedReservations = await db.getReservationsByUser(userId.toString());
 
     this.reservations = cachedReservations;
     loading = false;
@@ -123,49 +88,44 @@ class ReservationController with ChangeNotifier {
 
   // Récupérer les réservations de l'utilisateur connecté
   Future<List<ReservationModel>> getMyReservations() async {
-    final dynamic userData = stockage?.read(StockageKeys.userKey);
-    final userId = userData?['userId'];
-
+    final userId = _getCurrentUserId();
     if (userId == null) {
       print("❌ Aucun user ID trouvé dans le stockage");
       return [];
     }
 
     print("🔍 Récupération des réservations pour user: $userId");
-    return await getReservationsByUserId(userId);
+    return await getAllReservations();
   }
 
   // Récupérer les réservations par statut pour l'utilisateur connecté
   Future<List<ReservationModel>> getReservationsByStatus(String status) async {
+    final userId = _getCurrentUserId();
+    if (userId == null) {
+      return [];
+    }
+
     loading = true;
     notifyListeners();
 
     try {
-      final dynamic userData = stockage?.read(StockageKeys.userKey);
-      final userId = userData?['userId'];
-
-      if (userId == null) {
-        loading = false;
-        notifyListeners();
-        return [];
-      }
-
       final url = "${Endpoints.reservationsByUser}/$userId?status=$status";
-      var response = await getData(url);
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      var response = await getData(url, token: tkn);
 
-      if (response != null && (response['reservations'] != null || response['data'] != null)) {
-        List<dynamic> reservationsData = response['reservations'] ?? response['data'];
+      if (response != null && (response['reservation'] != null || response['data'] != null)) {
+        List<dynamic> reservationsData = response['reservation'] ?? response['data'];
 
         if (reservationsData is List && reservationsData.isNotEmpty) {
           List<ReservationModel> filteredReservations = reservationsData
               .map<ReservationModel>((e) => ReservationModel.fromJson(e))
-              .where((reservation) => reservation.status == status) // Filtre supplémentaire
+              .where((reservation) => reservation.status == status)
               .toList();
 
           // Sauvegarder en local
           final db = ReservationDatabaseHelper.instance;
           for (var reservation in filteredReservations) {
-            await db.insertOrUpdateReservation(reservation, userId.toString());
+            await db.insertOrUpdateReservation(reservation, userId);
           }
 
           loading = false;
@@ -179,9 +139,6 @@ class ReservationController with ChangeNotifier {
 
     // Fallback vers le cache local
     final db = ReservationDatabaseHelper.instance;
-    final dynamic userData = stockage?.read(StockageKeys.userKey);
-    final userId = userData?['userId']?.toString() ?? 'default_user';
-
     final cachedReservations = await db.getReservationsByStatus(userId, status);
 
     loading = false;
@@ -190,6 +147,7 @@ class ReservationController with ChangeNotifier {
   }
 
   Future<ReservationModel?> getReservationById(int reservationId) async {
+    final userId = _getCurrentUserId();
     loading = true;
     notifyListeners();
 
@@ -200,14 +158,20 @@ class ReservationController with ChangeNotifier {
       // Vérifier si la requête a réussi
       if (response != null && response['data'] != null) {
         ReservationModel reservation = ReservationModel.fromJson(response['data']);
+
+        // Vérifier que la réservation appartient à l'utilisateur connecté
+        if (reservation.user?.userId.toString() != userId) {
+          print("⛔ Réservation $reservationId n'appartient pas à l'utilisateur $userId");
+          loading = false;
+          notifyListeners();
+          return null;
+        }
+
         currentReservation = reservation;
 
         // Sauvegarder en local
         final db = ReservationDatabaseHelper.instance;
-        final dynamic userData = stockage?.read(StockageKeys.userKey);
-        final userId = userData?['userId']?.toString() ?? 'default_user';
-
-        await db.insertOrUpdateReservation(reservation, userId);
+        await db.insertOrUpdateReservation(reservation, userId!);
 
         loading = false;
         notifyListeners();
@@ -222,6 +186,14 @@ class ReservationController with ChangeNotifier {
     // Fallback vers le cache local
     final db = ReservationDatabaseHelper.instance;
     final reservation = await db.getReservationById(reservationId.toString());
+
+    // Vérifier l'appartenance dans le cache aussi
+    if (reservation != null && reservation.user?.userId.toString() != userId) {
+      print("⛔ Réservation cachée $reservationId n'appartient pas à l'utilisateur $userId");
+      loading = false;
+      notifyListeners();
+      return null;
+    }
 
     loading = false;
     notifyListeners();
@@ -252,10 +224,10 @@ class ReservationController with ChangeNotifier {
 
           // Sauvegarder en local
           final db = ReservationDatabaseHelper.instance;
-          final dynamic userData = stockage?.read(StockageKeys.userKey);
-          final userId = userData?['userId']?.toString() ?? 'default_user';
-
-          await db.insertOrUpdateReservation(newReservation, userId);
+          final userId = _getCurrentUserId();
+          if (userId != null) {
+            await db.insertOrUpdateReservation(newReservation, userId);
+          }
 
           notifyListeners();
           print("✅ Réservation créée avec ID: ${newReservation.reservationId}");
@@ -372,31 +344,32 @@ class ReservationController with ChangeNotifier {
 
   // Récupérer le nombre de réservations par statut pour l'utilisateur connecté
   Future<Map<String, int>> getMyReservationCounts() async {
-    final dynamic userData = stockage?.read(StockageKeys.userKey);
-    final userId = userData?['userId']?.toString();
-
+    final userId = _getCurrentUserId();
     if (userId == null) return {};
 
-    final db = ReservationDatabaseHelper.instance;
+    // Utiliser les réservations déjà chargées en mémoire pour l'utilisateur connecté
+    final userReservations = reservations.where((reservation) =>
+    reservation.user?.userId.toString() == userId
+    ).toList();
 
-    final all = await db.getReservationsByUser(userId);
-    final pending = await db.getReservationsByStatus(userId, 'PENDING');
-    final confirmed = await db.getReservationsByStatus(userId, 'CONFIRMED');
-    final cancelled = await db.getReservationsByStatus(userId, 'CANCELLED');
+    // Compter par statut
+    final pendingCount = userReservations.where((r) => r.status == 'PENDING').length;
+    final confirmedCount = userReservations.where((r) => r.status == 'CONFIRMED').length;
+    final cancelledCount = userReservations.where((r) => r.status == 'CANCELLED').length;
+
+    print("📊 Compteurs réservations user $userId: PENDING=$pendingCount, CONFIRMED=$confirmedCount, CANCELLED=$cancelledCount");
 
     return {
-      'all': all.length,
-      'pending': pending.length,
-      'confirmed': confirmed.length,
-      'cancelled': cancelled.length,
+      'all': userReservations.length,
+      'pending': pendingCount,
+      'confirmed': confirmedCount,
+      'cancelled': cancelledCount,
     };
   }
 
   // Récupérer uniquement les réservations à venir de l'utilisateur
   Future<List<ReservationModel>> getMyUpcomingReservations() async {
-    final dynamic userData = stockage?.read(StockageKeys.userKey);
-    final userId = userData?['userId']?.toString();
-
+    final userId = _getCurrentUserId();
     if (userId == null) return [];
 
     final db = ReservationDatabaseHelper.instance;
@@ -406,8 +379,7 @@ class ReservationController with ChangeNotifier {
   // Vider le cache local des réservations de l'utilisateur
   Future<void> clearMyReservations() async {
     final db = ReservationDatabaseHelper.instance;
-    final dynamic userData = stockage?.read(StockageKeys.userKey);
-    final userId = userData?['userId']?.toString();
+    final userId = _getCurrentUserId();
 
     if (userId != null) {
       await db.clearUserReservations(userId);
