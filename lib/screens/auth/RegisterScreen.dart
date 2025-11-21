@@ -1,7 +1,6 @@
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/controllers/RegisterBailleurCtrl.dart';
 import 'package:casa/utils/Endpoints.dart';
-import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/gestures.dart';
@@ -9,8 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
+import '../../controllers/LocationController.dart';
 import '../../controllers/RegisterCommissionnaireCtrl.dart';
 import '../../controllers/RegisterLocataireCtrl.dart';
+import '../../models/CityModel.dart';
+import '../../utils/FancyNotification.dart';
 import '../../utils/requetes.dart';
 import '../termsAndPrivacy/TermsAndPrivacyPage.dart';
 
@@ -42,9 +44,56 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
 
   // Suivi de la force du mot de passe en temps réel
-  int _passwordStrength = 0;
 
-  // Couleurs cohérentes avec le login
+  int _passwordStrength = 0;
+  List<CityModel> _cities = [];
+  String? _selectedCityId;
+  String? _selectedCityName;
+
+
+  // États pour la gestion de la validation
+  bool _firstNameTouched = false;
+  bool _lastNameTouched = false;
+  bool _phoneTouched = false;
+  bool _emailTouched = false;
+  bool _cityTouched = false;
+  bool _passwordTouched = false;
+
+  // États pour le sélecteur de pays
+  String _selectedCountryCode = '+243'; // RDC par défaut
+  final Map<String, String> _countryFlags = {
+    '+243': '🇨🇩',
+    '+1': '🇺🇸', // USA
+    '+20': '🇪🇬', // Égypte
+    '+31': '🇳🇱', // Pays-Bas
+    '+32': '🇧🇪', // Belgique
+    '+33': '🇫🇷', // France
+    '+34': '🇪🇸', // Espagne
+    '+39': '🇮🇹', // Italie
+    '+41': '🇨🇭', // Suisse
+    '+44': '🇬🇧', // UK
+    '+45': '🇩🇰', // Danemark
+    '+46': '🇸🇪', // Suède
+    '+47': '🇳🇴', // Norvège
+    '+49': '🇩🇪', // Allemagne
+    '+212': '🇲🇦', // Maroc
+    '+213': '🇩🇿', // Algérie
+    '+216': '🇹🇳', // Tunisie
+    '+221': '🇸🇳', // Sénégal
+    '+225': '🇨🇮', // Côte d'Ivoire
+    '+226': '🇧🇫', // Burkina Faso
+    '+229': '🇧🇯', // Bénin
+    '+233': '🇬🇭', // Ghana
+    '+234': '🇳🇬', // Nigeria
+    '+242': '🇨🇬', // Congo Brazzaville
+    '+251': '🇪🇹', // Éthiopie
+    '+254': '🇰🇪', // Kenya
+    '+255': '🇹🇿', // Tanzanie
+    '+258': '🇲🇿', // Mozambique
+    '+260': '🇿🇲', // Zambie
+    '+351': '🇵🇹', // Portugal
+  };
+
   final Color primaryColor = Color(0xFF1976D2);
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
@@ -78,6 +127,25 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     },
   };
 
+  Future<void> _loadCities() async {
+    try {
+      final locationController = Provider.of<LocationController>(context, listen: false);
+      await locationController.loadAllData();
+
+      if (mounted) {
+        setState(() {
+          _cities = locationController.cities
+              .where((city) => city.name != null && city.name!.isNotEmpty)
+              .toList();
+        });
+      }
+    } catch (e) {
+      print("Erreur chargement villes: $e");
+    }
+  }
+
+
+
   @override
   void initState() {
     super.initState();
@@ -91,9 +159,26 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     _phoneController.addListener(_updateButtonState);
     _cityController.addListener(_updateButtonState);
     _passwordController.addListener(_updateButtonState);
+    _loadCities();
   }
 
-// Nouvelle méthode pour mettre à jour l'état du bouton
+  void _setupFocusNavigation() {
+    _firstNameFocus.addListener(() => _onFieldFocusChange(_firstNameFocus, () => _firstNameTouched = true));
+    _lastNameFocus.addListener(() => _onFieldFocusChange(_lastNameFocus, () => _lastNameTouched = true));
+    _phoneFocus.addListener(() => _onFieldFocusChange(_phoneFocus, () => _phoneTouched = true));
+    _emailFocus.addListener(() => _onFieldFocusChange(_emailFocus, () => _emailTouched = true));
+    _cityFocus.addListener(() => _onFieldFocusChange(_cityFocus, () => _cityTouched = true));
+    _passwordFocus.addListener(() => _onFieldFocusChange(_passwordFocus, () => _passwordTouched = true));
+  }
+
+  void _onFieldFocusChange(FocusNode focusNode, VoidCallback onLostFocus) {
+    if (!focusNode.hasFocus) {
+      onLostFocus();
+      if (mounted) setState(() {});
+    }
+  }
+
+  // Méthode pour mettre à jour l'état du bouton
   void _updateButtonState() {
     if (mounted) {
       setState(() {});
@@ -116,13 +201,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     _cityFocus.dispose();
     _passwordFocus.dispose();
     super.dispose();
-  }
-  void _setupFocusNavigation() {
-    _firstNameFocus.addListener(() {});
-    _lastNameFocus.addListener(() {});
-    _phoneFocus.addListener(() {});
-    _emailFocus.addListener(() {});
-    _cityFocus.addListener(() {});
   }
 
   void _updatePasswordStrength() {
@@ -267,27 +345,18 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
               ),
               child: Stack(
                 children: [
-                  Icon(Icons.home_rounded, size: 40, color: Colors.white),
-                  Positioned(
-                    top: 4,
-                    left: 4,
-                    child: Icon(Icons.home_rounded, size: 40, color: Colors.white.withOpacity(0.3)),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      image: DecorationImage(
+                        image: AssetImage('assets/images/icon.png'),
+                        fit: BoxFit.contain,
+                      ),
+                    ),
                   ),
                 ],
-              ),
-            ),
-            // Badge premium
-            Positioned(
-              top: -2,
-              right: -2,
-              child: Container(
-                padding: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.amber,
-                  border: Border.all(color: Colors.white, width: 2),
-                ),
-                child: Icon(Icons.star, size: 12, color: Colors.white),
               ),
             ),
           ],
@@ -295,9 +364,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             .scale(delay: 500.ms, duration: 800.ms, curve: Curves.elasticOut)
             .shake(delay: 1500.ms, duration: 1000.ms),
 
-        SizedBox(width: 16),
-
-        // Texte avec séparateur
+        SizedBox(width: 8),
         Container(
           height: 40,
           width: 1,
@@ -317,7 +384,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
                   end: Alignment.centerRight,
                 ).createShader(bounds),
                 child: Text(
-                  'Casa',
+                  'CasaNayo',
                   style: TextStyle(
                     fontSize: 30,
                     fontWeight: FontWeight.bold,
@@ -390,11 +457,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
           _buildAuthForm(),
           SizedBox(height: 25),
+          _buildPrivacyText(), // CONDITIONS PLACÉES ICI, AVANT LE BOUTON
+          SizedBox(height: 25),
           _buildAuthButton(),
           SizedBox(height: 20),
           _buildLoginLink(),
-          SizedBox(height: 25),
-          _buildPrivacyText(),
         ],
       ),
     ).animate().slideY(
@@ -418,6 +485,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             focusNode: _firstNameFocus,
             nextFocus: _lastNameFocus,
             isFirstField: true,
+            isTouched: _firstNameTouched,
           ),
           SizedBox(height: 15),
           _buildNameField(
@@ -426,16 +494,17 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             hint: 'Baka',
             focusNode: _lastNameFocus,
             nextFocus: _phoneFocus,
+            isTouched: _lastNameTouched,
           ),
           SizedBox(height: 15),
           // Téléphone
           _buildPhoneField(),
           SizedBox(height: 15),
-          // Email
-          _buildEmailField(),
-          SizedBox(height: 15),
           // Ville
           _buildCityField(),
+          SizedBox(height: 15),
+          // Email
+          _buildEmailField(),
           SizedBox(height: 15),
           // Type de compte
           _buildAccountTypeField(),
@@ -457,6 +526,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     required FocusNode focusNode,
     FocusNode? nextFocus,
     bool isFirstField = false,
+    required bool isTouched,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -472,10 +542,25 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       child: TextFormField(
         controller: controller,
         focusNode: focusNode,
-        autovalidateMode: AutovalidateMode.onUserInteraction,
+        autovalidateMode: AutovalidateMode.disabled,
         style: TextStyle(color: textColor, fontSize: 16),
         textInputAction: nextFocus != null ? TextInputAction.next : TextInputAction.done,
         onFieldSubmitted: nextFocus != null ? (_) => _goToNextField(focusNode, nextFocus!) : null,
+        onChanged: (_) {
+          if (isTouched) _forceRevalidation();
+        },
+        onEditingComplete: () {
+          setState(() {
+            switch (label) {
+              case 'Prénom':
+                _firstNameTouched = true;
+                break;
+              case 'Nom':
+                _lastNameTouched = true;
+                break;
+            }
+          });
+        },
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -504,9 +589,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           fillColor: lightBlue.withOpacity(0.3),
           hintText: hint,
           hintStyle: TextStyle(color: Colors.grey.shade500),
+          errorText: isTouched ? _validateName(controller.text, label.toLowerCase()) : null,
         ),
-        validator: (value) => _validateName(value, label.toLowerCase()),
-        onChanged: (_) => _forceRevalidation(),
+        validator: null, // Désactivé car on utilise errorText
       ),
     ).animate().slideX(
       begin: -0.3,
@@ -531,19 +616,24 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       child: TextFormField(
         controller: _phoneController,
         focusNode: _phoneFocus,
-        autovalidateMode: AutovalidateMode.onUserInteraction,
+        autovalidateMode: AutovalidateMode.disabled,
         style: TextStyle(color: textColor, fontSize: 16),
         keyboardType: TextInputType.phone,
-        textInputAction: TextInputAction.next,
+        textInputAction: TextInputAction.next, // Garder la navigation clavier
         onFieldSubmitted: (_) => _goToNextField(_phoneFocus, _emailFocus),
+        onChanged: (_) {
+          if (_phoneTouched) _forceRevalidation();
+        },
+        onEditingComplete: () {
+          setState(() {
+            _phoneTouched = true;
+          });
+        },
         decoration: InputDecoration(
           labelText: 'Téléphone*',
           labelStyle: TextStyle(color: secondaryTextColor),
-          prefixIcon: Container(
-            padding: EdgeInsets.all(12),
-            child: Icon(Icons.phone_iphone_rounded, color: primaryColor),
-          ),
-          suffixIcon: _buildNextButton(() => _goToNextField(_phoneFocus, _emailFocus)),
+          prefixIcon: _buildCountryCodeDropdown(),
+          // SUPPRIMER le suffixIcon pour avoir plus d'espace
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -562,17 +652,52 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           ),
           filled: true,
           fillColor: lightBlue.withOpacity(0.3),
-          hintText: '+243 81 000 0000',
+          hintText: '810000000',
           hintStyle: TextStyle(color: Colors.grey.shade500),
+          errorText: _phoneTouched ? _validatePhone(_phoneController.text) : null,
         ),
-        validator: _validatePhone,
-        onChanged: (_) => _forceRevalidation(),
+        validator: null, // Désactivé car on utilise errorText
       ),
     ).animate().slideX(
       begin: 0.3,
       duration: 500.ms,
       delay: 1400.ms,
       curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildCountryCodeDropdown() {
+    return Container(
+      width: 120,
+      padding: EdgeInsets.only(left: 8, right: 4),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedCountryCode,
+          isExpanded: true,
+          icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor, size: 20),
+          style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500),
+          items: _countryFlags.entries.map((entry) {
+            return DropdownMenuItem(
+              value: entry.key,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(entry.value, style: TextStyle(fontSize: 16)),
+                  SizedBox(width: 6),
+                  Text(entry.key, style: TextStyle(fontSize: 13)),
+                ],
+              ),
+            );
+          }).toList(),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              setState(() {
+                _selectedCountryCode = newValue;
+              });
+            }
+          },
+        ),
+      ),
     );
   }
 
@@ -591,11 +716,19 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       child: TextFormField(
         controller: _emailController,
         focusNode: _emailFocus,
-        autovalidateMode: AutovalidateMode.onUserInteraction,
+        autovalidateMode: AutovalidateMode.disabled,
         style: TextStyle(color: textColor, fontSize: 16),
         keyboardType: TextInputType.emailAddress,
         textInputAction: TextInputAction.next,
         onFieldSubmitted: (_) => _goToNextField(_emailFocus, _cityFocus),
+        onChanged: (_) {
+          if (_emailTouched) _forceRevalidation();
+        },
+        onEditingComplete: () {
+          setState(() {
+            _emailTouched = true;
+          });
+        },
         decoration: InputDecoration(
           labelText: 'Email (optionnel)',
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -624,9 +757,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           fillColor: lightBlue.withOpacity(0.3),
           hintText: 'exemple@email.com',
           hintStyle: TextStyle(color: Colors.grey.shade500),
+          errorText: _emailTouched ? _validateEmail(_emailController.text) : null,
         ),
-        validator: _validateEmail,
-        onChanged: (_) => _forceRevalidation(),
+        validator: null, // Désactivé car on utilise errorText
       ),
     ).animate().slideX(
       begin: -0.3,
@@ -648,13 +781,33 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           ),
         ],
       ),
-      child: TextFormField(
-        controller: _cityController,
-        focusNode: _cityFocus,
-        autovalidateMode: AutovalidateMode.onUserInteraction,
-        style: TextStyle(color: textColor, fontSize: 16),
-        textInputAction: TextInputAction.next,
-        onFieldSubmitted: (_) => _cityFocus.unfocus(),
+      child: DropdownButtonFormField<String>(
+        value: _selectedCityName,
+        onChanged: (String? newValue) {
+          if (newValue != null) {
+            final selectedCity = _cities.firstWhere(
+                  (city) => city.name == newValue,
+              orElse: () => CityModel(),
+            );
+            setState(() {
+              _selectedCityName = newValue;
+              _selectedCityId = selectedCity.cityId?.toString();
+              _cityTouched = true;
+            });
+          }
+        },
+        items: _cities.map((CityModel city) {
+          return DropdownMenuItem<String>(
+            value: city.name,
+            child: Text(
+              city.name ?? 'Ville inconnue',
+              style: TextStyle(
+                color: textColor,
+                fontSize: 16,
+              ),
+            ),
+          );
+        }).toList(),
         decoration: InputDecoration(
           labelText: 'Ville*',
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -662,7 +815,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             padding: EdgeInsets.all(12),
             child: Icon(Icons.location_city_rounded, color: primaryColor),
           ),
-          suffixIcon: _buildNextButton(() => _cityFocus.unfocus()),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -681,11 +833,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           ),
           filled: true,
           fillColor: lightBlue.withOpacity(0.3),
-          hintText: 'Kinshasa',
+          hintText: 'Votre ville',
           hintStyle: TextStyle(color: Colors.grey.shade500),
+          errorText: _cityTouched ? _validateCity(_selectedCityName) : null,
         ),
-        validator: _validateCity,
-        onChanged: (_) => _forceRevalidation(),
+        validator: null,
       ),
     ).animate().slideX(
       begin: 0.3,
@@ -876,9 +1028,17 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         focusNode: _passwordFocus,
         style: TextStyle(color: textColor, fontSize: 16),
         obscureText: !_showPassword,
-        autovalidateMode: AutovalidateMode.onUserInteraction,
+        autovalidateMode: AutovalidateMode.disabled,
         textInputAction: TextInputAction.done,
         onFieldSubmitted: (_) => _passwordFocus.unfocus(),
+        onChanged: (_) {
+          if (_passwordTouched) _forceRevalidation();
+        },
+        onEditingComplete: () {
+          setState(() {
+            _passwordTouched = true;
+          });
+        },
         decoration: InputDecoration(
           labelText: 'Mot de passe*',
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -915,8 +1075,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           ),
           filled: true,
           fillColor: lightBlue.withOpacity(0.3),
+          errorText: _passwordTouched ? _validatePassword(_passwordController.text) : null,
         ),
-        validator: _validatePassword,
+        validator: null, // Désactivé car on utilise errorText
       ),
     ).animate().slideX(
       begin: 0.3,
@@ -1061,133 +1222,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     if (strength <= 4) return Colors.orange;
     return successColor;
   }
-  Widget _buildAuthButton() {
-    // Vérifier si tous les champs obligatoires sont remplis et valides
-    final hasRequiredFields = _firstNameController.text.isNotEmpty &&
-        _lastNameController.text.isNotEmpty &&
-        _phoneController.text.isNotEmpty &&
-        _cityController.text.isNotEmpty &&
-        _passwordController.text.isNotEmpty &&
-        _selectedAccountType != null;
-
-    // Vérifier si le formulaire est valide (sans erreurs de validation)
-    final isFormValid = _formKey.currentState?.validate() ?? false;
-
-    // Le bouton est activé seulement si tous les champs sont remplis,
-    // le formulaire est valide ET les conditions sont acceptées
-    final isButtonEnabled = hasRequiredFields && isFormValid && _acceptConditions && !_isLoading;
-
-    print("🔍 État du bouton - "
-        "Champs remplis: $hasRequiredFields, "
-        "Formulaire valide: $isFormValid, "
-        "Conditions: $_acceptConditions, "
-        "Loading: $_isLoading, "
-        "Bouton activé: $isButtonEnabled");
-
-    return Container(
-      width: double.infinity,
-      height: 56,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: isButtonEnabled
-            ? LinearGradient(
-          colors: [primaryColor, darkBlue],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        )
-            : LinearGradient(
-          colors: [Colors.grey.shade400, Colors.grey.shade600],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        boxShadow: isButtonEnabled
-            ? [
-          BoxShadow(
-            color: primaryColor.withOpacity(0.4),
-            blurRadius: 15,
-            spreadRadius: 2,
-            offset: Offset(0, 5),
-          ),
-        ]
-            : null,
-      ),
-      child: ElevatedButton(
-        onPressed: isButtonEnabled ? _handleRegister : null,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: _isLoading
-            ? SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation(Colors.white),
-          ),
-        )
-            : Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Créer mon compte',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(width: 10),
-            Icon(Icons.person_add_rounded, size: 20, color: Colors.white),
-          ],
-        ),
-      ),
-    ).animate().scale(
-      delay: 1900.ms,
-      duration: 500.ms,
-    ).then().shake(
-      delay: 100.ms,
-      duration: 400.ms,
-    );
-  }
-
-  Widget _buildLoginLink() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          'Déjà un compte ? ',
-          style: TextStyle(
-            color: secondaryTextColor,
-            fontSize: 14,
-          ),
-        ),
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: TextButton(
-            onPressed: () {
-              Navigator.pushNamed(context, Routes.loginRoute);
-            },
-            style: TextButton.styleFrom(
-              foregroundColor: primaryColor,
-              padding: EdgeInsets.zero,
-            ),
-            child: Text(
-              'Se connecter',
-              style: TextStyle(
-                color: primaryColor,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
-      ],
-    ).animate().fadeIn(delay: 2000.ms);
-  }
 
   Widget _buildPrivacyText() {
     return Column(
@@ -1277,7 +1311,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
                               },
                           ),
                           TextSpan(
-                            text: ' de Casa',
+                            text: ' de CasaNayo',
                             style: TextStyle(
                               color: secondaryTextColor,
                               fontSize: 14,
@@ -1320,12 +1354,206 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           ),
         ),
         SizedBox(height: 15),
-        // ... le reste du code reste inchangé ...
+        // Texte informatif supplémentaire
+        Wrap(
+          spacing: 4,
+          children: [
+            Text(
+              'En continuant, vous acceptez nos',
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontSize: 12,
+              ),
+            ),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
+                    ),
+                  );
+                },
+                child: Text(
+                  'Conditions',
+                  style: TextStyle(
+                    color: primaryColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            Text(
+              'et',
+              style: TextStyle(
+                color: secondaryTextColor,
+                fontSize: 12,
+              ),
+            ),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
+                    ),
+                  );
+                },
+                child: Text(
+                  'Politique de confidentialité',
+                  style: TextStyle(
+                    color: primaryColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ).animate().fadeIn(delay: 1900.ms);
+  }
+
+  Widget _buildAuthButton() {
+    // Vérifier si tous les champs obligatoires sont remplis
+    final hasRequiredFields = _firstNameController.text.isNotEmpty &&
+        _lastNameController.text.isNotEmpty &&
+        _phoneController.text.isNotEmpty &&
+        _selectedCityName != null && // ← CORRIGÉ: utiliser _selectedCityName au lieu de _cityController.text
+        _passwordController.text.isNotEmpty &&
+        _selectedAccountType != null;
+
+    // Validation individuelle des champs (seulement si touchés ou en mode validation auto)
+    final shouldValidate = _autoValidateMode == AutovalidateMode.always ||
+        (_firstNameTouched && _lastNameTouched && _phoneTouched && _cityTouched && _passwordTouched);
+
+    final isFirstNameValid = shouldValidate ? _validateName(_firstNameController.text, 'prénom') == null : true;
+    final isLastNameValid = shouldValidate ? _validateName(_lastNameController.text, 'nom') == null : true;
+    final isPhoneValid = shouldValidate ? _validatePhone(_phoneController.text) == null : true;
+    final isEmailValid = _emailController.text.isEmpty || _validateEmail(_emailController.text) == null;
+    final isCityValid = shouldValidate ? _validateCity(_selectedCityName) == null : true; // ← CORRIGÉ
+    final isPasswordValid = shouldValidate ? _validatePassword(_passwordController.text) == null : true;
+
+    final isFormValid = isFirstNameValid &&
+        isLastNameValid &&
+        isPhoneValid &&
+        isEmailValid &&
+        isCityValid &&
+        isPasswordValid;
+
+    final isButtonEnabled = hasRequiredFields && isFormValid && _acceptConditions && !_isLoading;
+
+
+    return Container(
+      width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: isButtonEnabled
+            ? LinearGradient(
+          colors: [primaryColor, darkBlue],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        )
+            : LinearGradient(
+          colors: [Colors.grey.shade400, Colors.grey.shade600],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        boxShadow: isButtonEnabled
+            ? [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.4),
+            blurRadius: 15,
+            spreadRadius: 2,
+            offset: Offset(0, 5),
+          ),
+        ]
+            : null,
+      ),
+      child: ElevatedButton(
+        onPressed: isButtonEnabled ? _handleRegister : null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: _isLoading
+            ? SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation(Colors.white),
+          ),
+        )
+            : Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Créer mon compte',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(width: 10),
+            Icon(Icons.person_add_rounded, size: 20, color: Colors.white),
+          ],
+        ),
+      ),
+    ).animate().scale(
+      delay: 2100.ms,
+      duration: 500.ms,
+    ).then().shake(
+      delay: 100.ms,
+      duration: 400.ms,
+    );
+  }
+
+  Widget _buildLoginLink() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          'Déjà un compte ? ',
+          style: TextStyle(
+            color: secondaryTextColor,
+            fontSize: 14,
+          ),
+        ),
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: TextButton(
+            onPressed: () {
+              Navigator.pushNamed(context, Routes.loginRoute);
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: primaryColor,
+              padding: EdgeInsets.zero,
+            ),
+            child: Text(
+              'Se connecter',
+              style: TextStyle(
+                color: primaryColor,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
       ],
     ).animate().fadeIn(delay: 2200.ms);
   }
-
-
 
   // Validators
   String? _validateName(String? value, String fieldName) {
@@ -1345,13 +1573,25 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     if (value == null || value.isEmpty) {
       return 'Le numéro de téléphone est obligatoire';
     }
-    String cleanedPhone = value.replaceAll(RegExp(r'[^\d+]'), '');
-    if (cleanedPhone.length < 9) {
-      return 'Le numéro doit contenir au moins 9 chiffres';
+
+    // Nettoyer le numéro (garder seulement les chiffres)
+    String cleanedPhone = value.replaceAll(RegExp(r'[^\d]'), '');
+
+    // Validation pour les numéros congolais (RDC)
+    if (_selectedCountryCode == '+243') {
+      if (cleanedPhone.length != 9) {
+        return 'Le numéro RDC doit avoir 9 chiffres';
+      }
+      if (!RegExp(r'^[89]').hasMatch(cleanedPhone)) {
+        return 'Le numéro RDC doit commencer par 8 ou 9';
+      }
     }
-    if (!RegExp(r'^(\+243|243|0)[1-9]\d{8}$').hasMatch(cleanedPhone)) {
-      return 'Format invalide. Ex: +243810000000';
+
+    // Validation générale pour les autres pays
+    if (cleanedPhone.length < 8) {
+      return 'Le numéro doit contenir au moins 8 chiffres';
     }
+
     return null;
   }
 
@@ -1370,9 +1610,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   String? _validateCity(String? value) {
     if (value == null || value.isEmpty) {
       return 'La ville est obligatoire';
-    }
-    if (value.length < 2) {
-      return 'La ville doit contenir au moins 2 caractères';
     }
     return null;
   }
@@ -1394,32 +1631,46 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   void _forceRevalidation() {
-    if (_formKey.currentState != null) {
-      _formKey.currentState!.validate();
+    if (mounted) {
+      setState(() {});
     }
   }
 
   Future<void> _handleRegister() async {
-
+    // Marquer tous les champs comme touchés pour afficher les erreurs
     setState(() {
+      _firstNameTouched = true;
+      _lastNameTouched = true;
+      _phoneTouched = true;
+      _emailTouched = true;
+      _cityTouched = true;
+      _passwordTouched = true;
       _autoValidateMode = AutovalidateMode.always;
     });
 
     await Future.delayed(Duration(milliseconds: 50));
 
-    if (!(_formKey.currentState?.validate() ?? false)) {
-      FancyNotification.show(context, "Veuillez corriger les erreurs ci-dessus");
+    // Valider tous les champs
+    final firstNameError = _validateName(_firstNameController.text, 'prénom');
+    final lastNameError = _validateName(_lastNameController.text, 'nom');
+    final phoneError = _validatePhone(_phoneController.text);
+    final emailError = _validateEmail(_emailController.text);
+    final cityError = _validateCity(_selectedCityName);
+    final passwordError = _validatePassword(_passwordController.text);
+
+    if (firstNameError != null || lastNameError != null || phoneError != null ||
+        emailError != null || cityError != null || passwordError != null) {
+      SnackbarForCasa.error(context, "Veuillez corriger les erreurs ci-dessus");
       return;
     }
 
     if (_selectedAccountType == null) {
-      _showSnackbar("Veuillez sélectionner un type de compte", isError: true);
+      SnackbarForCasa.error(context, "Veuillez sélectionner un type de compte");
       return;
     }
 
-
     if (!_acceptConditions) {
-      _showSnackbar("Veuillez accepter les conditions d'utilisation", isError: true);
+      SnackbarForCasa.error(context, "Veuillez accepter les conditions d'utilisation");
       return;
     }
 
@@ -1430,7 +1681,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
     final isConnected = await NetworkUtils.checkInternetConnectivity();
     if (!isConnected) {
-      FancyNotification.show(context, "Pas de connexion internet");
+      SnackbarForCasa.error(context, "Pas de connexion internet");
       setState(() => _isLoading = false);
       return;
     }
@@ -1438,13 +1689,17 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     try {
       final accountType = _accountTypes[_selectedAccountType]!;
 
-      // Structure de base pour l'utilisateur
+      // Préparer le numéro de téléphone SANS l'indicatif pays
+      String phoneNumber = _phoneController.text.trim();
+      // Nettoyer le numéro (supprimer les espaces, tirets, etc.) - garder seulement les chiffres
+      final cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
+
       final userData = {
-        "phone": _phoneController.text,
+        "phone": cleanedPhone,
         "password": _passwordController.text,
         "typeAccountId": accountType['value'],
         "email": _emailController.text.isNotEmpty ? _emailController.text : "",
-        "cityId": 1, // À adapter selon votre système de villes
+        "cityId": _selectedCityId != null ? int.tryParse(_selectedCityId!) : 1,
       };
 
       Map<String, dynamic> payload;
@@ -1538,7 +1793,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       if (!mounted) return;
 
       if (response.status == true) {
-        FancyNotification.show(context, "Inscription réussie!", isError: false);
+        SnackbarForCasa.success(context, "Inscription réussie!");
         await Future.delayed(const Duration(milliseconds: 1500));
 
         if (mounted) {
@@ -1550,10 +1805,10 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         }
       } else {
         String errorMessage = response.errorMsg ?? "Erreur lors de l'inscription";
-        FancyNotification.show(context, errorMessage);
+        SnackbarForCasa.error(context, errorMessage);
       }
     } catch (e) {
-      FancyNotification.show(context, "Erreur technique lors de l'inscription");
+      SnackbarForCasa.error(context, "Erreur technique lors de l'inscription");
       print("Register error: $e");
     } finally {
       if (mounted) {
@@ -1562,33 +1817,5 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         });
       }
     }
-  }
-
-  void _showValidationError() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.error_outline_rounded, color: Colors.white, size: 20),
-            SizedBox(width: 8),
-            Expanded(child: Text('Veuillez corriger les erreurs ci-dessus')),
-          ],
-        ),
-        backgroundColor: errorColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-
-  void _showSnackbar(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? errorColor : successColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
   }
 }
