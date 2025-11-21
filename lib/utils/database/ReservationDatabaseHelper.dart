@@ -39,6 +39,17 @@ class ReservationDatabaseHelper {
       onCreate: _onCreate,
     );
   }
+  Future<int> clearAllReservations() async {
+    final db = await database;
+    return await db.delete(table);
+  }
+
+// Méthode pour vider complètement la base de données
+  Future<void> clearDatabase() async {
+    final db = await database;
+    await db.delete(table);
+  }
+
 
   Future _onCreate(Database db, int version) async {
     await db.execute('''
