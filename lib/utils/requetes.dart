@@ -55,6 +55,51 @@ Future<dynamic> getData(String url_api, {String? token}) async {
     }
   }
 
+Future<HttpResponse> deleteData(String api_url, {Map<String, dynamic>? data, String? token}) async {
+  try {
+    var url = Uri.parse("${Constantes.BASE_URL}$api_url");
+    var tkn = token ?? Constantes.DefaultToken;
+
+    var headers = {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer $tkn"
+    };
+
+    http.Response response;
+
+
+    if (data != null) {
+      String dataStr = json.encode(data);
+      response = await http.delete(
+          url,
+          body: dataStr,
+          headers: headers
+      ).timeout(Duration(seconds: 30));
+    } else {
+      // Sinon, requête DELETE sans body
+      response = await http.delete(
+          url,
+          headers: headers
+      ).timeout(Duration(seconds: 30));
+    }
+
+    /* if(!kReleaseMode){
+        alice.onHttpResponse(response);
+      }*/
+
+    var successList = [200, 201, 204];
+    var msg = response.body.isNotEmpty ? json.decode(response.body) : {'message': 'Supprimé avec succès'};
+    var st = successList.contains(response.statusCode);
+
+    return HttpResponse(status: st, data: msg);
+  } catch (e, trace) {
+    print(e.toString());
+    print(trace.toString());
+    return HttpResponse(
+        status: false, errorMsg: "Erreur inattendue", isException: true);
+  }
+}
+
 Future<HttpResponse> postDataForAuth(String api_url, Map data, {String? token}) async {
   try {
     var url = Uri.parse("${Constantes.URL_AUTH}$api_url");
