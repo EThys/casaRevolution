@@ -4,6 +4,10 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 
 import '../utils/Routes.dart';
+import '../utils/StockageKeys.dart';
+import '../utils/database/FavoriteDatabaseHelper.dart';
+import '../utils/database/ReservationDatabaseHelper.dart';
+import 'HomePage.dart';
 
 class ProfilePage extends StatefulWidget {
   @override
@@ -62,28 +66,54 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   bool get isLoggedIn {
-    final token = storage.read('auth_token');
+    final token = storage.read(StockageKeys.tokenKey);
     return token != null && token.isNotEmpty;
   }
 
   String get safeUsername {
-    return storage.read('user_data')?['username']?.toString() ?? 'Visiteur';
+    final userData = storage.read(StockageKeys.userKey);
+    final profileData = storage.read(StockageKeys.profileKey);
+
+    // Priorité aux données du profil, puis user
+    return profileData?['fullname']?.toString() ??
+        userData?['username']?.toString() ??
+        'Visiteur';
   }
 
   String get safeEmail {
-    return storage.read('user_data')?['email']?.toString() ?? 'Non connecté';
+    final userData = storage.read(StockageKeys.userKey);
+    return userData?['email']?.toString() ?? 'Non connecté';
   }
 
   String get safePhone {
-    return storage.read('user_data')?['phone']?.toString() ?? '';
+    final userData = storage.read(StockageKeys.userKey);
+    return userData?['phone']?.toString() ?? '';
   }
 
   String get safeAddress {
-    return storage.read('user_data')?['address']?.toString() ?? '';
+    final profileData = storage.read(StockageKeys.profileKey);
+    return profileData?['address']?.toString() ?? '';
   }
 
   String get bio {
-    return storage.read('user_data')?['bio']?.toString() ?? '';
+    final profileData = storage.read(StockageKeys.profileKey);
+    return profileData?['bio']?.toString() ??
+        'Ajoutez une bio pour personnaliser votre profil';
+  }
+
+  String get firstname {
+    final profileData = storage.read(StockageKeys.profileKey);
+    return profileData?['firstname']?.toString() ?? '';
+  }
+
+  String get lastname {
+    final profileData = storage.read(StockageKeys.profileKey);
+    return profileData?['lastname']?.toString() ?? '';
+  }
+
+  String get fullname {
+    final profileData = storage.read(StockageKeys.profileKey);
+    return profileData?['fullname']?.toString() ?? safeUsername;
   }
 
   String get publishedProperties {
@@ -514,14 +544,20 @@ class _ProfilePageState extends State<ProfilePage> {
           if (!isLoggedIn) ...[
             _buildAuthButton(
               text: 'Se connecter',
-              onPressed: _navigateToLogin,
-              color: _primaryColor,
+              onPressed: () {
+                Navigator.pushNamed(context, Routes.loginRoute);
+              },
+              isPrimary: true,
+              icon: Icons.login_rounded,
             ),
             SizedBox(height: 12),
             _buildAuthButton(
               text: 'Créer un compte',
-              onPressed: _navigateToSignup,
-              color: _successColor,
+              onPressed: () {
+                Navigator.pushNamed(context, Routes.registerRoute);
+              },
+              isPrimary: false,
+              icon: Icons.person_add_rounded,
             ),
           ],
         ],
@@ -532,26 +568,67 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildAuthButton({
     required String text,
     required VoidCallback onPressed,
-    required Color color,
+    required bool isPrimary,
+    IconData? icon,
   }) {
-    return SizedBox(
+    return Container(
       width: double.infinity,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          padding: EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
+      child: isPrimary
+          ? ElevatedButton(
         onPressed: onPressed,
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _primaryColor,
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
+          elevation: 2,
+          shadowColor: _primaryColor.withOpacity(0.3),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 20),
+              SizedBox(width: 8),
+            ],
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      )
+          : OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _primaryColor,
+          side: BorderSide(color: _primaryColor, width: 1.5),
+          padding: EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          backgroundColor: Colors.transparent,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 20),
+              SizedBox(width: 8),
+            ],
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -656,6 +733,25 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  Future<void> _clearLocalAuthData() async {
+    try {
+      // 1. Supprimer les données d'authentification
+      await storage.remove(StockageKeys.tokenKey);
+      await storage.remove(StockageKeys.refreshTokenKey);
+      await storage.remove(StockageKeys.userKey);
+      await storage.remove(StockageKeys.userPreferenceKey);
+      await storage.remove(StockageKeys.profileKey);
+
+      await FavoriteDatabaseHelper.instance.clearAllFavorites();
+      await ReservationDatabaseHelper.instance.clearAllReservations();
+
+      print("✅ Données d'authentification ET bases de données locales supprimées");
+    } catch (e) {
+      print("❌ Erreur lors du nettoyage des données locales: $e");
+      throw e;
+    }
+  }
+
   void _confirmLogout() {
     showDialog(
       context: context,
@@ -677,44 +773,7 @@ class _ProfilePageState extends State<ProfilePage> {
             child: const Text('Annuler'),
           ),
           ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              final scaffold = ScaffoldMessenger.of(context);
-              scaffold.showSnackBar(
-                SnackBar(
-                  content: Row(
-                    children: [
-                      const CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                      const SizedBox(width: 16),
-                      const Text('Déconnexion en cours...'),
-                    ],
-                  ),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-
-              try {
-                await storage.erase();
-                if (!mounted) return;
-                // Navigator.pushAndRemoveUntil(
-                //   context,
-                //   MaterialPageRoute(builder: (context) => LoginScreen()),
-                //       (Route<dynamic> route) => false,
-                // );
-
-              } catch (e) {
-                if (!mounted) return;
-                scaffold.showSnackBar(
-                  SnackBar(
-                    content: Text('Erreur lors de la déconnexion: ${e.toString()}'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            },
+            onPressed: () => _performLogout(),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.shade700,
               foregroundColor: Colors.white,
@@ -728,6 +787,61 @@ class _ProfilePageState extends State<ProfilePage> {
         ],
       ),
     );
+  }
+
+  Future<void> _performLogout() async {
+    // Fermer la dialog d'abord
+    Navigator.pop(context);
+
+    // Afficher un indicateur de chargement
+    final scaffold = ScaffoldMessenger.of(context);
+
+    try {
+      // 1. Nettoyer les données
+      await _clearLocalAuthData();
+
+      // 2. Attendre un cycle de frame pour éviter les conflits
+      await Future.delayed(Duration(milliseconds: 100));
+
+      // 3. Navigation sécurisée avec vérification du mounted
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              Routes.bottomPageRoute,
+                  (route) => false,
+            );
+          }
+        });
+      }
+
+    } catch (e) {
+      print("❌ Erreur lors de la déconnexion: $e");
+
+      // Même en cas d'erreur, essayer de naviguer
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          try {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              Routes.bottomPageRoute,
+                  (route) => false,
+            );
+          } catch (navError) {
+            print("❌ Erreur de navigation critique: $navError");
+
+            // Dernière tentative avec un rechargement complet
+            if (mounted) {
+              Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => HomePage()),
+                    (route) => false,
+              );
+            }
+          }
+        });
+      }
+    }
   }
 
   @override
