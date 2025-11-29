@@ -48,9 +48,27 @@ class FavoriteDatabaseHelper {
       CREATE INDEX idx_favorite_user ON $table ($columnUserId)
     ''');
   }
+  Future<int> clearAllFavorites() async {
+    final db = await database;
+    return await db.delete(table);
+  }
+
+// Méthode pour vider complètement la base de données
+  Future<void> clearDatabase() async {
+    final db = await database;
+    await db.delete(table);
+  }
+
 
   Future<int> insertOrUpdateFavorite(PropertyFavoriteModel favorite, String userId) async {
     final db = await database;
+
+    // Utiliser le userId passé en paramètre au lieu de favorite.userId
+    final int userIdInt = int.tryParse(userId) ?? 0;
+    if (userIdInt == 0) {
+      print('❌ ERROR: Invalid userId: $userId');
+      throw Exception('Invalid User ID');
+    }
 
     // Convertir le property en JSON pour le stocker
     final propertyJson = favorite.property?.toJson() ?? {};
@@ -59,7 +77,7 @@ class FavoriteDatabaseHelper {
       table,
       {
         columnId: favorite.propertyFavoriteId,
-        columnUserId: favorite.userId,
+        columnUserId: userIdInt, // ← Utiliser le userId passé en paramètre
         columnData: jsonEncode(propertyJson),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -88,6 +106,39 @@ class FavoriteDatabaseHelper {
     );
   }
 
+  // NOUVELLE MÉTHODE : Supprimer un favori par userId et propertyId
+  Future<int> removeFavorite(String userId, String propertyId) async {
+    final db = await database;
+
+    // Méthode 1 : Recherche par propertyId dans les données JSON
+    final favorites = await getFavoritesByUser(userId);
+    for (var favorite in favorites) {
+      if (favorite.property?.propertyId.toString() == propertyId) {
+        return await db.delete(
+          table,
+          where: '$columnId = ? AND $columnUserId = ?',
+          whereArgs: [favorite.propertyFavoriteId, userId],
+        );
+      }
+    }
+
+    // Méthode alternative si la première ne fonctionne pas
+    return await db.delete(
+      table,
+      where: '$columnUserId = ? AND $columnData LIKE ?',
+      whereArgs: [userId, '%"propertyId":$propertyId%'],
+    );
+  }
+
+  // Méthode alternative plus directe
+  Future<int> removeFavoriteDirect(int favoriteId, String userId) async {
+    final db = await database;
+    return await db.delete(
+      table,
+      where: '$columnId = ? AND $columnUserId = ?',
+      whereArgs: [favoriteId, userId],
+    );
+  }
 
   Future<int> clearUserFavorites(String userId) async {
     final db = await database;
@@ -96,5 +147,16 @@ class FavoriteDatabaseHelper {
       where: '$columnUserId = ?',
       whereArgs: [userId],
     );
+  }
+
+  // Méthode utilitaire pour trouver un favori par propertyId
+  Future<PropertyFavoriteModel?> findFavoriteByPropertyId(String userId, String propertyId) async {
+    final favorites = await getFavoritesByUser(userId);
+    for (var favorite in favorites) {
+      if (favorite.property?.propertyId.toString() == propertyId) {
+        return favorite;
+      }
+    }
+    return null;
   }
 }
