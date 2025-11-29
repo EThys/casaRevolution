@@ -208,7 +208,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                           ? ElevatedButton(
                         key: ValueKey('start_button'),
                         onPressed: () {
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => BottomNavBar(),),);
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(builder: (context) => BottomNavBar()),
+                                (route) => false,
+                          );
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _pages[_currentPage].color,
