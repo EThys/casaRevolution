@@ -58,6 +58,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   bool _emailTouched = false;
   bool _cityTouched = false;
   bool _passwordTouched = false;
+  String? _selectedCountryName;
 
   // États pour le sélecteur de pays
   String _selectedCountryCode = '+243'; // RDC par défaut
@@ -153,6 +154,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     _passwordController.addListener(_updatePasswordStrength);
     _setupFocusNavigation();
 
+    _selectedCountryName = _getCountryNameFromCode(_selectedCountryCode);
+    _passwordController.addListener(_updatePasswordStrength);
+    _setupFocusNavigation();
+
+
     // Ajouter des listeners pour tous les contrôleurs
     _firstNameController.addListener(_updateButtonState);
     _lastNameController.addListener(_updateButtonState);
@@ -161,6 +167,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     _passwordController.addListener(_updateButtonState);
     _loadCities();
   }
+
 
   void _setupFocusNavigation() {
     _firstNameFocus.addListener(() => _onFieldFocusChange(_firstNameFocus, () => _firstNameTouched = true));
@@ -239,7 +246,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           SafeArea(
             child: SingleChildScrollView(
               physics: BouncingScrollPhysics(),
-              padding: EdgeInsets.all(24),
+              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 24),
               child: Column(
                 children: [
                   SizedBox(height: 20),
@@ -254,6 +261,88 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       ),
     );
   }
+
+  String _getCountryNameFromCode(String countryCode) {
+    final countryNames = {
+      '+243': 'RDC',
+      '+1': 'USA',
+      '+20': 'Égypte',
+      '+31': 'Pays-Bas',
+      '+32': 'Belgique',
+      '+33': 'France',
+      '+34': 'Espagne',
+      '+39': 'Italie',
+      '+41': 'Suisse',
+      '+44': 'Royaume-Uni',
+      '+45': 'Danemark',
+      '+46': 'Suède',
+      '+47': 'Norvège',
+      '+49': 'Allemagne',
+      '+212': 'Maroc',
+      '+213': 'Algérie',
+      '+216': 'Tunisie',
+      '+221': 'Sénégal',
+      '+225': 'Côte d\'Ivoire',
+      '+226': 'Burkina Faso',
+      '+229': 'Bénin',
+      '+233': 'Ghana',
+      '+234': 'Nigeria',
+      '+242': 'Congo Brazzaville',
+      '+251': 'Éthiopie',
+      '+254': 'Kenya',
+      '+255': 'Tanzanie',
+      '+258': 'Mozambique',
+      '+260': 'Zambie',
+      '+351': 'Portugal',
+    };
+    return countryNames[countryCode] ?? 'RDC';
+  }
+
+  Widget _buildCountryCodeDropdown() {
+    return Container(
+      width: 140, // Légèrement plus large pour accommoder le nom
+      padding: EdgeInsets.only(left: 8, right: 4),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedCountryCode,
+          isExpanded: true,
+          icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor, size: 20),
+          style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500),
+          items: _countryFlags.entries.map((entry) {
+            final countryName = _getCountryNameFromCode(entry.key);
+            return DropdownMenuItem(
+              value: entry.key,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(entry.value, style: TextStyle(fontSize: 16)), // Drapeau
+                  SizedBox(width: 8),
+                  Text(entry.key, style: TextStyle(fontSize: 13)), // Indicatif
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      countryName,
+                      style: TextStyle(fontSize: 12, color: secondaryTextColor),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              setState(() {
+                _selectedCountryCode = newValue;
+                _selectedCountryName = _getCountryNameFromCode(newValue);
+              });
+            }
+          },
+        ),
+      ),
+    );
+  }
+
 
   Widget _buildBackground() {
     return Stack(
@@ -421,7 +510,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       padding: EdgeInsets.all(30),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(10),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
@@ -666,40 +755,40 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     );
   }
 
-  Widget _buildCountryCodeDropdown() {
-    return Container(
-      width: 120,
-      padding: EdgeInsets.only(left: 8, right: 4),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedCountryCode,
-          isExpanded: true,
-          icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor, size: 20),
-          style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500),
-          items: _countryFlags.entries.map((entry) {
-            return DropdownMenuItem(
-              value: entry.key,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(entry.value, style: TextStyle(fontSize: 16)),
-                  SizedBox(width: 6),
-                  Text(entry.key, style: TextStyle(fontSize: 13)),
-                ],
-              ),
-            );
-          }).toList(),
-          onChanged: (String? newValue) {
-            if (newValue != null) {
-              setState(() {
-                _selectedCountryCode = newValue;
-              });
-            }
-          },
-        ),
-      ),
-    );
-  }
+  // Widget _buildCountryCodeDropdown() {
+  //   return Container(
+  //     width: 120,
+  //     padding: EdgeInsets.only(left: 8, right: 4),
+  //     child: DropdownButtonHideUnderline(
+  //       child: DropdownButton<String>(
+  //         value: _selectedCountryCode,
+  //         isExpanded: true,
+  //         icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor, size: 20),
+  //         style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500),
+  //         items: _countryFlags.entries.map((entry) {
+  //           return DropdownMenuItem(
+  //             value: entry.key,
+  //             child: Row(
+  //               mainAxisSize: MainAxisSize.min,
+  //               children: [
+  //                 Text(entry.value, style: TextStyle(fontSize: 16)),
+  //                 SizedBox(width: 6),
+  //                 Text(entry.key, style: TextStyle(fontSize: 13)),
+  //               ],
+  //             ),
+  //           );
+  //         }).toList(),
+  //         onChanged: (String? newValue) {
+  //           if (newValue != null) {
+  //             setState(() {
+  //               _selectedCountryCode = newValue;
+  //             });
+  //           }
+  //         },
+  //       ),
+  //     ),
+  //   );
+  // }
 
   Widget _buildEmailField() {
     return Container(
@@ -1029,8 +1118,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         style: TextStyle(color: textColor, fontSize: 16),
         obscureText: !_showPassword,
         autovalidateMode: AutovalidateMode.disabled,
-        textInputAction: TextInputAction.done,
-        onFieldSubmitted: (_) => _passwordFocus.unfocus(),
+        textInputAction: TextInputAction.go, // ← CHANGER EN "go"
+        onFieldSubmitted: (_) => _triggerRegistrationIfValid(), // ← AJOUTER CETTE LIGNE
         onChanged: (_) {
           if (_passwordTouched) _forceRevalidation();
         },
@@ -1038,6 +1127,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           setState(() {
             _passwordTouched = true;
           });
+          _triggerRegistrationIfValid(); // ← AJOUTER CETTE LIGNE
         },
         decoration: InputDecoration(
           labelText: 'Mot de passe*',
@@ -1053,7 +1143,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
               children: [
                 if (_passwordController.text.isNotEmpty)
                   _buildPasswordVisibilityButton(),
-                _buildDoneButton(),
               ],
             ),
           ),
@@ -1077,7 +1166,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           fillColor: lightBlue.withOpacity(0.3),
           errorText: _passwordTouched ? _validatePassword(_passwordController.text) : null,
         ),
-        validator: null, // Désactivé car on utilise errorText
+        validator: null,
       ),
     ).animate().slideX(
       begin: 0.3,
@@ -1085,6 +1174,69 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       delay: 1700.ms,
       curve: Curves.easeOut,
     );
+  }
+
+  Widget _buildDoneButton() {
+    return Container(
+      margin: EdgeInsets.only(left: 4),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: primaryColor.withOpacity(0.1),
+      ),
+      child: IconButton(
+        icon: Icon(Icons.done_rounded, size: 18, color: primaryColor),
+        onPressed: () {
+          _passwordFocus.unfocus();
+          _triggerRegistrationIfValid();
+        },
+        padding: EdgeInsets.zero,
+        constraints: BoxConstraints(minWidth: 36, minHeight: 36),
+      ),
+    );
+  }
+
+  void _triggerRegistrationIfValid() {
+    // Marquer tous les champs comme touchés
+    setState(() {
+      _firstNameTouched = true;
+      _lastNameTouched = true;
+      _phoneTouched = true;
+      _emailTouched = true;
+      _cityTouched = true;
+      _passwordTouched = true;
+      _autoValidateMode = AutovalidateMode.always;
+    });
+
+    // Vérifier si le formulaire est valide
+    final hasRequiredFields = _firstNameController.text.isNotEmpty &&
+        _lastNameController.text.isNotEmpty &&
+        _phoneController.text.isNotEmpty &&
+        _selectedCityName != null &&
+        _passwordController.text.isNotEmpty &&
+        _selectedAccountType != null;
+
+    final isFirstNameValid = _validateName(_firstNameController.text, 'prénom') == null;
+    final isLastNameValid = _validateName(_lastNameController.text, 'nom') == null;
+    final isPhoneValid = _validatePhone(_phoneController.text) == null;
+    final isEmailValid = _emailController.text.isEmpty || _validateEmail(_emailController.text) == null;
+    final isCityValid = _validateCity(_selectedCityName) == null;
+    final isPasswordValid = _validatePassword(_passwordController.text) == null;
+
+    final isFormValid = isFirstNameValid &&
+        isLastNameValid &&
+        isPhoneValid &&
+        isEmailValid &&
+        isCityValid &&
+        isPasswordValid;
+
+    final isButtonEnabled = hasRequiredFields && isFormValid && _acceptConditions && !_isLoading;
+
+    if (isButtonEnabled) {
+      _handleRegister();
+    } else {
+      // Afficher un message d'erreur si le formulaire n'est pas valide
+      SnackbarForCasa.error(context, "Veuillez remplir tous les champs obligatoires correctement");
+    }
   }
 
   Widget _buildPasswordVisibilityButton() {
@@ -1100,21 +1252,21 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     );
   }
 
-  Widget _buildDoneButton() {
-    return Container(
-      margin: EdgeInsets.only(left: 4),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: primaryColor.withOpacity(0.1),
-      ),
-      child: IconButton(
-        icon: Icon(Icons.done_rounded, size: 18, color: primaryColor),
-        onPressed: () => _passwordFocus.unfocus(),
-        padding: EdgeInsets.zero,
-        constraints: BoxConstraints(minWidth: 36, minHeight: 36),
-      ),
-    );
-  }
+  // Widget _buildDoneButton() {
+  //   return Container(
+  //     margin: EdgeInsets.only(left: 4),
+  //     decoration: BoxDecoration(
+  //       shape: BoxShape.circle,
+  //       color: primaryColor.withOpacity(0.1),
+  //     ),
+  //     child: IconButton(
+  //       icon: Icon(Icons.done_rounded, size: 18, color: primaryColor),
+  //       onPressed: () => _passwordFocus.unfocus(),
+  //       padding: EdgeInsets.zero,
+  //       constraints: BoxConstraints(minWidth: 36, minHeight: 36),
+  //     ),
+  //   );
+  // }
 
   Widget _buildPasswordStrengthIndicator() {
     return AnimatedContainer(
@@ -1421,15 +1573,14 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   Widget _buildAuthButton() {
-    // Vérifier si tous les champs obligatoires sont remplis
     final hasRequiredFields = _firstNameController.text.isNotEmpty &&
         _lastNameController.text.isNotEmpty &&
         _phoneController.text.isNotEmpty &&
-        _selectedCityName != null && // ← CORRIGÉ: utiliser _selectedCityName au lieu de _cityController.text
+        _selectedCityName != null &&
         _passwordController.text.isNotEmpty &&
         _selectedAccountType != null;
 
-    // Validation individuelle des champs (seulement si touchés ou en mode validation auto)
+
     final shouldValidate = _autoValidateMode == AutovalidateMode.always ||
         (_firstNameTouched && _lastNameTouched && _phoneTouched && _cityTouched && _passwordTouched);
 
@@ -1437,7 +1588,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     final isLastNameValid = shouldValidate ? _validateName(_lastNameController.text, 'nom') == null : true;
     final isPhoneValid = shouldValidate ? _validatePhone(_phoneController.text) == null : true;
     final isEmailValid = _emailController.text.isEmpty || _validateEmail(_emailController.text) == null;
-    final isCityValid = shouldValidate ? _validateCity(_selectedCityName) == null : true; // ← CORRIGÉ
+    final isCityValid = shouldValidate ? _validateCity(_selectedCityName) == null : true;
     final isPasswordValid = shouldValidate ? _validatePassword(_passwordController.text) == null : true;
 
     final isFormValid = isFirstNameValid &&
@@ -1449,20 +1600,15 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
     final isButtonEnabled = hasRequiredFields && isFormValid && _acceptConditions && !_isLoading;
 
-
     return Container(
       width: double.infinity,
       height: 56,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        gradient: isButtonEnabled
-            ? LinearGradient(
-          colors: [primaryColor, darkBlue],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        )
-            : LinearGradient(
-          colors: [Colors.grey.shade400, Colors.grey.shade600],
+        gradient: LinearGradient(
+          colors: isButtonEnabled
+              ? [primaryColor, darkBlue]
+              : [primaryColor.withOpacity(0.4), darkBlue.withOpacity(0.4)],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
         ),
@@ -1475,7 +1621,14 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             offset: Offset(0, 5),
           ),
         ]
-            : null,
+            : [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.2),
+            blurRadius: 8,
+            spreadRadius: 1,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: ElevatedButton(
         onPressed: isButtonEnabled ? _handleRegister : null,
@@ -1502,12 +1655,16 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
               'Créer mon compte',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.white,
+                color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7),
                 fontWeight: FontWeight.bold,
               ),
             ),
             SizedBox(width: 10),
-            Icon(Icons.person_add_rounded, size: 20, color: Colors.white),
+            Icon(
+              Icons.person_add_rounded,
+              size: 20,
+              color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7),
+            ),
           ],
         ),
       ),
@@ -1693,6 +1850,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       String phoneNumber = _phoneController.text.trim();
       // Nettoyer le numéro (supprimer les espaces, tirets, etc.) - garder seulement les chiffres
       final cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
+      final username = '${_firstNameController.text}${_lastNameController.text}';
 
       final userData = {
         "phone": cleanedPhone,
@@ -1700,6 +1858,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         "typeAccountId": accountType['value'],
         "email": _emailController.text.isNotEmpty ? _emailController.text : "",
         "cityId": _selectedCityId != null ? int.tryParse(_selectedCityId!) : 1,
+        "country": _selectedCountryName,
+        "username": username,
       };
 
       Map<String, dynamic> payload;

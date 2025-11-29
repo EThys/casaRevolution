@@ -148,12 +148,12 @@ class _LoginScreenState extends State<LoginScreen> {
           SafeArea(
             child: SingleChildScrollView(
               physics: BouncingScrollPhysics(),
-              padding: EdgeInsets.all(24),
+              padding: EdgeInsets.symmetric(horizontal: 15, vertical: 24),
               child: Column(
                 children: [
                   SizedBox(height: 20),
                   _buildLogo(),
-                  SizedBox(height: 50),
+                  SizedBox(height: 30),
                   _buildAuthCard(),
                   SizedBox(height: 10)
                 ],
@@ -331,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen> {
       padding: EdgeInsets.all(30),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(10),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
@@ -412,8 +412,9 @@ class _LoginScreenState extends State<LoginScreen> {
       child: TextFormField(
         controller: _emailController,
         focusNode: _emailFocusNode,
-        autovalidateMode: AutovalidateMode.disabled, // Désactivé car on gère manuellement
+        autovalidateMode: AutovalidateMode.disabled,
         style: TextStyle(color: textColor, fontSize: 16),
+        textInputAction: TextInputAction.next, // ← AJOUTER CETTE LIGNE
         decoration: InputDecoration(
           labelText: 'Email ou Téléphone',
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -453,11 +454,19 @@ class _LoginScreenState extends State<LoginScreen> {
           }
         },
         onEditingComplete: () {
+          // Vérifier si l'email est valide avant de passer au suivant
+          final emailError = _validateEmail(_emailController.text);
+          if (emailError == null) {
+            FocusScope.of(context).requestFocus(_passwordFocusNode);
+          } else {
+            // Garder le focus sur l'email s'il y a une erreur
+            _emailFocusNode.requestFocus();
+          }
           setState(() {
             _emailTouched = true;
           });
         },
-        validator: null, // Désactivé car on utilise errorText
+        validator: null,
       ),
     ).animate().slideX(
       begin: -0.3,
@@ -519,16 +528,21 @@ class _LoginScreenState extends State<LoginScreen> {
         focusNode: _passwordFocusNode,
         style: TextStyle(color: textColor, fontSize: 16),
         obscureText: !_showPassword,
-        autovalidateMode: AutovalidateMode.disabled, // Désactivé car on gère manuellement
+        autovalidateMode: AutovalidateMode.disabled,
+        textInputAction: TextInputAction.done, // ← AJOUTER CETTE LIGNE
         onChanged: (_) {
           if (_passwordTouched) {
             _forceRevalidation();
           }
         },
         onEditingComplete: () {
+          // Fermer le clavier et valider quand on appuie sur "Done"
+          FocusScope.of(context).unfocus();
           setState(() {
             _passwordTouched = true;
           });
+          // Déclencher la connexion si les conditions sont remplies
+          _triggerLoginIfValid();
         },
         decoration: InputDecoration(
           labelText: 'Mot de passe',
@@ -567,7 +581,7 @@ class _LoginScreenState extends State<LoginScreen> {
           fillColor: lightBlue.withOpacity(0.3),
           errorText: _passwordTouched ? _validatePassword(_passwordController.text) : null,
         ),
-        validator: null, // Désactivé car on utilise errorText
+        validator: null,
       ),
     ).animate().slideX(
       begin: 0.3,
@@ -575,6 +589,18 @@ class _LoginScreenState extends State<LoginScreen> {
       delay: 1500.ms,
       curve: Curves.easeOut,
     );
+  }
+
+  void _triggerLoginIfValid() {
+    final isEmailValid = _validateEmail(_emailController.text) == null;
+    final isPasswordValid = _validatePassword(_passwordController.text) == null;
+    final hasRequiredFields = _emailController.text.isNotEmpty &&
+        _passwordController.text.isNotEmpty;
+    final isButtonEnabled = isEmailValid && isPasswordValid && hasRequiredFields && _acceptConditions && !_isLoading;
+
+    if (isButtonEnabled) {
+      _handleLogin();
+    }
   }
 
   Widget _buildPrivacyText() {
@@ -775,7 +801,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildAuthButton() {
-    // Vérifier si tous les champs sont valides et les conditions acceptées
     final isEmailValid = _validateEmail(_emailController.text) == null;
     final isPasswordValid = _validatePassword(_passwordController.text) == null;
     final hasRequiredFields = _emailController.text.isNotEmpty &&
@@ -787,14 +812,10 @@ class _LoginScreenState extends State<LoginScreen> {
       height: 56,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        gradient: isButtonEnabled
-            ? LinearGradient(
-          colors: [primaryColor, darkBlue],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        )
-            : LinearGradient(
-          colors: [Colors.grey.shade300, Colors.grey.shade400],
+        gradient: LinearGradient(
+          colors: isButtonEnabled
+              ? [primaryColor, darkBlue]
+              : [primaryColor.withOpacity(0.4), darkBlue.withOpacity(0.4)],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
         ),
@@ -807,7 +828,14 @@ class _LoginScreenState extends State<LoginScreen> {
             offset: Offset(0, 5),
           ),
         ]
-            : null,
+            : [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.2),
+            blurRadius: 8,
+            spreadRadius: 1,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: ElevatedButton(
         onPressed: isButtonEnabled ? _handleLogin : null,
@@ -834,12 +862,16 @@ class _LoginScreenState extends State<LoginScreen> {
               'Se connecter',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.white,
+                color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7), // ← CHANGÉ: texte légèrement transparent si désactivé
                 fontWeight: FontWeight.bold,
               ),
             ),
             SizedBox(width: 10),
-            Icon(Icons.arrow_forward_rounded, size: 20, color: Colors.white),
+            Icon(
+              Icons.arrow_forward_rounded,
+              size: 20,
+              color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7), // ← CHANGÉ: icône légèrement transparente si désactivé
+            ),
           ],
         ),
       ),
