@@ -168,6 +168,7 @@ class AuthentificationCtrl with ChangeNotifier {
   }
 
 // Méthode pour stocker les données d'authentification
+// Méthode pour stocker les données d'authentification - VERSION CORRIGÉE
   Future<void> _storeAuthData(String token, String? refreshToken, Map<String, dynamic> userJson, Map<String, dynamic>? profileJson) async {
     try {
       print("💾 Début du stockage des données d'authentification...");
@@ -186,13 +187,18 @@ class AuthentificationCtrl with ChangeNotifier {
       await stockage?.write(StockageKeys.userKey, user.toJson());
       print("✅ Données utilisateur stockées");
 
-      // Stockage du profile si disponible
+      // Stockage du profile si disponible - CORRECTION ICI
       if (profileJson != null) {
-        await stockage?.write(StockageKeys.profileKey, profileJson);
-        print("✅ Données profile stockées");
+        // Vérifier que profileJson est bien un Map et non une String
+        if (profileJson is Map<String, dynamic>) {
+          await stockage?.write(StockageKeys.profileKey, profileJson);
+          print("✅ Données profile stockées");
 
-        // Afficher les infos du profile pour debug
-        print("📋 Profile stocké - Prénom: ${profileJson['firstname']}, Nom: ${profileJson['lastname']}");
+          // Afficher les infos du profile pour debug
+          print("📋 Profile stocké - Prénom: ${profileJson['firstname']}, Nom: ${profileJson['lastname']}");
+        } else {
+          print("⚠️ Format de profile invalide: ${profileJson.runtimeType}");
+        }
       } else {
         print("⚠️ Aucun profile reçu dans la réponse");
       }
@@ -204,16 +210,15 @@ class AuthentificationCtrl with ChangeNotifier {
       print("📊 Données stockées - User ID: ${user.userId}, Email: ${user.email}");
       print("🎫 Token en mémoire: ${_token.substring(0, 20)}...");
 
-    } catch (e) {
+    } catch (e, stack) {
       print("❌ Erreur lors du stockage des données: $e");
+      print("🔍 Détails de l'erreur: $stack");
+
       // Nettoyage en cas d'erreur
       await _cleanupStorage();
       throw Exception("Erreur de stockage des données: $e");
     }
   }
-
-// Ajouter cette clé dans StockageKeys.dart
-// static const String profileKey = 'profile';
 
   Future<HttpResponse> register(Map<String, dynamic> userData, {required String url}) async {
     try {
