@@ -1,25 +1,26 @@
 import 'dart:math';
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/screens/AllPropertiesPage.dart';
 import 'package:casa/screens/PromoBanner.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/utils/Constantes.dart';
+import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/StockageKeys.dart';
-import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:pull_to_refresh/pull_to_refresh.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../models/PropertyModel.dart';
 import '../utils/Routes.dart';
+import '../utils/database/FavoriteDatabaseHelper.dart';
+import '../utils/database/ReservationDatabaseHelper.dart';
 import 'CategoryPropertiesPage.dart';
 import 'NotificationPage.dart';
 
@@ -30,100 +31,43 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final RefreshController _refreshController = RefreshController();
+  bool _isManualRefresh = false;
+
   final Color primaryColor = Color(0xFF1976D2);
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
-
-  bool _isLoading = true;
-  bool _hasError = false;
   final GetStorage storage = GetStorage();
-
-  // Firebase Analytics
-  final FirebaseAnalytics analytics = FirebaseAnalytics.instance;
-  final FirebaseCrashlytics crashlytics = FirebaseCrashlytics.instance;
 
   @override
   void initState() {
     super.initState();
-    _initializeFirebase();
+    _loadInitialData();
+  }
 
-    // Attendre que le widget soit complètement construit
+  void _loadInitialData() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Utiliser Provider pour accéder au contrôleur
       final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
       propertyCtrl.getAllProperty().then((_) {
-        print("Données chargées: ${propertyCtrl.properties.length} propriétés");
-        // Envoyer l'événement à Firebase Analytics
         _logHomePageLoaded(propertyCtrl.properties.length);
       });
     });
   }
 
-  void _initializeFirebase() async {
-    try {
-      // Configuration de Crashlytics pour capturer toutes les erreurs
-      FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterError;
-
-      // Envoyer un événement d'ouverture de l'application
-      await analytics.logAppOpen();
-      await analytics.logEvent(
-        name: 'home_page_view',
-        parameters: {
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-        },
-      );
-    } catch (e) {
-      print("Erreur d'initialisation Firebase: $e");
-    }
-  }
-
-  // Méthode pour logger le chargement de la page d'accueil
   void _logHomePageLoaded(int propertyCount) {
-    analytics.logEvent(
-      name: 'home_page_loaded',
-      parameters: {
-        'property_count': propertyCount,
-        'user_id': storage.read(StockageKeys.userKey)?['id'] ?? 'anonymous',
-        'loaded_at': DateTime.now().toIso8601String(),
-      },
-    );
+    print("🏠 Page accueil chargée: $propertyCount propriétés");
   }
 
   void _logPropertyView(PropertyModel property, bool isForRent) {
-    analytics.logEvent(
-      name: 'property_viewed',
-      parameters: {
-        'property_id': property.propertyId?.toString() ?? 'unknown',
-        'property_title': property.title ?? 'Sans titre',
-        'property_type': isForRent ? 'location' : 'vente',
-        'price': property.price?.toStringAsFixed(0) ?? '0',
-        'bedrooms': property.bedrooms?.toString() ?? '0',
-        'bathrooms': property.bathroom?.toString() ?? '0',
-        'surface': property.surface?.toStringAsFixed(0) ?? '0',
-        'timestamp': DateTime.now().toIso8601String(),
-      },
-    );
-  }
-  // Méthode pour logger l'ouverture d'une catégorie
-  void _logCategoryTap(String category) {
-    analytics.logEvent(
-      name: 'category_tapped',
-      parameters: {
-        'category_name': category,
-        'timestamp': DateTime.now().toIso8601String(),
-      },
-    );
+    print("👀 Propriété vue: ${property.propertyId} - ${isForRent ? 'Location' : 'Vente'}");
   }
 
-  // Méthode pour logger la déconnexion
+  void _logCategoryTap(String category) {
+    print("📁 Catégorie tapée: $category");
+  }
+
   void _logUserLogout() {
-    analytics.logEvent(
-      name: 'user_logout',
-      parameters: {
-        'user_id': storage.read(StockageKeys.userKey)?['id'] ?? 'anonymous',
-        'timestamp': DateTime.now().toIso8601String(),
-      },
-    );
+    print("🚪 Déconnexion utilisateur");
   }
 
   @override
@@ -134,72 +78,182 @@ class _HomePageState extends State<HomePage> {
     final rentalProperties = properties.where((p) => p.transactionType == 'location').toList();
     final saleProperties = properties.where((p) => p.transactionType == 'vente').toList();
 
-    print("matadiiiiiiii${properties}");
-    print("Données chargées: ${properties}");
-
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: Colors.grey[50],
       drawer: _buildDrawer(),
       appBar: _buildAppBar(),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Section Hero
-            _buildHeroSection(),
-            SizedBox(height: 13),
-            _buildCategorySection(),
-
-            // Section Locations
-            _buildSectionHeader(
-              title: "Maisons en Location",
-              subtitle: "Découvrez nos meilleures offres",
-              onSeeAll: () {
-                _logCategoryTap('locations_see_all');
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => AllPropertiesPage(
-                      initialProperties: rentalProperties,
-                      isForRent: true,
-                    ),
-                  ),
-                );
-              },
+      body: SmartRefresher(
+        controller: _refreshController,
+        enablePullDown: true,
+        enablePullUp: false,
+        header: ClassicHeader(
+          height: 60,
+          releaseText: 'Relâchez pour actualiser',
+          refreshingText: 'Mise à jour...',
+          completeText: 'Actualisation terminée',
+          failedText: 'Échec de l\'actualisation',
+          idleText: 'Tirez pour actualiser',
+          textStyle: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+          refreshingIcon: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
             ),
-            _buildPropertyCarousel(
-              isForRent: true,
-              properties: rentalProperties,
-              isLoading: propertyCtrl.loading,
-            ),
-            SizedBox(height: 20),
-            PromoBanner(),
-            _buildSectionHeader(
-              title: "Maisons en Vente",
-              subtitle: "Investissez dans votre avenir",
-              onSeeAll: () {
-                _logCategoryTap('ventes_see_all');
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => AllPropertiesPage(
-                      initialProperties: saleProperties,
-                      isForRent: false,
-                    ),
-                  ),
-                );
-              },
-            ),
-            _buildPropertyCarousel(
-              isForRent: false,
-              properties: saleProperties,
-              isLoading: propertyCtrl.loading,
-            ),
-
-            SizedBox(height: 30),
-          ],
+          ),
         ),
+        onRefresh: () async {
+          await _handlePullToRefresh(propertyCtrl);
+        },
+        child: SingleChildScrollView(
+          physics: NeverScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Section Hero
+              _buildHeroSection(),
+              SizedBox(height: 20),
+              _buildCategorySection(),
+
+              // Indicateurs de statut discrets
+              if (propertyCtrl.syncing && !_isManualRefresh)
+                _buildMinimalSyncIndicator(),
+
+              if (_isManualRefresh && propertyCtrl.syncing)
+                _buildMinimalSyncIndicator(),
+
+              // Section Locations
+              _buildSectionHeader(
+                title: "Maisons en Location",
+                subtitle: "Découvrez nos meilleures offres",
+                onSeeAll: () {
+                  _logCategoryTap('locations_see_all');
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AllPropertiesPage(
+                        initialProperties: rentalProperties,
+                        isForRent: true,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _buildPropertyCarousel(
+                isForRent: true,
+                properties: rentalProperties,
+                isLoading: propertyCtrl.loading,
+              ),
+              SizedBox(height: 20),
+              PromoBanner(),
+              _buildSectionHeader(
+                title: "Maisons en Vente",
+                subtitle: "Investissez dans votre avenir",
+                onSeeAll: () {
+                  _logCategoryTap('ventes_see_all');
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AllPropertiesPage(
+                        initialProperties: saleProperties,
+                        isForRent: false,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _buildPropertyCarousel(
+                isForRent: false,
+                properties: saleProperties,
+                isLoading: propertyCtrl.loading,
+              ),
+              SizedBox(height: 30),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMinimalSyncIndicator() {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+      padding: EdgeInsets.all(8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+            ),
+          ),
+          SizedBox(width: 8),
+          Text(
+            'Chargement...',
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
+    setState(() {
+      _isManualRefresh = true;
+    });
+
+    try {
+      await propertyCtrl.refreshProperties();
+      _refreshController.refreshCompleted();
+      //SnackbarForCasa.success(context, "Liste actualisée");
+    } catch (e) {
+      print("❌ Erreur refresh: $e");
+      _refreshController.refreshFailed();
+      SnackbarForCasa.error(context, "Erreur de connexion");
+    } finally {
+      setState(() {
+        _isManualRefresh = false;
+      });
+    }
+  }
+
+  void _showMinimalRefreshSuccess() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Liste actualisée'),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: Duration(seconds: 1),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  void _showMinimalRefreshError() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Erreur de connexion'),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: Duration(seconds: 2),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: EdgeInsets.all(16),
       ),
     );
   }
@@ -260,7 +314,6 @@ class _HomePageState extends State<HomePage> {
         child: IconButton(
           icon: Icon(Icons.menu_rounded, color: Colors.white, size: 24),
           onPressed: () {
-            analytics.logEvent(name: 'drawer_opened');
             _scaffoldKey.currentState?.openDrawer();
           },
           splashRadius: 20,
@@ -344,8 +397,10 @@ class _HomePageState extends State<HomePage> {
                   size: 22,
                 ),
                 onPressed: () {
-                  analytics.logEvent(name: 'notifications_opened');
-                  Navigator.push(context, MaterialPageRoute(builder: (context) => NotificationsPage()));
+                  SnackbarForCasa.info(
+                    context,
+                    "Fonctionnalité en cours de développement",
+                  );
                 },
                 splashRadius: 20,
                 padding: EdgeInsets.zero,
@@ -391,24 +446,72 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildCircleIcon(IconData icon, {VoidCallback? onTap}) {
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
-        shape: BoxShape.circle,
-      ),
-      child: IconButton(
-        icon: Icon(icon, color: Colors.white, size: 24),
-        onPressed: onTap,
-        splashRadius: 26,
-      ),
-    );
+  Future<void> _clearLocalAuthData() async {
+    try {
+      print("🔒 Début de la déconnexion...");
+
+      // 1. Liste de toutes les clés à supprimer
+      final List<String> keysToRemove = [
+        StockageKeys.tokenKey,
+        StockageKeys.refreshTokenKey,
+        StockageKeys.userKey,
+        StockageKeys.userPreferenceKey,
+        StockageKeys.profileKey,
+        'user_image_path',
+        'profile_image_path',
+        'card_front_path',
+        'card_back_path',
+        'published_properties_count',
+        'referrals_count',
+        'user_data'
+      ];
+
+      // 2. Supprimer chaque clé individuellement avec gestion d'erreur
+      for (final key in keysToRemove) {
+        try {
+          await storage.remove(key);
+          print("✅ Clé supprimée: $key");
+        } catch (e) {
+          print("⚠️ Impossible de supprimer la clé $key: $e");
+          // Continuer même si une clé échoue
+        }
+      }
+
+      // 3. Vider les bases de données
+      try {
+        await FavoriteDatabaseHelper.instance.clearAllFavorites();
+        print("✅ Favoris supprimés");
+      } catch (e) {
+        print("⚠️ Erreur lors de la suppression des favoris: $e");
+      }
+
+      try {
+        await ReservationDatabaseHelper.instance.clearAllReservations();
+        print("✅ Réservations supprimées");
+      } catch (e) {
+        print("⚠️ Erreur lors de la suppression des réservations: $e");
+      }
+
+      // 4. Forcer l'écriture des changements
+      await storage.write('logout_timestamp', DateTime.now().millisecondsSinceEpoch);
+
+      print("✅ Déconnexion réussie - Toutes les données ont été nettoyées");
+
+    } catch (e) {
+      print("❌ Erreur critique lors de la déconnexion: $e");
+
+      try {
+        await storage.remove(StockageKeys.tokenKey);
+        await storage.remove(StockageKeys.userKey);
+        print("✅ Clés essentielles supprimées malgré l'erreur");
+      } catch (criticalError) {
+        print("❌❌ Échec critique de la déconnexion: $criticalError");
+        throw criticalError; // Relancer seulement l'erreur critique
+      }
+    }
   }
 
   void _confirmLogout() {
-    analytics.logEvent(name: 'logout_dialog_shown');
-
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -421,10 +524,7 @@ class _HomePageState extends State<HomePage> {
         actionsAlignment: MainAxisAlignment.spaceBetween,
         actions: [
           TextButton(
-            onPressed: () {
-              analytics.logEvent(name: 'logout_cancelled');
-              Navigator.pop(context);
-            },
+            onPressed: () => Navigator.pop(context),
             style: TextButton.styleFrom(
               foregroundColor: Theme.of(context).primaryColor,
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -432,60 +532,7 @@ class _HomePageState extends State<HomePage> {
             child: const Text('Annuler'),
           ),
           ElevatedButton(
-            onPressed: () async {
-              analytics.logEvent(name: 'logout_confirmed');
-              Navigator.pop(context);
-
-              final scaffold = ScaffoldMessenger.of(context);
-              scaffold.showSnackBar(
-                SnackBar(
-                  content: Row(
-                    children: [
-                      const CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                      const SizedBox(width: 16),
-                      const Text('Déconnexion en cours...'),
-                    ],
-                  ),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-
-              try {
-                // Logger la déconnexion avant de la traiter
-                _logUserLogout();
-
-                await storage.erase();
-                if (!mounted) return;
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (context) => LoginScreen()),
-                      (Route<dynamic> route) => false,
-                );
-
-                scaffold.showSnackBar(
-                  const SnackBar(
-                    content: Text('Déconnexion réussie'),
-                    backgroundColor: Colors.green,
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-
-              } catch (e, stack) {
-                // Envoyer l'erreur à Crashlytics
-                await crashlytics.recordError(e, stack, reason: 'Erreur lors de la déconnexion');
-
-                if (!mounted) return;
-                scaffold.showSnackBar(
-                  SnackBar(
-                    content: Text('Erreur lors de la déconnexion: ${e.toString()}'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-            },
+            onPressed: () => _performLogout(),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.shade700,
               foregroundColor: Colors.white,
@@ -501,10 +548,66 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _performLogout() async {
+    // Fermer la dialog d'abord
+    Navigator.pop(context);
+
+    // Afficher un indicateur de chargement
+    final scaffold = ScaffoldMessenger.of(context);
+
+    try {
+      // 1. Nettoyer les données
+      await _clearLocalAuthData();
+
+      // 2. Attendre un cycle de frame pour éviter les conflits
+      await Future.delayed(Duration(milliseconds: 100));
+
+      // 3. Navigation sécurisée avec vérification du mounted
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              Routes.bottomPageRoute,
+                  (route) => false,
+            );
+          }
+        });
+      }
+
+    } catch (e) {
+      print("❌ Erreur lors de la déconnexion: $e");
+
+      // Même en cas d'erreur, essayer de naviguer
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          try {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              Routes.bottomPageRoute,
+                  (route) => false,
+            );
+          } catch (navError) {
+            print("❌ Erreur de navigation critique: $navError");
+
+            // Dernière tentative avec un rechargement complet
+            if (mounted) {
+              Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (context) => HomePage()),
+                    (route) => false,
+              );
+            }
+          }
+        });
+      }
+    }
+  }
+
   Widget _buildDrawer() {
     final stockage = GetStorage();
     final token = stockage.read(StockageKeys.tokenKey);
     final user = stockage.read(StockageKeys.userKey);
+    final profile = stockage.read(StockageKeys.profileKey);
     bool isLoggedIn = token != null;
 
     String selectedRoute = ModalRoute.of(context)?.settings.name ?? Routes.bottomPageRoute;
@@ -582,7 +685,6 @@ class _HomePageState extends State<HomePage> {
                         children: [
                           GestureDetector(
                             onTap: () {
-                              analytics.logEvent(name: 'profile_avatar_tapped');
                               _animateAvatar();
                             },
                             child: AnimatedContainer(
@@ -613,25 +715,73 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
                           ),
-                          SizedBox(height: 20),
+                          SizedBox(height: 8),
                           AnimatedSwitcher(
                             duration: Duration(milliseconds: 300),
-                            child: Text(
-                              isLoggedIn ? "Bonjour 👋 ${user?['username']}" : "Bienvenue 👋 Utilisateur",
-                              key: ValueKey(isLoggedIn),
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 17,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black.withOpacity(0.1),
-                                    blurRadius: 4,
-                                    offset: Offset(0, 1),
-                                  ),
-                                ],
+                            child: isLoggedIn
+                                ? Container(
+                              constraints: BoxConstraints(
+                                maxWidth: 200, // Limite la largeur maximale
                               ),
+                              child: Text(
+                                "${profile?['fullname'] ?? 'Utilisateur'}",
+                                key: ValueKey('user'),
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                  shadows: [
+                                    Shadow(
+                                      color: Colors.black.withOpacity(0.1),
+                                      blurRadius: 4,
+                                      offset: Offset(0, 1),
+                                    ),
+                                  ],
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                              ),
+                            )
+                                : Column(
+                              key: ValueKey('welcome'),
+                              children: [
+                                Text(
+                                  'Bienvenue 👋',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black.withOpacity(0.1),
+                                        blurRadius: 4,
+                                        offset: Offset(0, 1),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Container(
+                                  constraints: BoxConstraints(
+                                    maxWidth: 200, // Limite la largeur maximale
+                                  ),
+                                  child: Text(
+                                    'Connectez-vous pour accéder à toutes les fonctionnalités',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.9),
+                                      fontSize: 11, // Réduit la taille de police
+                                      fontWeight: FontWeight.normal,
+                                      height: 1.3,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -640,12 +790,15 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
               ),
+              // ... le reste du code reste inchangé
               Expanded(
                 child: SingleChildScrollView(
                   physics: BouncingScrollPhysics(),
                   child: Column(
                     children: [
                       SizedBox(height: 16),
+
+                      // SECTION PRINCIPAL
                       _buildDrawerSection(
                         title: "PRINCIPAL",
                         items: [
@@ -659,25 +812,30 @@ class _HomePageState extends State<HomePage> {
                           _buildDrawerItem(
                             icon: Icons.favorite_rounded,
                             title: 'Favoris',
-                            isSelected: selectedRoute == '/favorites',
-                            onTap: () => _handleNavigation('/favorites'),
+                            routeName: Routes.favoriteRoute,
+                            isSelected:  selectedRoute == Routes.favoriteRoute,
+                            onTap: () => _handleNavigation(Routes.favoriteRoute),
                           ),
-                          _buildDrawerItem(
-                            icon: Icons.calendar_today_rounded,
-                            title: 'Mes Réservations',
-                            routeName: Routes.bookingHistoryPageRoute,
-                            isSelected: selectedRoute == Routes.bookingHistoryPageRoute,
-                            onTap: () => _handleNavigation(Routes.bookingHistoryPageRoute),
-                          ),
-                          _buildDrawerItem(
-                            icon: Icons.dashboard_rounded,
-                            title: 'Ma gestion',
-                            routeName: Routes.commissionnaireDashboardPageRoute,
-                            isSelected: selectedRoute == Routes.commissionnaireDashboardPageRoute,
-                            onTap: () => _handleNavigation(Routes.commissionnaireDashboardPageRoute),
-                          ),
+                          if (isLoggedIn) ...[
+                            _buildDrawerItem(
+                              icon: Icons.calendar_today_rounded,
+                              title: 'Mes Réservations',
+                              routeName: Routes.bookingHistoryPageRoute,
+                              isSelected: selectedRoute == Routes.bookingHistoryPageRoute,
+                              onTap: () => _handleNavigation(Routes.bookingHistoryPageRoute),
+                            ),
+                            _buildDrawerItem(
+                              icon: Icons.dashboard_rounded,
+                              title: 'Ma gestion',
+                              routeName: Routes.commissionnaireDashboardPageRoute,
+                              isSelected: selectedRoute == Routes.commissionnaireDashboardPageRoute,
+                              onTap: () => _handleNavigation(Routes.commissionnaireDashboardPageRoute),
+                            ),
+                          ],
                         ],
                       ),
+
+                      // SECTION SOCIAL
                       _buildDrawerSection(
                         title: "SOCIAL",
                         items: [
@@ -697,6 +855,8 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ],
                       ),
+
+                      // SECTION SUPPORT
                       _buildDrawerSection(
                         title: "SUPPORT",
                         items: [
@@ -720,6 +880,8 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ],
                       ),
+
+                      // SECTION COMPTE (seulement si connecté)
                       if (isLoggedIn)
                         _buildDrawerSection(
                           title: "COMPTE",
@@ -733,6 +895,88 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ],
                         ),
+
+                      // BOUTONS CONNEXION/INSCRIPTION (seulement si NON connecté)
+                      if (!isLoggedIn) ...[
+                        SizedBox(height: 16),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Column(
+                            children: [
+                              // Bouton Se connecter
+                              Container(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    Navigator.pop(context);
+                                    Navigator.pushNamed(context, Routes.loginRoute);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: primaryColor,
+                                    foregroundColor: Colors.white,
+                                    padding: EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    elevation: 2,
+                                    shadowColor: primaryColor.withOpacity(0.3),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.login_rounded, size: 20),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Se connecter',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              SizedBox(height: 12),
+                              // Bouton S'inscrire
+                              Container(
+                                width: double.infinity,
+                                child: OutlinedButton(
+                                  onPressed: () {
+                                    Navigator.pop(context);
+                                    Navigator.pushNamed(context, Routes.registerRoute);
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: primaryColor,
+                                    side: BorderSide(color: primaryColor, width: 1.5),
+                                    padding: EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    backgroundColor: Colors.transparent,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.person_add_rounded, size: 20),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Créer un compte',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(height: 16),
+                      ],
+
                       SizedBox(height: 20),
                       Container(
                         margin: EdgeInsets.symmetric(horizontal: 24),
@@ -778,34 +1022,19 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _handleNavigation(String routeName) {
-    analytics.logEvent(
-      name: 'navigation',
-      parameters: {
-        'from': 'drawer',
-        'to': routeName,
-        'timestamp': DateTime.now().toIso8601String(),
-      },
-    );
 
+  void _handleNavigation(String routeName) {
     Navigator.pop(context);
 
     if (routeName == Routes.bottomPageRoute ||
         routeName == Routes.commissionnaireDashboardPageRoute ||
-        routeName == Routes.ParrainagePageRoute ||
+        routeName == Routes.favoriteRoute ||
         routeName == Routes.bookingHistoryPageRoute) {
       Navigator.pushNamed(context, routeName);
     } else {
-      analytics.logEvent(name: 'feature_not_implemented', parameters: {'feature': routeName});
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Fonctionnalité en cours de développement'),
-          backgroundColor: primaryColor,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+      SnackbarForCasa.info(
+        context,
+        "Fonctionnalité en cours de développement",
       );
     }
   }
@@ -1045,9 +1274,7 @@ class _HomePageState extends State<HomePage> {
                         ],
                       ),
                       child: ElevatedButton.icon(
-                        onPressed: () {
-                          analytics.logEvent(name: 'explore_button_tapped');
-                        },
+                        onPressed: () {},
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: primaryColor,
@@ -1083,112 +1310,118 @@ class _HomePageState extends State<HomePage> {
       {
         'image': 'assets/images/studio.png',
         'label': 'Studios',
-        'value': 'Studio'
+        'value': 'Studio',
       },
       {
         'image': 'assets/images/apart.png',
         'label': 'Apparts',
-        'value': 'Apparts'
+        'value': 'Apparts',
       },
       {
-        'image': 'assets/images/maisons.png',
+        'image': 'assets/images/maison.png',
         'label': 'Maisons',
-        'value': 'Maisons'
+        'value': 'Maisons',
       },
       {
         'image': 'assets/images/office.png',
         'label': 'Bureaux',
-        'value': 'Bureau'
+        'value': 'Bureau',
       },
       {
         'image': 'assets/images/hotel.png',
         'label': 'Hotels',
-        'value': 'Hotels'
+        'value': 'Hotels',
       },
       {
         'image': 'assets/images/plage.png',
         'label': 'Vacances',
-        'value': 'Vacances'
+        'value': 'Vacances',
       },
     ];
 
     return Container(
-      height: 140,
-      margin: EdgeInsets.only(bottom: 10),
+      margin: EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 24),
             child: Text(
-              'Catégories',
+              'Explorer par type',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey[800],
+                color: Colors.grey[900],
+                letterSpacing: -0.2,
               ),
             ),
           ),
-          SizedBox(height: 12),
-          Expanded(
+          SizedBox(height: 5),
+          Container(
+            height: 100,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.symmetric(horizontal: 20),
+              padding: EdgeInsets.symmetric(horizontal: 12),
               itemCount: categories.length,
               itemBuilder: (context, index) {
+                final category = categories[index];
                 return Container(
-                  width: 90,
-                  margin: EdgeInsets.only(right: 8),
+                  width: 80,
+                  margin: EdgeInsets.symmetric(horizontal: 4),
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(18),
-                      onTap: () async {
-                        _logCategoryTap(categories[index]['value'] as String);
-                        print("MUZOLLAAAA${categories[index]['value'] }");
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        _logCategoryTap(category['value'] as String);
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => CategoryPropertiesPage(
-                              category: categories[index]['value'] as String,
+                              category: category['value'] as String,
                             ),
                           ),
                         );
                       },
-                      splashColor: primaryColor.withOpacity(0.1),
-                      highlightColor: primaryColor.withOpacity(0.05),
-                      child: Padding(
+                      child: Container(
                         padding: EdgeInsets.all(8),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
+                            // Container simple et épuré pour l'image
                             Container(
-                              width: 56,
-                              height: 56,
+                              width: 48,
+                              height: 48,
                               decoration: BoxDecoration(
-                                color: primaryColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(16),
+                                color: Colors.grey[50],
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.grey[200]!,
+                                  width: 1,
+                                ),
                               ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
+                              child: Padding(
+                                padding: EdgeInsets.all(10),
                                 child: Image.asset(
-                                  categories[index]['image'] as String,
-                                  width: 40,
-                                  height: 40,
+                                  category['image'] as String,
                                   fit: BoxFit.contain,
+                                  filterQuality: FilterQuality.high,
                                 ),
                               ),
                             ),
-                            SizedBox(height: 10),
+                            SizedBox(height: 8),
+                            // Label sobre
                             Text(
-                              categories[index]['label'] as String,
+                              category['label'] as String,
                               style: TextStyle(
                                 fontSize: 12,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.bold,
                                 color: Colors.grey[700],
+                                height: 1.1,
                               ),
                               textAlign: TextAlign.center,
                               maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
@@ -1238,10 +1471,10 @@ class _HomePageState extends State<HomePage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'voir',
+                        'voir tout',
                         style: TextStyle(
                           color: primaryColor,
-                          fontSize: 14,
+                          fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -1343,6 +1576,144 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildEmptyState() {
+    return Container(
+      height: 320,
+      margin: EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Illustration principale
+            Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                color: Color(0xFF1976D2).withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.home_work_outlined,
+                size: 70,
+                color: Color(0xFF1976D2).withOpacity(0.6),
+              ),
+            ),
+
+            SizedBox(height: 28),
+
+            // Titre principal
+            Text(
+              'Aucune propriété disponible',
+              style: GoogleFonts.inter(
+                color: Colors.grey[800],
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+
+            SizedBox(height: 12),
+
+            // Description adaptée pour l'accueil
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                'Notre catalogue de propriétés est actuellement vide.\nNous ajoutons régulièrement de nouvelles annonces - revenez bientôt !',
+                style: GoogleFonts.inter(
+                  color: Colors.grey[600],
+                  fontSize: 15,
+                  fontWeight: FontWeight.w400,
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+
+            SizedBox(height: 28),
+
+            // Bouton d'action principal
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0xFF1976D2).withOpacity(0.2),
+                    blurRadius: 15,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: () {
+                  // Rafraîchir les propriétés
+                  final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+                  propertyCtrl.getAllProperty();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Color(0xFF1976D2),
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  elevation: 0,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.refresh_rounded, size: 20),
+                    SizedBox(width: 10),
+                    Text(
+                      'Actualiser la page',
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            SizedBox(height: 20),
+
+            // Information complémentaire
+            Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.grey[200]!,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 18,
+                    color: Color(0xFF1976D2),
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'Nouvelles propriétés ajoutées quotidiennement',
+                    style: GoogleFonts.inter(
+                      color: Colors.grey[600],
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPropertyCarousel({
     required List<PropertyModel> properties,
     required bool isForRent,
@@ -1354,29 +1725,72 @@ class _HomePageState extends State<HomePage> {
 
     if (properties.isEmpty) {
       return Container(
-        height: 180,
+        height: 280,
+        margin: EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.search_off, size: 48, color: Colors.grey[400]),
-              SizedBox(height: 16),
+              // Illustration moderne avec effet de cercle
+              Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Color(0xFF1976D2).withOpacity(0.1),
+                      Color(0xFF2196F3).withOpacity(0.05),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0xFF1976D2).withOpacity(0.1),
+                      blurRadius: 15,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.home_work_outlined,
+                  size: 50,
+                  color: Color(0xFF1976D2).withOpacity(0.7),
+                ),
+              ),
+
+              SizedBox(height: 24),
+
+              // Titre principal avec meilleure hiérarchie
               Text(
                 'Aucune propriété disponible',
                 style: GoogleFonts.inter(
-                  color: Colors.grey[600],
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[800],
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              SizedBox(height: 12),
+
+              // Message secondaire plus engageant
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'Notre catalogue se met à jour régulièrement.',
+                  style: GoogleFonts.inter(
+                    color: Colors.grey[600],
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                    height: 1.5,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
               ),
-              SizedBox(height: 8),
-              Text(
-                'Essayez de modifier vos critères',
-                style: GoogleFonts.inter(
-                  color: Colors.grey[400],
-                  fontSize: 14,
-                ),
-              ),
+
             ],
           ),
         ),
@@ -1685,46 +2099,6 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-    );
-  }
-
-  String _getFeatureLabel(IconData icon, String value) {
-    if (icon == FontAwesomeIcons.bed) return '$value Chambre${int.parse(value) > 1 ? 's' : ''}';
-    if (icon == FontAwesomeIcons.bath) return '$value Salle${int.parse(value) > 1 ? 's' : ''} de bain';
-    if (icon == FontAwesomeIcons.rulerCombined) return '$value mètres carrés';
-    if (icon == Icons.zoom_out_map) return '$value Pièce${int.parse(value) > 1 ? 's' : ''}';
-    return '';
-  }
-
-  Widget _buildFeatureChip({
-    required IconData icon,
-    required String value,
-    required String label,
-  }) {
-    return Column(
-      children: [
-        Icon(
-          icon,
-          size: 18,
-          color: Colors.white,
-        ),
-        SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
-            fontSize: 10,
-          ),
-        ),
-      ],
     );
   }
 }
