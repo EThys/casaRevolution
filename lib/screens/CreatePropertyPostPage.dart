@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as stockage;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,13 +22,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 
+import '../utils/StockageKeys.dart';
+
 class CreatePropertyPostPage extends StatefulWidget {
   @override
   _CreatePropertyPostPageState createState() => _CreatePropertyPostPageState();
 }
 
 class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
-  // Modern color palette
+  // Modern color palette - COULEURS HARMONISÉES
   final Color _primaryColor = Color(0xFF1976D2);
   final Color _secondaryColor = Color(0xFF64B5F6);
   final Color _darkColor = Color(0xFF1A1D26);
@@ -38,6 +41,21 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   final Color _borderColor = Color(0xFFE9ECEF);
   final Color _accentColor = Color(0xFFFF6B35);
   final Color _errorColor = Color(0xFFD32F2F);
+  final Color _warningColor = Color(0xFFFFA000);
+  final Color _infoColor = Color(0xFF1976D2);
+
+  // Tailles de texte harmonisées
+  final double _titleSize = 18.0;
+  final double _subtitleSize = 14.0;
+  final double _bodySize = 14.0;
+  final double _captionSize = 12.0;
+  final double _smallSize = 10.0;
+
+  // Espacements harmonisés
+  final double _smallSpace = 8.0;
+  final double _mediumSpace = 16.0;
+  final double _largeSpace = 24.0;
+  final double _xLargeSpace = 32.0;
 
   // Firebase Analytics
   final FirebaseAnalytics _analytics = FirebaseAnalytics.instance;
@@ -89,14 +107,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   List<CommuneModel> _availableCommunes = [];
   List<QuartierModel> _availableQuartiers = [];
 
-  // Validation errors storage
+  // Validation errors storage - PAR ÉTAPE ET PAR CHAMP
   Map<String, String> _fieldErrors = {};
   Map<int, bool> _stepValidations = {0: false, 1: false, 2: false};
+  Map<int, Map<String, String>> _stepFieldErrors = {
+    0: {}, // Erreurs par champ pour l'étape 1
+    1: {}, // Erreurs par champ pour l'étape 2
+    2: {}, // Erreurs par champ pour l'étape 3
+  };
   Map<int, String> _stepErrorMessages = {};
-
-  final GetStorage storage = GetStorage();
-  late final userData = storage.read('user_data');
-  late var userId=userData["userId"];
 
   // Categories d'images par pièces
   final List<ImageCategory> _imageCategories = [
@@ -104,32 +123,35 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       id: 'propertyImage',
       name: 'Photos principales',
       icon: FontAwesomeIcons.home,
-      color: Color(0xFF2196F3),
+      color: Color(0xFF1976D2),
       description: 'Photos principales de la propriété',
     ),
     ImageCategory(
       id: 'propertyImageRoom',
       name: 'Chambres',
       icon: FontAwesomeIcons.bed,
-      color: Color(0xFF2196F3),
+      color: Color(0xFF1976D2),
       description: 'Photos des chambres',
     ),
     ImageCategory(
       id: 'propertyImageLivingRoom',
       name: 'Salon',
       icon: FontAwesomeIcons.couch,
-      color: Color(0xFF2196F3),
+      color: Color(0xFF1976D2),
       description: 'Photos du salon',
     ),
     ImageCategory(
       id: 'propertyImageKitchen',
       name: 'Cuisine',
       icon: FontAwesomeIcons.kitchenSet,
-      color: Color(0xFF2196F3),
+      color: Color(0xFF1976D2),
       description: 'Photos de la cuisine',
     ),
   ];
 
+  final stockage = GetStorage();
+  late final profile = stockage.read(StockageKeys.profileKey);
+  late var fullname = profile["fullname"];
   Map<String, List<XFile>> _selectedImages = {};
   Map<String, String> _otherRoomDescriptions = {};
 
@@ -179,11 +201,16 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   @override
   void initState() {
     super.initState();
+    _selectedElectric = null;
+    _selectedWater = null;
 
     _bedroomsController.addListener(_updateTotalRooms);
     _bathroomsController.addListener(_updateTotalRooms);
     _livingRoomsController.addListener(_updateTotalRooms);
     _kitchensController.addListener(_updateTotalRooms);
+
+    PaintingBinding.instance.imageCache.maximumSize = 100;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 50 << 20;
 
     // Initialiser les images sélectionnées
     for (var category in _imageCategories) {
@@ -259,7 +286,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
   Future<void> _trackEvent(String name, Map<String, dynamic> parameters) async {
     try {
-      // Convertir Map<String, dynamic> en Map<String, Object>
       final Map<String, Object> convertedParams = {};
 
       parameters.forEach((key, value) {
@@ -274,7 +300,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         } else if (value == null) {
           convertedParams[key] = 'null';
         } else {
-          // Convertir tout autre type en String
           convertedParams[key] = value.toString();
         }
       });
@@ -317,11 +342,12 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     });
   }
 
-  Future<void> _trackValidationError(int step, String errors) async {
+  Future<void> _trackValidationError(int step, String field, String error) async {
     await _trackEvent('validation_error', {
       'step_number': step,
       'step_name': _getStepName(step),
-      'errors': errors,
+      'field': field,
+      'error': error,
       'total_images': _totalImagesCount,
     });
   }
@@ -340,7 +366,56 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   // =============================================
-  // EXISTING METHODS (with Firebase tracking added)
+  // GESTION DES ERREURS PAR ÉTAPE ET PAR CHAMP
+  // =============================================
+
+  void _clearStepFieldErrors(int step) {
+    if (_stepFieldErrors.containsKey(step)) {
+      _stepFieldErrors[step]!.clear();
+    }
+  }
+
+  void _setFieldError(int step, String field, String error) {
+    if (!_stepFieldErrors.containsKey(step)) {
+      _stepFieldErrors[step] = {};
+    }
+    _stepFieldErrors[step]![field] = error;
+
+    _trackValidationError(step, field, error);
+  }
+
+  void _removeFieldError(int step, String field) {
+    if (_stepFieldErrors.containsKey(step)) {
+      _stepFieldErrors[step]!.remove(field);
+    }
+  }
+
+  String? _getFieldError(int step, String field) {
+    return _stepFieldErrors[step]?[field];
+  }
+
+  bool _hasFieldErrors(int step) {
+    return _stepFieldErrors[step]?.isNotEmpty ?? false;
+  }
+
+  List<String> _getStepErrorFields(int step) {
+    return _stepFieldErrors[step]?.keys.toList() ?? [];
+  }
+
+  void _showFieldErrorNotification(int step, String field) {
+    final error = _getFieldError(step, field);
+    if (error != null && error.isNotEmpty) {
+      FancyNotification.show(
+        context,
+        error,
+        isError: true,
+        duration: 3,
+      );
+    }
+  }
+
+  // =============================================
+  // EXISTING METHODS (with enhanced error handling)
   // =============================================
 
   void _setupFocusNodes() {
@@ -649,14 +724,20 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   bool _validateStep0() {
+    _clearStepFieldErrors(0);
     final errors = <String>[];
 
+    // Validation du type de propriété
     if (_selectedCategory == null) {
       errors.add('Veuillez sélectionner un type de propriété');
+      _setFieldError(0, 'property_type', 'Type de propriété requis');
     }
 
-    if (_totalImagesCount < 3) {
-      errors.add('Au moins 3 photos sont requises');
+    // Validation des photos principales seulement
+    final mainImages = _selectedImages['propertyImage'] ?? [];
+    if (mainImages.length < 3) {
+      errors.add('Au moins 3 photos principales sont requises');
+      _setFieldError(0, 'photos', 'Minimum 3 photos principales requises');
     }
 
     final isValid = errors.isEmpty;
@@ -667,111 +748,91 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       _stepErrorMessages[0] = errorMessage;
     });
 
-    // Track validation result
-    if (!isValid) {
-      _trackValidationError(0, errorMessage);
-    }
-
     return isValid;
   }
 
   bool _validateStep1() {
+    _clearStepFieldErrors(1);
     final errors = <String>[];
-    final fieldErrors = <String, String>{};
 
     // Title validation
     if (_titleController.text.trim().isEmpty) {
-      errors.add('Le titre est requis');
-      fieldErrors['title'] = 'Veuillez entrer un titre';
+      _setFieldError(1, 'title', 'Veuillez entrer un titre');
+    } else if (_titleController.text.trim().length < 10) {
+      _setFieldError(1, 'title', 'Titre trop court (min 10 caractères)');
     }
 
     // Price validation
     if (_priceController.text.trim().isEmpty) {
-      errors.add('Le prix est requis');
-      fieldErrors['price'] = 'Veuillez entrer un prix';
+      _setFieldError(1, 'price', 'Veuillez entrer un prix');
     } else if (double.tryParse(_priceController.text) == null) {
-      errors.add('Le prix doit être un nombre valide');
-      fieldErrors['price'] = 'Veuillez entrer un nombre valide';
+      _setFieldError(1, 'price', 'Veuillez entrer un nombre valide');
     }
 
     // Description validation
     if (_descriptionController.text.trim().isEmpty) {
-      errors.add('La description est requise');
-      fieldErrors['description'] = 'Veuillez entrer une description';
-    } else if (_descriptionController.text.length < 50) {
-      errors.add('La description doit faire au moins 50 caractères');
-      fieldErrors['description'] = 'Description trop courte (${_descriptionController.text.length}/50)';
+      _setFieldError(1, 'description', 'Veuillez entrer une description');
+    } else if (_descriptionController.text.trim().length < 50) {
+      _setFieldError(1, 'description', 'Description trop courte (min 50 caractères)');
     }
 
     // Location validation
     if (_selectedCity == null) {
-      errors.add('La ville est requise');
-      fieldErrors['city'] = 'Veuillez sélectionner une ville';
+      _setFieldError(1, 'city', 'Veuillez sélectionner une ville');
     }
     if (_selectedDistrict == null) {
-      errors.add('Le district est requis');
-      fieldErrors['district'] = 'Veuillez sélectionner un district';
+      _setFieldError(1, 'district', 'Veuillez sélectionner un district');
     }
     if (_selectedCommune == null) {
-      errors.add('La commune est requise');
-      fieldErrors['commune'] = 'Veuillez sélectionner une commune';
+      _setFieldError(1, 'commune', 'Veuillez sélectionner une commune');
+    }
+
+    if (_selectedQuartier == null || _selectedQuartier!.name == null || _selectedQuartier!.name!.isEmpty) {
+      _setFieldError(1, 'quartier', 'Veuillez sélectionner ou saisir un quartier');
     }
 
     // Address validation
     if (_addressController.text.trim().isEmpty) {
-      errors.add('L\'adresse est requise');
-      fieldErrors['address'] = 'Veuillez entrer une adresse';
+      _setFieldError(1, 'address', 'Veuillez entrer une adresse');
     } else if (_addressController.text.length < 10) {
-      errors.add('L\'adresse doit être plus détaillée');
-      fieldErrors['address'] = 'Adresse trop courte (${_addressController.text.length}/10)';
+      _setFieldError(1, 'address', 'Adresse trop courte (${_addressController.text.length}/10)');
     }
 
     // Guarantee validation (only for rent)
     if (_isForRent && _guaranteeController.text.isNotEmpty && int.tryParse(_guaranteeController.text) == null) {
-      errors.add('La garantie doit être un nombre valide');
-      fieldErrors['guarantee'] = 'Veuillez entrer un nombre valide';
+      _setFieldError(1, 'guarantee', 'Veuillez entrer un nombre valide');
     }
 
-    final isValid = errors.isEmpty;
-    final errorMessage = errors.isNotEmpty ? errors.join('\n') : '';
+    final isValid = !_hasFieldErrors(1);
+    final errorMessage = _hasFieldErrors(1) ? 'Veuillez corriger les erreurs ci-dessus' : '';
 
     setState(() {
       _stepValidations[1] = isValid;
       _stepErrorMessages[1] = errorMessage;
-      _fieldErrors = fieldErrors;
     });
-
-    // Track validation result
-    if (!isValid) {
-      _trackValidationError(1, errorMessage);
-    }
 
     return isValid;
   }
 
   bool _validateStep2() {
+    _clearStepFieldErrors(2);
     final errors = <String>[];
 
     // Services essentiels maintenant OBLIGATOIRES
     if (_selectedElectric == null) {
-      errors.add('La disponibilité du courant est requise');
+      _setFieldError(2, 'electric', 'Veuillez sélectionner la disponibilité du courant');
     }
     if (_selectedWater == null) {
-      errors.add('La disponibilité de l\'eau est requise');
+      _setFieldError(2, 'water', 'Veuillez sélectionner la disponibilité de l\'eau');
     }
 
-    final isValid = errors.isEmpty;
-    final errorMessage = errors.isNotEmpty ? errors.join('\n') : '';
+    final isValid = !_hasFieldErrors(2);
+    final errorMessage = _hasFieldErrors(2) ? 'Veuillez sélectionner les services essentiels' : '';
 
     setState(() {
       _stepValidations[2] = isValid;
       _stepErrorMessages[2] = errorMessage;
     });
-
-    // Track validation result
-    if (!isValid) {
-      _trackValidationError(2, errorMessage);
-    }
 
     return isValid;
   }
@@ -785,6 +846,32 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         isError: true,
         duration: 4,
       );
+    }
+  }
+
+  void _clearImageCache() {
+    try {
+      // Méthodes natives de Flutter
+      imageCache.clear();
+      imageCache.clearLiveImages();
+
+      // Forcer le garbage collector (si disponible)
+      if (Platform.isAndroid) {
+        SystemChannels.platform.invokeMethod('System.gc');
+      }
+
+      // Libérer les ressources des images affichées
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            // Rebuild forcé pour libérer la mémoire
+          });
+        }
+      });
+
+      print("🧹 Cache d'images nettoyé intensivement");
+    } catch (e) {
+      print("⚠️ Erreur nettoyage cache: $e");
     }
   }
 
@@ -852,6 +939,21 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     }
   }
 
+
+
+
+
+  bool _isSupportedImageFormat(String path) {
+    final supportedFormats = ['.jpg', '.jpeg', '.png', '.webp'];
+    final extension = path.toLowerCase().substring(path.lastIndexOf('.'));
+    return supportedFormats.contains(extension);
+  }
+
+
+
+
+
+
   void _removeImage(String categoryId, int index) {
     if (mounted) {
       setState(() {
@@ -869,10 +971,2382 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     return _selectedImages.values.fold(0, (sum, images) => sum + (images?.length ?? 0));
   }
 
+  // =============================================
+  // WIDGETS HARMONISÉS
+  // =============================================
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _lightColor,
+      appBar: _buildAppBar(),
+      body: WillPopScope(
+        onWillPop: () async {
+          await _saveDraft();
+          return true;
+        },
+        child: Form(
+          key: _formKey,
+          autovalidateMode: _autoValidateMode,
+          child: Column(
+            children: [
+              _buildProgressIndicator(),
+              Expanded(
+                child: _buildCurrentStepContent(),
+              ),
+              _buildBottomNavigation(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentStepContent() {
+    switch (_currentStep) {
+      case 0:
+        return _buildStep1();
+      case 1:
+        return _buildStep2();
+      case 2:
+        return _buildStep3();
+      default:
+        return _buildStep1();
+    }
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: Text(
+        'Nouvelle annonce',
+        style: TextStyle(
+          color: _darkColor,
+          fontWeight: FontWeight.w600,
+          fontSize: _titleSize,
+        ),
+      ),
+      centerTitle: true,
+      elevation: 0,
+      backgroundColor: Colors.transparent,
+      leading: IconButton(
+        icon: Icon(Icons.arrow_back_ios_new_rounded,
+            color: _darkColor, size: 22),
+        onPressed: () async {
+          await _saveDraft();
+          if (mounted) {
+            Navigator.pop(context);
+          }
+        },
+      ),
+      actions: [
+        if (_currentStep > 0)
+          Padding(
+            padding: EdgeInsets.only(right: 16),
+            child: Center(
+              child: Text(
+                '${_currentStep + 1}/3',
+                style: TextStyle(
+                  color: _greyColor,
+                  fontWeight: FontWeight.w500,
+                  fontSize: _bodySize,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildProgressIndicator() {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: _mediumSpace, horizontal: _largeSpace),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        children: [
+          LinearProgressIndicator(
+            value: (_currentStep + 1) / 3,
+            backgroundColor: _borderColor,
+            color: _primaryColor,
+            minHeight: 6,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          SizedBox(height: _smallSpace),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildStepLabel(0, 'Type & Photos'),
+              _buildStepLabel(1, 'Détails'),
+              _buildStepLabel(2, 'Équipements'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepLabel(int stepIndex, String label) {
+    final isActive = _currentStep == stepIndex;
+    final isValid = _stepValidations[stepIndex] ?? false;
+    final hasError = _stepErrorMessages[stepIndex]?.isNotEmpty ?? false;
+
+    return GestureDetector(
+      onTap: () {
+        if (mounted) {
+          setState(() => _currentStep = stepIndex);
+        }
+      },
+      child: Column(
+        children: [
+          Stack(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isActive
+                      ? _primaryColor
+                      : hasError
+                      ? _errorColor.withOpacity(0.1)
+                      : _borderColor,
+                  border: Border.all(
+                    color: hasError
+                        ? _errorColor
+                        : isValid
+                        ? _successColor
+                        : isActive
+                        ? _primaryColor
+                        : _borderColor,
+                    width: hasError || isValid ? 2 : 1,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    '${stepIndex + 1}',
+                    style: TextStyle(
+                      color: isActive ? Colors.white : _greyColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: _bodySize,
+                    ),
+                  ),
+                ),
+              ),
+              if (isValid)
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _successColor,
+                      border: Border.all(color: Colors.white, width: 1),
+                    ),
+                    child: Icon(
+                      Icons.check,
+                      size: 8,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              if (hasError)
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _errorColor,
+                      border: Border.all(color: Colors.white, width: 1),
+                    ),
+                    child: Icon(
+                      Icons.close,
+                      size: 8,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: isActive ? _primaryColor : _greyColor,
+              fontSize: _captionSize,
+              fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStep1() {
+    return SingleChildScrollView(
+      physics: BouncingScrollPhysics(),
+      padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Type d'annonce
+          _buildModernSectionHeader(
+            title: 'Type d\'annonce',
+            icon: Icons.business_center_rounded,
+          ),
+          SizedBox(height: _mediumSpace),
+
+          Container(
+            padding: EdgeInsets.all(_mediumSpace),
+            decoration: BoxDecoration(
+              color: _cardColor,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 12,
+                  offset: Offset(0, 6),
+                )
+              ],
+              border: Border.all(color: _borderColor.withOpacity(0.5)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildModernTypeOption(
+                    'À louer',
+                    Icons.home_work_outlined,
+                    'Location à durée déterminée',
+                    _isForRent,
+                        () {
+                      if (mounted) {
+                        setState(() {
+                          _isForRent = true;
+                          _saveDraft();
+                        });
+                        _trackSelection('transaction_type', 'location');
+                      }
+                    },
+                  ),
+                ),
+                SizedBox(width: _smallSpace),
+                Expanded(
+                  child: _buildModernTypeOption(
+                    'À vendre',
+                    Icons.sell_outlined,
+                    'Achat définitif',
+                    !_isForRent,
+                        () {
+                      if (mounted) {
+                        setState(() {
+                          _isForRent = false;
+                          _saveDraft();
+                        });
+                        _trackSelection('transaction_type', 'sale');
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: _largeSpace),
+
+          // Type de propriété
+          _buildModernSectionHeader(
+            title: 'Type de propriété',
+            icon: Icons.category_rounded,
+          ),
+          SizedBox(height: _smallSpace),
+          Text(
+            'Sélectionnez la catégorie qui correspond le mieux à votre bien',
+            style: TextStyle(
+              color: _greyColor,
+              fontSize: _captionSize,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          SizedBox(height: _mediumSpace),
+          _buildModernPropertyCategoryCarousel(),
+
+          // Photos principales
+          SizedBox(height: _largeSpace),
+          _buildModernSectionHeader(
+            title: 'Photos principales',
+            icon: Icons.photo_library_rounded,
+          ),
+          SizedBox(height: _smallSpace),
+          Text(
+            'Ajoutez au moins 3 photos de qualité pour attirer plus d\'attention',
+            style: TextStyle(
+              color: _greyColor,
+              fontSize: _captionSize,
+            ),
+          ),
+          SizedBox(height: _mediumSpace),
+
+          // Photos principales
+          _buildMainImagesCard(),
+
+          // Autres pièces
+          SizedBox(height: _mediumSpace),
+          _buildAdditionalRoomsExpansion(),
+
+          // Compteur total
+          SizedBox(height: _mediumSpace),
+          _buildModernImageCounter(),
+          SizedBox(height: _mediumSpace),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModernTypeOption(String title, IconData icon, String subtitle, bool isSelected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 300),
+        padding: EdgeInsets.all(_mediumSpace),
+        decoration: BoxDecoration(
+          color: isSelected ? _primaryColor.withOpacity(0.1) : _lightColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? _primaryColor : _borderColor,
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected ? [
+            BoxShadow(
+              color: _primaryColor.withOpacity(0.2),
+              blurRadius: 8,
+              offset: Offset(0, 3),
+            )
+          ] : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: isSelected ? _primaryColor : _greyColor.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                size: 24,
+                color: isSelected ? Colors.white : _greyColor,
+              ),
+            ),
+            SizedBox(height: _smallSpace),
+            Text(
+              title,
+              style: TextStyle(
+                color: isSelected ? _primaryColor : _darkColor,
+                fontWeight: FontWeight.w600,
+                fontSize: _bodySize,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: isSelected ? _primaryColor.withOpacity(0.8) : _greyColor,
+                fontSize: _smallSize,
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernPropertyCategoryCarousel() {
+    final categories = [
+      {
+        'image': 'assets/images/studio.png',
+        'label': 'Studios',
+        'value': 'Studio',
+        'color': _primaryColor,
+        'icon': Icons.apartment_rounded,
+      },
+      {
+        'image': 'assets/images/apart.png',
+        'label': 'Apparts',
+        'value': 'Apparts',
+        'color': _primaryColor,
+        'icon': Icons.home_work_rounded,
+      },
+      {
+        'image': 'assets/images/maisons.png',
+        'label': 'Maisons',
+        'value': 'Maisons',
+        'color': _primaryColor,
+        'icon': Icons.house_rounded,
+      },
+      {
+        'image': 'assets/images/office.png',
+        'label': 'Bureaux',
+        'value': 'Bureau',
+        'color': _primaryColor,
+        'icon': Icons.business_center_rounded,
+      },
+      {
+        'image': 'assets/images/hotel.png',
+        'label': 'Hotels',
+        'value': 'Hotels',
+        'color': _primaryColor,
+        'icon': Icons.hotel_rounded,
+      },
+      {
+        'image': 'assets/images/plage.png',
+        'label': 'Vacances',
+        'value': 'Vacances',
+        'color': _primaryColor,
+        'icon': Icons.beach_access_rounded,
+      },
+    ];
+
+    return Container(
+      height: 120,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.symmetric(horizontal: 4),
+        itemCount: categories.length,
+        itemBuilder: (context, index) {
+          final category = categories[index];
+          final isSelected = _selectedCategory == category['value'];
+          final categoryColor = category['color'] as Color;
+
+          return GestureDetector(
+            onTap: () {
+              if (mounted) {
+                setState(() {
+                  _selectedCategory = category['value'] as String;
+                  _removeFieldError(0, 'property_type');
+                  _validateStep0();
+                  _saveDraft();
+                });
+                _trackSelection('property_type', category['value'] as String);
+              }
+            },
+            child: Container(
+              width: 100,
+              margin: EdgeInsets.symmetric(horizontal: 6),
+              child: Column(
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: isSelected ? categoryColor.withOpacity(0.15) : Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isSelected ? categoryColor : _borderColor,
+                        width: isSelected ? 2.5 : 1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isSelected ? categoryColor.withOpacity(0.3) : Colors.black12,
+                          blurRadius: isSelected ? 12 : 6,
+                          offset: Offset(0, isSelected ? 4 : 2),
+                        )
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Image.asset(
+                              category['image'] as String,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Icon(
+                                  category['icon'] as IconData,
+                                  color: isSelected ? categoryColor : _greyColor,
+                                  size: 32,
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        if (isSelected)
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: categoryColor,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2),
+                              ),
+                              child: Icon(
+                                Icons.check,
+                                size: 12,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: _smallSpace),
+                  Text(
+                    category['label'] as String,
+                    style: TextStyle(
+                      fontSize: _captionSize,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      color: isSelected ? categoryColor : _darkColor,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMainImagesCard() {
+    final mainImages = _selectedImages['propertyImage'] ?? [];
+    final hasError = _getFieldError(0, 'photos') != null;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          )
+        ],
+        border: hasError ? Border.all(color: _errorColor, width: 1.5) : Border.all(color: _borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.all(_mediumSpace),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [_primaryColor, _secondaryColor],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.photo_library_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                SizedBox(width: _mediumSpace),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Photos principales',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: _darkColor,
+                          fontSize: _subtitleSize,
+                        ),
+                      ),
+                      Text(
+                        'Vue extérieure, salon, pièces principales',
+                        style: TextStyle(
+                          color: _greyColor,
+                          fontSize: _captionSize,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: mainImages.length >= 3 ? _successColor.withOpacity(0.1) : _warningColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: mainImages.length >= 3 ? _successColor : _warningColor,
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    '${mainImages.length}/3 min',
+                    style: TextStyle(
+                      color: mainImages.length >= 3 ? _successColor : _warningColor,
+                      fontWeight: FontWeight.w700,
+                      fontSize: _captionSize,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          if (mainImages.isNotEmpty)
+            Padding(
+              padding: EdgeInsets.all(_mediumSpace),
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: _smallSpace,
+                  mainAxisSpacing: _smallSpace,
+                  childAspectRatio: 1,
+                ),
+                itemCount: mainImages.length,
+                itemBuilder: (context, index) {
+                  return _buildImageThumbnail('propertyImage', index, mainImages[index]);
+                },
+              ),
+            ),
+
+          Padding(
+            padding: EdgeInsets.all(_mediumSpace),
+            child: ElevatedButton.icon(
+              onPressed: () => _pickImages('propertyImage'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryColor.withOpacity(0.1),
+                foregroundColor: _primaryColor,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                minimumSize: Size(double.infinity, 50),
+              ),
+              icon: Icon(Icons.add_photo_alternate_rounded, size: 24),
+              label: Text(
+                'Ajouter des photos principales',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: _bodySize,
+                ),
+              ),
+            ),
+          ),
+
+          if (hasError)
+            Padding(
+              padding: EdgeInsets.fromLTRB(_mediumSpace, 0, _mediumSpace, _mediumSpace),
+              child: Container(
+                padding: EdgeInsets.all(_smallSpace),
+                decoration: BoxDecoration(
+                  color: _errorColor.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _errorColor.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline_rounded, color: _errorColor, size: 18),
+                    SizedBox(width: _smallSpace),
+                    Expanded(
+                      child: Text(
+                        'Au moins 3 photos principales sont requises',
+                        style: TextStyle(
+                          color: _errorColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: _captionSize,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAdditionalRoomsExpansion() {
+    final additionalCategories = _imageCategories.where((cat) => cat.id != 'propertyImage').toList();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          )
+        ],
+        border: Border.all(color: _borderColor),
+      ),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _smallSpace),
+        collapsedIconColor: _greyColor,
+        iconColor: _primaryColor,
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: _primaryColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(Icons.room_preferences_rounded, color: _primaryColor),
+        ),
+        title: Text(
+          'Photos par pièces (optionnel)',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: _darkColor,
+            fontSize: _bodySize,
+          ),
+        ),
+        subtitle: Text(
+          'Chambres, cuisine, salon, salle de bain...',
+          style: TextStyle(
+            color: _greyColor,
+            fontSize: _captionSize,
+          ),
+        ),
+        trailing: Container(
+          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: _primaryColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            '${additionalCategories.length} types',
+            style: TextStyle(
+              color: _primaryColor,
+              fontWeight: FontWeight.w600,
+              fontSize: _captionSize,
+            ),
+          ),
+        ),
+        children: [
+          Divider(height: 1, color: _borderColor),
+          ...additionalCategories.map((category) => _buildRoomImageCard(category)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRoomImageCard(ImageCategory category) {
+    final images = _selectedImages[category.id] ?? [];
+
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _smallSpace),
+      child: Container(
+        decoration: BoxDecoration(
+          color: _lightColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _borderColor),
+        ),
+        child: Column(
+          children: [
+            ListTile(
+              leading: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: category.color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(category.icon, color: category.color, size: 20),
+              ),
+              title: Text(
+                category.name,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: _darkColor,
+                  fontSize: _bodySize,
+                ),
+              ),
+              subtitle: Text(
+                category.description,
+                style: TextStyle(
+                  color: _greyColor,
+                  fontSize: _captionSize,
+                ),
+              ),
+              trailing: Container(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: images.isNotEmpty ? _successColor.withOpacity(0.1) : _greyColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${images.length}',
+                  style: TextStyle(
+                    color: images.isNotEmpty ? _successColor : _greyColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: _captionSize,
+                  ),
+                ),
+              ),
+            ),
+
+            if (images.isNotEmpty)
+              Padding(
+                padding: EdgeInsets.all(_smallSpace),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: _smallSpace,
+                    mainAxisSpacing: _smallSpace,
+                    childAspectRatio: 1,
+                  ),
+                  itemCount: images.length,
+                  itemBuilder: (context, index) {
+                    return _buildImageThumbnail(category.id, index, images[index]);
+                  },
+                ),
+              ),
+
+            Padding(
+              padding: EdgeInsets.all(_mediumSpace),
+              child: OutlinedButton.icon(
+                onPressed: () => _pickImages(category.id),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: category.color,
+                  side: BorderSide(color: category.color),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  minimumSize: Size(double.infinity, 44),
+                ),
+                icon: Icon(Icons.add_rounded, size: 18),
+                label: Text(
+                  'Ajouter des ${category.name.toLowerCase()}',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: _bodySize),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageThumbnail(String categoryId, int index, XFile image) {
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.file(
+            File(image.path),
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (context, error, stackTrace) {
+              return Container(
+                color: Colors.grey[200],
+                child: Icon(Icons.error, color: Colors.grey),
+              );
+            },
+          ),
+        ),
+        // Overlay avec bouton de suppression
+        Positioned.fill(
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {}, // Vide pour l'effet visuel
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.3),
+                    ],
+                  ),
+                ),
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: EdgeInsets.all(6),
+                    child: GestureDetector(
+                      onTap: () => _removeImage(categoryId, index),
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModernImageCounter() {
+    final totalImages = _totalImagesCount;
+    final hasMinimumImages = totalImages >= 3;
+
+    return Container(
+      padding: EdgeInsets.all(_mediumSpace),
+      decoration: BoxDecoration(
+        color: hasMinimumImages ? _successColor.withOpacity(0.05) : _warningColor.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: hasMinimumImages ? _successColor.withOpacity(0.3) : _warningColor.withOpacity(0.3),
+          width: 1.5,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: hasMinimumImages ? _successColor : _warningColor,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              hasMinimumImages ? Icons.check_rounded : Icons.photo_library_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          SizedBox(width: _mediumSpace),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  hasMinimumImages ? 'Photos suffisantes' : 'Photos requises',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: hasMinimumImages ? _successColor : _warningColor,
+                    fontSize: _bodySize,
+                  ),
+                ),
+                Text(
+                  hasMinimumImages
+                      ? 'Vous avez ajouté $totalImages photos. Excellente présentation !'
+                      : 'Ajoutez au moins 3 photos principales ($totalImages/3)',
+                  style: TextStyle(
+                    color: _greyColor,
+                    fontSize: _captionSize,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: hasMinimumImages ? _successColor : _warningColor,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '$totalImages',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: _bodySize,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStep2() {
+    return SingleChildScrollView(
+      physics: BouncingScrollPhysics(),
+      padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildModernSectionHeader(
+            title: 'Informations de base',
+            icon: Icons.info_outline_rounded,
+          ),
+          SizedBox(height: _mediumSpace),
+
+          _buildModernTextField(
+            controller: _titleController,
+            label: 'Titre de l\'annonce',
+            hint: 'Magnifique appartement avec vue panoramique...',
+            icon: Icons.title_rounded,
+            focusNode: _focusNodes[0],
+            nextFocusNode: _focusNodes[1],
+            errorText: _getFieldError(1, 'title'),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Veuillez entrer un titre';
+              }
+              if (value.length < 10) {
+                return 'Le titre doit faire au moins 10 caractères';
+              }
+              return null;
+            },
+          ),
+          SizedBox(height: _smallSpace),
+
+          _buildModernTextField(
+            controller: _priceController,
+            label: _isForRent ? 'Prix mensuel' : 'Prix de vente',
+            hint: _isForRent ? '1200' : '450000',
+            icon: Icons.attach_money_rounded,
+            keyboardType: TextInputType.number,
+            suffixText: '${_isForRent ? '/mois' : '\$'}',
+            prefixIconColor: _isForRent ? Colors.blue : Colors.green,
+            focusNode: _focusNodes[1],
+            nextFocusNode: _isForRent ? _focusNodes[2] : _focusNodes[3],
+            errorText: _getFieldError(1, 'price'),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Veuillez entrer un prix';
+              }
+              if (double.tryParse(value) == null) {
+                return 'Veuillez entrer un nombre valide';
+              }
+              return null;
+            },
+          ),
+          SizedBox(height: _smallSpace),
+
+          if (_isForRent) ...[
+            _buildModernTextField(
+              controller: _guaranteeController,
+              label: 'Garantie (mois)',
+              hint: '2 (optionnel)',
+              icon: Icons.security_rounded,
+              keyboardType: TextInputType.number,
+              suffixText: 'mois',
+              prefixIconColor: Colors.orange,
+              focusNode: _focusNodes[2],
+              nextFocusNode: _focusNodes[3],
+              errorText: _getFieldError(1, 'guarantee'),
+              validator: (value) {
+                if (value != null && value.isNotEmpty && int.tryParse(value) == null) {
+                  return 'Veuillez entrer un nombre valide';
+                }
+                return null;
+              },
+            ),
+            SizedBox(height: _smallSpace),
+          ],
+
+          _buildModernTextField(
+            controller: _descriptionController,
+            label: 'Description détaillée',
+            hint: 'Décrivez en détail les avantages, l\'emplacement, les équipements...',
+            icon: Icons.description_rounded,
+            maxLines: 4,
+            focusNode: _focusNodes[3],
+            nextFocusNode: _focusNodes[4],
+            errorText: _getFieldError(1, 'description'),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Veuillez entrer une description';
+              }
+              if (value.length < 50) {
+                return 'La description doit faire au moins 50 caractères (${value.length}/50)';
+              }
+              return null;
+            },
+          ),
+
+          SizedBox(height: _largeSpace),
+          _buildModernSectionHeader(
+            title: 'Localisation',
+            icon: Icons.location_on_outlined,
+          ),
+          SizedBox(height: _mediumSpace),
+
+          // Dropdowns premium pour la localisation
+          _buildPremiumDropdown<CityModel>(
+            label: 'Ville',
+            value: _selectedCity,
+            items: _availableCities,
+            displayText: (city) => city.name ?? '',
+            onChanged: (CityModel? newValue) {
+              if (mounted) {
+                setState(() {
+                  _selectedCity = newValue;
+                  _removeFieldError(1, 'city');
+                  _updateDistrictsForCity();
+                  _validateStep1();
+                  _saveDraft();
+                });
+                _trackSelection('city', newValue?.name ?? 'unknown');
+              }
+            },
+            icon: Icons.location_city_rounded,
+            errorText: _getFieldError(1, 'city'),
+            hintText: 'Sélectionnez une ville',
+          ),
+
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return Row(
+                children: [
+                  Container(
+                    width: constraints.maxWidth * 0.48,
+                    child: _buildPremiumDropdown<DistrictModel>(
+                      label: 'District',
+                      value: _selectedDistrict,
+                      items: _availableDistricts,
+                      displayText: (district) => district.name ?? '',
+                      onChanged: (DistrictModel? newValue) {
+                        if (mounted) {
+                          setState(() {
+                            _selectedDistrict = newValue;
+                            _removeFieldError(1, 'district');
+                            _updateCommunesForDistrict();
+                            _validateStep1();
+                            _saveDraft();
+                          });
+                          _trackSelection('district', newValue?.name ?? 'unknown');
+                        }
+                      },
+                      icon: Icons.account_balance_rounded,
+                      errorText: _getFieldError(1, 'district'),
+                      hintText: 'Sélectionnez un district',
+                    ),
+                  ),
+                  SizedBox(width: constraints.maxWidth * 0.04),
+                  Container(
+                    width: constraints.maxWidth * 0.48,
+                    child: _buildPremiumDropdown<CommuneModel>(
+                      label: 'Commune',
+                      value: _selectedCommune,
+                      items: _availableCommunes,
+                      displayText: (commune) => commune.name ?? '',
+                      onChanged: (CommuneModel? newValue) {
+                        if (mounted) {
+                          setState(() {
+                            _selectedCommune = newValue;
+                            _removeFieldError(1, 'commune');
+                            _updateQuartiersForCommune();
+                            _validateStep1();
+                            _saveDraft();
+                          });
+                          _trackSelection('commune', newValue?.name ?? 'unknown');
+                        }
+                      },
+                      icon: Icons.place_rounded,
+                      errorText: _getFieldError(1, 'commune'),
+                      hintText: 'Sélectionnez une commune',
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+
+          _buildPremiumQuartierDropdown(),
+
+          _buildModernTextField(
+            controller: _addressController,
+            label: 'Adresse complète',
+            hint: 'Numéro, rue, avenue...',
+            icon: Icons.home_work_rounded,
+            focusNode: _focusNodes[4],
+            nextFocusNode: null,
+            errorText: _getFieldError(1, 'address'),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Veuillez entrer une adresse complète';
+              }
+              if (value.length < 10) {
+                return 'L\'adresse doit être plus détaillée (${value.length}/10)';
+              }
+              return null;
+            },
+          ),
+          SizedBox(height: _largeSpace),
+
+          _buildModernSectionHeader(
+            title: 'Caractéristiques',
+            icon: Icons.apartment_rounded,
+          ),
+          SizedBox(height: _mediumSpace),
+
+          GridView.count(
+            shrinkWrap: true,
+            physics: NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            crossAxisSpacing: _smallSpace,
+            mainAxisSpacing: _smallSpace,
+            childAspectRatio: 3.2,
+            children: [
+              _buildModernFeatureInput(
+                controller: _bedroomsController,
+                label: 'Chambres',
+                icon: FontAwesomeIcons.bed,
+                color: _primaryColor.withOpacity(0.1),
+                iconColor: _primaryColor,
+              ),
+              _buildModernFeatureInput(
+                controller: _bathroomsController,
+                label: 'Salles de bain',
+                icon: FontAwesomeIcons.bath,
+                color: _primaryColor.withOpacity(0.1),
+                iconColor: _primaryColor,
+              ),
+              _buildModernFeatureInput(
+                controller: _livingRoomsController,
+                label: 'Salons',
+                icon: FontAwesomeIcons.couch,
+                color: _primaryColor.withOpacity(0.1),
+                iconColor: _primaryColor,
+              ),
+              _buildModernFeatureInput(
+                controller: _kitchensController,
+                label: 'Cuisines',
+                icon: FontAwesomeIcons.kitchenSet,
+                color: _primaryColor.withOpacity(0.1),
+                iconColor: _primaryColor,
+              ),
+              _buildModernFeatureInput(
+                controller: _areaController,
+                label: 'Surface (m²)',
+                icon: FontAwesomeIcons.rulerCombined,
+                color: _primaryColor.withOpacity(0.1),
+                iconColor: _primaryColor,
+              ),
+              _buildModernFeatureInput(
+                controller: _floorController,
+                label: 'Étage',
+                icon: FontAwesomeIcons.building,
+                color: _primaryColor.withOpacity(0.1),
+                iconColor: _primaryColor,
+              ),
+            ],
+          ),
+          SizedBox(height: _mediumSpace),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStep3() {
+    return SingleChildScrollView(
+      physics: BouncingScrollPhysics(),
+      padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildModernSectionHeader(
+            title: 'Services essentiels',
+            icon: Icons.engineering_rounded,
+          ),
+          SizedBox(height: _smallSpace),
+          Text(
+            'Ces informations sont obligatoires pour aider les locataires',
+            style: TextStyle(
+              color: _greyColor,
+              fontSize: _captionSize,
+            ),
+          ),
+          SizedBox(height: _mediumSpace),
+          _buildModernElectricDropdown(),
+          SizedBox(height: _smallSpace),
+          _buildModernWaterDropdown(),
+
+          Container(
+            margin: EdgeInsets.only(top: _mediumSpace),
+            padding: EdgeInsets.all(_smallSpace),
+            decoration: BoxDecoration(
+              color: _infoColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _infoColor.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: _infoColor, size: 16),
+                SizedBox(width: _smallSpace),
+                Expanded(
+                  child: Text(
+                    'Les services essentiels sont obligatoires pour compléter votre annonce.',
+                    style: TextStyle(
+                      color: _infoColor,
+                      fontSize: _captionSize,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          SizedBox(height: _largeSpace),
+
+          _buildModernSectionHeader(
+            title: 'Équipements (optionnels)',
+            icon: Icons.emoji_objects_outlined,
+          ),
+          SizedBox(height: _smallSpace),
+          Text(
+            'Sélectionnez les équipements disponibles dans votre propriété',
+            style: TextStyle(
+              color: _greyColor,
+              fontSize: _captionSize,
+            ),
+          ),
+          SizedBox(height: _mediumSpace),
+          Wrap(
+            spacing: _smallSpace,
+            runSpacing: _smallSpace,
+            children: _amenitiesList.map((amenity) {
+              final isSelected = _selectedAmenities.contains(amenity);
+              return ChoiceChip(
+                label: Text(
+                  amenity,
+                  style: TextStyle(fontSize: _captionSize),
+                ),
+                selected: isSelected,
+                onSelected: (selected) {
+                  if (mounted) {
+                    setState(() {
+                      if (selected) {
+                        _selectedAmenities.add(amenity);
+                      } else {
+                        _selectedAmenities.remove(amenity);
+                      }
+                      _validateStep2();
+                      _saveDraft();
+                    });
+                    _trackSelection('amenity', amenity);
+                  }
+                },
+                selectedColor: _primaryColor.withOpacity(0.1),
+                backgroundColor: _lightColor,
+                labelStyle: TextStyle(
+                  color: isSelected ? _primaryColor : _darkColor,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(
+                    color: isSelected ? _primaryColor : _borderColor,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          SizedBox(height: _largeSpace),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNavigation() {
+    final isLastStep = _currentStep == 2;
+    final canProceed = !_isLoading;
+    final canPublish = _stepValidations[0]! && _stepValidations[1]! && _stepValidations[2]! && !_isLoading;
+
+    return Container(
+      padding: EdgeInsets.all(_mediumSpace),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 16,
+            offset: Offset(0, -4),
+          )
+        ],
+      ),
+      child: Row(
+        children: [
+          if (_currentStep > 0)
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _isLoading ? null : () {
+                  if (mounted) {
+                    _endStepTracking(_currentStep, _getStepName(_currentStep), false);
+                    setState(() => _currentStep--);
+                    _startStepTracking(_currentStep, _getStepName(_currentStep));
+                  }
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _greyColor,
+                  side: BorderSide(color: _borderColor),
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  'Précédent',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: _bodySize),
+                ),
+              ),
+            ),
+          if (_currentStep > 0) SizedBox(width: _mediumSpace),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: isLastStep
+                  ? (canPublish ? _handleCreatePropertyPost : null)
+                  : (canProceed ? () {
+                bool currentStepValid = false;
+                switch (_currentStep) {
+                  case 0:
+                    currentStepValid = _validateStep0();
+                    break;
+                  case 1:
+                    currentStepValid = _validateStep1();
+                    break;
+                  case 2:
+                    currentStepValid = _validateStep2();
+                    break;
+                }
+
+                if (currentStepValid && mounted) {
+                  _endStepTracking(_currentStep, _getStepName(_currentStep), true);
+                  setState(() => _currentStep++);
+                  _startStepTracking(_currentStep, _getStepName(_currentStep));
+                } else {
+                  _showStepErrorNotification(_currentStep);
+                }
+              } : null),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isLastStep
+                    ? (canPublish ? _primaryColor : _greyColor)
+                    : (canProceed ? _primaryColor : _greyColor),
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 0,
+                shadowColor: Colors.transparent,
+              ),
+              child: _isLoading
+                  ? SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Colors.white,
+                ),
+              )
+                  : Text(
+                isLastStep ? 'Publier l\'annonce' : 'Continuer',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: _bodySize,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // =============================================
+  // WIDGETS DE BASE HARMONISÉS
+  // =============================================
+
+  Widget _buildModernSectionHeader({required String title, required IconData icon}) {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: _smallSpace, horizontal: _mediumSpace),
+      decoration: BoxDecoration(
+        color: _primaryColor.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _primaryColor.withOpacity(0.1), width: 1),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: _primaryColor, size: 20),
+          SizedBox(width: _smallSpace),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: _bodySize,
+              fontWeight: FontWeight.w600,
+              color: _primaryColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+  Widget _buildModernTextField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+    String? suffixText,
+    int maxLines = 1,
+    Color prefixIconColor = Colors.blue,
+    FocusNode? focusNode,
+    FocusNode? nextFocusNode,
+    String? errorText,
+    required String? Function(String?) validator,
+  }) {
+    final hasError = errorText != null && errorText.isNotEmpty;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: _smallSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(bottom: 6, left: 4),
+            child: Row(
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: _bodySize,
+                    fontWeight: FontWeight.w600,
+                    color: hasError ? _errorColor : _darkColor,
+                  ),
+                ),
+                Text(
+                  '*',
+                  style: TextStyle(
+                    color: _errorColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          TextFormField(
+            controller: controller,
+            keyboardType: keyboardType,
+            maxLines: maxLines,
+            focusNode: focusNode,
+            validator: validator,
+            onChanged: (value) {
+              if (value.isNotEmpty) {
+                switch (label) {
+                  case 'Titre de l\'annonce':
+                    _removeFieldError(1, 'title');
+                    break;
+                  case 'Prix mensuel':
+                  case 'Prix de vente':
+                    _removeFieldError(1, 'price');
+                    break;
+                  case 'Description détaillée':
+                    _removeFieldError(1, 'description');
+                    break;
+                  case 'Adresse complète':
+                    _removeFieldError(1, 'address');
+                    break;
+                }
+              }
+              _validateStep1();
+              _saveDraft();
+            },
+            onFieldSubmitted: (value) {
+              if (nextFocusNode != null) {
+                nextFocusNode.requestFocus();
+              }
+            },
+            textInputAction: nextFocusNode != null ? TextInputAction.next : TextInputAction.done,
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: _bodySize),
+              prefixIcon: Icon(
+                icon,
+                color: hasError ? _errorColor : prefixIconColor,
+                size: 20,
+              ),
+              suffixText: suffixText,
+              suffixStyle: TextStyle(
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+                fontSize: _bodySize,
+              ),
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              floatingLabelBehavior: FloatingLabelBehavior.never,
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: hasError ? _errorColor : Colors.grey.shade300,
+                  width: hasError ? 1.5 : 1,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: hasError ? _errorColor : Colors.grey.shade300,
+                  width: hasError ? 1.5 : 1,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: hasError ? _errorColor : Colors.blue,
+                  width: 2,
+                ),
+              ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: _errorColor,
+                  width: 1.5,
+                ),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: _errorColor,
+                  width: 2,
+                ),
+              ),
+            ),
+            style: TextStyle(
+              fontSize: _bodySize,
+              color: Colors.grey.shade800,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+
+          if (hasError)
+            Padding(
+              padding: EdgeInsets.only(top: 6, left: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                  SizedBox(width: 6),
+                  Text(
+                    errorText!,
+                    style: TextStyle(
+                      color: _errorColor,
+                      fontSize: _captionSize,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+
+
+  Widget _buildModernFeatureInput({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    required Color color,
+    required Color iconColor,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: color.withOpacity(0.3),
+        border: Border.all(color: color.withOpacity(0.5), width: 1),
+      ),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: TextInputType.number,
+        onChanged: (value) {
+          _validateStep1();
+          _saveDraft();
+        },
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: TextStyle(
+            color: Colors.grey.shade700,
+            fontWeight: FontWeight.w500,
+            fontSize: _captionSize,
+          ),
+          prefixIcon: Icon(icon, color: iconColor, size: 18),
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          floatingLabelBehavior: FloatingLabelBehavior.never,
+          filled: false,
+        ),
+        style: TextStyle(
+          fontSize: _bodySize,
+          fontWeight: FontWeight.w500,
+          color: Colors.grey.shade800,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumDropdown<T>({
+    required String label,
+    required T? value,
+    required List<T> items,
+    required String Function(T) displayText,
+    required void Function(T?) onChanged,
+    required IconData icon,
+    String? errorText,
+    String? hintText,
+    bool isRequired = true,
+  }) {
+    final hasError = errorText != null && errorText.isNotEmpty;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: _smallSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(bottom: 6, left: 4),
+            child: Row(
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: _bodySize,
+                    fontWeight: FontWeight.w600,
+                    color: hasError ? _errorColor : _darkColor,
+                  ),
+                ),
+                if (isRequired)
+                  Padding(
+                    padding: EdgeInsets.only(left: 4),
+                    child: Text(
+                      '*',
+                      style: TextStyle(
+                        color: _errorColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: hasError ? _errorColor : value != null ? _primaryColor.withOpacity(0.3) : _borderColor,
+                width: hasError ? 1.5 : 1,
+              ),
+              color: Colors.white,
+              boxShadow: [
+                if (value != null)
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+              ],
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<T>(
+                value: value,
+                isExpanded: true,
+                items: [
+                  DropdownMenuItem<T>(
+                    value: null,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        hintText ?? 'Sélectionnez...',
+                        style: TextStyle(
+                          color: _greyColor,
+                          fontSize: _bodySize,
+                        ),
+                      ),
+                    ),
+                  ),
+                  ...items.map((T item) {
+                    return DropdownMenuItem<T>(
+                      value: item,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                displayText(item),
+                                style: TextStyle(
+                                  fontSize: _bodySize,
+                                  color: _darkColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            if (value == item)
+                              Icon(
+                                Icons.check_circle_rounded,
+                                size: 16,
+                                color: _successColor,
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ],
+                onChanged: onChanged,
+                style: TextStyle(
+                  fontSize: _bodySize,
+                  color: _darkColor,
+                ),
+                icon: Padding(
+                  padding: EdgeInsets.only(right: 16),
+                  child: Icon(
+                    Icons.arrow_drop_down_rounded,
+                    color: hasError ? _errorColor : _greyColor,
+                    size: 24,
+                  ),
+                ),
+                dropdownColor: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                elevation: 4,
+                menuMaxHeight: 300,
+              ),
+            ),
+          ),
+
+          if (hasError)
+            Padding(
+              padding: EdgeInsets.only(top: 6, left: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                  SizedBox(width: 6),
+                  Text(
+                    errorText!,
+                    style: TextStyle(
+                      color: _errorColor,
+                      fontSize: _captionSize,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPremiumQuartierDropdown() {
+    final hasError = _getFieldError(1, 'quartier') != null;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: _smallSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(bottom: 6, left: 4),
+            child: Row(
+              children: [
+                Text(
+                  'Quartier',
+                  style: TextStyle(
+                    fontSize: _bodySize,
+                    fontWeight: FontWeight.w600,
+                    color: hasError ? _errorColor : _darkColor,
+                  ),
+                ),
+                Text(
+                  '*',
+                  style: TextStyle(
+                    color: _errorColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: hasError ? _errorColor :
+                _selectedQuartier != null ? _primaryColor.withOpacity(0.3) : _borderColor,
+                width: hasError ? 1.5 : 1,
+              ),
+              color: Colors.white,
+              boxShadow: [
+                if (_selectedQuartier != null)
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<QuartierModel>(
+                  value: _selectedQuartier,
+                  isExpanded: true,
+                  items: [
+                    DropdownMenuItem<QuartierModel>(
+                      value: QuartierModel(quartierId: -1, name: "Saisir manuellement..."),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(
+                              color: _borderColor.withOpacity(0.3),
+                              width: 0.5,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_rounded, size: 18, color: _accentColor),
+                            SizedBox(width: 12),
+                            Text(
+                              "Saisir manuellement...",
+                              style: TextStyle(
+                                fontSize: _bodySize,
+                                color: _accentColor,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    DropdownMenuItem<QuartierModel>(
+                      value: null,
+                      enabled: false,
+                      child: Container(
+                        height: 1,
+                        margin: EdgeInsets.symmetric(horizontal: 8),
+                        color: _borderColor,
+                      ),
+                    ),
+                    ..._availableQuartiers.map((QuartierModel quartier) {
+                      return DropdownMenuItem<QuartierModel>(
+                        value: quartier,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: _borderColor.withOpacity(0.3),
+                                width: 0.5,
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  quartier.name ?? "Quartier non spécifié",
+                                  style: TextStyle(
+                                    fontSize: _bodySize,
+                                    color: _darkColor,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (_selectedQuartier?.quartierId == quartier.quartierId)
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 16,
+                                  color: _successColor,
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                  onChanged: (QuartierModel? newValue) {
+                    if (mounted) {
+                      setState(() {
+                        if (newValue?.quartierId == -1) {
+                          _showPremiumQuartierDialog();
+                        } else {
+                          _selectedQuartier = newValue;
+                          _removeFieldError(1, 'quartier');
+                          _validateStep1();
+                          _saveDraft();
+                          _trackSelection('quartier', newValue?.name ?? 'unknown');
+                        }
+                      });
+                    }
+                  },
+                  style: TextStyle(
+                    fontSize: _bodySize,
+                    color: _darkColor,
+                  ),
+                  icon: Padding(
+                    padding: EdgeInsets.only(right: 16),
+                    child: Icon(
+                      Icons.arrow_drop_down_rounded,
+                      color: hasError ? _errorColor : _greyColor,
+                      size: 24,
+                    ),
+                  ),
+                  dropdownColor: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  elevation: 4,
+                  menuMaxHeight: 300,
+                ),
+              ),
+            ),
+          ),
+
+          if (_selectedQuartier != null && _selectedQuartier!.quartierId == null)
+            Container(
+              margin: EdgeInsets.only(top: 8),
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _accentColor.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _accentColor.withOpacity(0.2)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.edit_rounded, size: 16, color: _accentColor),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Quartier saisi: ${_selectedQuartier!.name}',
+                      style: TextStyle(
+                        color: _accentColor,
+                        fontSize: _captionSize,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      if (mounted) {
+                        setState(() {
+                          _selectedQuartier = null;
+                          _validateStep1();
+                          _saveDraft();
+                        });
+                      }
+                    },
+                    child: Icon(Icons.close_rounded, size: 16, color: _accentColor),
+                  ),
+                ],
+              ),
+            ),
+
+          if (hasError)
+            Padding(
+              padding: EdgeInsets.only(top: 6, left: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                  SizedBox(width: 6),
+                  Text(
+                    _getFieldError(1, 'quartier')!,
+                    style: TextStyle(
+                      color: _errorColor,
+                      fontSize: _captionSize,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModernElectricDropdown() {
+    return _buildPremiumDropdown<String>(
+      label: 'Disponibilité du courant',
+      value: _selectedElectric,
+      items: _electricOptions.map((opt) => opt['value'] as String).toList(),
+      displayText: (value) {
+        final option = _electricOptions.firstWhere(
+              (opt) => opt['value'] == value,
+          orElse: () => _electricOptions[0],
+        );
+        return '${option['label']} - ${option['description']}';
+      },
+      onChanged: (String? newValue) {
+        if (mounted) {
+          setState(() {
+            _selectedElectric = newValue;
+            _removeFieldError(2, 'electric');
+            _validateStep2();
+            _saveDraft();
+          });
+          _trackSelection('electric_service', newValue ?? 'none');
+        }
+      },
+      icon: Icons.electrical_services_rounded,
+      errorText: _getFieldError(2, 'electric'),
+      hintText: 'Sélectionnez la disponibilité',
+    );
+  }
+
+  Widget _buildModernWaterDropdown() {
+    return _buildPremiumDropdown<String>(
+      label: 'Disponibilité de l\'eau',
+      value: _selectedWater,
+      items: _waterOptions.map((opt) => opt['value'] as String).toList(),
+      displayText: (value) {
+        final option = _waterOptions.firstWhere(
+              (opt) => opt['value'] == value,
+          orElse: () => _waterOptions[0],
+        );
+        return '${option['label']} - ${option['description']}';
+      },
+      onChanged: (String? newValue) {
+        if (mounted) {
+          setState(() {
+            _selectedWater = newValue;
+            _removeFieldError(2, 'water');
+            _validateStep2();
+            _saveDraft();
+          });
+          _trackSelection('water_service', newValue ?? 'none');
+        }
+      },
+      icon: Icons.water_drop_rounded,
+      errorText: _getFieldError(2, 'water'),
+      hintText: 'Sélectionnez la disponibilité',
+    );
+  }
+
+  void _showPremiumQuartierDialog() {
+    final TextEditingController customQuartierController = TextEditingController();
+    final FocusNode focusNode = FocusNode();
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        elevation: 8,
+        child: Container(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: _accentColor.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.edit_rounded, color: _accentColor, size: 20),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Nom du quartier',
+                      style: TextStyle(
+                        fontSize: _subtitleSize,
+                        fontWeight: FontWeight.w700,
+                        color: _darkColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 20),
+
+              Text(
+                'Entrez le nom du quartier',
+                style: TextStyle(
+                  fontSize: _bodySize,
+                  fontWeight: FontWeight.w600,
+                  color: _darkColor,
+                ),
+              ),
+              SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _borderColor),
+                  color: _lightColor,
+                ),
+                child: TextField(
+                  controller: customQuartierController,
+                  focusNode: focusNode,
+                  decoration: InputDecoration(
+                    hintText: 'Ex: Quartier Matonge, Quartier Bandal...',
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    hintStyle: TextStyle(color: _greyColor, fontSize: _bodySize),
+                  ),
+                  style: TextStyle(
+                    fontSize: _bodySize,
+                    color: _darkColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLength: 100,
+                  onSubmitted: (value) {
+                    _validateAndSaveCustomQuartier(value);
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Minimum 2 caractères',
+                style: TextStyle(
+                  color: _greyColor,
+                  fontSize: _captionSize,
+                ),
+              ),
+
+              SizedBox(height: 24),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _greyColor,
+                        side: BorderSide(color: _borderColor),
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text('Annuler', style: TextStyle(fontSize: _bodySize)),
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        _validateAndSaveCustomQuartier(customQuartierController.text.trim());
+                        Navigator.pop(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _accentColor,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: Text('Valider', style: TextStyle(fontSize: _bodySize)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) {
+      focusNode.dispose();
+    });
+
+    Future.delayed(Duration(milliseconds: 300), () {
+      focusNode.requestFocus();
+    });
+  }
+
+  void _validateAndSaveCustomQuartier(String quartierName) {
+    if (quartierName.isNotEmpty && quartierName.length >= 2) {
+      if (mounted) {
+        setState(() {
+          _selectedQuartier = QuartierModel(
+            quartierId: null,
+            name: quartierName,
+          );
+          _removeFieldError(1, 'quartier');
+          _validateStep1();
+          _saveDraft();
+        });
+
+        _trackEvent('custom_quartier_entered', {
+          'quartier_name': quartierName,
+          'commune': _selectedCommune?.name,
+          'district': _selectedDistrict?.name,
+          'city': _selectedCity?.name,
+        });
+      }
+    } else {
+      FancyNotification.show(
+          context,
+          'Veuillez saisir un nom de quartier valide (min 2 caractères)',
+          isError: true
+      );
+    }
+  }
+
+  // =============================================
+  // EXISTING METHODS FOR PROPERTY CREATION
+  // =============================================
+
   Future<void> _handleCreatePropertyPost() async {
+    final GetStorage storage = GetStorage();
+    late final dynamic userData = storage.read(StockageKeys.userKey);
+    late var userId = userData["userId"];
+
     print("🎯 DEBUT _handleCreatePropertyPost");
 
-    // Track début de publication
     await _trackEvent('property_creation_start', {
       'step': _currentStep,
       'total_images': _totalImagesCount,
@@ -891,7 +3365,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
     await Future.delayed(Duration(milliseconds: 50));
 
-    // Validation finale des étapes obligatoires
     bool allStepsValid = _validateStep0() && _validateStep1() && _validateStep2();
 
     if (!allStepsValid) {
@@ -909,7 +3382,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         });
       }
 
-      // Track échec validation
       await _trackEvent('property_creation_validation_failed', {
         'failed_step': firstInvalidStep,
         'step_name': _getStepName(firstInvalidStep),
@@ -929,7 +3401,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
     final isConnected = await NetworkUtils.checkInternetConnectivity();
     if (!isConnected) {
-      // Track erreur connexion
       await _trackEvent('property_creation_network_error', {
         'step': _currentStep,
       });
@@ -941,7 +3412,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     }
 
     try {
-      // Préparer d'abord les données de base
       final propertyData = {
         "title": _titleController.text.trim(),
         "description": _descriptionController.text.trim().isNotEmpty
@@ -963,14 +3433,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             : "0",
         "cityId": _selectedCity?.cityId ?? 1,
         "communeId": _selectedCommune?.communeId ?? 1,
-        "quartierId": _selectedQuartier?.quartierId ?? 1,
-        "electric": _selectedElectric != null ? int.tryParse(_selectedElectric!) ?? 40 : 40,
-        "water": _selectedWater != null ? int.tryParse(_selectedWater!) ?? 50 : 50,
+        "quartierId": _selectedQuartier?.quartierId,
+        "electric": _selectedElectric != null ? int.tryParse(_selectedElectric!) : 0,
+        "water": _selectedWater != null ? int.tryParse(_selectedWater!) : 0,
         "postalCode": _postalCodeController.text.trim().isNotEmpty
             ? _postalCodeController.text.trim()
             : "243",
-        "quartier": _selectedQuartier?.name ?? _addressController.text.split(',').last.trim(),
+        "quartierValue": _selectedQuartier?.name ?? _addressController.text.split(',').last.trim(),
         "sold": false,
+        "username": fullname,
         "transactionType": _isForRent ? "location" : "vente",
         "propertyTypeId": _getPropertyTypeId(_selectedCategory) ?? 2,
         "userId": userId ?? 1,
@@ -991,7 +3462,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
       print("📦 Données de base SANS images: $propertyData");
 
-      // Track avant l'appel API
       await _trackEvent('property_api_call_start', {
         'images_count': _totalImagesCount,
         'has_amenities': _selectedAmenities.isNotEmpty,
@@ -1000,14 +3470,12 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'price': double.tryParse(_priceController.text),
       });
 
-      // Préparer les images
       final imagesData = await _prepareImagesData();
       print("🖼️ Données images préparées: $imagesData");
 
-      // Fusionner les données
+      _clearImageCache();
       propertyData.addAll(imagesData);
 
-      // S'assurer que tous les tableaux d'images existent
       final requiredImageFields = [
         "propertyImage",
         "propertyImageRoom",
@@ -1038,7 +3506,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       if (!mounted) return;
 
       if ((res.data['properties'] != null || res.data['data'] != null || res.data['success'] == true)) {
-        // Track succès
         await _trackEvent('property_creation_success', {
           'property_type': _selectedCategory,
           'is_for_rent': _isForRent,
@@ -1050,9 +3517,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         });
 
         await _clearDraft();
-        FancyNotification.show(context, "Annonce publiée avec succès!", isError: false);
+        SnackbarForCasa.success(context, "Annonce publiée avec succès!");
 
-        // Track redirection
         await _trackEvent('property_creation_redirect', {
           'destination': 'home_page',
         });
@@ -1066,7 +3532,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           );
         }
       } else {
-        // Track erreur API
         String errorMessage = res.data['detailMessage'] ?? res.data['message'] ?? "Erreur lors de la publication de l'annonce";
         print("❌ Erreur API: $errorMessage");
 
@@ -1079,7 +3544,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         FancyNotification.show(context, errorMessage, isError: true);
       }
     } catch (e) {
-      // Track erreur technique
+      _clearImageCache();
       print("❌ Erreur lors de la publication: $e");
 
       await _trackEvent('property_creation_technical_error', {
@@ -1090,6 +3555,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
       FancyNotification.show(context, "Erreur technique lors de la publication de l'annonce: $e", isError: true);
     } finally {
+      _clearImageCache();
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -1101,7 +3567,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   Future<void> _clearDraft() async {
     try {
       await _prefs.remove('property_draft');
-      // Track suppression brouillon
       await _trackEvent('draft_cleared', {
         'reason': 'publication_success',
       });
@@ -1239,1902 +3704,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     int kitchens = int.tryParse(_kitchensController.text) ?? 0;
 
     return bedrooms + bathrooms + livingRooms + kitchens;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _lightColor,
-      appBar: _buildAppBar(),
-      body: WillPopScope(
-        onWillPop: () async {
-          await _saveDraft();
-          return true;
-        },
-        child: Form(
-          key: _formKey,
-          autovalidateMode: _autoValidateMode,
-          child: Column(
-            children: [
-              _buildProgressIndicator(),
-              Expanded(
-                child: _buildCurrentStepContent(),
-              ),
-              _buildBottomNavigation(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCurrentStepContent() {
-    switch (_currentStep) {
-      case 0:
-        return _buildStep1();
-      case 1:
-        return _buildStep2();
-      case 2:
-        return _buildStep3();
-      default:
-        return _buildStep1();
-    }
-  }
-
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      title: Text(
-        'Nouvelle annonce',
-        style: TextStyle(
-          color: _darkColor,
-          fontWeight: FontWeight.w600,
-          fontSize: 20,
-        ),
-      ),
-      centerTitle: true,
-      elevation: 0,
-      backgroundColor: Colors.transparent,
-      leading: IconButton(
-        icon: Icon(Icons.arrow_back_ios_new_rounded,
-            color: _darkColor, size: 22),
-        onPressed: () async {
-          await _saveDraft();
-          if (mounted) {
-            Navigator.pop(context);
-          }
-        },
-      ),
-      actions: [
-        if (_currentStep > 0)
-          Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: Center(
-              child: Text(
-                '${_currentStep + 1}/3',
-                style: TextStyle(
-                  color: _greyColor,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildProgressIndicator() {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          )
-        ],
-      ),
-      child: Column(
-        children: [
-          LinearProgressIndicator(
-            value: (_currentStep + 1) / 3,
-            backgroundColor: _borderColor,
-            color: _primaryColor,
-            minHeight: 6,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildStepLabel(0, 'Type & Photos'),
-              _buildStepLabel(1, 'Détails'),
-              _buildStepLabel(2, 'Équipements'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStepLabel(int stepIndex, String label) {
-    final isActive = _currentStep == stepIndex;
-    final isValid = _stepValidations[stepIndex] ?? false;
-    final hasError = _stepErrorMessages[stepIndex]?.isNotEmpty ?? false;
-
-    return GestureDetector(
-      onTap: () {
-        if (mounted) {
-          setState(() => _currentStep = stepIndex);
-        }
-      },
-      child: Column(
-        children: [
-          Stack(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isActive
-                      ? _primaryColor
-                      : hasError
-                      ? _errorColor.withOpacity(0.1)
-                      : _borderColor,
-                  border: Border.all(
-                    color: hasError
-                        ? _errorColor
-                        : isValid
-                        ? _successColor
-                        : isActive
-                        ? _primaryColor
-                        : _borderColor,
-                    width: hasError || isValid ? 2 : 1,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    '${stepIndex + 1}',
-                    style: TextStyle(
-                      color: isActive ? Colors.white : _greyColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-              if (isValid)
-                Positioned(
-                  top: -2,
-                  right: -2,
-                  child: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _successColor,
-                      border: Border.all(color: Colors.white, width: 1),
-                    ),
-                    child: Icon(
-                      Icons.check,
-                      size: 8,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              if (hasError)
-                Positioned(
-                  top: -2,
-                  right: -2,
-                  child: Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _errorColor,
-                      border: Border.all(color: Colors.white, width: 1),
-                    ),
-                    child: Icon(
-                      Icons.close,
-                      size: 8,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(height: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: isActive ? _primaryColor : _greyColor,
-              fontSize: 12,
-              fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStep1() {
-    return SingleChildScrollView(
-      physics: BouncingScrollPhysics(),
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader('Type d\'annonce'),
-          SizedBox(height: 12),
-          Container(
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _cardColor,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
-                  blurRadius: 8,
-                  offset: Offset(0, 4),
-                )
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _buildTypeOption(
-                    'À louer',
-                    Icons.home_work_outlined,
-                    _isForRent,
-                        () {
-                      if (mounted) {
-                        setState(() {
-                          _isForRent = true;
-                          _saveDraft();
-                        });
-                        _trackSelection('transaction_type', 'location');
-                      }
-                    },
-                  ),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: _buildTypeOption(
-                    'À vendre',
-                    Icons.sell_outlined,
-                    !_isForRent,
-                        () {
-                      if (mounted) {
-                        setState(() {
-                          _isForRent = false;
-                          _saveDraft();
-                        });
-                        _trackSelection('transaction_type', 'sale');
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(height: 20),
-
-          // Catégories de propriété
-          Text(
-            'Type de propriété',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
-            ),
-          ),
-          SizedBox(height: 8),
-          _buildPropertyCategoryCarousel(),
-
-          // Photos
-          _buildSectionHeader('Photos par pièces'),
-          SizedBox(height: 8),
-          Text(
-            'Organisez vos photos par pièces pour une meilleure présentation',
-            style: TextStyle(
-              color: _greyColor,
-              fontSize: 13,
-            ),
-          ),
-          SizedBox(height: 16),
-
-          ..._imageCategories.map((category) => _buildImageCategoryCard(category)),
-
-          // Compteur total
-          Container(
-            margin: EdgeInsets.only(top: 16),
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _cardColor,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
-                  blurRadius: 8,
-                  offset: Offset(0, 4),
-                )
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Total des photos',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: _darkColor,
-                  ),
-                ),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _totalImagesCount >= 3 ? _successColor.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '$_totalImagesCount/3 min',
-                    style: TextStyle(
-                      color: _totalImagesCount >= 3 ? _successColor : Colors.orange,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPropertyCategoryCarousel() {
-    final categories = [
-      {
-        'image': 'assets/images/studio.png',
-        'label': 'Studios',
-        'value': 'Studio',
-        'color': Color(0xFF1976D2)
-      },
-      {
-        'image': 'assets/images/apart.png',
-        'label': 'Apparts',
-        'value': 'Apparts',
-        'color': Color(0xFF1976D2),
-      },
-      {
-        'image': 'assets/images/maisons.png',
-        'label': 'Maisons',
-        'value': 'Maisons',
-        'color': Color(0xFF1976D2),
-      },
-      {
-        'image': 'assets/images/office.png',
-        'label': 'Bureaux',
-        'value': 'Bureau',
-        'color': Color(0xFF1976D2),
-      },
-      {
-        'image': 'assets/images/hotel.png',
-        'label': 'Hotels',
-        'value': 'Hotels',
-        'color': Color(0xFF1976D2),
-      },
-      {
-        'image': 'assets/images/plage.png',
-        'label': 'Vacances',
-        'value': 'Vacances',
-        'color': Color(0xFF1976D2),
-      },
-    ];
-
-    return Container(
-      height: 110,
-      margin: EdgeInsets.only(bottom: 20),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: 16),
-        itemCount: categories.length,
-        itemBuilder: (context, index) {
-          final category = categories[index];
-          final isSelected = _selectedCategory == category['value'];
-          final categoryColor = category['color'] as Color;
-
-          return GestureDetector(
-            onTap: () {
-              if (mounted) {
-                setState(() {
-                  _selectedCategory = category['value'] as String;
-                  _validateStep0();
-                  _saveDraft();
-                });
-                _trackSelection('property_type', category['value'] as String);
-              }
-            },
-            child: Container(
-              width: 85,
-              margin: EdgeInsets.only(right: 5),
-              child: Column(
-                children: [
-                  Container(
-                    width: 70,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? categoryColor.withOpacity(0.15)
-                          : Colors.grey[100],
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isSelected ? categoryColor : Colors.transparent,
-                        width: 2.5,
-                      ),
-                      boxShadow: isSelected
-                          ? [
-                        BoxShadow(
-                          color: categoryColor.withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: Offset(0, 3),
-                        )
-                      ]
-                          : [
-                        BoxShadow(
-                          color: Colors.black12,
-                          blurRadius: 4,
-                          offset: Offset(0, 2),
-                        )
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(12),
-                            child: Image.asset(
-                              category['image'] as String,
-                              fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Icon(
-                                  Icons.home,
-                                  color: categoryColor,
-                                  size: 30,
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        if (isSelected)
-                          Container(
-                            decoration: BoxDecoration(
-                              color: categoryColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    category['label'] as String,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                      color: isSelected ? categoryColor : Colors.grey[700],
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildImageCategoryCard(ImageCategory category) {
-    final images = _selectedImages[category.id] ?? [];
-
-    return Container(
-      margin: EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          )
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: category.color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    category.icon,
-                    color: category.color,
-                    size: 20,
-                  ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        category.name,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: _darkColor,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Text(
-                        category.description,
-                        style: TextStyle(
-                          color: _greyColor,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: images.isEmpty ? Colors.orange.withOpacity(0.1) : _successColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '${images.length} photo(s)',
-                    style: TextStyle(
-                      color: images.isEmpty ? Colors.orange : _successColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          if (images.isNotEmpty)
-            Padding(
-              padding: EdgeInsets.all(16),
-              child: GridView.builder(
-                shrinkWrap: true,
-                physics: NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                  childAspectRatio: 1,
-                ),
-                itemCount: images.length,
-                itemBuilder: (context, index) {
-                  return Stack(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.file(
-                          File(images[index].path),
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: Colors.grey[200],
-                              child: Icon(Icons.error, color: Colors.grey),
-                            );
-                          },
-                        ),
-                      ),
-                      Positioned(
-                        top: 4,
-                        right: 4,
-                        child: GestureDetector(
-                          onTap: () => _removeImage(category.id, index),
-                          child: Container(
-                            padding: EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.5),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.close_rounded,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-
-          Padding(
-            padding: EdgeInsets.all(16),
-            child: ElevatedButton.icon(
-              onPressed: () => _pickImages(category.id),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: category.color.withOpacity(0.1),
-                foregroundColor: category.color,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              ),
-              icon: Icon(Icons.add_photo_alternate_outlined, size: 20),
-              label: Text(
-                'Ajouter des photos ${category.name.toLowerCase()}',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTypeOption(String title, IconData icon, bool isSelected, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isSelected ? _primaryColor.withOpacity(0.1) : _lightColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? _primaryColor : _borderColor,
-            width: 1.5,
-          ),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              icon,
-              size: 32,
-              color: isSelected ? _primaryColor : _greyColor,
-            ),
-            SizedBox(height: 8),
-            Text(
-              title,
-              style: TextStyle(
-                color: isSelected ? _primaryColor : _darkColor,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStep2() {
-    return SingleChildScrollView(
-      physics: BouncingScrollPhysics(),
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildModernSectionHeader(
-            title: 'Informations de base',
-            icon: Icons.info_outline_rounded,
-          ),
-          SizedBox(height: 16),
-
-          _buildModernTextField(
-            controller: _titleController,
-            label: 'Titre de l\'annonce *',
-            hint: 'Magnifique appartement avec vue panoramique...',
-            icon: Icons.title_rounded,
-            focusNode: _focusNodes[0],
-            nextFocusNode: _focusNodes[1],
-            errorText: _fieldErrors['title'],
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Veuillez entrer un titre';
-              }
-              return null;
-            },
-          ),
-          SizedBox(height: 12),
-
-          _buildModernTextField(
-            controller: _priceController,
-            label: _isForRent ? 'Prix mensuel *' : 'Prix de vente *',
-            hint: _isForRent ? '1200' : '450000',
-            icon: Icons.attach_money_rounded,
-            keyboardType: TextInputType.number,
-            suffixText: '${_isForRent ? '/mois' : '\$'}',
-            prefixIconColor: _isForRent ? Colors.blue : Colors.green,
-            focusNode: _focusNodes[1],
-            nextFocusNode: _isForRent ? _focusNodes[2] : _focusNodes[3],
-            errorText: _fieldErrors['price'],
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Veuillez entrer un prix';
-              }
-              if (double.tryParse(value) == null) {
-                return 'Veuillez entrer un nombre valide';
-              }
-              return null;
-            },
-          ),
-          SizedBox(height: 12),
-
-          if (_isForRent) ...[
-            _buildModernTextField(
-              controller: _guaranteeController,
-              label: 'Garantie (mois)',
-              hint: '2 (optionnel)',
-              icon: Icons.security_rounded,
-              keyboardType: TextInputType.number,
-              suffixText: 'mois',
-              prefixIconColor: Colors.orange,
-              focusNode: _focusNodes[2],
-              nextFocusNode: _focusNodes[3],
-              errorText: _fieldErrors['guarantee'],
-              validator: (value) {
-                if (value != null && value.isNotEmpty && int.tryParse(value) == null) {
-                  return 'Veuillez entrer un nombre valide';
-                }
-                return null;
-              },
-            ),
-            SizedBox(height: 12),
-          ],
-
-          _buildModernTextField(
-            controller: _descriptionController,
-            label: 'Description détaillée *',
-            hint: 'Décrivez en détail les avantages, l\'emplacement, les équipements...',
-            icon: Icons.description_rounded,
-            maxLines: 4,
-            focusNode: _focusNodes[3],
-            nextFocusNode: _focusNodes[4],
-            errorText: _fieldErrors['description'],
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Veuillez entrer une description';
-              }
-              if (value.length < 50) {
-                return 'La description doit faire au moins 50 caractères (${value.length}/50)';
-              }
-              return null;
-            },
-          ),
-
-          SizedBox(height: 24),
-          _buildModernSectionHeader(
-            title: 'Localisation',
-            icon: Icons.location_on_outlined,
-          ),
-          SizedBox(height: 16),
-
-          _buildModernCityDropdown(),
-          SizedBox(height: 12),
-
-          LayoutBuilder(
-            builder: (context, constraints) {
-              return Row(
-                children: [
-                  Container(
-                    width: constraints.maxWidth * 0.48,
-                    child: _buildModernDistrictDropdown(),
-                  ),
-                  SizedBox(width: constraints.maxWidth * 0.04),
-                  Container(
-                    width: constraints.maxWidth * 0.48,
-                    child: _buildModernCommuneDropdown(),
-                  ),
-                ],
-              );
-            },
-          ),
-          SizedBox(height: 12),
-
-          _buildModernTextField(
-            controller: _addressController,
-            label: 'Adresse complète *',
-            hint: 'Numéro, rue, avenue...',
-            icon: Icons.home_work_rounded,
-            focusNode: _focusNodes[4],
-            nextFocusNode: null,
-            errorText: _fieldErrors['address'],
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Veuillez entrer une adresse complète';
-              }
-              if (value.length < 10) {
-                return 'L\'adresse doit être plus détaillée (${value.length}/10)';
-              }
-              return null;
-            },
-          ),
-          SizedBox(height: 12),
-
-          _buildModernQuartierDropdown(),
-          SizedBox(height: 12),
-
-          _buildModernSectionHeader(
-            title: 'Caractéristiques',
-            icon: Icons.apartment_rounded,
-          ),
-          SizedBox(height: 16),
-
-          GridView.count(
-            shrinkWrap: true,
-            physics: NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 3.2,
-            children: [
-              _buildModernFeatureInput(
-                controller: _bedroomsController,
-                label: 'Chambres',
-                icon: FontAwesomeIcons.bed,
-                color: Colors.blue.shade100,
-                iconColor: Colors.blue,
-              ),
-              _buildModernFeatureInput(
-                controller: _bathroomsController,
-                label: 'Salles de bain',
-                icon: FontAwesomeIcons.bath,
-                color: Colors.blue.shade100,
-                iconColor: Colors.blue,
-              ),
-              _buildModernFeatureInput(
-                controller: _livingRoomsController,
-                label: 'Salons',
-                icon: FontAwesomeIcons.couch,
-                color: Colors.blue.shade100,
-                iconColor: Colors.blue,
-              ),
-              _buildModernFeatureInput(
-                controller: _kitchensController,
-                label: 'Cuisines',
-                icon: FontAwesomeIcons.kitchenSet,
-                color: Colors.blue.shade100,
-                iconColor: Colors.blue,
-              ),
-              _buildModernFeatureInput(
-                controller: _areaController,
-                label: 'Surface (m²)',
-                icon: FontAwesomeIcons.rulerCombined,
-                color: Colors.blue.shade100,
-                iconColor: Colors.blue,
-              ),
-              _buildModernFeatureInput(
-                controller: _floorController,
-                label: 'Étage',
-                icon: FontAwesomeIcons.building,
-                color: Colors.blue.shade100,
-                iconColor: Colors.blue,
-              ),
-            ],
-          ),
-          SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModernQuartierDropdown() {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300, width: 1),
-      ),
-      child: DropdownButtonFormField<QuartierModel>(
-        value: _selectedQuartier,
-        items: _availableQuartiers.map((QuartierModel quartier) {
-          return DropdownMenuItem<QuartierModel>(
-            value: quartier,
-            child: Text(
-              quartier.name ?? "Quartier non spécifié",
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
-        }).toList(),
-        onChanged: (QuartierModel? newValue) {
-          if (mounted) {
-            setState(() {
-              _selectedQuartier = newValue;
-              _validateStep1();
-              _saveDraft();
-            });
-            _trackSelection('quartier', newValue?.name ?? 'unknown');
-          }
-        },
-        decoration: InputDecoration(
-          labelText: 'Quartier (optionnel)',
-          labelStyle: TextStyle(color: Colors.grey.shade600),
-          prefixIcon: Icon(Icons.explore_rounded, color: Colors.blue.shade600, size: 20),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        ),
-        icon: Icon(Icons.arrow_drop_down_rounded, color: Colors.grey.shade600),
-        dropdownColor: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-    );
-  }
-
-  Widget _buildModernElectricDropdown() {
-    final hasError = _fieldErrors['electric'] != null;
-
-    return Container(
-      height: 75,
-      constraints: BoxConstraints(
-        minHeight: 75,
-        maxHeight: 75,
-      ),
-      child: DropdownButtonFormField<String>(
-        value: _selectedElectric,
-        isExpanded: true,
-        items: [
-          DropdownMenuItem<String>(
-            value: null,
-            child: Text(
-              'Sélectionnez...',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-          ),
-          ..._electricOptions.map((option) {
-            final percentage = int.parse(option['value']);
-            Color getColorForPercentage(int percent) {
-              if (percent >= 80) return Colors.green;
-              if (percent >= 60) return Colors.lightGreen;
-              if (percent >= 40) return Colors.orange;
-              return Colors.red;
-            }
-
-            return DropdownMenuItem<String>(
-              value: option['value'],
-              child: Container(
-                height: 65,
-                child: Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 65,
-                      decoration: BoxDecoration(
-                        color: getColorForPercentage(percentage),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            option['label'],
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade800,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            option['description'],
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: getColorForPercentage(percentage).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: getColorForPercentage(percentage).withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        '${percentage}%',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: getColorForPercentage(percentage),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        ],
-        onChanged: (String? newValue) {
-          if (mounted) {
-            setState(() {
-              _selectedElectric = newValue;
-              _validateStep2();
-              _saveDraft();
-            });
-            _trackSelection('electric_service', newValue ?? 'none');
-          }
-        },
-        validator: (value) {
-          if (value == null) {
-            return 'Veuillez sélectionner la disponibilité du courant';
-          }
-          return null;
-        },
-        decoration: InputDecoration(
-          labelText: 'Disponibilité du courant *',
-          labelStyle: TextStyle(
-              color: hasError ? _errorColor : Colors.grey.shade600
-          ),
-          prefixIcon: Icon(
-              Icons.electrical_services_rounded,
-              color: hasError ? _errorColor : Colors.amber.shade700,
-              size: 20
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: hasError ? _errorColor : Colors.grey.shade300,
-              width: hasError ? 1.5 : 1,
-            ),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: hasError ? _errorColor : Colors.grey.shade300,
-              width: hasError ? 1.5 : 1,
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: hasError ? _errorColor : _primaryColor,
-              width: 1.5,
-            ),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: _errorColor,
-              width: 1.5,
-            ),
-          ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-          errorText: hasError ? _fieldErrors['electric'] : null,
-          errorStyle: TextStyle(
-            color: _errorColor,
-            fontSize: 12,
-          ),
-        ),
-        icon: Icon(
-            Icons.arrow_drop_down_rounded,
-            color: hasError ? _errorColor : Colors.grey.shade600
-        ),
-        dropdownColor: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-    );
-  }
-
-  Widget _buildModernWaterDropdown() {
-    final hasError = _fieldErrors['water'] != null;
-
-    return Container(
-      height: 75,
-      constraints: BoxConstraints(
-        minHeight: 75,
-        maxHeight: 75,
-      ),
-      child: DropdownButtonFormField<String>(
-        value: _selectedWater,
-        isExpanded: true,
-        items: [
-          DropdownMenuItem<String>(
-            value: null,
-            child: Text(
-              'Sélectionnez...',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-          ),
-          ..._waterOptions.map((option) {
-            final percentage = int.parse(option['value']);
-            Color getColorForPercentage(int percent) {
-              if (percent >= 80) return Colors.blue;
-              if (percent >= 60) return Colors.lightBlue;
-              if (percent >= 40) return Colors.orange;
-              return Colors.red;
-            }
-
-            return DropdownMenuItem<String>(
-              value: option['value'],
-              child: Container(
-                height: 65,
-                child: Row(
-                  children: [
-                    Container(
-                      width: 4,
-                      height: 65,
-                      decoration: BoxDecoration(
-                        color: getColorForPercentage(percentage),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            option['label'],
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade800,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            option['description'],
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: getColorForPercentage(percentage).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: getColorForPercentage(percentage).withOpacity(0.3)),
-                      ),
-                      child: Text(
-                        '${percentage}%',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: getColorForPercentage(percentage),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        ],
-        onChanged: (String? newValue) {
-          if (mounted) {
-            setState(() {
-              _selectedWater = newValue;
-              _validateStep2();
-              _saveDraft();
-            });
-            _trackSelection('water_service', newValue ?? 'none');
-          }
-        },
-        validator: (value) {
-          if (value == null) {
-            return 'Veuillez sélectionner la disponibilité de l\'eau';
-          }
-          return null;
-        },
-        decoration: InputDecoration(
-          labelText: 'Disponibilité de l\'eau *',
-          labelStyle: TextStyle(
-              color: hasError ? _errorColor : Colors.grey.shade600
-          ),
-          prefixIcon: Icon(
-              Icons.water_drop_rounded,
-              color: hasError ? _errorColor : Colors.blue.shade600,
-              size: 20
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: hasError ? _errorColor : Colors.grey.shade300,
-              width: hasError ? 1.5 : 1,
-            ),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: hasError ? _errorColor : Colors.grey.shade300,
-              width: hasError ? 1.5 : 1,
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: hasError ? _errorColor : _primaryColor,
-              width: 1.5,
-            ),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: _errorColor,
-              width: 1.5,
-            ),
-          ),
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-          errorText: hasError ? _fieldErrors['water'] : null,
-          errorStyle: TextStyle(
-            color: _errorColor,
-            fontSize: 12,
-          ),
-        ),
-        icon: Icon(
-            Icons.arrow_drop_down_rounded,
-            color: hasError ? _errorColor : Colors.grey.shade600
-        ),
-        dropdownColor: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-    );
-  }
-
-  Widget _buildModernSectionHeader({required String title, required IconData icon}) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.blue.shade50, Colors.blue.shade50],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.shade100, width: 1),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.blue.shade700, size: 20),
-          SizedBox(width: 12),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.blue.shade800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModernFeatureInput({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    required Color color,
-    required Color iconColor,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: color.withOpacity(0.3),
-        border: Border.all(color: color.withOpacity(0.5), width: 1),
-      ),
-      child: TextFormField(
-        controller: controller,
-        keyboardType: TextInputType.number,
-        onChanged: (value) {
-          _validateStep1();
-          _saveDraft();
-        },
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(
-            color: Colors.grey.shade700,
-            fontWeight: FontWeight.w500,
-          ),
-          prefixIcon: Icon(icon, color: iconColor, size: 18),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          floatingLabelBehavior: FloatingLabelBehavior.never,
-          filled: false,
-        ),
-        style: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: Colors.grey.shade800,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModernCityDropdown() {
-    final hasError = _fieldErrors['city'] != null;
-
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: hasError ? _errorColor : Colors.grey.shade300,
-            width: hasError ? 1.5 : 1
-        ),
-      ),
-      child: DropdownButtonFormField<CityModel>(
-        value: _selectedCity,
-        items: _availableCities.map((CityModel city) {
-          return DropdownMenuItem<CityModel>(
-            value: city,
-            child: Text(
-              city.name ?? "",
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
-            ),
-          );
-        }).toList(),
-        onChanged: (CityModel? newValue) {
-          if (mounted) {
-            setState(() {
-              _selectedCity = newValue;
-              _updateDistrictsForCity();
-              _validateStep1();
-              _saveDraft();
-            });
-            _trackSelection('city', newValue?.name ?? 'unknown');
-          }
-        },
-        validator: (value) {
-          if (value == null) {
-            return 'Veuillez sélectionner une ville';
-          }
-          return null;
-        },
-        decoration: InputDecoration(
-          labelText: 'Ville *',
-          labelStyle: TextStyle(
-              color: hasError ? _errorColor : Colors.grey.shade600
-          ),
-          prefixIcon: Icon(
-              Icons.location_city_rounded,
-              color: hasError ? _errorColor : Colors.blue.shade600,
-              size: 20
-          ),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          errorText: hasError ? _fieldErrors['city'] : null,
-          errorStyle: TextStyle(
-            color: _errorColor,
-            fontSize: 12,
-          ),
-        ),
-        icon: Icon(
-            Icons.arrow_drop_down_rounded,
-            color: hasError ? _errorColor : Colors.grey.shade600
-        ),
-        dropdownColor: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-    );
-  }
-
-  Widget _buildModernDistrictDropdown() {
-    final hasError = _fieldErrors['district'] != null;
-
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: hasError ? _errorColor : Colors.grey.shade300,
-            width: hasError ? 1.5 : 1
-        ),
-      ),
-      child: DropdownButtonFormField<DistrictModel>(
-        value: _selectedDistrict,
-        items: _availableDistricts.map((DistrictModel district) {
-          return DropdownMenuItem<DistrictModel>(
-            value: district,
-            child: Text(
-              district.name ?? "",
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
-        }).toList(),
-        onChanged: (DistrictModel? newValue) {
-          if (mounted) {
-            setState(() {
-              _selectedDistrict = newValue;
-              _updateCommunesForDistrict();
-              _validateStep1();
-              _saveDraft();
-            });
-            _trackSelection('district', newValue?.name ?? 'unknown');
-          }
-        },
-        validator: (value) {
-          if (value == null) {
-            return 'Veuillez sélectionner un district';
-          }
-          return null;
-        },
-        decoration: InputDecoration(
-          labelText: 'District *',
-          labelStyle: TextStyle(
-              color: hasError ? _errorColor : Colors.grey.shade600
-          ),
-          prefixIcon: Icon(
-              Icons.account_balance_rounded,
-              color: hasError ? _errorColor : Colors.blue.shade600,
-              size: 20
-          ),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          errorText: hasError ? _fieldErrors['district'] : null,
-          errorStyle: TextStyle(
-            color: _errorColor,
-            fontSize: 12,
-          ),
-        ),
-        icon: Icon(
-            Icons.arrow_drop_down_rounded,
-            color: hasError ? _errorColor : Colors.grey.shade600
-        ),
-        dropdownColor: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-    );
-  }
-
-  Widget _buildModernCommuneDropdown() {
-    final hasError = _fieldErrors['commune'] != null;
-
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: hasError ? _errorColor : Colors.grey.shade300,
-            width: hasError ? 1.5 : 1
-        ),
-      ),
-      child: DropdownButtonFormField<CommuneModel>(
-        value: _selectedCommune,
-        items: _availableCommunes.map((CommuneModel commune) {
-          return DropdownMenuItem<CommuneModel>(
-            value: commune,
-            child: Text(
-              commune.name ?? "",
-              style: TextStyle(fontSize: 14, color: Colors.grey.shade800),
-              overflow: TextOverflow.ellipsis,
-            ),
-          );
-        }).toList(),
-        onChanged: (CommuneModel? newValue) {
-          if (mounted) {
-            setState(() {
-              _selectedCommune = newValue;
-              _validateStep1();
-              _saveDraft();
-            });
-            _trackSelection('commune', newValue?.name ?? 'unknown');
-          }
-        },
-        validator: (value) {
-          if (value == null) {
-            return 'Veuillez sélectionner une commune';
-          }
-          return null;
-        },
-        decoration: InputDecoration(
-          labelText: 'Commune *',
-          labelStyle: TextStyle(
-              color: hasError ? _errorColor : Colors.grey.shade600
-          ),
-          prefixIcon: Icon(
-              Icons.place_rounded,
-              color: hasError ? _errorColor : Colors.blue.shade600,
-              size: 20
-          ),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          errorText: hasError ? _fieldErrors['commune'] : null,
-          errorStyle: TextStyle(
-            color: _errorColor,
-            fontSize: 12,
-          ),
-        ),
-        icon: Icon(
-            Icons.arrow_drop_down_rounded,
-            color: hasError ? _errorColor : Colors.grey.shade600
-        ),
-        dropdownColor: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-      ),
-    );
-  }
-
-  Widget _buildModernTextField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-    required IconData icon,
-    TextInputType keyboardType = TextInputType.text,
-    String? suffixText,
-    int maxLines = 1,
-    Color prefixIconColor = Colors.blue,
-    FocusNode? focusNode,
-    FocusNode? nextFocusNode,
-    String? errorText,
-    required String? Function(String?) validator,
-  }) {
-    final hasError = errorText != null;
-
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: hasError ? _errorColor : Colors.grey.shade300,
-            width: hasError ? 1.5 : 1
-        ),
-        color: Colors.white,
-      ),
-      child: TextFormField(
-        controller: controller,
-        keyboardType: keyboardType,
-        maxLines: maxLines,
-        focusNode: focusNode,
-        validator: validator,
-        onChanged: (value) {
-          _validateStep1();
-          _saveDraft();
-        },
-        onFieldSubmitted: (value) {
-          if (nextFocusNode != null) {
-            nextFocusNode.requestFocus();
-          }
-        },
-        textInputAction: nextFocusNode != null ? TextInputAction.next : TextInputAction.done,
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(
-            color: hasError ? _errorColor : Colors.grey.shade600,
-            fontWeight: FontWeight.w500,
-          ),
-          hintText: hint,
-          hintStyle: TextStyle(color: Colors.grey.shade400),
-          prefixIcon: Icon(
-              icon,
-              color: hasError ? _errorColor : prefixIconColor,
-              size: 20
-          ),
-          suffixText: suffixText,
-          suffixStyle: TextStyle(
-            color: Colors.grey.shade600,
-            fontWeight: FontWeight.w500,
-          ),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          floatingLabelBehavior: FloatingLabelBehavior.auto,
-          errorText: errorText,
-          errorStyle: TextStyle(
-            color: _errorColor,
-            fontSize: 12,
-          ),
-        ),
-        style: TextStyle(
-          fontSize: 14,
-          color: Colors.grey.shade800,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStep3() {
-    return SingleChildScrollView(
-      physics: BouncingScrollPhysics(),
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader('Équipements (optionnels)'),
-          SizedBox(height: 8),
-          Text(
-            'Sélectionnez les équipements disponibles dans votre propriété',
-            style: TextStyle(
-              color: _greyColor,
-              fontSize: 13,
-            ),
-          ),
-          SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _amenitiesList.map((amenity) {
-              final isSelected = _selectedAmenities.contains(amenity);
-              return ChoiceChip(
-                label: Text(amenity),
-                selected: isSelected,
-                onSelected: (selected) {
-                  if (mounted) {
-                    setState(() {
-                      if (selected) {
-                        _selectedAmenities.add(amenity);
-                      } else {
-                        _selectedAmenities.remove(amenity);
-                      }
-                      _validateStep2();
-                      _saveDraft();
-                    });
-                    _trackSelection('amenity', amenity);
-                  }
-                },
-                selectedColor: _primaryColor.withOpacity(0.1),
-                backgroundColor: _lightColor,
-                labelStyle: TextStyle(
-                  color: isSelected ? _primaryColor : _darkColor,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side: BorderSide(
-                    color: isSelected ? _primaryColor : _borderColor,
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-
-          SizedBox(height: 24),
-          _buildSectionHeader('Services essentiels *'),
-          SizedBox(height: 8),
-          Text(
-            'Ces informations sont obligatoires pour aider les locataires',
-            style: TextStyle(
-              color: _greyColor,
-              fontSize: 13,
-            ),
-          ),
-          SizedBox(height: 16),
-
-          // Dropdown Électricité avec hauteur réduite
-          Container(
-            height: 70,
-            child: _buildModernElectricDropdown(),
-          ),
-          SizedBox(height: 16),
-
-          // Dropdown Eau avec hauteur réduite
-          Container(
-            height: 70,
-            child: _buildModernWaterDropdown(),
-          ),
-
-          // Message d'information pour les champs obligatoires
-          Container(
-            margin: EdgeInsets.only(top: 16),
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blue.shade100),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue.shade600, size: 16),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Les services essentiels sont obligatoires pour compléter votre annonce.',
-                    style: TextStyle(
-                      color: Colors.blue.shade800,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          SizedBox(height: 24),
-          _buildSectionHeader('Localisation sur la carte (optionnelle)'),
-          SizedBox(height: 12),
-          Container(
-            height: 150,
-            decoration: BoxDecoration(
-              color: _cardColor,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _borderColor),
-            ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.map_outlined,
-                    size: 40,
-                    color: _greyColor.withOpacity(0.5),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Carte interactive',
-                    style: TextStyle(
-                      color: _greyColor,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Fonctionnalité à venir',
-                    style: TextStyle(
-                      color: _greyColor,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomNavigation() {
-    final isLastStep = _currentStep == 2;
-    final canProceed = !_isLoading;
-    final canPublish = _stepValidations[0]! && _stepValidations[1]! && _stepValidations[2]! && !_isLoading;
-
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 16,
-            offset: Offset(0, -4),
-          )
-        ],
-      ),
-      child: Row(
-        children: [
-          if (_currentStep > 0)
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _isLoading ? null : () {
-                  if (mounted) {
-                    // Track fin d'étape actuelle
-                    _endStepTracking(_currentStep, _getStepName(_currentStep), false);
-                    setState(() => _currentStep--);
-                    // Track début nouvelle étape
-                    _startStepTracking(_currentStep, _getStepName(_currentStep));
-                  }
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _greyColor,
-                  side: BorderSide(color: _borderColor),
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: Text(
-                  'Précédent',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-          if (_currentStep > 0) SizedBox(width: 16),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: isLastStep
-                  ? (canPublish ? _handleCreatePropertyPost : null)
-                  : (canProceed ? () {
-                // Valider l'étape actuelle avant de continuer
-                bool currentStepValid = false;
-                switch (_currentStep) {
-                  case 0:
-                    currentStepValid = _validateStep0();
-                    break;
-                  case 1:
-                    currentStepValid = _validateStep1();
-                    break;
-                  case 2:
-                    currentStepValid = _validateStep2();
-                    break;
-                }
-
-                if (currentStepValid && mounted) {
-                  // Track fin d'étape actuelle
-                  _endStepTracking(_currentStep, _getStepName(_currentStep), true);
-                  setState(() => _currentStep++);
-                  // Track début nouvelle étape
-                  _startStepTracking(_currentStep, _getStepName(_currentStep));
-                } else {
-                  _showStepErrorNotification(_currentStep);
-                }
-              } : null),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isLastStep
-                    ? (canPublish ? _primaryColor : _greyColor)
-                    : (canProceed ? _primaryColor : _greyColor),
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 0,
-                shadowColor: Colors.transparent,
-              ),
-              child: _isLoading
-                  ? SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 3,
-                  color: Colors.white,
-                ),
-              )
-                  : Text(
-                isLastStep ? 'Publier l\'annonce' : 'Continuer',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader(String title) {
-    return Text(
-      title,
-      style: TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.w600,
-        color: _darkColor,
-      ),
-    );
   }
 }
 
