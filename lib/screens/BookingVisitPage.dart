@@ -209,7 +209,8 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
     try {
       final formattedDate = DateFormat('yyyy-MM-dd').format(_selectedDate!);
-      final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}';
+      // MODIFICATION ICI : Format HH:mm:ss au lieu de HH:mm
+      final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}:00';
 
       // CALCUL DE LA FIN DE VISITE (1 HEURE APRÈS LE DÉBUT)
       final visitStartDateTime = DateTime(
@@ -222,7 +223,8 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
       final visitEndDateTime = visitStartDateTime.add(Duration(hours: 1));
       final formattedEndDate = DateFormat('yyyy-MM-dd').format(visitEndDateTime);
-      final formattedEndTime = '${visitEndDateTime.hour.toString().padLeft(2, '0')}:${visitEndDateTime.minute.toString().padLeft(2, '0')}';
+      // MODIFICATION ICI AUSSI : Format HH:mm:ss pour l'heure de fin
+      final formattedEndTime = '${visitEndDateTime.hour.toString().padLeft(2, '0')}:${visitEndDateTime.minute.toString().padLeft(2, '0')}:00';
 
       // Timestamp actuel pour createdAt
       final now = DateTime.now();
@@ -236,7 +238,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
             : "Intéressé par la propriété ${widget.property.title}",
         "status": "PENDING",
         "type": "STANDARD",
-        "reservationHeure": formattedTime,
+        "reservationHeure": formattedTime, // Maintenant au format HH:mm:ss
         "startDate": formattedDate,
         "endDate": formattedEndDate,
         "createdAt": formattedCreatedAt,
@@ -275,6 +277,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       }
     }
   }
+
   void _showConfirmationDialog() {
     final formattedDate = DateFormat('EEEE d MMMM y', 'fr_FR').format(_selectedDate!);
     final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}h${_selectedTime!.minute == 0 ? '' : _selectedTime!.minute.toString().padLeft(2, '0')}';

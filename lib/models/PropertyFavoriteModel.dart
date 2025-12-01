@@ -1,15 +1,7 @@
-// To parse this JSON data, do
-//
-//     final propertyFavorite = propertyFavoriteFromJson(jsonString);
-
 import 'dart:convert';
 
-import 'package:casa/models/PropertyModel.dart';
-import 'package:casa/models/UserModel.dart';
-
-PropertyFavoriteModel propertyFavoriteFromJson(String str) => PropertyFavoriteModel.fromJson(json.decode(str));
-
-String propertyFavoriteToJson(PropertyFavoriteModel data) => json.encode(data.toJson());
+import 'PropertyModel.dart';
+import 'UserModel.dart';
 
 class PropertyFavoriteModel {
   int? propertyFavoriteId;
@@ -27,20 +19,21 @@ class PropertyFavoriteModel {
   });
 
   factory PropertyFavoriteModel.fromJson(Map<String, dynamic> json) => PropertyFavoriteModel(
-    propertyFavoriteId: json["PropertyFavoriteId"],
-    userId: json["UserId"],
-    propertyId: json["PropertyId"],
+    propertyFavoriteId: json["favoriteId"] ?? json["PropertyFavoriteId"],
+    userId: json["userId"] ?? json["UserId"],
+    propertyId: json["propertyId"] ?? json["PropertyId"],
     user: json["user"] == null ? null : UserModel.fromJson(json["user"]),
     property: json["property"] == null ? null : PropertyModel.fromJson(json["property"]),
   );
 
   Map<String, dynamic> toJson() => {
-    "PropertyFavoriteId": propertyFavoriteId,
-    "UserId": userId,
-    "PropertyId": propertyId,
+    "favoriteId": propertyFavoriteId,
+    "userId": userId,
+    "propertyId": propertyId,
     "user": user?.toJson(),
     "property": property?.toJson(),
   };
+
   String toJsonString() {
     return jsonEncode(toJson());
   }

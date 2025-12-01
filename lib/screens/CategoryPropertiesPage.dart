@@ -4,9 +4,11 @@ import 'package:casa/utils/Constantes.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
+import 'package:pull_to_refresh/pull_to_refresh.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../models/PropertyModel.dart';
+import '../utils/FancyNotification.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/Routes.dart';
 
@@ -29,6 +31,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   bool _isGridView = false;
   String _selectedFilter = 'Tous';
   final List<String> _filters = ['Tous', 'Location', 'Vente', 'Populaires', 'Nouveautés'];
+  final RefreshController _refreshController = RefreshController();
 
   @override
   Widget build(BuildContext context) {
@@ -54,19 +57,94 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     return Scaffold(
       backgroundColor: _lightColor,
       appBar: _buildAppBar(),
-      body: Column(
+      body: SmartRefresher(
+        controller: _refreshController,
+        enablePullDown: true,
+        enablePullUp: false,
+        header: ClassicHeader(
+          height: 60,
+          releaseText: 'Relâchez pour actualiser',
+          refreshingText: 'Mise à jour...',
+          completeText: 'Actualisation terminée',
+          failedText: 'Échec de l\'actualisation',
+          idleText: 'Tirez pour actualiser',
+          textStyle: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+          refreshingIcon: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+            ),
+          ),
+        ),
+        onRefresh: () async {
+          await _handlePullToRefresh(propertyCtrl);
+        },
+        child: Column(
+          children: [
+            _buildFilterChips(),
+
+            // Indicateur de synchronisation discret
+            if (propertyCtrl.syncing)
+              _buildMinimalSyncIndicator(),
+
+            Expanded(
+              child: propertyCtrl.loading
+                  ? _buildShimmerLoading()
+                  : filteredProperties.isEmpty
+                  ? _buildEmptyState()
+                  : _buildPropertyListOrGrid(filteredProperties),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMinimalSyncIndicator() {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: EdgeInsets.all(8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _buildFilterChips(),
-          Expanded(
-            child: propertyCtrl.loading
-                ? _buildShimmerLoading()
-                : filteredProperties.isEmpty
-                ? _buildEmptyState()
-                : _buildPropertyListOrGrid(filteredProperties),
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+            ),
+          ),
+          SizedBox(width: 8),
+          Text(
+            'Chargement...',
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+            ),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
+    try {
+      await propertyCtrl.refreshProperties();
+      _refreshController.refreshCompleted();
+      SnackbarForCasa.success(context, "Liste actualisée");
+    } catch (e) {
+      print("❌ Erreur refresh: $e");
+      _refreshController.refreshFailed();
+      SnackbarForCasa.error(context, "Erreur de connexion");
+    }
   }
 
   bool _matchesCategory(PropertyModel property, String category) {
@@ -84,7 +162,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       'Hotels': ['5'], // ID pour Hotels
       'Vacances': ['6'],
     };
-
 
     // Vérifier aussi le nom du type de propriété pour plus de fiabilité
     final propertyTypeName = property.propertyType?.name?.toLowerCase() ?? '';
@@ -217,7 +294,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
     return Container(
       height: 66,
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -231,7 +308,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: _filters.length,
-        separatorBuilder: (_, __) => SizedBox(width: 10),
+        separatorBuilder: (_, __) => SizedBox(width: 8),
         itemBuilder: (context, index) {
           final filter = _filters[index];
           final isSelected = _selectedFilter == filter;
@@ -244,29 +321,37 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
             },
             child: AnimatedContainer(
               duration: Duration(milliseconds: 200),
-              padding: EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? _primaryColor.withOpacity(0.12) : Colors.grey[100],
-                borderRadius: BorderRadius.circular(30),
+                color: isSelected ? _primaryColor : Colors.transparent,
+                borderRadius: BorderRadius.circular(12), // Border radius réduit
                 border: Border.all(
                   color: isSelected ? _primaryColor : Colors.grey[300]!,
-                  width: 1,
+                  width: 1.5,
                 ),
+                boxShadow: isSelected ? [
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.3),
+                    blurRadius: 6,
+                    offset: Offset(0, 2),
+                  )
+                ] : [],
               ),
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     filterIcons[filter],
-                    size: 18,
-                    color: isSelected ? _primaryColor : Colors.black54,
+                    size: 16,
+                    color: isSelected ? Colors.white : Colors.black54,
                   ),
-                  SizedBox(width: 8),
+                  SizedBox(width: 6),
                   Text(
                     filter,
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: isSelected ? _primaryColor : Colors.black87,
+                      fontSize: 13,
+                      color: isSelected ? Colors.white : Colors.black87,
                     ),
                   ),
                 ],
@@ -285,9 +370,9 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
           ? GridView.builder(
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 0.75,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 0.72, // Légèrement ajusté pour mieux afficher le texte
         ),
         itemCount: properties.length,
         itemBuilder: (context, index) {
@@ -461,23 +546,57 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     ),
                   ),
 
-                  // Prix en bas à gauche sur l'image
+                  // Prix en bas - Design amélioré
                   Positioned(
-                    bottom: 8,
-                    left: 8,
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
                     child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        priceText,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                        borderRadius: BorderRadius.only(
+                          bottomLeft: Radius.circular(12),
+                          bottomRight: Radius.circular(12),
                         ),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.8),
+                          ],
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              priceText,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isForRent ? Colors.blue[500] : Colors.green[500],
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              isForRent ? 'LOCATION' : 'VENTE',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -492,21 +611,25 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Titre
-                    Text(
-                      property.title ?? 'Sans titre',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                        color: _darkColor,
+                    // Titre avec gestion du overflow
+                    Container(
+                      constraints: BoxConstraints(maxHeight: 40),
+                      child: Text(
+                        property.title ?? 'Sans titre',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                          color: _darkColor,
+                          height: 1.2,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
 
                     SizedBox(height: 6),
 
-                    // Localisation
+                    // Localisation avec gestion du overflow
                     Row(
                       children: [
                         Icon(Icons.location_on_outlined, size: 14, color: _primaryColor),
@@ -549,28 +672,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         ),
                       ],
                     ),
-
-                    SizedBox(height: 12),
-
-                    // Type de transaction
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isForRent ? Colors.blue[50] : Colors.green[50],
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: isForRent ? Colors.blue[100]! : Colors.green[100]!,
-                        ),
-                      ),
-                      child: Text(
-                        isForRent ? 'À LOUER' : 'À VENDRE',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: isForRent ? Colors.blue[800]! : Colors.green[800]!,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -586,7 +687,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
     final lowerTitle = title.toLowerCase();
     if (lowerTitle.contains('appart') || lowerTitle.contains('apart')) {
-      return 'Appartement';
+      return 'Appart';
     } else if (lowerTitle.contains('maison')) {
       return 'Maison';
     } else if (lowerTitle.contains('studio')) {
@@ -748,25 +849,57 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                       ),
                     ),
 
-                    // Prix en bas
+                    // Prix en bas - Design amélioré
                     Positioned(
-                      bottom: 8,
-                      left: 8,
-                      right: 8,
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
                       child: Container(
                         padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.7),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          priceText,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                          borderRadius: BorderRadius.only(
+                            bottomLeft: Radius.circular(12),
+                            bottomRight: Radius.circular(12),
                           ),
-                          textAlign: TextAlign.center,
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withOpacity(0.8),
+                            ],
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                priceText,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isForRent ? Colors.blue[500] : Colors.green[500],
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                isForRent ? 'LOC' : 'VENTE',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -784,19 +917,23 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Titre et localisation
+                    // Titre et localisation avec gestion du overflow
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          property.title ?? 'Sans titre',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: _darkColor,
+                        Container(
+                          constraints: BoxConstraints(maxHeight: 32),
+                          child: Text(
+                            property.title ?? 'Sans titre',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                              color: _darkColor,
+                              height: 1.2,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         SizedBox(height: 4),
                         Row(
@@ -825,28 +962,8 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                       children: [
                         _buildMiniFeatureItem(FontAwesomeIcons.bed, '${property.bedrooms ?? 0}'),
                         _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bathroom ?? 0}'),
-                        _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}'),
+                        _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
                       ],
-                    ),
-
-                    // Type de transaction
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: isForRent ? Colors.blue[50] : Colors.green[50],
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(
-                          color: isForRent ? Colors.blue[100]! : Colors.green[100]!,
-                        ),
-                      ),
-                      child: Text(
-                        isForRent ? 'LOCATION' : 'VENTE',
-                        style: TextStyle(
-                          fontSize: 8,
-                          fontWeight: FontWeight.w600,
-                          color: isForRent ? Colors.blue[800]! : Colors.green[800]!,
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -922,8 +1039,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     );
   }
 
-  // Méthode pour déterminer le type de propriété depuis le titre
-
   Widget _buildShimmerLoading() {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 16),
@@ -931,9 +1046,9 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
           ? GridView.builder(
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 0.75,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 0.72,
         ),
         itemCount: 6,
         itemBuilder: (context, index) {
@@ -973,7 +1088,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                             children: [
                               Container(
                                 width: double.infinity,
-                                height: 14,
+                                height: 12,
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(4),
@@ -981,7 +1096,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                               ),
                               SizedBox(height: 6),
                               Container(
-                                width: 100,
+                                width: 80,
                                 height: 10,
                                 decoration: BoxDecoration(
                                   color: Colors.white,
@@ -993,18 +1108,10 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Container(width: 30, height: 10, color: Colors.white),
-                              Container(width: 30, height: 10, color: Colors.white),
-                              Container(width: 30, height: 10, color: Colors.white),
+                              Container(width: 25, height: 10, color: Colors.white),
+                              Container(width: 25, height: 10, color: Colors.white),
+                              Container(width: 25, height: 10, color: Colors.white),
                             ],
-                          ),
-                          Container(
-                            width: 60,
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
                           ),
                         ],
                       ),
@@ -1074,15 +1181,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                               Container(width: 40, height: 40, color: Colors.white),
                             ],
                           ),
-                          SizedBox(height: 12),
-                          Container(
-                            width: 80,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -1127,5 +1225,11 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _refreshController.dispose();
+    super.dispose();
   }
 }

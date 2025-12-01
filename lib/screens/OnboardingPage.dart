@@ -31,15 +31,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     OnboardingPage(
       title: "Des propriétés sûres et vérifiées",
       description: "Avec Casanayo, chaque bien est inspecté et validé pour votre tranquillité d'esprit.",
-      imagePath: "assets/images/humaaans.png", // Tu peux changer par une illustration type inspection/sécurité
+      imagePath: "assets/images/humaaans.png",
       color: Color(0xFFFF9800), // Orange énergique
       secondaryColor: Color(0xFFFFC107),
     ),
 
     OnboardingPage(
-      title: "Parrainez et gagnez de l'argent",
-      description: "Invitez des bailleurs sur Casanayo et recevez des récompenses à chaque publication validée.",
-      imagePath: "assets/happy_safe.svg", // Tu peux aussi changer pour une illustration d’argent ou networking
+      title: "Gagnez des commissions sur les locations",
+      description: "Parrainez des propriétaires et touchez une récompense à chaque mise en location réussie de leurs biens.",
+      imagePath: "assets/happy_safe.svg",
       color: Color(0xFF2196F3), // Bleu clair
       secondaryColor: Color(0xFF64B5F6),
     ),

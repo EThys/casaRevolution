@@ -71,56 +71,66 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
       ),
       floatingActionButton: Visibility(
         visible: !_isKeyboardVisible,
-        child: FloatingActionButton(
-          child: Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  Color(0xFF1976D2), // Bleu plus foncé
-                  Color(0xFF2196F3), // Votre couleur bleue
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  spreadRadius: 1,
-                  blurRadius: 5,
-                  offset: Offset(0, 3),
+        child: Container(
+          width: 60, // Réduit de 70 à 60
+          height: 60, // Réduit de 70 à 60
+          child: FloatingActionButton(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            highlightElevation: 0,
+            splashColor: Colors.transparent,
+            child: Container(
+              width: 56, // Réduit de 60 à 56
+              height: 56, // Réduit de 60 à 56
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [
+                    Color(0xFF1976D2),
+                    Color(0xFF2196F3),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-              ],
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0xFF1976D2).withOpacity(0.4),
+                    spreadRadius: 1,
+                    blurRadius: 8,
+                    offset: Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.add,
+                color: Colors.white,
+                size: 26, // Réduit de 28 à 26
+              ),
             ),
-            child: Icon(
-              Icons.add, // Icône pour publier une maison
-              color: Colors.white,
-              size: 28,
-            ),
-          ),
-          elevation: 0,
-          onPressed: () {
-            var token = _stockage.read(StockageKeys.tokenKey);
-            var typeAccount = _stockage.read(StockageKeys.userKey)?['TypeAccountId'];
+            onPressed: () {
+              var token = _stockage.read(StockageKeys.tokenKey);
+              var typeAccount = _stockage.read(StockageKeys.userKey)?['TypeAccountId'];
 
-            if (token != null) {
-              if (typeAccount != 2) {
-                Navigator.pushNamed(context, Routes.createPropertyRoute);
+              if (token != null) {
+                if (typeAccount != 2) {
+                  Navigator.pushNamed(context, Routes.createPropertyRoute);
+                } else {
+                  SnackbarForCasa.info(
+                    context,
+                    "La publication d'annonces est réservée aux bailleurs et commissionnaires",
+                  );
+                }
               } else {
-                FancyNotification.show(
+                SnackbarForCasa.info(
                   context,
-                  "Votre type de compte ne permet pas de publier une annonce",
+                  "Vous devez avoir un compte et être connecté pour publier une annonce",
+                  onTap: () {
+                    Navigator.pushNamed(context, Routes.loginRoute);
+                  },
                 );
               }
-            } else {
-              FancyNotification.show(
-                context,
-                "Vous devez être connecté pour publier une annonce",
-              );
-            }
-          },
+            },
+          ),
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
@@ -142,13 +152,13 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           ),
           child: BottomAppBar(
             shape: CircularNotchedRectangle(),
-            notchMargin: 8,
+            notchMargin: 6, // Réduit de 8 à 6 pour un creux plus petit
             color: Colors.white,
             child: Container(
-              height: 70,
-              padding: EdgeInsets.symmetric(horizontal: 8),
+              height: 70, // Réduit de 85 à 70 (suffisant avec les ajustements)
+              padding: EdgeInsets.zero, // Supprimé tout padding horizontal
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _buildNavItem(
                     icon: Icons.home_rounded,
@@ -160,7 +170,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
                     label: 'Recherche',
                     index: 1,
                   ),
-                  SizedBox(width: 40), // Espace pour le FAB
+                  SizedBox(width: 36), // Espace réduit pour le FAB (40 → 36)
                   _buildNavItem(
                     icon: Icons.favorite_rounded,
                     label: 'Favoris',
@@ -186,29 +196,57 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
     required int index,
   }) {
     final isActive = _currentIndex == index;
-    return InkWell(
-      onTap: () => setState(() => _currentIndex = index),
-      splashColor: Colors.transparent,
-      highlightColor: Colors.transparent,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AnimatedContainer(
-            duration: Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-            padding: EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: isActive ? Color(0xFFE3F2FD) : Colors.transparent,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              icon,
-              size: 24,
-              color: isActive ? Color(0xFF2196F3) : Color(0xFF95A5A6),
+    return Expanded(
+      child: Container(
+        margin: EdgeInsets.symmetric(horizontal: 0), // Supprimé la marge
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => setState(() => _currentIndex = index),
+            splashColor: Color(0xFF2196F3).withOpacity(0.1),
+            highlightColor: Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: EdgeInsets.symmetric(vertical: 6), // Supprimé padding horizontal
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Icône plus compacte
+                  Container(
+                    padding: EdgeInsets.all(4), // Réduit de 6 à 4
+                    decoration: BoxDecoration(
+                      color: isActive ? Color(0xFFE3F2FD) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      icon,
+                      size: 20, // Réduit de 22 à 20
+                      color: isActive ? Color(0xFF2196F3) : Color(0xFF95A5A6),
+                    ),
+                  ),
+                  SizedBox(height: 2), // Réduit de 3 à 2
+                  // Label ultra compact
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 2), // Petit padding pour éviter le bord
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 9, // Réduit de 9.5 à 9
+                        fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                        color: isActive ? Color(0xFF2196F3) : Color(0xFF95A5A6),
+                        height: 1.0,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          // Supprimé : aucun label en dessous de l'icône
-        ],
+        ),
       ),
     );
   }

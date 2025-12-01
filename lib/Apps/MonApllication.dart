@@ -41,26 +41,34 @@ class MonApplication extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => RegisterLocataireCtrl()),
         ChangeNotifierProvider(create: (_) => PropertyController(stockage: _stockage)),
         ChangeNotifierProvider(create: (_) => ReservationController(stockage: _stockage)),
-        ChangeNotifierProvider(create: (_) => PropertyFavoriteCtrl()),
         ChangeNotifierProvider(create: (_) => LocationController()),
-        ChangeNotifierProvider(
+        ChangeNotifierProvider<PropertyFavoriteCtrl>(
+          create: (_) => PropertyFavoriteCtrl(stockage: _stockage),
+        ),
+
+        ChangeNotifierProvider(create: (_) => LocationController()),
+        ChangeNotifierProxyProvider<PropertyFavoriteCtrl, FavoriteProvider>(
           create: (context) {
-            // CORRECTION: Utiliser la méthode getInstance() au lieu de .instance
             final databaseHelper = FavoriteDatabaseHelper.instance;
-            final favoriteCtrl = PropertyFavoriteCtrl();
+            final favoriteCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
             return FavoriteProvider(databaseHelper, favoriteCtrl);
           },
+          update: (context, favoriteCtrl, previous) => previous!,
         ),
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         useInheritedMediaQuery: true,
 
+        // SOLUTION: Forcer le mode clair
+        themeMode: ThemeMode.light, // ← FORCER LE MODE CLAIR
+
         // AJOUT: Firebase Analytics Observer
         navigatorObservers: [observer],
 
         theme: ThemeData(
           useMaterial3: true,
+          brightness: Brightness.light, // ← S'ASSURER QUE C'EST CLAIR
           colorScheme: ColorScheme.fromSeed(
             seedColor: const Color(0xFF2A5C99),
             brightness: Brightness.light,
@@ -138,12 +146,15 @@ class MonApplication extends StatelessWidget {
             ),
           ),
           appBarTheme: AppBarTheme(
+            backgroundColor: Colors.white,
             titleTextStyle: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w500,
               color: Colors.black,
             ),
+            iconTheme: IconThemeData(color: Colors.black),
           ),
+          scaffoldBackgroundColor: Colors.white,
           elevatedButtonTheme: ElevatedButtonThemeData(
             style: ElevatedButton.styleFrom(
               textStyle: TextStyle(
@@ -165,103 +176,13 @@ class MonApplication extends StatelessWidget {
             hintStyle: TextStyle(),
             errorStyle: TextStyle(),
             floatingLabelStyle: TextStyle(),
+            fillColor: Colors.white,
+            filled: true,
           ),
         ),
 
-        darkTheme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF2A5C99),
-            brightness: Brightness.dark,
-          ),
-          fontFamily: GoogleFonts.inter().fontFamily,
-          textTheme: TextTheme(
-            displayLarge: TextStyle(
-              fontSize: 57,
-              fontWeight: FontWeight.w400,
-              letterSpacing: -0.25,
-              color: Colors.white,
-            ),
-            displayMedium: TextStyle(
-              fontSize: 45,
-              fontWeight: FontWeight.w400,
-              color: Colors.white,
-            ),
-            displaySmall: TextStyle(
-              fontSize: 36,
-              fontWeight: FontWeight.w400,
-              color: Colors.white,
-            ),
-            headlineLarge: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.w400,
-              color: Colors.white,
-            ),
-            headlineMedium: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w400,
-              color: Colors.white,
-            ),
-            headlineSmall: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w400,
-              color: Colors.white,
-            ),
-            titleLarge: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w500,
-              color: Colors.white,
-            ),
-            titleMedium: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.15,
-              color: Colors.white,
-            ),
-            titleSmall: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.1,
-              color: Colors.white,
-            ),
-            bodyLarge: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w400,
-              letterSpacing: 0.5,
-              color: Colors.white,
-            ),
-            bodyMedium: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w400,
-              letterSpacing: 0.25,
-              color: Colors.white,
-            ),
-            bodySmall: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w400,
-              letterSpacing: 0.4,
-              color: Colors.white70,
-            ),
-            labelLarge: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.1,
-              color: Colors.white,
-            ),
-            labelMedium: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.5,
-              color: Colors.white,
-            ),
-            labelSmall: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              letterSpacing: 0.5,
-              color: Colors.white70,
-            ),
-          ),
-        ),
+        // SUPPRIMER le darkTheme ou le commenter
+        // darkTheme: ThemeData(...),
 
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,

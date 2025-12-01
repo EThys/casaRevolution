@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:pull_to_refresh/pull_to_refresh.dart';
 import '../controllers/PropertyCtrl.dart';
 import '../controllers/LocationController.dart';
 import '../models/CityModel.dart';
@@ -65,6 +66,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
   // Timer pour le debounce de recherche
   Timer? _searchDebounce;
+
+  // Refresh controller pour pull-to-refresh
+  final RefreshController _refreshController = RefreshController();
 
   @override
   void initState() {
@@ -199,7 +203,6 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     print("🌍 Affichage de toutes les communes: ${_communes.length}");
   }
 
-
   void _applyFilters() {
     final propertyController = Provider.of<PropertyController>(context, listen: false);
     final locationController = Provider.of<LocationController>(context, listen: false);
@@ -331,6 +334,55 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     controller.resetFilters();
   }
 
+  // Méthode pour gérer le pull-to-refresh
+  Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
+    try {
+      await propertyCtrl.refreshProperties();
+      _refreshController.refreshCompleted();
+      _showRefreshSuccess();
+    } catch (e) {
+      print("❌ Erreur refresh: $e");
+      _refreshController.refreshFailed();
+      _showRefreshError();
+    }
+  }
+
+  void _showRefreshSuccess() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.white, size: 20),
+            SizedBox(width: 8),
+            Text('Données à jour', style: TextStyle(fontWeight: FontWeight.w500)),
+          ],
+        ),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showRefreshError() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.white, size: 20),
+            SizedBox(width: 8),
+            Text('Erreur de rafraîchissement', style: TextStyle(fontWeight: FontWeight.w500)),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -361,7 +413,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     final filterCount = _getActiveFilterCount();
 
     return Container(
-      margin: EdgeInsets.only(top: 8, bottom: 8), // AJOUT: Espacement vertical
+      margin: EdgeInsets.only(top: 8, bottom: 8),
       child: Stack(
         children: [
           IconButton(
@@ -375,7 +427,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           if (filterCount > 0)
             Positioned(
               right: 8,
-              top: 8, // Ajuster si nécessaire
+              top: 8,
               child: Container(
                 padding: EdgeInsets.all(2),
                 decoration: BoxDecoration(
@@ -959,10 +1011,17 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           return _buildEmptyState(controller);
         }
 
-        return RefreshIndicator(
-          color: _primaryColor,
+        return SmartRefresher(
+          controller: _refreshController,
+          enablePullDown: true,
+          enablePullUp: false,
+          header: CustomHeader(
+            builder: (context, mode) {
+              return _buildRefreshHeader(mode!, controller);
+            },
+          ),
           onRefresh: () async {
-            await controller.forceSync();
+            await _handlePullToRefresh(controller);
           },
           child: ListView.builder(
             padding: EdgeInsets.all(16),
@@ -971,6 +1030,86 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildRefreshHeader(RefreshStatus mode, PropertyController propertyCtrl) {
+    Widget content;
+
+    switch (mode) {
+      case RefreshStatus.idle:
+        content = _buildHeaderItem(
+          icon: Icons.arrow_downward,
+          text: "Tirer pour rafraîchir",
+          color: Colors.grey,
+        );
+        break;
+      case RefreshStatus.canRefresh:
+        content = _buildHeaderItem(
+          icon: Icons.arrow_upward,
+          text: "Relâcher pour rafraîchir",
+          color: _primaryColor,
+        );
+        break;
+      case RefreshStatus.refreshing:
+        content = _buildRefreshInProgress();
+        break;
+      case RefreshStatus.completed:
+        content = _buildHeaderItem(
+          icon: Icons.check_circle,
+          text: "Rafraîchissement terminé",
+          color: Colors.green,
+        );
+        break;
+      case RefreshStatus.failed:
+        content = _buildHeaderItem(
+          icon: Icons.error_outline,
+          text: "Échec du rafraîchissement",
+          color: Colors.red,
+        );
+        break;
+      default:
+        content = Container();
+    }
+
+    return Container(
+      height: 80,
+      child: Center(child: content),
+    );
+  }
+
+  Widget _buildHeaderItem({required IconData icon, required String text, required Color color}) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, color: color, size: 20),
+        SizedBox(height: 8),
+        Text(
+          text,
+          style: TextStyle(color: color, fontSize: 14),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRefreshInProgress() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+          ),
+        ),
+        SizedBox(height: 8),
+        Text(
+          "Mise à jour...",
+          style: TextStyle(color: _primaryColor, fontSize: 14),
+        ),
+      ],
     );
   }
 
@@ -1396,7 +1535,6 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-
   Widget _buildSuggestionChip(String text) {
     return GestureDetector(
       onTap: () {
@@ -1501,7 +1639,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   Widget _buildSearchField() {
     return Container(
       height: 44,
-      margin: EdgeInsets.only(top: 8, bottom: 8, right: 8), // AJOUT: top et bottom
+      margin: EdgeInsets.only(top: 8, bottom: 8, right: 8),
       decoration: BoxDecoration(
         color: _lightColor,
         borderRadius: BorderRadius.circular(12),
@@ -1595,6 +1733,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     _minPriceFocus.dispose();
     _maxPriceFocus.dispose();
     _bedroomsFocus.dispose();
+    _refreshController.dispose();
     super.dispose();
   }
 }

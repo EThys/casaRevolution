@@ -14,468 +14,51 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../controllers/AuthentificationCtrl.dart';
 import '../utils/Routes.dart';
 
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({Key? key}) : super(key: key);
 
   @override
-  _FavoritesPageState createState() => _FavoritesPageState();
+  State<FavoritesPage> createState() => _FavoritesPageState();
 }
 
-class _FavoritesPageState extends State<FavoritesPage> {
-  final DateFormat _dateFormat = DateFormat('EEEE d MMMM y', 'fr_FR');
-  final GetStorage storage = GetStorage();
+class _FavoritesPageState extends State<FavoritesPage>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  bool _isLoadingData = true;
+  bool _isRefreshing = false;
+  final DateFormat _dateFormat = DateFormat('dd MMM yyyy', 'fr_FR');
+  final GetStorage _storage = GetStorage();
+  bool _isLoading = false;
 
-  // Couleurs
+  // Couleurs modernes
   final Color _primaryColor = Color(0xFF1976D2);
+  final Color _secondaryColor = Color(0xFF64B5F6);
   final Color _darkColor = Color(0xFF1A1D26);
   final Color _lightGrey = Color(0xFFF5F6FA);
   final Color _mediumGrey = Color(0xFF7F8C8D);
   final Color _successColor = Color(0xFF00B894);
+  final Color _warningColor = Color(0xFFFDCB6E);
   final Color _errorColor = Color(0xFFD63031);
   final Color _cardBackground = Colors.white;
-  final Color _lightColor = Color(0xFFF5F6FA);
-  final Color _greyColor = Color(0xFF7F8C8D);
-  final Color _accentColor = Color(0xFF4CAF50);
+  final Color _chipBackground = Color(0xFFE8F4F8);
 
-
-  bool _isLoading = false;
-  String? _errorMessage;
   List<int> _deletingIds = [];
-
-
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadFavorites();
-    });
+    _tabController = TabController(length: 3, vsync: this);
+    _loadFavorites();
   }
 
-  Future<void> _loadFavorites() async {
-    final tkn = storage.read<String>(StockageKeys.tokenKey);
-
-    if (tkn == null) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'connect';
-      });
-      return;
-    }
-
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final userId = storage.read(StockageKeys.userKey)?['UserId'];
-      if (userId != null) {
-        final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
-        await propertyCtrl.getFavoritesByUser(userId.toString());
-
-        print("TESTTTTTTTTTTTTTT${userId}");
-        print("TESTTTTTTTTTTTTTT${propertyCtrl.propertyFavorites}");
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Erreur lors du chargement des favoris';
-      });
-      print("Erreur lors du chargement des favoris: $e");
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  Future<void> _removeFavorite(int? propertyId) async {
-    if (propertyId == null) return;
-
-    setState(() {
-      _deletingIds.add(propertyId);
-    });
-
-    try {
-      final userId = storage.read(StockageKeys.userKey)?['UserId']?.toString();
-      if (userId != null) {
-        final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
-        final success = await propertyCtrl.removeFavorite(userId, propertyId.toString());
-
-        if (success) {
-          // Synchroniser l'état avec le provider
-          final favoriteProvider = Provider.of<FavoriteProvider>(context, listen: false);
-          await favoriteProvider.syncFavorites(userId);
-
-          // Attendre que l'animation se termine
-          await Future.delayed(Duration(milliseconds: 300));
-          FancyNotification.show(context, "Supprimé des favoris", isError: false);
-        }
-      }
-    } catch (e) {
-      FancyNotification.show(context, "Échec de la suppression");
-      print("Erreur lors de la suppression: $e");
-    } finally {
-      if (mounted) {
-        setState(() {
-          _deletingIds.remove(propertyId);
-        });
-      }
-    }
-  }
-
-  void _showPropertyDetails(PropertyFavoriteModel property) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _buildPropertyDetails(property),
-    );
-  }
-
-  Widget _buildPropertyDetails(PropertyFavoriteModel property) {
-    final propertyData = property.property;
-    final isForRent = propertyData?.transactionType == 'location';
-
-    final firstImage = propertyData?.propertyImage?.isNotEmpty ?? false
-        ? propertyData?.propertyImage?.first
-        : null;
-    final imageUrl = firstImage != null
-        ? "${firstImage.path ?? firstImage.path}"
-        : null;
-
-
-    final priceText = isForRent
-        ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$';
-
-    final isAvailable = propertyData?.sold ?? false;
-
-    return DraggableScrollableSheet(
-      initialChildSize: 0.9,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (_, controller) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-          ),
-          padding: EdgeInsets.all(24),
-          child: SingleChildScrollView(
-            controller: controller,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                  ),
-                ),
-                SizedBox(height: 20),
-                Text(
-                  'Détails du bien',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: _darkColor,
-                  ),
-                ),
-                SizedBox(height: 20),
-                GestureDetector(
-                  onTap: () {
-                    Navigator.pushNamed(
-                      context,
-                      Routes.detailPageRoute,
-                      arguments: propertyData,
-                    );
-                  },
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(15),
-                    child: imageUrl != null
-                        ? CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      height: 180,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Center(
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: _primaryColor,
-                        ),
-                      ),
-                      errorWidget: (context, url, error) => Center(
-                        child: Icon(Icons.home, size: 50, color: _mediumGrey),
-                      ),
-                    )
-                        : Center(
-                      child: Icon(Icons.home, size: 50, color: _mediumGrey),
-                    ),
-                  ),
-                ),
-                SizedBox(height: 20),
-                Text(
-                  propertyData?.title ?? 'Propriété sans titre',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                    color: _darkColor,
-                  ),
-                ),
-                SizedBox(height: 5),
-                Row(
-                  children: [
-                    Icon(Icons.location_on_outlined, size: 16, color: _mediumGrey),
-                    SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        propertyData?.address ?? 'Adresse non disponible',
-                        style: TextStyle(
-                          color: _mediumGrey,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 20),
-                Divider(height: 1, color: Colors.grey[200]),
-                SizedBox(height: 15),
-                Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: _primaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        Icons.monetization_on_outlined,
-                        size: 20,
-                        color: _primaryColor,
-                      ),
-                    ),
-                    SizedBox(width: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Prix',
-                          style: TextStyle(
-                            color: _mediumGrey,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          '${priceText}',
-                          style: TextStyle(
-                            color: _darkColor,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Spacer(),
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isAvailable
-                            ? _successColor.withOpacity(0.1)
-                            : _errorColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        isAvailable ? 'Disponible' : 'Indisponible',
-                        style: TextStyle(
-                          color: isAvailable ? _successColor : _errorColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 15),
-                Divider(height: 1, color: Colors.grey[200]),
-                SizedBox(height: 15),
-                Text(
-                  'Caractéristiques',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _darkColor,
-                  ),
-                ),
-                SizedBox(height: 10),
-                Text(
-                  _buildFeaturesText(propertyData),
-                  style: TextStyle(
-                    color: _darkColor.withOpacity(0.8),
-                    fontSize: 15,
-                  ),
-                ),
-                SizedBox(height: 25),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          if (property.propertyId != null) {
-                            _removeFavorite(property.propertyId!);
-                          }
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _errorColor,
-                          side: BorderSide(color: _errorColor),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: EdgeInsets.symmetric(vertical: 16),
-                        ),
-                        child: Text(
-                          'SUPPRIMER DES FAVORIS',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                  ],
-                ),
-                SizedBox(height: 10),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildImagePlaceholder() {
-    return Container(
-      color: Colors.grey[200],
-      child: Center(
-        child: Icon(
-          Icons.photo_outlined,
-          size: 32,
-          color: Colors.grey[400],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFeatureChip(IconData icon, String text) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: _lightColor,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: _greyColor),
-          SizedBox(width: 4),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 10,
-              color: _greyColor,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-
-
-
-
-  String _buildFeaturesText(PropertyModel? property) {
-    if (property == null) return 'Aucune information disponible';
-
-    List<String> features = [];
-    if (property.bedrooms != null) features.add('${property.bedrooms} chambres');
-    if (property.floor != null) features.add('${property.floor}m²');
-    if (property.floor != null) features.add('Étage ${property.floor}');
-
-    return features.join(' · ');
-  }
-
-  Widget _buildPlaceholderImage() {
-    return Container(
-      height: 180,
-      color: _lightGrey,
-      child: Center(
-        child: Icon(Icons.home, size: 50, color: _mediumGrey),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context);
-
-    return Scaffold(
-      backgroundColor: _lightGrey,
-      appBar: _buildFavoritesAppBar(),
-      body: _buildFavoritesList(propertyCtrl),
-    );
-  }
-
-  PreferredSizeWidget _buildFavoritesAppBar() {
-    return AppBar(
-      elevation: 2,
-      backgroundColor: _primaryColor,
-      automaticallyImplyLeading: false,
-      title: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.favorite_rounded, color: Colors.white, size: 20),
-          SizedBox(width: 8),
-          Text(
-            'Mes Favoris',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 18,
-            ),textAlign: TextAlign.left,
-          ),
-        ],
-      ),
-
-      bottom: PreferredSize(
-        preferredSize: Size.fromHeight(1),
-        child: Container(
-          height: 1,
-          color: Colors.white.withOpacity(0.2),
-        ),
-      ),
-    );
-  }
-
-
-  Widget _buildShimmerLoading() {
+  // Shimmer effect
+  Widget _buildShimmerEffect() {
     return ListView.separated(
       padding: EdgeInsets.all(20),
-      itemCount: 5,
+      itemCount: 4,
       separatorBuilder: (_, __) => SizedBox(height: 20),
       itemBuilder: (context, index) {
         return Shimmer.fromColors(
@@ -486,45 +69,38 @@ class _FavoritesPageState extends State<FavoritesPage> {
               borderRadius: BorderRadius.circular(20),
               color: Colors.white,
             ),
+            padding: EdgeInsets.all(1),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
                   height: 180,
-                  width: double.infinity,
-                  color: Colors.white,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                    color: Colors.grey[400],
+                  ),
                 ),
                 Padding(
-                  padding: EdgeInsets.all(20),
+                  padding: EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        width: double.infinity,
                         height: 20,
-                        color: Colors.white,
+                        width: double.infinity,
+                        color: Colors.grey[400],
                       ),
                       SizedBox(height: 8),
                       Container(
-                        width: double.infinity,
                         height: 16,
-                        color: Colors.white,
+                        width: 150,
+                        color: Colors.grey[400],
                       ),
-                      SizedBox(height: 15),
-                      Row(
-                        children: [
-                          Container(
-                            width: 18,
-                            height: 18,
-                            color: Colors.white,
-                          ),
-                          SizedBox(width: 8),
-                          Container(
-                            width: 120,
-                            height: 14,
-                            color: Colors.white,
-                          ),
-                        ],
+                      SizedBox(height: 12),
+                      Container(
+                        height: 16,
+                        width: 200,
+                        color: Colors.grey[400],
                       ),
                     ],
                   ),
@@ -537,155 +113,329 @@ class _FavoritesPageState extends State<FavoritesPage> {
     );
   }
 
-  Widget _buildNotConnectedView() {
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 30),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_outline, size: 70, color: _primaryColor),
-            SizedBox(height: 20),
-            Text(
-              'Connexion requise',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: _darkColor,
-              ),
-            ),
-            SizedBox(height: 10),
-            Text(
-              'Veuillez vous connecter pour accéder à vos favoris.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _mediumGrey,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  Future<void> _loadFavorites() async {
+    try {
+      if (!mounted) return;
+
+      final authCtrl = context.read<AuthentificationCtrl>();
+      final isLoggedIn = authCtrl.token.isNotEmpty;
+
+      if (!isLoggedIn) {
+        setState(() {
+          _isLoadingData = false;
+          _isRefreshing = false;
+        });
+        return;
+      }
+
+      setState(() {
+        _isLoadingData = true;
+        _isRefreshing = true;
+      });
+
+      final userId = authCtrl.user.userId?.toString();
+      if (userId != null) {
+        final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
+        await propertyCtrl.getFavoritesByUser(userId);
+        print("📊 Favoris chargés: ${propertyCtrl.propertyFavorites.length}");
+      }
+
+    } catch (e) {
+      print("❌ Erreur lors du chargement des favoris: $e");
+      FancyNotification.show(context, "Erreur lors du chargement des favoris");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingData = false;
+          _isRefreshing = false;
+        });
+      }
+    }
   }
 
-  Widget _buildErrorView() {
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 30),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, color: _errorColor, size: 60),
-            SizedBox(height: 20),
-            Text(
-              'Oups ! Une erreur est survenue',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _darkColor,
-              ),
-            ),
-            SizedBox(height: 10),
-            Text(
-              _errorMessage!,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: _mediumGrey),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: _loadFavorites,
-              icon: Icon(Icons.refresh),
-              label: Text('Réessayer'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _primaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Future<void> _removeFavorite(int? propertyId) async {
+    if (propertyId == null) return;
 
-  Widget _buildEmptyFavoritesView() {
-    return Center(
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 30),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.favorite_border_outlined, size: 70, color: _primaryColor),
-            SizedBox(height: 20),
-            Text(
-              'Aucun favori pour l’instant',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: _darkColor,
-              ),
-            ),
-            SizedBox(height: 10),
-            Text(
-              'Ajoutez des propriétés à vos favoris pour les retrouver facilement.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _mediumGrey,
-                fontSize: 14,
-              ),
-            ),
-            SizedBox(height: 30),
-            // ElevatedButton.icon(
-            //   onPressed: () {
-            //    Navigator.pushNamed(context, Routes.homeRoute);
-            //   },
-            //   icon: Icon(Icons.explore,color: Colors.white,),
-            //   label: Text('Explorer',style: TextStyle(color: Colors.white),),
-            //   style: ElevatedButton.styleFrom(
-            //     backgroundColor: _primaryColor,
-            //     padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            //     shape: RoundedRectangleBorder(
-            //       borderRadius: BorderRadius.circular(12),
-            //     ),
-            //   ),
-            // ),
-          ],
-        ),
-      ),
-    );
-  }
+    final authCtrl = context.read<AuthentificationCtrl>();
+    final userId = authCtrl.user.userId?.toString();
 
-
-
-  Widget _buildFavoritesList(PropertyFavoriteCtrl propertyCtrl) {
-    if (_isLoading && propertyCtrl.propertyFavorites.isEmpty) {
-      return _buildShimmerLoading();
+    if (userId == null) {
+      _showNotification("Erreur: Utilisateur non connecté", isError: true);
+      return;
     }
 
-    if (_errorMessage == 'connect') {
+    setState(() {
+      _deletingIds.add(propertyId);
+    });
+
+    try {
+      final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
+      final success = await propertyCtrl.removeFavorite(userId, propertyId.toString());
+
+      if (success) {
+        final favoriteProvider = Provider.of<FavoriteProvider>(context, listen: false);
+        await favoriteProvider.syncFavorites(userId);
+
+        await Future.delayed(Duration(milliseconds: 300));
+        _showNotification("Supprimé des favoris", isError: false);
+
+        // Recharger les données
+        await _loadFavorites();
+      }
+    } catch (e) {
+      _showNotification("Échec de la suppression", isError: true);
+      print("Erreur lors de la suppression: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _deletingIds.remove(propertyId);
+        });
+      }
+    }
+  }
+
+  void _showNotification(String message, {bool isError = false}) {
+    FancyNotification.show(
+      context,
+      message,
+      isError: isError,
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context);
+    final authCtrl = Provider.of<AuthentificationCtrl>(context);
+
+    // Si l'utilisateur n'est pas connecté
+    if (!authCtrl.token.isNotEmpty) {
       return _buildNotConnectedView();
     }
 
-    if (_errorMessage != null) {
-      return _buildErrorView();
+    return Scaffold(
+      backgroundColor: _lightGrey,
+      appBar: _buildAppBar(),
+      body: Column(
+        children: [
+          _buildTabBar(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildFavoriteList(_filterFavorites(propertyCtrl.propertyFavorites, 'all')),
+                _buildFavoriteList(_filterFavorites(propertyCtrl.propertyFavorites, 'available')),
+                _buildFavoriteList(_filterFavorites(propertyCtrl.propertyFavorites, 'rent')),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      elevation: 0,
+      flexibleSpace: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [_primaryColor, _secondaryColor],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+      ),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.favorite_rounded, color: Colors.white, size: 18),
+          ),
+          SizedBox(width: 12),
+          Text(
+            'Mes favoris',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
+            ),
+            textAlign: TextAlign.left,
+          ),
+        ],
+      ),
+      actions: [
+        Tooltip(
+          message: 'Actualiser',
+          child: Stack(
+            children: [
+              IconButton(
+                icon: Icon(_isRefreshing ? Icons.refresh : Icons.refresh, color: Colors.white),
+                onPressed: _isRefreshing ? null : _loadFavorites,
+              ),
+              if (_isRefreshing)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    constraints: BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+      bottom: PreferredSize(
+        preferredSize: Size.fromHeight(1),
+        child: Container(
+          height: 1,
+          color: Colors.white.withOpacity(0.2),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabBar() {
+    final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
+    final favorites = propertyCtrl.propertyFavorites;
+
+    final allCount = _filterFavorites(favorites, 'all').length;
+    final availableCount = _filterFavorites(favorites, 'available').length;
+    final rentCount = _filterFavorites(favorites, 'rent').length;
+
+    return Container(
+      color: Colors.white,
+      child: Column(
+        children: [
+          TabBar(
+            controller: _tabController,
+            labelColor: _primaryColor,
+            unselectedLabelColor: _mediumGrey,
+            indicatorColor: _primaryColor,
+            indicatorWeight: 3,
+            indicatorSize: TabBarIndicatorSize.tab,
+            indicatorPadding: EdgeInsets.symmetric(horizontal: 10),
+            labelStyle: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+            unselectedLabelStyle: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 13,
+            ),
+            tabs: [
+              Tab(
+                text: 'Tous ($allCount)',
+              ),
+              Tab(
+                text: 'Disponibles ($availableCount)',
+              ),
+              Tab(
+                text: 'À louer ($rentCount)',
+              ),
+            ],
+          ),
+          // Indicateur de chargement pour les tabs
+          if (_isLoadingData)
+            LinearProgressIndicator(
+              backgroundColor: _lightGrey,
+              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+              minHeight: 2,
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<PropertyFavoriteModel> _filterFavorites(List<PropertyFavoriteModel> favorites, String filter) {
+    switch (filter) {
+      case 'available':
+        return favorites.where((fav) => !(fav.property?.sold ?? true)).toList();
+      case 'rent':
+        return favorites.where((fav) => fav.property?.transactionType == 'location').toList();
+      case 'all':
+      default:
+        return favorites;
     }
+  }
 
-    if (propertyCtrl.propertyFavorites.isEmpty) {
-      return _buildEmptyFavoritesView();
-    }
+  Widget _buildFavoriteList(List<PropertyFavoriteModel> favorites) {
+    return AnimatedSwitcher(
+      duration: Duration(milliseconds: 300),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return ScaleTransition(
+          scale: animation,
+          child: FadeTransition(
+            opacity: animation,
+            child: child,
+          ),
+        );
+      },
+      child: _isLoadingData
+          ? _buildShimmerEffect()
+          : favorites.isEmpty
+          ? _buildEmptyState()
+          : _buildFavoriteListContent(favorites),
+    );
+  }
 
+  Widget _buildEmptyState() {
+    final emptyMessages = [
+      "Aucune propriété dans vos favoris",
+      "Aucune propriété disponible dans vos favoris",
+      "Aucune propriété à louer dans vos favoris"
+    ];
 
-    if (propertyCtrl.propertyFavorites.isEmpty) {
-      return Center(
+    final emptyIcons = [
+      Icons.favorite_border,
+      Icons.check_circle_outline,
+      Icons.home_work_outlined
+    ];
+
+    return Center(
+      child: SingleChildScrollView(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.favorite_border_outlined,
-              size: 60,
-              color: _mediumGrey.withOpacity(0.3),
+            Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                color: _lightGrey,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                emptyIcons[_tabController.index],
+                size: 60,
+                color: _mediumGrey.withOpacity(0.3),
+              ),
             ),
             SizedBox(height: 20),
             Text(
@@ -700,7 +450,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 40),
               child: Text(
-                'Ajoutez des propriétés à vos favoris pour les retrouver facilement',
+                emptyMessages[_tabController.index],
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: _mediumGrey.withOpacity(0.8),
@@ -708,316 +458,434 @@ class _FavoritesPageState extends State<FavoritesPage> {
                 ),
               ),
             ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                // Action pour explorer les propriétés
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _primaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: EdgeInsets.symmetric(horizontal: 30, vertical: 14),
-              ),
-              child: Text(
-                'Explorer les propriétés',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: Colors.white,
-                ),
-              ),
-            ),
+
           ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
+  Widget _buildFavoriteListContent(List<PropertyFavoriteModel> favorites) {
     return RefreshIndicator(
       color: _primaryColor,
       backgroundColor: Colors.white,
       onRefresh: _loadFavorites,
-      child: ListView.builder(
+      child: ListView.separated(
         padding: EdgeInsets.all(20),
-        itemCount: propertyCtrl.propertyFavorites.length,
+        itemCount: favorites.length,
+        separatorBuilder: (_, __) => SizedBox(height: 20),
         itemBuilder: (context, index) {
-          final property = propertyCtrl.propertyFavorites[index];
-          final isDeleting = _deletingIds.contains(property.property?.propertyId);
-
-          return SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(-1, 0),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(
-              parent: AlwaysStoppedAnimation(1.0), // Fixe l'animation
-              curve: Curves.easeOut,
-            )),
-            child: Padding(
-              padding: EdgeInsets.only(bottom: 20),
-              child: _buildFavoriteCard(property, isDeleting: isDeleting),
-            ),
+          final favorite = favorites[index];
+          return AnimatedSwitcher(
+            duration: Duration(milliseconds: 300),
+            child: _buildFavoriteCard(favorite),
           );
         },
       ),
     );
   }
-  Widget _buildFavoriteCard(PropertyFavoriteModel property, {bool isDeleting = false}) {
-    final propertyData = property.property;
 
-    // CORRECTION : Gestion des images comme dans _buildPropertyListItem
+  Widget _buildFavoriteCard(PropertyFavoriteModel favorite) {
+    final propertyData = favorite.property;
+    final isForRent = propertyData?.transactionType == 'location';
+    final isAvailable = !(propertyData?.sold ?? true);
+    final isDeleting = _deletingIds.contains(propertyData?.propertyId);
+
     final firstImage = propertyData?.propertyImage?.isNotEmpty ?? false
         ? propertyData?.propertyImage?.first
         : null;
-    final imageUrl = firstImage != null
-        ? "${firstImage.path ?? firstImage.path}"
-        : null;
-
-    final isForRent = propertyData?.transactionType == "location";
-    final isAvailable = propertyData?.sold ?? false;
+    final imageUrl = firstImage?.path;
 
     final priceText = isForRent
         ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$/mois'
         : '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$';
 
-    return Dismissible(
-      key: Key(propertyData?.propertyId?.toString() ?? UniqueKey().toString()),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        margin: EdgeInsets.only(bottom: 20),
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () {
+        Navigator.pushNamed(context, Routes.detailPageRoute, arguments: propertyData);
+      },
+      child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          color: _errorColor.withOpacity(0.1),
+          color: _cardBackground,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 20,
+              spreadRadius: 1,
+              offset: Offset(0, 10),
+            )
+          ],
         ),
-        alignment: Alignment.centerRight,
-        padding: EdgeInsets.only(right: 20),
-        child: Icon(Icons.delete, color: _errorColor, size: 30),
-      ),
-      confirmDismiss: (direction) async {
-        if (propertyData?.propertyId != null) {
-          await _removeFavorite(propertyData!.propertyId!);
-          return false; // Nous gérons la suppression nous-mêmes
-        }
-        return false;
-      },
-      child: AnimatedContainer(
-        duration: Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-        transform: Matrix4.translationValues(
-            isDeleting ? 50 : 0,
-            0,
-            0
-        ),
-        child: Opacity(
-          opacity: isDeleting ? 0.6 : 1.0,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: () => _showPropertyDetails(property),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                color: _cardBackground,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 20,
-                    spreadRadius: 1,
-                    offset: Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Stack(
-                    children: [
-                      // CORRECTION : Image identique à _buildPropertyListItem
-                      ClipRRect(
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    Container(
+                      height: 180,
+                      decoration: BoxDecoration(
                         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                        child: Container(
-                          width: double.infinity,
-                          height: 180,
-                          child: imageUrl != null
-                              ? CachedNetworkImage(
-                            imageUrl: imageUrl,
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => _buildImagePlaceholder(),
-                            errorWidget: (context, url, error) => _buildImagePlaceholder(),
-                          )
-                              : _buildImagePlaceholder(),
-                        ),
+                        color: _lightGrey,
                       ),
-                      Positioned(
-                        top: 15,
-                        right: 15,
-                        child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 10,
-                                offset: Offset(0, 3),
+                      child: imageUrl != null
+                          ? ClipRRect(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        child: CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          placeholder: (context, url) => Container(
+                            color: _lightGrey,
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: _primaryColor,
+                              ),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) {
+                            return Container(
+                              color: _lightGrey,
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.home, size: 50, color: _mediumGrey),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Image non disponible',
+                                      style: TextStyle(
+                                        color: _mediumGrey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                          : Container(
+                        color: _lightGrey,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.home, size: 50, color: _mediumGrey),
+                              SizedBox(height: 8),
+                              Text(
+                                'Aucune image',
+                                style: TextStyle(
+                                  color: _mediumGrey,
+                                  fontSize: 12,
+                                ),
                               ),
                             ],
                           ),
-                          child: Text(
-                            priceText,
-                            style: TextStyle(
-                              color: _primaryColor,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 15,
+                      left: 15,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isAvailable ? _successColor.withOpacity(0.9) : _errorColor.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          isAvailable ? 'Disponible' : 'Indisponible',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
                           ),
                         ),
                       ),
-                      if (!isAvailable)
-                        Positioned(
-                          bottom: 15,
-                          left: 15,
-                          child: Container(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: _errorColor.withOpacity(0.9),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
+                    ),
+                    Positioned(
+                      top: 15,
+                      right: 15,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          priceText,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "${propertyData?.title ?? 'Propriété sans titre'}",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                          color: _darkColor,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on_outlined,
+                            size: 16,
+                            color: _mediumGrey,
+                          ),
+                          SizedBox(width: 5),
+                          Expanded(
                             child: Text(
-                              'INDISPONIBLE',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ),
-                      if (isDeleting)
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(20),
-                              color: Colors.black.withOpacity(0.3),
-                            ),
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // CORRECTION : Style de titre identique
-                        Text(
-                          propertyData?.title ?? 'Propriété sans titre',
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 18,
-                            color: _darkColor,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        SizedBox(height: 8),
-                        // CORRECTION : Style d'adresse identique
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.location_on_outlined,
-                              size: 16,
-                              color: _greyColor,
-                            ),
-                            SizedBox(width: 5),
-                            Expanded(
-                              child: Text(
-                                propertyData?.address ?? 'Adresse non disponible',
-                                style: TextStyle(
-                                  color: _greyColor,
-                                  fontSize: 14,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        SizedBox(height: 15),
-                        // CORRECTION : Caractéristiques identiques
-                        Container(
-                          height: 30,
-                          child: ListView(
-                            scrollDirection: Axis.horizontal,
-                            children: [
-                              if (propertyData?.bedrooms != null)
-                                _buildFeatureChip(Icons.king_bed_rounded, '${propertyData!.bedrooms} ch.'),
-                              SizedBox(width: 8),
-                              if (propertyData?.bathroom != null)
-                                _buildFeatureChip(Icons.bathtub_rounded, '${propertyData!.bathroom} sdb'),
-                              SizedBox(width: 8),
-                              if (propertyData?.surface != null)
-                                _buildFeatureChip(Icons.square_foot_rounded, '${propertyData!.surface}m²'),
-                              if (propertyData?.rooms != null)
-                                _buildFeatureChip(FontAwesomeIcons.doorClosed, '${propertyData!.rooms} pièces'),
-                            ].where((element) => element != null).cast<Widget>().toList(),
-                          ),
-                        ),
-                        SizedBox(height: 15),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.favorite,
-                              size: 18,
-                              color: _primaryColor,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Ajouté ${_dateFormat.format(DateTime.now())}',
+                              "${propertyData?.address ?? 'Adresse non disponible'}",
                               style: TextStyle(
                                 color: _mediumGrey,
-                                fontSize: 12,
+                                fontSize: 14,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 15),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _buildFeatureChips(propertyData),
+                      ),
+                      SizedBox(height: 15),
+                      Divider(height: 1, color: _lightGrey),
+                      SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Icon(Icons.favorite, size: 16, color: _primaryColor),
+                          SizedBox(width: 6),
+                          Text(
+                            'Ajouté le ${_dateFormat.format(DateTime.now())}',
+                            style: TextStyle(
+                              color: _mediumGrey,
+                              fontSize: 12,
+                            ),
+                          ),
+                          Spacer(),
+                          if (isDeleting)
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: _errorColor,
+                              ),
+                            )
+                          else
+                            InkWell(
+                              onTap: () {
+                                if (propertyData?.propertyId != null) {
+                                  _removeFavorite(propertyData!.propertyId!);
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: _errorColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: _errorColor.withOpacity(0.3)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.delete_outline,
+                                      size: 16,
+                                      color: _errorColor,
+                                    ),
+                                    SizedBox(width: 5),
+                                    Text(
+                                      'Supprimer',
+                                      style: TextStyle(
+                                        color: _errorColor,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                            Spacer(),
-                            if (isDeleting)
-                              Padding(
-                                padding: EdgeInsets.all(8),
-                                child: SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: _errorColor,
-                                  ),
-                                ),
-                              )
-                            else
-                              IconButton(
-                                icon: Icon(Icons.delete_outline, color: _errorColor),
-                                onPressed: () {
-                                  if (propertyData?.propertyId != null) {
-                                    _removeFavorite(propertyData!.propertyId!);
-                                  }
-                                },
-                              ),
-                          ],
-                        ),
-                      ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (isDeleting)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
+          ],
         ),
       ),
     );
   }
 
+  List<Widget> _buildFeatureChips(PropertyModel? propertyData) {
+    final features = <Widget>[];
+
+    if (propertyData?.bedrooms != null) {
+      features.add(_buildFeatureChip('${propertyData!.bedrooms} chambres'));
+    }
+    if (propertyData?.bathroom != null) {
+      features.add(_buildFeatureChip('${propertyData!.bathroom} sdb'));
+    }
+    if (propertyData?.surface != null) {
+      features.add(_buildFeatureChip('${propertyData!.surface}m²'));
+    }
+    if (propertyData?.rooms != null) {
+      features.add(_buildFeatureChip('${propertyData!.rooms} pièces'));
+    }
+
+    return features;
+  }
+
+  Widget _buildFeatureChip(String text) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: _chipBackground,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          color: _darkColor,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  // Vue quand l'utilisateur n'est pas connecté
+  Widget _buildNotConnectedView() {
+    return Scaffold(
+      backgroundColor: _lightGrey,
+      appBar: AppBar(
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [_primaryColor, _secondaryColor],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          'Mes favoris',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      body: Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  color: _lightGrey,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.favorite_border, size: 60, color: _mediumGrey.withOpacity(0.3)),
+              ),
+              SizedBox(height: 24),
+              Text(
+                'Connexion Requise',
+                style: TextStyle(
+                  color: _darkColor,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Connectez-vous pour accéder à vos propriétés favorites',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _mediumGrey,
+                  fontSize: 16,
+                ),
+              ),
+              SizedBox(height: 32),
+              Container(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pushNamed(context, Routes.loginRoute);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: Text(
+                    'SE CONNECTER',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
