@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:casa/utils/Routes.dart';
 
 class CommissionDashboardPage extends StatefulWidget {
   @override
@@ -307,6 +308,12 @@ class _CommissionDashboardPageState extends State<CommissionDashboardPage> {
             isActive: _currentTabIndex == 2,
             onTap: () => setState(() => _currentTabIndex = 2),
           ),
+          _buildModernTabButton(
+            icon: Icons.home_work_outlined,
+            label: 'Mes Biens',
+            isActive: _currentTabIndex == 3,
+            onTap: () => setState(() => _currentTabIndex = 3),
+          ),
         ],
       ),
     );
@@ -381,9 +388,55 @@ class _CommissionDashboardPageState extends State<CommissionDashboardPage> {
         return _buildActivitiesTab();
       case 2:
         return _buildEarningsTab();
+      case 3:
+        return _buildMyPropertiesTab();
       default:
         return _buildLandlordsTab();
     }
+  }
+
+  Widget _buildMyPropertiesTab() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.home_work_outlined, size: 64, color: primaryColor),
+          SizedBox(height: 16),
+          Text(
+            'Gérer vos propriétés',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _textColor,
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Consultez, modifiez et supprimez vos annonces',
+            style: TextStyle(
+              fontSize: 14,
+              color: _greyColor,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pushNamed(context, Routes.myPropertiesRoute);
+            },
+            icon: Icon(Icons.arrow_forward_rounded),
+            label: Text('Voir mes propriétés'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryColor,
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildLandlordsTab() {

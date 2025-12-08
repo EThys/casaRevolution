@@ -134,6 +134,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     }
   }
 
+
   void _updatePriceRange() {
     final min = int.tryParse(_minPriceController.text) ?? 500;
     final max = int.tryParse(_maxPriceController.text) ?? 2500;
@@ -471,44 +472,103 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         FocusScope.of(context).unfocus();
       },
       child: Container(
-        color: Colors.white,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              _lightColor,
+              Colors.white,
+            ],
+          ),
+        ),
         child: Column(
           children: [
-            // En-tête des filtres
+            // En-tête des filtres avec gradient bleu
             Container(
-              padding: EdgeInsets.all(16),
+              padding: EdgeInsets.only(top: 8, bottom: 16, left: 8, right: 16),
               decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
-              ),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.arrow_back_rounded, color: _darkColor),
-                    onPressed: () {
-                      setState(() {
-                        _showFilters = false;
-                      });
-                    },
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'Filtres',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: _darkColor,
-                    ),
-                  ),
-                  Spacer(),
-                  TextButton(
-                    onPressed: _resetFilters,
-                    child: Text(
-                      'Réinitialiser',
-                      style: TextStyle(color: _primaryColor),
-                    ),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _primaryColor,
+                    Color(0xFF64B5F6),
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.3),
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
                   ),
                 ],
+              ),
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  children: [
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          setState(() {
+                            _showFilters = false;
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: EdgeInsets.all(8),
+                          child: Icon(Icons.arrow_back_rounded, color: Colors.white, size: 24),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Icon(Icons.tune_rounded, color: Colors.white, size: 24),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Filtres de recherche',
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _resetFilters,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
+                              SizedBox(width: 4),
+                              Text(
+                                'Réinitialiser',
+                                style: GoogleFonts.inter(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
 
@@ -519,18 +579,34 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildTransactionTypeSection(),
-                    SizedBox(height: 24),
+                    SizedBox(height: 28),
                     _buildLocationSection(),
-                    SizedBox(height: 24),
+                    SizedBox(height: 28),
                     _buildPropertyTypeSection(),
-                    SizedBox(height: 24),
+                    SizedBox(height: 28),
                     _buildPriceFilterSection(),
-                    SizedBox(height: 24),
+                    SizedBox(height: 28),
                     _buildBedroomsSection(),
-                    SizedBox(height: 80),
+                    SizedBox(height: 20),
                   ],
                 ),
               ),
+            ),
+
+            // Bouton fixe en bas
+            Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: _buildApplyFiltersButton(),
             ),
           ],
         ),
@@ -542,19 +618,39 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Type de transaction',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: _darkColor,
-          ),
+        Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.swap_horiz_rounded, color: _primaryColor, size: 20),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Type de transaction',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _darkColor,
+              ),
+            ),
+          ],
         ),
-        SizedBox(height: 12),
+        SizedBox(height: 16),
         Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
+            borderRadius: BorderRadius.circular(16),
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: Offset(0, 4),
+              ),
+            ],
           ),
           child: Row(
             children: [
@@ -563,8 +659,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
               ),
               Container(
                 width: 1,
-                height: 40,
-                color: Colors.grey[300],
+                height: 50,
+                color: Colors.grey[200],
               ),
               Expanded(
                 child: _buildTransactionOption('Achat', Icons.shopping_cart_outlined),
@@ -587,13 +683,26 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Localisation',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: _darkColor,
-              ),
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.location_on_rounded, color: _primaryColor, size: 20),
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'Localisation',
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _darkColor,
+                  ),
+                ),
+              ],
             ),
             SizedBox(height: 16),
             _buildDropdownField(
@@ -625,13 +734,26 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Localisation',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: _darkColor,
-          ),
+        Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.location_on_rounded, color: _primaryColor, size: 20),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Localisation',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _darkColor,
+              ),
+            ),
+          ],
         ),
         SizedBox(height: 16),
         _buildShimmerLoader(height: 56),
@@ -671,32 +793,44 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     return Container(
       height: 56,
       decoration: BoxDecoration(
-        color: _lightColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[300]!),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: value != null ? _primaryColor : Colors.grey[300]!,
+          width: value != null ? 2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: value != null
+                ? _primaryColor.withOpacity(0.1)
+                : Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
       child: DropdownButtonFormField<String>(
         value: value,
         decoration: InputDecoration(
           hintText: hint,
-          prefixIcon: Icon(icon, color: _greyColor),
+          prefixIcon: Icon(icon, color: value != null ? _primaryColor : _greyColor),
           border: InputBorder.none,
           contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         ),
         items: [
           DropdownMenuItem(
             value: null,
-            child: Text('Sélectionner $hint', style: TextStyle(color: _greyColor)),
+            child: Text('Sélectionner $hint', style: GoogleFonts.inter(color: _greyColor)),
           ),
           ...items.map((item) => DropdownMenuItem(
             value: item,
-            child: Text(item, style: TextStyle(color: _darkColor)),
+            child: Text(item, style: GoogleFonts.inter(color: _darkColor, fontWeight: FontWeight.w500)),
           )),
         ],
         onChanged: onChanged,
         icon: Icon(Icons.arrow_drop_down_rounded, color: _primaryColor),
         dropdownColor: Colors.white,
-        style: TextStyle(fontSize: 14, color: _darkColor),
+        style: GoogleFonts.inter(fontSize: 14, color: _darkColor, fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -710,26 +844,37 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           _selectedTransaction = type;
         });
       },
-      child: Container(
-        padding: EdgeInsets.symmetric(vertical: 12),
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: isSelected ? _primaryColor.withOpacity(0.1) : Colors.transparent,
+          gradient: isSelected
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _primaryColor,
+                    Color(0xFF64B5F6),
+                  ],
+                )
+              : null,
+          color: isSelected ? null : Colors.transparent,
           borderRadius: type == 'Location'
-              ? BorderRadius.only(topLeft: Radius.circular(12), bottomLeft: Radius.circular(12))
-              : BorderRadius.only(topRight: Radius.circular(12), bottomRight: Radius.circular(12)),
+              ? BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16))
+              : BorderRadius.only(topRight: Radius.circular(16), bottomRight: Radius.circular(16)),
         ),
         child: Column(
           children: [
             Icon(icon,
-                size: 20,
-                color: isSelected ? _primaryColor : _greyColor),
-            SizedBox(height: 4),
+                size: 24,
+                color: isSelected ? Colors.white : _greyColor),
+            SizedBox(height: 6),
             Text(
               type,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                color: isSelected ? _primaryColor : _greyColor,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                color: isSelected ? Colors.white : _greyColor,
               ),
             ),
           ],
@@ -742,19 +887,48 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Type de bien',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: _darkColor,
-          ),
+        Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.category_rounded, color: _primaryColor, size: 20),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Type de bien',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _darkColor,
+              ),
+            ),
+          ],
         ),
-        SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _propertyTypes.map((type) => _buildPropertyTypeChip(type)).toList(),
+        SizedBox(height: 16),
+        Container(
+          padding: EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              childAspectRatio: 2.2,
+            ),
+            itemCount: _propertyTypes.length,
+            itemBuilder: (context, index) {
+              return _buildPropertyTypeChip(_propertyTypes[index]);
+            },
+          ),
         ),
       ],
     );
@@ -764,23 +938,69 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     final isSelected = _selectedPropertyType == type;
     final icon = _getPropertyTypeIcon(type);
 
-    return FilterChip(
-      label: Text(type),
-      avatar: Icon(icon, size: 16, color: isSelected ? Colors.white : _primaryColor),
-      selected: isSelected,
-      onSelected: (selected) {
+    return GestureDetector(
+      onTap: () {
         setState(() {
-          _selectedPropertyType = selected ? type : 'Tous';
+          _selectedPropertyType = isSelected ? 'Tous' : type;
         });
       },
-      selectedColor: _primaryColor,
-      backgroundColor: _lightColor,
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.white : _darkColor,
-        fontSize: 13,
-      ),
-      shape: StadiumBorder(
-        side: BorderSide(color: isSelected ? _primaryColor : Colors.grey[300]!),
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          gradient: isSelected
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _primaryColor,
+                    Color(0xFF64B5F6),
+                  ],
+                )
+              : null,
+          color: isSelected ? null : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? _primaryColor : Colors.grey[300]!,
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: Offset(0, 4),
+                  ),
+                ]
+              : [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.03),
+                    blurRadius: 4,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: isSelected ? Colors.white : _primaryColor,
+            ),
+            SizedBox(height: 4),
+            Text(
+              type,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.white : _darkColor,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -808,13 +1028,26 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Prix (\$)',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: _darkColor,
-          ),
+        Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.attach_money_rounded, color: _primaryColor, size: 20),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Prix (\$)',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _darkColor,
+              ),
+            ),
+          ],
         ),
         SizedBox(height: 16),
         Row(
@@ -838,25 +1071,28 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             ),
           ],
         ),
-        SizedBox(height: 16),
-        RangeSlider(
-          values: _priceRange,
-          min: 20,
-          max: 5000,
-          divisions: 100,
-          labels: RangeLabels(
-            '${_priceRange.start.toInt()}\$',
-            '${_priceRange.end.toInt()}\$',
+        SizedBox(height: 20),
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 4),
+          child: RangeSlider(
+            values: _priceRange,
+            min: 20,
+            max: 5000,
+            divisions: 100,
+            labels: RangeLabels(
+              '${_priceRange.start.toInt()}\$',
+              '${_priceRange.end.toInt()}\$',
+            ),
+            onChanged: (RangeValues values) {
+              setState(() {
+                _priceRange = values;
+                _minPriceController.text = values.start.toInt().toString();
+                _maxPriceController.text = values.end.toInt().toString();
+              });
+            },
+            activeColor: _primaryColor,
+            inactiveColor: Colors.grey[300],
           ),
-          onChanged: (RangeValues values) {
-            setState(() {
-              _priceRange = values;
-              _minPriceController.text = values.start.toInt().toString();
-              _maxPriceController.text = values.end.toInt().toString();
-            });
-          },
-          activeColor: _primaryColor,
-          inactiveColor: Colors.grey[300],
         ),
       ],
     );
@@ -871,9 +1107,21 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     return Container(
       height: 56,
       decoration: BoxDecoration(
-        color: _lightColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[300]!),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: focusNode.hasFocus ? _primaryColor : Colors.grey[300]!,
+          width: focusNode.hasFocus ? 2 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: focusNode.hasFocus
+                ? _primaryColor.withOpacity(0.1)
+                : Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
       child: TextField(
         controller: controller,
@@ -881,13 +1129,14 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         keyboardType: TextInputType.number,
         decoration: InputDecoration(
           hintText: hint,
-          prefixIcon: Icon(icon, color: _greyColor, size: 18),
+          hintStyle: GoogleFonts.inter(color: _greyColor),
+          prefixIcon: Icon(icon, color: focusNode.hasFocus ? _primaryColor : _greyColor, size: 20),
           border: InputBorder.none,
           contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           suffixText: '\$',
-          suffixStyle: TextStyle(color: _primaryColor, fontWeight: FontWeight.bold),
+          suffixStyle: GoogleFonts.inter(color: _primaryColor, fontWeight: FontWeight.bold, fontSize: 14),
         ),
-        style: TextStyle(fontSize: 14, color: _darkColor),
+        style: GoogleFonts.inter(fontSize: 14, color: _darkColor, fontWeight: FontWeight.w500),
         onChanged: (value) {
           _updatePriceRange();
         },
@@ -899,21 +1148,46 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Nombre de chambres',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: _darkColor,
-          ),
+        Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.king_bed_rounded, color: _primaryColor, size: 20),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Nombre de chambres',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _darkColor,
+              ),
+            ),
+          ],
         ),
         SizedBox(height: 16),
         Container(
           height: 56,
           decoration: BoxDecoration(
-            color: _lightColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _bedroomsFocus.hasFocus ? _primaryColor : Colors.grey[300]!,
+              width: _bedroomsFocus.hasFocus ? 2 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _bedroomsFocus.hasFocus
+                    ? _primaryColor.withOpacity(0.1)
+                    : Colors.black.withOpacity(0.03),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
           child: TextField(
             controller: _bedroomsController,
@@ -921,20 +1195,23 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
               hintText: 'Ex: 3',
-              prefixIcon: Icon(Icons.king_bed_rounded, color: _greyColor),
+              hintStyle: GoogleFonts.inter(color: _greyColor),
+              prefixIcon: Icon(Icons.king_bed_rounded, color: _bedroomsFocus.hasFocus ? _primaryColor : _greyColor, size: 20),
               border: InputBorder.none,
               contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              suffixIcon: IconButton(
-                icon: Icon(Icons.clear_rounded, color: _greyColor, size: 18),
-                onPressed: () {
-                  setState(() {
-                    _bedroomsController.clear();
-                    _selectedBedrooms = null;
-                  });
-                },
-              ),
+              suffixIcon: _bedroomsController.text.isNotEmpty
+                  ? IconButton(
+                      icon: Icon(Icons.clear_rounded, color: _greyColor, size: 18),
+                      onPressed: () {
+                        setState(() {
+                          _bedroomsController.clear();
+                          _selectedBedrooms = null;
+                        });
+                      },
+                    )
+                  : null,
             ),
-            style: TextStyle(fontSize: 14, color: _darkColor),
+            style: GoogleFonts.inter(fontSize: 14, color: _darkColor, fontWeight: FontWeight.w500),
             onChanged: (value) {
               setState(() {
                 _selectedBedrooms = value.isNotEmpty ? value : null;
@@ -942,10 +1219,10 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             },
           ),
         ),
-        SizedBox(height: 8),
+        SizedBox(height: 12),
         Wrap(
-          spacing: 8,
-          runSpacing: 8,
+          spacing: 10,
+          runSpacing: 10,
           children: [1, 2, 3, 4, 5].map((count) => _buildQuickBedroomChip(count)).toList(),
         ),
       ],
@@ -963,28 +1240,55 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           _selectedBedrooms = count.toString();
         });
       },
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? _primaryColor : _lightColor,
-          borderRadius: BorderRadius.circular(20),
+          gradient: isSelected
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _primaryColor,
+                    Color(0xFF64B5F6),
+                  ],
+                )
+              : null,
+          color: isSelected ? null : Colors.white,
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? _primaryColor : Colors.grey[300]!,
+            width: isSelected ? 2 : 1,
           ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: Offset(0, 4),
+                  ),
+                ]
+              : [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.03),
+                    blurRadius: 4,
+                    offset: Offset(0, 2),
+                  ),
+                ],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.king_bed_rounded,
-                size: 14,
-                color: isSelected ? Colors.white : _greyColor),
-            SizedBox(width: 4),
+                size: 16,
+                color: isSelected ? Colors.white : _primaryColor),
+            SizedBox(width: 6),
             Text(
               label,
-              style: TextStyle(
-                fontSize: 12,
+              style: GoogleFonts.inter(
+                fontSize: 13,
                 color: isSelected ? Colors.white : _darkColor,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ],
@@ -1233,6 +1537,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
+
   Widget _buildEmptyState(PropertyController controller) {
     return Center(
       child: SingleChildScrollView(
@@ -1435,7 +1740,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                       property.title ?? 'Sans titre',
                       style: GoogleFonts.inter(
                         fontWeight: FontWeight.w600,
-                        fontSize: 16,
+                        fontSize: 14,
                         color: _darkColor,
                       ),
                       maxLines: 1,
@@ -1447,14 +1752,14 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                     // Adresse
                     Row(
                       children: [
-                        Icon(Icons.location_on_outlined, size: 14, color: _greyColor),
+                        Icon(Icons.location_on_outlined, size: 12, color: _greyColor),
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
                             property.address ?? 'Adresse non disponible',
                             style: TextStyle(
                               color: _greyColor,
-                              fontSize: 13,
+                              fontSize: 11,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1463,20 +1768,20 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                       ],
                     ),
 
-                    SizedBox(height: 8),
+                    SizedBox(height: 6),
 
                     // Caractéristiques
                     Container(
-                      height: 30,
+                      height: 26,
                       child: ListView(
                         scrollDirection: Axis.horizontal,
                         children: [
                           if (property.bedrooms != null)
                             _buildFeatureChip(Icons.king_bed_rounded, '${property.bedrooms} ch.'),
-                          SizedBox(width: 8),
+                          SizedBox(width: 6),
                           if (property.bathroom != null)
                             _buildFeatureChip(Icons.bathtub_rounded, '${property.bathroom} sdb'),
-                          SizedBox(width: 8),
+                          SizedBox(width: 6),
                           if (property.surface != null)
                             _buildFeatureChip(Icons.square_foot_rounded, '${property.surface}m²'),
                           if (property.rooms != null)
@@ -1485,7 +1790,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                       ),
                     ),
 
-                    SizedBox(height: 8),
+                    SizedBox(height: 6),
 
                     // Prix et statut
                     Row(
@@ -1493,7 +1798,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         Text(
                           priceText,
                           style: GoogleFonts.inter(
-                            fontSize: 18,
+                            fontSize: 15,
                             fontWeight: FontWeight.bold,
                             color: _primaryColor,
                           ),
@@ -1613,20 +1918,20 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
   Widget _buildFeatureChip(IconData icon, String text) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
         color: _lightColor,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(5),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: _greyColor),
-          SizedBox(width: 4),
+          Icon(icon, size: 11, color: _greyColor),
+          SizedBox(width: 3),
           Text(
             text,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 9,
               color: _greyColor,
               fontWeight: FontWeight.w500,
             ),
@@ -1637,84 +1942,118 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   }
 
   Widget _buildSearchField() {
-    return Container(
-      height: 44,
-      margin: EdgeInsets.only(top: 8, bottom: 8, right: 8),
-      decoration: BoxDecoration(
-        color: _lightColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Rechercher une ville, un quartier, une adresse...',
-                prefixIcon: Icon(Icons.search_rounded, color: _greyColor),
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                  icon: Icon(Icons.clear_rounded, color: _greyColor, size: 18),
-                  onPressed: () {
-                    setState(() {
-                      _searchController.clear();
-                      _isSearching = false;
-                      _showSearchLoader = false;
-                    });
-                    _performSearch();
-                  },
-                )
-                    : null,
-              ),
-              style: TextStyle(fontSize: 15),
-              onSubmitted: (value) => _performSearch(),
-              onChanged: _onSearchChanged,
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return Container(
+          height: 48,
+          margin: EdgeInsets.only(top: 8, bottom: 8, right: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _searchController.text.isNotEmpty ? _primaryColor : Colors.grey[300]!,
+              width: _searchController.text.isNotEmpty ? 2 : 1,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: _searchController.text.isNotEmpty
+                    ? _primaryColor.withOpacity(0.1)
+                    : Colors.black.withOpacity(0.03),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
-
-          if (_showSearchLoader)
-            Padding(
-              padding: EdgeInsets.only(right: 8),
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: _primaryColor,
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Rechercher une ville, un quartier, une adresse...',
+                    hintStyle: GoogleFonts.inter(fontSize: 14, color: _greyColor),
+                    prefixIcon: Icon(Icons.search_rounded, color: _searchController.text.isNotEmpty ? _primaryColor : _greyColor, size: 20),
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                      icon: Icon(Icons.clear_rounded, color: _greyColor, size: 18),
+                      onPressed: () {
+                        setState(() {
+                          _searchController.clear();
+                          _isSearching = false;
+                          _showSearchLoader = false;
+                        });
+                        this.setState(() {});
+                        _performSearch();
+                      },
+                    )
+                        : null,
+                  ),
+                  style: GoogleFonts.inter(fontSize: 14, color: _darkColor, fontWeight: FontWeight.w500),
+                  onSubmitted: (value) => _performSearch(),
+                  onChanged: (value) {
+                    setState(() {});
+                    this.setState(() {});
+                    _onSearchChanged(value);
+                  },
                 ),
               ),
-            ),
-        ],
-      ),
+
+              if (_showSearchLoader)
+                Padding(
+                  padding: EdgeInsets.only(right: 12),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: _primaryColor,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
   Widget _buildApplyFiltersButton() {
     return Container(
-      width: MediaQuery.of(context).size.width * 0.9,
-      height: 56,
+      width: double.infinity,
+      height: 50,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: _primaryColor.withOpacity(0.3),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
       child: ElevatedButton(
         onPressed: _applyFilters,
         style: ElevatedButton.styleFrom(
           backgroundColor: _primaryColor,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
           ),
-          elevation: 3,
+          elevation: 0,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.check_rounded, color: Colors.white),
+            Icon(Icons.search_rounded, color: Colors.white, size: 20),
             SizedBox(width: 8),
             Text(
               'Afficher les résultats',
-              style: TextStyle(
+              style: GoogleFonts.inter(
                 color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.3,
               ),
             ),
           ],

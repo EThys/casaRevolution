@@ -2,6 +2,7 @@ import 'package:casa/screens/FavoritesPage.dart';
 import 'package:casa/screens/HomePage.dart';
 import 'package:casa/screens/ProfilePage.dart';
 import 'package:casa/screens/PropertySearchPage.dart';
+import 'package:casa/models/ServiceModel.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,7 @@ import '../controllers/AuthentificationCtrl.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/Routes.dart';
+import '../utils/AppColors.dart';
 
 class BottomNavBar extends StatefulWidget {
   const BottomNavBar({Key? key}) : super(key: key);
@@ -109,24 +111,74 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
             ),
             onPressed: () {
               var token = _stockage.read(StockageKeys.tokenKey);
-              var typeAccount = _stockage.read(StockageKeys.userKey)?['TypeAccountId'];
+              var userData = _stockage.read(StockageKeys.userKey);
+              // typeAccount peut être un objet imbriqué ou directement un ID
+              var typeAccountObj = userData?['typeAccount'];
+              var typeAccountId = typeAccountObj is Map 
+                  ? (typeAccountObj['typeAccountId'] ?? typeAccountObj['TypeAccountId'])
+                  : (userData?['typeAccountId'] ?? userData?['TypeAccountId']);
 
-              if (token != null) {
-                if (typeAccount != 2) {
-                  Navigator.pushNamed(context, Routes.createPropertyRoute);
-                } else {
-                  SnackbarForCasa.info(
-                    context,
-                    "La publication d'annonces est réservée aux bailleurs et commissionnaires",
-                  );
-                }
-              } else {
+              if (token == null) {
                 SnackbarForCasa.info(
                   context,
                   "Vous devez avoir un compte et être connecté pour publier une annonce",
                   onTap: () {
                     Navigator.pushNamed(context, Routes.loginRoute);
                   },
+                );
+                return;
+              }
+
+              // Vérifier le type de compte
+              if (typeAccountId == 4) {
+                // Locataire - ne peut pas créer
+                SnackbarForCasa.info(
+                  context,
+                  "La création d'annonces est réservée aux bailleurs, commissionnaires et prestataires de services",
+                );
+                return;
+              }
+
+              if (typeAccountId == 5) {
+                // Prestataire de service - vérifier le type de service
+                var profile = _stockage.read(StockageKeys.profileKey);
+                var serviceProvider = userData?['serviceProvider'] ?? profile?['serviceProvider'];
+                var serviceType = serviceProvider?['serviceType'] ?? 
+                                 serviceProvider?['service_type'] ?? 
+                                 profile?['serviceType'] ??
+                                 userData?['serviceType'];
+                
+                if (serviceType == 'majordhomme' || serviceType == 'Majordhomme') {
+                  // Rediriger vers CreateServicePage avec type majordhomme
+                  Navigator.pushNamed(
+                    context,
+                    Routes.createServiceRoute,
+                    arguments: ServiceType.majordhomme,
+                  );
+                } else if (serviceType == 'demenagement' || serviceType == 'Demenagement') {
+                  // Rediriger vers CreateServicePage avec type déménagement
+                  Navigator.pushNamed(
+                    context,
+                    Routes.createServiceRoute,
+                    arguments: ServiceType.demenagement,
+                  );
+                } else {
+                  // Si le type n'est pas trouvé, permettre à l'utilisateur de choisir
+                  Navigator.pushNamed(
+                    context,
+                    Routes.createServiceRoute,
+                  );
+                }
+                return;
+              }
+
+              // Bailleur (3) ou Commissionnaire (2) - peuvent créer des propriétés
+              if (typeAccountId == 2 || typeAccountId == 3) {
+                Navigator.pushNamed(context, Routes.createPropertyRoute);
+              } else {
+                SnackbarForCasa.info(
+                  context,
+                  "Type de compte non reconnu. Veuillez contacter le support.",
                 );
               }
             },
@@ -138,7 +190,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
         decoration: BoxDecoration(
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: AppColors.shadowColor(context),
               blurRadius: 10,
               spreadRadius: 2,
               offset: Offset(0, -2),
@@ -153,7 +205,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           child: BottomAppBar(
             shape: CircularNotchedRectangle(),
             notchMargin: 6, // Réduit de 8 à 6 pour un creux plus petit
-            color: Colors.white,
+            color: AppColors.surfaceColor(context),
             child: Container(
               height: 70, // Réduit de 85 à 70 (suffisant avec les ajustements)
               padding: EdgeInsets.zero, // Supprimé tout padding horizontal
@@ -196,6 +248,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
     required int index,
   }) {
     final isActive = _currentIndex == index;
+    final isDark = AppColors.isDarkMode(context);
     return Expanded(
       child: Container(
         margin: EdgeInsets.symmetric(horizontal: 0), // Supprimé la marge
@@ -203,7 +256,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           color: Colors.transparent,
           child: InkWell(
             onTap: () => setState(() => _currentIndex = index),
-            splashColor: Color(0xFF2196F3).withOpacity(0.1),
+            splashColor: AppColors.primaryBlue.withOpacity(0.1),
             highlightColor: Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             child: Container(
@@ -216,13 +269,17 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
                   Container(
                     padding: EdgeInsets.all(4), // Réduit de 6 à 4
                     decoration: BoxDecoration(
-                      color: isActive ? Color(0xFFE3F2FD) : Colors.transparent,
+                      color: isActive 
+                          ? (isDark ? AppColors.primaryBlue.withOpacity(0.2) : AppColors.lightBlue)
+                          : Colors.transparent,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
                       icon,
                       size: 20, // Réduit de 22 à 20
-                      color: isActive ? Color(0xFF2196F3) : Color(0xFF95A5A6),
+                      color: isActive 
+                          ? AppColors.primaryBlue 
+                          : (isDark ? Colors.white54 : const Color(0xFF95A5A6)),
                     ),
                   ),
                   SizedBox(height: 2), // Réduit de 3 à 2
@@ -234,7 +291,9 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
                       style: TextStyle(
                         fontSize: 9, // Réduit de 9.5 à 9
                         fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                        color: isActive ? Color(0xFF2196F3) : Color(0xFF95A5A6),
+                        color: isActive 
+                            ? AppColors.primaryBlue 
+                            : (isDark ? Colors.white54 : const Color(0xFF95A5A6)),
                         height: 1.0,
                       ),
                       maxLines: 1,

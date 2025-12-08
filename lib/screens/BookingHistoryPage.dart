@@ -10,10 +10,10 @@ import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
-
 import '../controllers/ReservationController.dart';
 import '../models/PropertyModel.dart';
 import '../utils/networkCheck.dart';
+import '../utils/FavoriteEartIcon.dart';
 
 class BookingHistoryPage extends StatefulWidget {
   const BookingHistoryPage({Key? key}) : super(key: key);
@@ -738,20 +738,47 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                     Positioned(
                       top: 15,
                       right: 15,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${_formatDate(reservation.createdAt)?.split(' ')[0] ?? 'N/A'}',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w500,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.6),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${_formatDate(reservation.createdAt)?.split(' ')[0] ?? 'N/A'}',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ),
-                        ),
+                          SizedBox(width: 8),
+                          if (reservation.property?.propertyId != null)
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.9),
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: FavoriteHeartIcon(
+                                propertyId: reservation.property!.propertyId.toString(),
+                                size: 20,
+                                splashRadius: 18,
+                                activeColor: Colors.red,
+                                inactiveColor: _mediumGrey,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],

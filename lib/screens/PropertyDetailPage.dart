@@ -15,6 +15,7 @@ import '../models/PropertyModel.dart';
 import '../models/PropertyImageModel.dart';
 import '../models/PropertyFeatureModel.dart';
 import '../utils/FancyNotification.dart';
+import 'dart:async';
 
 class PropertyDetailPage extends StatefulWidget {
   final PropertyModel property;
@@ -38,8 +39,12 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   final _favoriteController = ValueNotifier<bool>(false);
   late final PageController _imageController;
   int _currentImageIndex = 0;
+  Timer? _autoScrollTimer;
 
-  bool get _showSurface => (widget.property.surface ?? 0) > 0;
+  bool get _showSurface {
+    final surface = widget.property.surface;
+    return surface != null && surface > 0;
+  }
   bool get _showFloor => (widget.property.floor ?? 0) > 0;
   bool get _isAvailable => widget.property.transactionType?.toLowerCase() != 'vente' &&
       widget.property.transactionType?.toLowerCase() != 'location';
@@ -78,13 +83,40 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     _favoriteController.addListener(() {
       setState(() {});
     });
+    // Démarrer le défilement automatique après l'initialisation
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startAutoScroll();
+    });
   }
 
   @override
   void dispose() {
+    _autoScrollTimer?.cancel();
     _imageController.dispose();
     _favoriteController.dispose();
     super.dispose();
+  }
+
+  // Défilement automatique du carousel d'images
+  void _startAutoScroll() {
+    final allImages = _getAllImages();
+    if (allImages.length <= 1) return; // Pas besoin de défilement si une seule image
+
+    _autoScrollTimer?.cancel(); // Annuler le timer existant s'il y en a un
+    
+    _autoScrollTimer = Timer.periodic(Duration(seconds: 3), (timer) {
+      if (!mounted || !_imageController.hasClients) {
+        timer.cancel();
+        return;
+      }
+      
+      final nextIndex = (_currentImageIndex + 1) % allImages.length;
+      _imageController.animateToPage(
+        nextIndex,
+        duration: Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    });
   }
 
   // Grouper les images par catégorie
@@ -212,14 +244,15 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           ? '${widget.property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
           : '${widget.property.price?.toStringAsFixed(0) ?? '0'}\$';
 
+      final surfaceText = _showSurface ? '📐 ${widget.property.surface?.toInt() ?? 0} m²' : '';
+      
       final shareText = '''
         🏠 ${widget.property.title ?? 'Belle propriété'} - ${widget.property.address ?? ''}
         
         💰 ${priceText}
         🛏️ ${widget.property.bedrooms ?? 0} chambres
         🚿 ${widget.property.bathroom ?? 0} salles de bain
-        📐 ${widget.property.surface ?? 0} m²
-        
+        ${surfaceText.isNotEmpty ? '$surfaceText\n' : ''}
         Découvrez plus de détails sur Yinzo!
 ''';
 
@@ -251,6 +284,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             itemCount: images.length,
             onPageChanged: (index) {
               setState(() => _currentImageIndex = index);
+              // Redémarrer le timer après chaque changement de page
+              _startAutoScroll();
             },
             itemBuilder: (context, index) {
               final image = images[index];
@@ -359,12 +394,32 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           right: 20,
           child: Row(
             children: [
+              // Favorite button
+              if (widget.property.propertyId != null)
+                Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.4),
+                      shape: BoxShape.circle,
+                    ),
+                    child: FavoriteHeartIcon(
+                      propertyId: widget.property.propertyId.toString(),
+                      size: 24,
+                      splashRadius: 20,
+                      activeColor: Colors.red,
+                      inactiveColor: Colors.white,
+                    ),
+                  ),
+                ),
+              const SizedBox(width: 12),
               // Share button
               _buildActionButton(
                 icon: Icons.share,
                 onPressed: _shareProperty,
               ),
-              const SizedBox(width: 12),
             ],
           ),
         ),
@@ -848,21 +903,21 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       ));
     }
 
-    // Ajouter le parking seulement si disponible
-    if (hasParking) {
-      featureItems.add(_buildFeatureItem(
-        'assets/images/parking.png',
-        'Oui',
-        'Parking',
-      ));
-    }
-
     // Ajouter l'étage seulement si > 0
     if (_showFloor) {
       featureItems.add(_buildFeatureItem(
         'assets/images/wifi.png',
         '${widget.property.floor ?? 0}',
         'Étage',
+      ));
+    }
+
+    // Ajouter le parking seulement si disponible
+    if (hasParking) {
+      featureItems.add(_buildFeatureItem(
+        'assets/images/parking.png',
+        'Oui',
+        'Parking',
       ));
     }
 
@@ -920,8 +975,12 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           width: 45,
           height: 45,
           decoration: BoxDecoration(
-            color: _primaryColor.withOpacity(0.1),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _primaryColor,
+              width: 1,
+            ),
           ),
           child: Center(
             child: Image.asset(

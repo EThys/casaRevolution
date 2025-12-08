@@ -6,6 +6,13 @@ import 'package:casa/models/CityModel.dart';
 import 'package:casa/models/CommuneModel.dart';
 import 'package:casa/models/DistrictModel.dart';
 import 'package:casa/models/QuartierModel.dart';
+import 'package:casa/models/BureauModel.dart';
+import 'package:casa/models/HotelModel.dart';
+import 'package:casa/models/VacancesModel.dart';
+import 'package:casa/models/TerrainModel.dart';
+import 'package:casa/models/SalleFeteModel.dart';
+import 'package:casa/models/EntrepotModel.dart';
+import 'package:casa/models/SalleFuneraireModel.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
@@ -23,6 +30,7 @@ import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 
 import '../utils/StockageKeys.dart';
+import '../utils/DraftHelper.dart';
 
 class CreatePropertyPostPage extends StatefulWidget {
   @override
@@ -109,11 +117,13 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
   // Validation errors storage - PAR ÉTAPE ET PAR CHAMP
   Map<String, String> _fieldErrors = {};
-  Map<int, bool> _stepValidations = {0: false, 1: false, 2: false};
+  Map<int, bool> _stepValidations = {0: false, 1: false, 2: false, 3: false, 4: false};
   Map<int, Map<String, String>> _stepFieldErrors = {
-    0: {}, // Erreurs par champ pour l'étape 1
-    1: {}, // Erreurs par champ pour l'étape 2
-    2: {}, // Erreurs par champ pour l'étape 3
+    0: {}, // Erreurs par champ pour l'étape 0 (Type)
+    1: {}, // Erreurs par champ pour l'étape 1 (Infos)
+    2: {}, // Erreurs par champ pour l'étape 2 (Localisation)
+    3: {}, // Erreurs par champ pour l'étape 3 (Caractéristiques)
+    4: {}, // Erreurs par champ pour l'étape 4 (Services)
   };
   Map<int, String> _stepErrorMessages = {};
 
@@ -355,11 +365,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   String _getStepName(int step) {
     switch (step) {
       case 0:
-        return 'type_and_photos';
+        return 'type_selection';
       case 1:
-        return 'details';
+        return 'basic_info';
       case 2:
-        return 'amenities';
+        return 'location';
+      case 3:
+        return 'characteristics';
+      case 4:
+        return 'services';
       default:
         return 'unknown';
     }
@@ -431,6 +445,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   Future<void> _initSharedPreferences() async {
     _prefs = await SharedPreferences.getInstance();
     await _loadLocationData();
+    // Vérifier et supprimer les brouillons expirés avant de restaurer
+    await DraftHelper.clearExpiredDrafts();
     await _restoreDraft();
   }
 
@@ -573,9 +589,11 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'selectedCommuneId': _selectedCommune?.communeId,
         'selectedQuartierId': _selectedQuartier?.quartierId,
         'totalImagesCount': _totalImagesCount,
+        'createdAt': DateTime.now().millisecondsSinceEpoch, // Timestamp de création
       };
 
       await _prefs.setString('property_draft', jsonEncode(draft));
+      print('✅ Brouillon sauvegardé avec timestamp');
     } catch (e) {
       print('❌ Erreur lors de la sauvegarde du brouillon: $e');
     }
@@ -588,10 +606,32 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       if (draftData != null && mounted) {
         final draft = jsonDecode(draftData) as Map<String, dynamic>;
 
+        // Vérifier l'âge du brouillon
+        final createdAt = draft['createdAt'] as int?;
+        if (createdAt != null) {
+          final draftDate = DateTime.fromMillisecondsSinceEpoch(createdAt);
+          final now = DateTime.now();
+          final difference = now.difference(draftDate);
+
+          // Si le brouillon a plus d'un jour, le supprimer
+          if (difference.inDays >= 1) {
+            print('🗑️ Brouillon expiré (${difference.inDays} jours), suppression...');
+            await _clearDraft();
+            return;
+          }
+        } else {
+          // Si pas de timestamp, supprimer le brouillon (ancien format)
+          print('🗑️ Brouillon sans timestamp (ancien format), suppression...');
+          await _clearDraft();
+          return;
+        }
+
+        final restoredCategory = draft['selectedCategory'];
+        
         setState(() {
           _currentStep = draft['currentStep'] ?? 0;
           _isForRent = draft['isForRent'] ?? true;
-          _selectedCategory = draft['selectedCategory'];
+          _selectedCategory = restoredCategory;
           _titleController.text = draft['title'] ?? '';
           _priceController.text = draft['price'] ?? '';
           _guaranteeController.text = draft['guarantee'] ?? '';
@@ -599,6 +639,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           _selectedElectric = draft['selectedElectric'];
           _selectedWater = draft['selectedWater'];
           _addressController.text = draft['address'] ?? '';
+          
+          // Restaurer tous les champs d'abord
           _bedroomsController.text = draft['bedrooms'] ?? '';
           _bathroomsController.text = draft['bathrooms'] ?? '';
           _livingRoomsController.text = draft['livingRooms'] ?? '';
@@ -607,6 +649,11 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           _floorController.text = draft['floor'] ?? '';
           _selectedAmenities = Set<String>.from(draft['selectedAmenities'] ?? []);
         });
+        
+        // Nettoyer les champs non pertinents selon le type de propriété restauré
+        if (restoredCategory != null && restoredCategory is String) {
+          _resetFieldsForCategory(restoredCategory);
+        }
 
         if (draft['selectedCityId'] != null) {
           _restoreLocation(
@@ -623,6 +670,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       print('❌ Erreur lors de la restauration du brouillon: $e');
     }
   }
+
 
   void _restoreLocation(int? cityId, int? districtId, int? communeId, int? quartierId) {
     if (cityId != null && _availableCities.isNotEmpty) {
@@ -719,6 +767,12 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       case 2:
         _validateStep2();
         break;
+      case 3:
+        _validateStep3();
+        break;
+      case 4:
+        _validateStep4();
+        break;
     }
     _saveDraft();
   }
@@ -727,17 +781,12 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     _clearStepFieldErrors(0);
     final errors = <String>[];
 
+    // Validation du type d'annonce (toujours présent car il y a un défaut)
+    
     // Validation du type de propriété
     if (_selectedCategory == null) {
       errors.add('Veuillez sélectionner un type de propriété');
       _setFieldError(0, 'property_type', 'Type de propriété requis');
-    }
-
-    // Validation des photos principales seulement
-    final mainImages = _selectedImages['propertyImage'] ?? [];
-    if (mainImages.length < 3) {
-      errors.add('Au moins 3 photos principales sont requises');
-      _setFieldError(0, 'photos', 'Minimum 3 photos principales requises');
     }
 
     final isValid = errors.isEmpty;
@@ -758,8 +807,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     // Title validation
     if (_titleController.text.trim().isEmpty) {
       _setFieldError(1, 'title', 'Veuillez entrer un titre');
-    } else if (_titleController.text.trim().length < 10) {
-      _setFieldError(1, 'title', 'Titre trop court (min 10 caractères)');
     }
 
     // Price validation
@@ -772,35 +819,11 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     // Description validation
     if (_descriptionController.text.trim().isEmpty) {
       _setFieldError(1, 'description', 'Veuillez entrer une description');
-    } else if (_descriptionController.text.trim().length < 50) {
-      _setFieldError(1, 'description', 'Description trop courte (min 50 caractères)');
     }
 
-    // Location validation
-    if (_selectedCity == null) {
-      _setFieldError(1, 'city', 'Veuillez sélectionner une ville');
-    }
-    if (_selectedDistrict == null) {
-      _setFieldError(1, 'district', 'Veuillez sélectionner un district');
-    }
-    if (_selectedCommune == null) {
-      _setFieldError(1, 'commune', 'Veuillez sélectionner une commune');
-    }
-
-    if (_selectedQuartier == null || _selectedQuartier!.name == null || _selectedQuartier!.name!.isEmpty) {
-      _setFieldError(1, 'quartier', 'Veuillez sélectionner ou saisir un quartier');
-    }
-
-    // Address validation
-    if (_addressController.text.trim().isEmpty) {
-      _setFieldError(1, 'address', 'Veuillez entrer une adresse');
-    } else if (_addressController.text.length < 10) {
-      _setFieldError(1, 'address', 'Adresse trop courte (${_addressController.text.length}/10)');
-    }
-
-    // Guarantee validation (only for rent)
-    if (_isForRent && _guaranteeController.text.isNotEmpty && int.tryParse(_guaranteeController.text) == null) {
-      _setFieldError(1, 'guarantee', 'Veuillez entrer un nombre valide');
+    // Guarantee validation (only for rent) - obligatoire et string
+    if (_isForRent && _guaranteeController.text.trim().isEmpty) {
+      _setFieldError(1, 'guarantee', 'Veuillez entrer une garantie');
     }
 
     final isValid = !_hasFieldErrors(1);
@@ -818,16 +841,30 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     _clearStepFieldErrors(2);
     final errors = <String>[];
 
-    // Services essentiels maintenant OBLIGATOIRES
-    if (_selectedElectric == null) {
-      _setFieldError(2, 'electric', 'Veuillez sélectionner la disponibilité du courant');
+    // Location validation
+    if (_selectedCity == null) {
+      _setFieldError(2, 'city', 'Veuillez sélectionner une ville');
     }
-    if (_selectedWater == null) {
-      _setFieldError(2, 'water', 'Veuillez sélectionner la disponibilité de l\'eau');
+    if (_selectedDistrict == null) {
+      _setFieldError(2, 'district', 'Veuillez sélectionner un district');
+    }
+    if (_selectedCommune == null) {
+      _setFieldError(2, 'commune', 'Veuillez sélectionner une commune');
+    }
+
+    if (_selectedQuartier == null || _selectedQuartier!.name == null || _selectedQuartier!.name!.isEmpty) {
+      _setFieldError(2, 'quartier', 'Veuillez sélectionner ou saisir un quartier');
+    }
+
+    // Address validation
+    if (_addressController.text.trim().isEmpty) {
+      _setFieldError(2, 'address', 'Veuillez entrer une adresse');
+    } else if (_addressController.text.length < 10) {
+      _setFieldError(2, 'address', 'Adresse trop courte (${_addressController.text.length}/10)');
     }
 
     final isValid = !_hasFieldErrors(2);
-    final errorMessage = _hasFieldErrors(2) ? 'Veuillez sélectionner les services essentiels' : '';
+    final errorMessage = _hasFieldErrors(2) ? 'Veuillez corriger les erreurs ci-dessus' : '';
 
     setState(() {
       _stepValidations[2] = isValid;
@@ -836,6 +873,52 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
     return isValid;
   }
+
+  bool _validateStep3() {
+    _clearStepFieldErrors(3);
+    final errors = <String>[];
+
+    // Validation des photos principales
+    final mainImages = _selectedImages['propertyImage'] ?? [];
+    if (mainImages.length < 3) {
+      errors.add('Au moins 3 photos principales sont requises');
+      _setFieldError(3, 'photos', 'Minimum 3 photos principales requises');
+    }
+
+    final isValid = errors.isEmpty;
+    final errorMessage = errors.isNotEmpty ? errors.join('\n') : '';
+
+    setState(() {
+      _stepValidations[3] = isValid;
+      _stepErrorMessages[3] = errorMessage;
+    });
+
+    return isValid;
+  }
+
+  bool _validateStep4() {
+    _clearStepFieldErrors(4);
+    final errors = <String>[];
+
+    // Services essentiels maintenant OBLIGATOIRES
+    if (_selectedElectric == null) {
+      _setFieldError(4, 'electric', 'Veuillez sélectionner la disponibilité du courant');
+    }
+    if (_selectedWater == null) {
+      _setFieldError(4, 'water', 'Veuillez sélectionner la disponibilité de l\'eau');
+    }
+
+    final isValid = !_hasFieldErrors(4);
+    final errorMessage = _hasFieldErrors(4) ? 'Veuillez corriger les erreurs ci-dessus' : '';
+
+    setState(() {
+      _stepValidations[4] = isValid;
+      _stepErrorMessages[4] = errorMessage;
+    });
+
+    return isValid;
+  }
+
 
   void _showStepErrorNotification(int step) {
     final errorMessage = _stepErrorMessages[step];
@@ -1005,13 +1088,17 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   Widget _buildCurrentStepContent() {
     switch (_currentStep) {
       case 0:
-        return _buildStep1();
+        return _buildStep0(); // Type d'annonce + Type de propriété
       case 1:
-        return _buildStep2();
+        return _buildStep1(); // Informations de base
       case 2:
-        return _buildStep3();
+        return _buildStep2(); // Localisation
+      case 3:
+        return _buildStep3(); // Caractéristiques + Photos
+      case 4:
+        return _buildStep4(); // Services essentiels + Équipements
       default:
-        return _buildStep1();
+        return _buildStep0();
     }
   }
 
@@ -1044,7 +1131,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             padding: EdgeInsets.only(right: 16),
             child: Center(
               child: Text(
-                '${_currentStep + 1}/3',
+                '${_currentStep + 1}/5',
                 style: TextStyle(
                   color: _greyColor,
                   fontWeight: FontWeight.w500,
@@ -1073,20 +1160,29 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       child: Column(
         children: [
           LinearProgressIndicator(
-            value: (_currentStep + 1) / 3,
+            value: (_currentStep + 1) / 5,
             backgroundColor: _borderColor,
             color: _primaryColor,
             minHeight: 6,
             borderRadius: BorderRadius.circular(10),
           ),
           SizedBox(height: _smallSpace),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildStepLabel(0, 'Type & Photos'),
-              _buildStepLabel(1, 'Détails'),
-              _buildStepLabel(2, 'Équipements'),
-            ],
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildStepLabel(0, 'Type'),
+                SizedBox(width: 8),
+                _buildStepLabel(1, 'Infos'),
+                SizedBox(width: 8),
+                _buildStepLabel(2, 'Localisation'),
+                SizedBox(width: 8),
+                _buildStepLabel(3, 'Caractéristiques'),
+                SizedBox(width: 8),
+                _buildStepLabel(4, 'Services'),
+              ],
+            ),
           ),
         ],
       ),
@@ -1097,13 +1193,54 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     final isActive = _currentStep == stepIndex;
     final isValid = _stepValidations[stepIndex] ?? false;
     final hasError = _stepErrorMessages[stepIndex]?.isNotEmpty ?? false;
+    
+    // Vérifier si on peut naviguer vers cette étape
+    bool canNavigateToStep = true;
+    if (stepIndex > _currentStep) {
+      // On ne peut pas aller vers une étape future
+      canNavigateToStep = false;
+    } else if (stepIndex < _currentStep) {
+      // On peut toujours revenir en arrière
+      canNavigateToStep = true;
+    } else {
+      // Étape actuelle, toujours accessible
+      canNavigateToStep = true;
+    }
 
     return GestureDetector(
-      onTap: () {
-        if (mounted) {
-          setState(() => _currentStep = stepIndex);
+      onTap: canNavigateToStep ? () {
+        if (mounted && stepIndex != _currentStep) {
+          // Valider l'étape actuelle avant de changer
+          bool currentStepValid = true;
+          switch (_currentStep) {
+            case 0:
+              currentStepValid = _validateStep0();
+              break;
+            case 1:
+              currentStepValid = _validateStep1();
+              break;
+            case 2:
+              currentStepValid = _validateStep2();
+              break;
+            case 3:
+              currentStepValid = _validateStep3();
+              break;
+            case 4:
+              currentStepValid = _validateStep4();
+              break;
+          }
+          
+          if (currentStepValid || stepIndex < _currentStep) {
+            setState(() {
+              _endStepTracking(_currentStep, _getStepName(_currentStep), currentStepValid);
+              _currentStep = stepIndex;
+              _startStepTracking(_currentStep, _getStepName(_currentStep));
+            });
+          } else {
+            _showStepErrorNotification(_currentStep);
+          }
         }
-      },
+      } : null,
       child: Column(
         children: [
           Stack(
@@ -1194,7 +1331,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     );
   }
 
-  Widget _buildStep1() {
+  // STEP 0 : Type d'annonce + Type de propriété
+  Widget _buildStep0() {
     return SingleChildScrollView(
       physics: BouncingScrollPhysics(),
       padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
@@ -1234,6 +1372,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                       if (mounted) {
                         setState(() {
                           _isForRent = true;
+                          _removeFieldError(0, 'transaction_type');
+                          _validateStep0();
                           _saveDraft();
                         });
                         _trackSelection('transaction_type', 'location');
@@ -1252,6 +1392,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                       if (mounted) {
                         setState(() {
                           _isForRent = false;
+                          _removeFieldError(0, 'transaction_type');
+                          // Si "Vacances", "Salle de fête" ou "Salle funéraire" étaient sélectionnées, les désélectionner
+                          if (_selectedCategory == 'Vacances' || 
+                              _selectedCategory == 'Salle de fête' || 
+                              _selectedCategory == 'Salle funéraire') {
+                            _selectedCategory = null;
+                            _removeFieldError(0, 'property_type');
+                          }
+                          _validateStep0();
                           _saveDraft();
                         });
                         _trackSelection('transaction_type', 'sale');
@@ -1280,34 +1429,43 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           ),
           SizedBox(height: _mediumSpace),
           _buildModernPropertyCategoryCarousel(),
-
-          // Photos principales
-          SizedBox(height: _largeSpace),
-          _buildModernSectionHeader(
-            title: 'Photos principales',
-            icon: Icons.photo_library_rounded,
-          ),
-          SizedBox(height: _smallSpace),
-          Text(
-            'Ajoutez au moins 3 photos de qualité pour attirer plus d\'attention',
-            style: TextStyle(
-              color: _greyColor,
-              fontSize: _captionSize,
+          
+          // Afficher les erreurs de validation
+          if (_hasFieldErrors(0))
+            Padding(
+              padding: EdgeInsets.only(top: _mediumSpace),
+              child: Container(
+                padding: EdgeInsets.all(_mediumSpace),
+                decoration: BoxDecoration(
+                  color: _errorColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _errorColor.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: _getStepErrorFields(0).map((field) {
+                    return Padding(
+                      padding: EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.error_outline, size: 16, color: _errorColor),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _getFieldError(0, field) ?? '',
+                              style: TextStyle(
+                                color: _errorColor,
+                                fontSize: _captionSize,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
             ),
-          ),
-          SizedBox(height: _mediumSpace),
-
-          // Photos principales
-          _buildMainImagesCard(),
-
-          // Autres pièces
-          SizedBox(height: _mediumSpace),
-          _buildAdditionalRoomsExpansion(),
-
-          // Compteur total
-          SizedBox(height: _mediumSpace),
-          _buildModernImageCounter(),
-          SizedBox(height: _mediumSpace),
         ],
       ),
     );
@@ -1378,13 +1536,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   Widget _buildModernPropertyCategoryCarousel() {
-    final categories = [
+    final allCategories = [
       {
         'image': 'assets/images/studio.png',
         'label': 'Studios',
         'value': 'Studio',
         'color': _primaryColor,
         'icon': Icons.apartment_rounded,
+        'availableForRent': true,
+        'availableForSale': true,
       },
       {
         'image': 'assets/images/apart.png',
@@ -1392,13 +1552,17 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'value': 'Apparts',
         'color': _primaryColor,
         'icon': Icons.home_work_rounded,
+        'availableForRent': true,
+        'availableForSale': true,
       },
       {
-        'image': 'assets/images/maisons.png',
+        'image': 'assets/images/maison.png',
         'label': 'Maisons',
         'value': 'Maisons',
         'color': _primaryColor,
         'icon': Icons.house_rounded,
+        'availableForRent': true,
+        'availableForSale': true,
       },
       {
         'image': 'assets/images/office.png',
@@ -1406,6 +1570,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'value': 'Bureau',
         'color': _primaryColor,
         'icon': Icons.business_center_rounded,
+        'availableForRent': true,
+        'availableForSale': true,
       },
       {
         'image': 'assets/images/hotel.png',
@@ -1413,6 +1579,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'value': 'Hotels',
         'color': _primaryColor,
         'icon': Icons.hotel_rounded,
+        'availableForRent': true,
+        'availableForSale': true,
       },
       {
         'image': 'assets/images/plage.png',
@@ -1420,8 +1588,51 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'value': 'Vacances',
         'color': _primaryColor,
         'icon': Icons.beach_access_rounded,
+        'availableForRent': true,
+        'availableForSale': false, // Pas disponible à la vente
+      },
+      {
+        'image': 'assets/images/Terrain.png',
+        'label': 'Terrain',
+        'value': 'Terrain',
+        'color': _primaryColor,
+        'icon': Icons.landscape_rounded,
+        'availableForRent': true,
+        'availableForSale': true,
+      },
+      {
+        'image': 'assets/images/Entrepot.png',
+        'label': 'Entrepôt',
+        'value': 'Entrepot',
+        'color': _primaryColor,
+        'icon': Icons.warehouse_rounded,
+        'availableForRent': true,
+        'availableForSale': true,
+      },
+      {
+        'image': 'assets/images/fete.png',
+        'label': 'Salle de fête',
+        'value': 'Salle de fête',
+        'color': _primaryColor,
+        'icon': Icons.celebration_rounded,
+        'availableForRent': true,
+        'availableForSale': false, // Salles généralement en location
+      },
+      {
+        'image': 'assets/images/funebre.png',
+        'label': 'Salle funéraire',
+        'value': 'Salle funéraire',
+        'color': _primaryColor,
+        'icon': Icons.church_rounded,
+        'availableForRent': true,
+        'availableForSale': false, // Salles généralement en location
       },
     ];
+
+    // Filtrer les catégories selon le type d'annonce (location ou vente)
+    final categories = allCategories.where((cat) {
+      return _isForRent ? cat['availableForRent'] == true : cat['availableForSale'] == true;
+    }).toList();
 
     return Container(
       height: 120,
@@ -1437,13 +1648,23 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           return GestureDetector(
             onTap: () {
               if (mounted) {
+                final previousCategory = _selectedCategory;
+                final newCategory = category['value'] as String;
+                
+                // Si le type de propriété change, réinitialiser les champs non pertinents
+                if (previousCategory != newCategory) {
+                  _resetFieldsForCategory(newCategory);
+                }
+                
                 setState(() {
-                  _selectedCategory = category['value'] as String;
+                  _selectedCategory = newCategory;
                   _removeFieldError(0, 'property_type');
                   _validateStep0();
-                  _saveDraft();
                 });
-                _trackSelection('property_type', category['value'] as String);
+                
+                // Sauvegarder après setState pour s'assurer que les changements sont pris en compte
+                _saveDraft();
+                _trackSelection('property_type', newCategory);
               }
             },
             child: Container(
@@ -2003,7 +2224,184 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     );
   }
 
-  Widget _buildStep2() {
+  // Réinitialiser les champs selon le nouveau type de propriété
+  void _resetFieldsForCategory(String category) {
+    // Réinitialiser les champs qui ne sont plus pertinents
+    if (category == 'Terrain' || category == 'Entrepot') {
+      // Pas de chambres, salles de bain, salons, cuisines, étage pour terrain/entrepôt
+      _bedroomsController.clear();
+      _bathroomsController.clear();
+      _livingRoomsController.clear();
+      _kitchensController.clear();
+      if (category == 'Terrain') {
+        _floorController.clear();
+      }
+    } else if (category == 'Bureau') {
+      // Pas de chambres, salles de bain pour bureau
+      _bedroomsController.clear();
+      _bathroomsController.clear();
+    } else if (category == 'Salle de fête' || category == 'Salle funéraire') {
+      // Pas de cuisine pour les salles
+      _kitchensController.clear();
+    } else if (category == 'Hotels') {
+      // Pas de cuisine pour hôtel
+      _kitchensController.clear();
+    }
+    // Note: On garde la surface car elle est toujours pertinente
+  }
+
+  // Méthodes helper pour adapter les champs selon le type de propriété
+  bool _shouldShowRoomFields() {
+    // Les terrains et entrepôts n'ont pas de chambres/salles de bain
+    if (_selectedCategory == null) return true;
+    return _selectedCategory != 'Terrain' && _selectedCategory != 'Entrepot';
+  }
+
+  bool _shouldShowBedroomField() {
+    // Chambres : pas pour terrains, entrepôts, bureaux, salles
+    if (_selectedCategory == null) return true;
+    return _selectedCategory != 'Terrain' && 
+           _selectedCategory != 'Entrepot' &&
+           _selectedCategory != 'Bureau' &&
+           _selectedCategory != 'Salle de fête' &&
+           _selectedCategory != 'Salle funéraire';
+  }
+
+  bool _shouldShowBathroomField() {
+    // Salles de bain : pas pour terrains, entrepôts, bureaux
+    if (_selectedCategory == null) return true;
+    return _selectedCategory != 'Terrain' && 
+           _selectedCategory != 'Entrepot' &&
+           _selectedCategory != 'Bureau';
+  }
+
+  bool _shouldShowLivingRoomField() {
+    // Salons : pas pour terrains, entrepôts
+    if (_selectedCategory == null) return true;
+    return _selectedCategory != 'Terrain' && _selectedCategory != 'Entrepot';
+  }
+
+  bool _shouldShowKitchenField() {
+    // Les salles de fête, salles funéraires, hôtels, bureaux, terrains, entrepôts n'ont pas forcément de cuisine
+    if (_selectedCategory == null) return true;
+    return _selectedCategory != 'Salle de fête' && 
+           _selectedCategory != 'Salle funéraire' &&
+           _selectedCategory != 'Bureau' &&
+           _selectedCategory != 'Hotels' &&
+           _selectedCategory != 'Terrain' &&
+           _selectedCategory != 'Entrepot';
+  }
+
+  bool _shouldShowFloorField() {
+    // Les terrains n'ont pas d'étage
+    if (_selectedCategory == null) return true;
+    return _selectedCategory != 'Terrain';
+  }
+
+  String _getAreaLabel() {
+    // Adapter le label selon le type
+    if (_selectedCategory == 'Terrain') {
+      return 'Superficie (m²)';
+    } else if (_selectedCategory == 'Entrepot') {
+      return 'Surface entrepôt (m²)';
+    }
+    return 'Surface (m²)';
+  }
+
+  Widget _buildAdaptiveFieldsGrid() {
+    // Construire la liste des champs à afficher selon le type
+    List<Widget> fields = [];
+
+    // Surface - toujours affichée
+    fields.add(
+      _buildModernFeatureInput(
+        controller: _areaController,
+        label: _getAreaLabel(),
+        icon: FontAwesomeIcons.rulerCombined,
+        color: _primaryColor.withOpacity(0.1),
+        iconColor: _primaryColor,
+      ),
+    );
+
+    // Chambres
+    if (_shouldShowBedroomField()) {
+      fields.add(
+        _buildModernFeatureInput(
+          controller: _bedroomsController,
+          label: 'Chambres',
+          icon: FontAwesomeIcons.bed,
+          color: _primaryColor.withOpacity(0.1),
+          iconColor: _primaryColor,
+        ),
+      );
+    }
+
+    // Salles de bain
+    if (_shouldShowBathroomField()) {
+      fields.add(
+        _buildModernFeatureInput(
+          controller: _bathroomsController,
+          label: 'Salles de bain',
+          icon: FontAwesomeIcons.bath,
+          color: _primaryColor.withOpacity(0.1),
+          iconColor: _primaryColor,
+        ),
+      );
+    }
+
+    // Salons
+    if (_shouldShowLivingRoomField()) {
+      fields.add(
+        _buildModernFeatureInput(
+          controller: _livingRoomsController,
+          label: 'Salons',
+          icon: FontAwesomeIcons.couch,
+          color: _primaryColor.withOpacity(0.1),
+          iconColor: _primaryColor,
+        ),
+      );
+    }
+
+    // Cuisines
+    if (_shouldShowKitchenField()) {
+      fields.add(
+        _buildModernFeatureInput(
+          controller: _kitchensController,
+          label: 'Cuisines',
+          icon: FontAwesomeIcons.kitchenSet,
+          color: _primaryColor.withOpacity(0.1),
+          iconColor: _primaryColor,
+        ),
+      );
+    }
+
+    // Étage
+    if (_shouldShowFloorField()) {
+      fields.add(
+        _buildModernFeatureInput(
+          controller: _floorController,
+          label: 'Étage',
+          icon: FontAwesomeIcons.building,
+          color: _primaryColor.withOpacity(0.1),
+          iconColor: _primaryColor,
+        ),
+      );
+    }
+
+    // Afficher dans une grille
+    return GridView.count(
+      shrinkWrap: true,
+      physics: NeverScrollableScrollPhysics(),
+      crossAxisCount: 2,
+      crossAxisSpacing: _smallSpace,
+      mainAxisSpacing: _smallSpace,
+      childAspectRatio: 3.2,
+      children: fields,
+    );
+  }
+
+  // STEP 1 : Informations de base uniquement
+  Widget _buildStep1() {
     return SingleChildScrollView(
       physics: BouncingScrollPhysics(),
       padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
@@ -2027,9 +2425,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer un titre';
-              }
-              if (value.length < 10) {
-                return 'Le titre doit faire au moins 10 caractères';
               }
               return null;
             },
@@ -2062,18 +2457,17 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           if (_isForRent) ...[
             _buildModernTextField(
               controller: _guaranteeController,
-              label: 'Garantie (mois)',
-              hint: '2 (optionnel)',
+              label: 'Garantie',
+              hint: 'Entrez la garantie requise',
               icon: Icons.security_rounded,
-              keyboardType: TextInputType.number,
-              suffixText: 'mois',
+              keyboardType: TextInputType.text,
               prefixIconColor: Colors.orange,
               focusNode: _focusNodes[2],
               nextFocusNode: _focusNodes[3],
               errorText: _getFieldError(1, 'guarantee'),
               validator: (value) {
-                if (value != null && value.isNotEmpty && int.tryParse(value) == null) {
-                  return 'Veuillez entrer un nombre valide';
+                if (value == null || value.trim().isEmpty) {
+                  return 'Veuillez entrer une garantie';
                 }
                 return null;
               },
@@ -2088,20 +2482,28 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             icon: Icons.description_rounded,
             maxLines: 4,
             focusNode: _focusNodes[3],
-            nextFocusNode: _focusNodes[4],
+            nextFocusNode: null,
             errorText: _getFieldError(1, 'description'),
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer une description';
               }
-              if (value.length < 50) {
-                return 'La description doit faire au moins 50 caractères (${value.length}/50)';
-              }
               return null;
             },
           ),
+        ],
+      ),
+    );
+  }
 
-          SizedBox(height: _largeSpace),
+  // STEP 2 : Localisation uniquement
+  Widget _buildStep2() {
+    return SingleChildScrollView(
+      physics: BouncingScrollPhysics(),
+      padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           _buildModernSectionHeader(
             title: 'Localisation',
             icon: Icons.location_on_outlined,
@@ -2118,16 +2520,16 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               if (mounted) {
                 setState(() {
                   _selectedCity = newValue;
-                  _removeFieldError(1, 'city');
+                  _removeFieldError(2, 'city');
                   _updateDistrictsForCity();
-                  _validateStep1();
+                  _validateStep2();
                   _saveDraft();
                 });
                 _trackSelection('city', newValue?.name ?? 'unknown');
               }
             },
             icon: Icons.location_city_rounded,
-            errorText: _getFieldError(1, 'city'),
+            errorText: _getFieldError(2, 'city'),
             hintText: 'Sélectionnez une ville',
           ),
 
@@ -2146,16 +2548,16 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                         if (mounted) {
                           setState(() {
                             _selectedDistrict = newValue;
-                            _removeFieldError(1, 'district');
+                            _removeFieldError(2, 'district');
                             _updateCommunesForDistrict();
-                            _validateStep1();
+                            _validateStep2();
                             _saveDraft();
                           });
                           _trackSelection('district', newValue?.name ?? 'unknown');
                         }
                       },
                       icon: Icons.account_balance_rounded,
-                      errorText: _getFieldError(1, 'district'),
+                      errorText: _getFieldError(2, 'district'),
                       hintText: 'Sélectionnez un district',
                     ),
                   ),
@@ -2171,16 +2573,16 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                         if (mounted) {
                           setState(() {
                             _selectedCommune = newValue;
-                            _removeFieldError(1, 'commune');
+                            _removeFieldError(2, 'commune');
                             _updateQuartiersForCommune();
-                            _validateStep1();
+                            _validateStep2();
                             _saveDraft();
                           });
                           _trackSelection('commune', newValue?.name ?? 'unknown');
                         }
                       },
                       icon: Icons.place_rounded,
-                      errorText: _getFieldError(1, 'commune'),
+                      errorText: _getFieldError(2, 'commune'),
                       hintText: 'Sélectionnez une commune',
                     ),
                   ),
@@ -2198,7 +2600,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             icon: Icons.home_work_rounded,
             focusNode: _focusNodes[4],
             nextFocusNode: null,
-            errorText: _getFieldError(1, 'address'),
+            errorText: _getFieldError(2, 'address'),
             validator: (value) {
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer une adresse complète';
@@ -2209,73 +2611,98 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               return null;
             },
           ),
-          SizedBox(height: _largeSpace),
+        ],
+      ),
+    );
+  }
 
+  // STEP 3 : Caractéristiques + Photos
+  Widget _buildStep3() {
+    return SingleChildScrollView(
+      physics: BouncingScrollPhysics(),
+      padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           _buildModernSectionHeader(
             title: 'Caractéristiques',
             icon: Icons.apartment_rounded,
           ),
           SizedBox(height: _mediumSpace),
 
-          GridView.count(
-            shrinkWrap: true,
-            physics: NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            crossAxisSpacing: _smallSpace,
-            mainAxisSpacing: _smallSpace,
-            childAspectRatio: 3.2,
-            children: [
-              _buildModernFeatureInput(
-                controller: _bedroomsController,
-                label: 'Chambres',
-                icon: FontAwesomeIcons.bed,
-                color: _primaryColor.withOpacity(0.1),
-                iconColor: _primaryColor,
-              ),
-              _buildModernFeatureInput(
-                controller: _bathroomsController,
-                label: 'Salles de bain',
-                icon: FontAwesomeIcons.bath,
-                color: _primaryColor.withOpacity(0.1),
-                iconColor: _primaryColor,
-              ),
-              _buildModernFeatureInput(
-                controller: _livingRoomsController,
-                label: 'Salons',
-                icon: FontAwesomeIcons.couch,
-                color: _primaryColor.withOpacity(0.1),
-                iconColor: _primaryColor,
-              ),
-              _buildModernFeatureInput(
-                controller: _kitchensController,
-                label: 'Cuisines',
-                icon: FontAwesomeIcons.kitchenSet,
-                color: _primaryColor.withOpacity(0.1),
-                iconColor: _primaryColor,
-              ),
-              _buildModernFeatureInput(
-                controller: _areaController,
-                label: 'Surface (m²)',
-                icon: FontAwesomeIcons.rulerCombined,
-                color: _primaryColor.withOpacity(0.1),
-                iconColor: _primaryColor,
-              ),
-              _buildModernFeatureInput(
-                controller: _floorController,
-                label: 'Étage',
-                icon: FontAwesomeIcons.building,
-                color: _primaryColor.withOpacity(0.1),
-                iconColor: _primaryColor,
-              ),
-            ],
+          // Adapter les champs selon le type de propriété
+          _buildAdaptiveFieldsGrid(),
+          SizedBox(height: _largeSpace),
+
+          // Photos principales
+          _buildModernSectionHeader(
+            title: 'Photos principales',
+            icon: Icons.photo_library_rounded,
+          ),
+          SizedBox(height: _smallSpace),
+          Text(
+            'Ajoutez au moins 3 photos de qualité pour attirer plus d\'attention',
+            style: TextStyle(
+              color: _greyColor,
+              fontSize: _captionSize,
+            ),
           ),
           SizedBox(height: _mediumSpace),
+
+          // Photos principales
+          _buildMainImagesCard(),
+
+          // Autres pièces
+          SizedBox(height: _mediumSpace),
+          _buildAdditionalRoomsExpansion(),
+
+          // Compteur total
+          SizedBox(height: _mediumSpace),
+          _buildModernImageCounter(),
+          
+          // Afficher les erreurs de validation
+          if (_hasFieldErrors(3))
+            Padding(
+              padding: EdgeInsets.only(top: _mediumSpace),
+              child: Container(
+                padding: EdgeInsets.all(_mediumSpace),
+                decoration: BoxDecoration(
+                  color: _errorColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _errorColor.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: _getStepErrorFields(3).map((field) {
+                    return Padding(
+                      padding: EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.error_outline, size: 16, color: _errorColor),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _getFieldError(3, field) ?? '',
+                              style: TextStyle(
+                                color: _errorColor,
+                                fontSize: _captionSize,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildStep3() {
+  // STEP 4 : Services essentiels + Équipements
+  Widget _buildStep4() {
     return SingleChildScrollView(
       physics: BouncingScrollPhysics(),
       padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
@@ -2358,7 +2785,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                       } else {
                         _selectedAmenities.remove(amenity);
                       }
-                      _validateStep2();
                       _saveDraft();
                     });
                     _trackSelection('amenity', amenity);
@@ -2386,9 +2812,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   Widget _buildBottomNavigation() {
-    final isLastStep = _currentStep == 2;
+    final isLastStep = _currentStep == 4;
     final canProceed = !_isLoading;
-    final canPublish = _stepValidations[0]! && _stepValidations[1]! && _stepValidations[2]! && !_isLoading;
+    final canPublish = (_stepValidations[0] ?? false) && 
+                       (_stepValidations[1] ?? false) && 
+                       (_stepValidations[2] ?? false) && 
+                       (_stepValidations[3] ?? false) && 
+                       (_stepValidations[4] ?? false) && 
+                       !_isLoading;
 
     return Container(
       padding: EdgeInsets.all(_mediumSpace),
@@ -2444,6 +2875,12 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                     break;
                   case 2:
                     currentStepValid = _validateStep2();
+                    break;
+                  case 3:
+                    currentStepValid = _validateStep3();
+                    break;
+                  case 4:
+                    currentStepValid = _validateStep4();
                     break;
                 }
 
@@ -3016,8 +3453,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                           _showPremiumQuartierDialog();
                         } else {
                           _selectedQuartier = newValue;
-                          _removeFieldError(1, 'quartier');
-                          _validateStep1();
+                          _removeFieldError(2, 'quartier');
+                          _validateStep2();
                           _saveDraft();
                           _trackSelection('quartier', newValue?.name ?? 'unknown');
                         }
@@ -3123,15 +3560,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         if (mounted) {
           setState(() {
             _selectedElectric = newValue;
-            _removeFieldError(2, 'electric');
-            _validateStep2();
+            _removeFieldError(4, 'electric');
+            _validateStep4();
             _saveDraft();
           });
           _trackSelection('electric_service', newValue ?? 'none');
         }
       },
       icon: Icons.electrical_services_rounded,
-      errorText: _getFieldError(2, 'electric'),
+            errorText: _getFieldError(4, 'electric'),
       hintText: 'Sélectionnez la disponibilité',
     );
   }
@@ -3152,15 +3589,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         if (mounted) {
           setState(() {
             _selectedWater = newValue;
-            _removeFieldError(2, 'water');
-            _validateStep2();
+            _removeFieldError(4, 'water');
+            _validateStep4();
             _saveDraft();
           });
           _trackSelection('water_service', newValue ?? 'none');
         }
       },
       icon: Icons.water_drop_rounded,
-      errorText: _getFieldError(2, 'water'),
+            errorText: _getFieldError(4, 'water'),
       hintText: 'Sélectionnez la disponibilité',
     );
   }
@@ -3412,7 +3849,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     }
 
     try {
-      final propertyData = {
+      // Données de base de la propriété
+      final basePropertyData = {
         "title": _titleController.text.trim(),
         "description": _descriptionController.text.trim().isNotEmpty
             ? _descriptionController.text.trim()
@@ -3460,21 +3898,9 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         ]
       };
 
-      print("📦 Données de base SANS images: $propertyData");
-
-      await _trackEvent('property_api_call_start', {
-        'images_count': _totalImagesCount,
-        'has_amenities': _selectedAmenities.isNotEmpty,
-        'has_essential_services': _selectedElectric != null && _selectedWater != null,
-        'property_type': _selectedCategory,
-        'price': double.tryParse(_priceController.text),
-      });
-
+      // Ajouter les images aux données de base
       final imagesData = await _prepareImagesData();
-      print("🖼️ Données images préparées: $imagesData");
-
-      _clearImageCache();
-      propertyData.addAll(imagesData);
+      basePropertyData.addAll(imagesData);
 
       final requiredImageFields = [
         "propertyImage",
@@ -3484,22 +3910,115 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       ];
 
       for (var field in requiredImageFields) {
-        if (!propertyData.containsKey(field) || propertyData[field] == null) {
-          propertyData[field] = [];
+        if (!basePropertyData.containsKey(field) || basePropertyData[field] == null) {
+          basePropertyData[field] = [];
         }
       }
 
-      print("📤 Données FINALES avec images:");
-      propertyData.forEach((key, value) {
-        if (key.contains('Image')) {
-          print("$key: ${value is List ? '${value.length} images' : value}");
+      // Construire le payload selon le type de propriété (comme pour l'inscription)
+      Map<String, dynamic> payload = {
+        "property": basePropertyData,
+      };
+
+      // Ajouter l'objet spécifique selon le type de propriété
+      switch (_selectedCategory) {
+        case 'Bureau':
+          final bureauData = BureauModel(
+            surfaceArea: double.tryParse(_areaController.text),
+            numberOfDesks: int.tryParse(_bedroomsController.text), // Réutiliser les champs existants temporairement
+            meetingRooms: int.tryParse(_livingRoomsController.text),
+            hasParking: _selectedAmenities.contains('Parking'),
+            hasSecurity: _selectedAmenities.contains('Sécurité'),
+          );
+          payload["bureau"] = bureauData.toJson();
+          break;
+
+        case 'Hotels':
+          final hotelData = HotelModel(
+            numberOfRooms: int.tryParse(_bedroomsController.text),
+            starRating: 3, // Par défaut, à modifier plus tard avec un sélecteur
+            hotelServices: _selectedAmenities.toList(),
+          );
+          payload["hotel"] = hotelData.toJson();
+          break;
+
+        case 'Vacances':
+          final vacancesData = VacancesModel(
+            capacity: int.tryParse(_bedroomsController.text), // Capacité
+            vacationType: "maison", // Par défaut, à modifier plus tard
+            vacationAmenities: _selectedAmenities.toList(),
+          );
+          payload["vacances"] = vacancesData.toJson();
+          break;
+
+        case 'Terrain':
+          final terrainData = TerrainModel(
+            landArea: double.tryParse(_areaController.text),
+            landType: "constructible", // Par défaut, à modifier plus tard
+            landFeatures: _selectedAmenities.toList(),
+          );
+          payload["terrain"] = terrainData.toJson();
+          break;
+
+        case 'Salle de fête':
+          final salleFeteData = SalleFeteModel(
+            eventCapacity: int.tryParse(_bedroomsController.text), // Capacité
+            eventEquipment: _selectedAmenities.toList(),
+          );
+          payload["salleFete"] = salleFeteData.toJson();
+          break;
+
+        case 'Entrepot':
+          final entrepotData = EntrepotModel(
+            warehouseArea: double.tryParse(_areaController.text),
+            ceilingHeight: double.tryParse(_floorController.text), // Réutiliser floor temporairement
+            warehouseType: "entrepot", // Par défaut
+            warehouseFeatures: _selectedAmenities.toList(),
+          );
+          payload["entrepot"] = entrepotData.toJson();
+          break;
+
+        case 'Salle funéraire':
+          final salleFuneraireData = SalleFuneraireModel(
+            funeralCapacity: int.tryParse(_bedroomsController.text), // Capacité
+            funeralServices: _selectedAmenities.toList(),
+          );
+          payload["salleFuneraire"] = salleFuneraireData.toJson();
+          break;
+
+        default:
+          // Pour les autres types (Maison, Studio, Apparts), pas besoin d'objet spécifique
+          break;
+      }
+
+      print("📦 Payload structuré: $payload");
+
+      await _trackEvent('property_api_call_start', {
+        'images_count': _totalImagesCount,
+        'has_amenities': _selectedAmenities.isNotEmpty,
+        'has_essential_services': _selectedElectric != null && _selectedWater != null,
+        'property_type': _selectedCategory,
+        'price': double.tryParse(_priceController.text),
+      });
+
+      print("📤 Données FINALES:");
+      payload.forEach((key, value) {
+        if (key == "property" && value is Map) {
+          print("property:");
+          value.forEach((k, v) {
+            if (k.toString().contains('Image')) {
+              print("  $k: ${v is List ? '${v.length} images' : v}");
+            } else {
+              print("  $k: $v");
+            }
+          });
         } else {
           print("$key: $value");
         }
       });
 
       final ctrl = context.read<PropertyController>();
-      final res = await ctrl.createProperty(propertyData);
+      final res = await ctrl.createProperty(payload);
 
       print("Réponse API: ${res.data}");
 
@@ -3659,6 +4178,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         return 5;
       case 'Vacances':
         return 6;
+      case 'Terrain':
+        return 7;
+      case 'Entrepot':
+        return 8;
+      case 'Salle de fête':
+        return 9;
+      case 'Salle funéraire':
+        return 10;
       default:
         return 1;
     }

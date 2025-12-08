@@ -16,6 +16,7 @@ import 'package:shimmer/shimmer.dart';
 
 import '../controllers/AuthentificationCtrl.dart';
 import '../utils/Routes.dart';
+import '../utils/FavoriteEartIcon.dart';
 
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({Key? key}) : super(key: key);
@@ -612,20 +613,47 @@ class _FavoritesPageState extends State<FavoritesPage>
                     Positioned(
                       top: 15,
                       right: 15,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.7),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          priceText,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.7),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              priceText,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
                           ),
-                        ),
+                          SizedBox(width: 8),
+                          if (propertyData?.propertyId != null)
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.9),
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: FavoriteHeartIcon(
+                                propertyId: propertyData!.propertyId.toString(),
+                                size: 20,
+                                splashRadius: 18,
+                                activeColor: Colors.red,
+                                inactiveColor: _mediumGrey,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],

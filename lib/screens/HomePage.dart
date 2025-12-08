@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
+import 'package:casa/controllers/ServiceController.dart';
 import 'package:casa/screens/AllPropertiesPage.dart';
 import 'package:casa/screens/PromoBanner.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
@@ -18,11 +19,14 @@ import 'package:pull_to_refresh/pull_to_refresh.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../models/PropertyModel.dart';
+import '../models/ServiceModel.dart';
 import '../utils/Routes.dart';
 import '../utils/database/FavoriteDatabaseHelper.dart';
 import '../utils/database/ReservationDatabaseHelper.dart';
 import 'CategoryPropertiesPage.dart';
+import 'AllServiceCategoriesPage.dart';
 import 'NotificationPage.dart';
+import '../utils/DraftHelper.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -48,9 +52,14 @@ class _HomePageState extends State<HomePage> {
   void _loadInitialData() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+      final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+      
       propertyCtrl.getAllProperty().then((_) {
         _logHomePageLoaded(propertyCtrl.properties.length);
       });
+      
+      // Charger tous les services
+      serviceCtrl.fetchServices();
     });
   }
 
@@ -73,10 +82,14 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     var propertyCtrl = context.watch<PropertyController>();
+    var serviceCtrl = context.watch<ServiceController>();
     var properties = propertyCtrl.properties;
+    var services = serviceCtrl.services;
 
     final rentalProperties = properties.where((p) => p.transactionType == 'location').toList();
     final saleProperties = properties.where((p) => p.transactionType == 'vente').toList();
+    final majordhommeServices = services.where((s) => s.serviceType == ServiceType.majordhomme).toList();
+    final demenagementServices = services.where((s) => s.serviceType == ServiceType.demenagement).toList();
 
     return Scaffold(
       key: _scaffoldKey,
@@ -152,6 +165,7 @@ class _HomePageState extends State<HomePage> {
               ),
               SizedBox(height: 20),
               PromoBanner(),
+              SizedBox(height: 20),
               _buildSectionHeader(
                 title: "Maisons en Vente",
                 subtitle: "Investissez dans votre avenir",
@@ -173,7 +187,41 @@ class _HomePageState extends State<HomePage> {
                 properties: saleProperties,
                 isLoading: propertyCtrl.loading,
               ),
-              SizedBox(height: 30),
+              SizedBox(height: 20),
+              
+              // Section Services Majordome
+              _buildSectionHeader(
+                title: "Femme de Ménage",
+                subtitle: "Nettoyage professionnel à domicile",
+                onSeeAll: () {
+                  SnackbarForCasa.info(context, "Page des services de ménage - En développement");
+                  // TODO: Créer une page dédiée pour les services
+                },
+              ),
+              _buildServiceCarousel(
+                services: majordhommeServices,
+                isLoading: serviceCtrl.loading,
+                serviceType: ServiceType.majordhomme,
+              ),
+              SizedBox(height: 20),
+              PromoBanner(),
+              SizedBox(height: 20),
+              
+              // Section Services de Déménagement
+              _buildSectionHeader(
+                title: "Déménagement",
+                subtitle: "Déménagez en toute sérénité",
+                onSeeAll: () {
+                  SnackbarForCasa.info(context, "Page des services de déménagement - En développement");
+                  // TODO: Créer une page dédiée pour les services
+                },
+              ),
+              _buildServiceCarousel(
+                services: demenagementServices,
+                isLoading: serviceCtrl.loading,
+                serviceType: ServiceType.demenagement,
+              ),
+              SizedBox(height: 20),
             ],
           ),
         ),
@@ -492,7 +540,15 @@ class _HomePageState extends State<HomePage> {
         print("⚠️ Erreur lors de la suppression des réservations: $e");
       }
 
-      // 4. Forcer l'écriture des changements
+      // 4. Supprimer TOUS les brouillons lors de la déconnexion
+      try {
+        await DraftHelper.clearAllDrafts();
+        print("✅ Tous les brouillons supprimés");
+      } catch (e) {
+        print("⚠️ Erreur lors de la suppression des brouillons: $e");
+      }
+
+      // 5. Forcer l'écriture des changements
       await storage.write('logout_timestamp', DateTime.now().millisecondsSinceEpoch);
 
       print("✅ Déconnexion réussie - Toutes les données ont été nettoyées");
@@ -552,9 +608,6 @@ class _HomePageState extends State<HomePage> {
     // Fermer la dialog d'abord
     Navigator.pop(context);
 
-    // Afficher un indicateur de chargement
-    final scaffold = ScaffoldMessenger.of(context);
-
     try {
       // 1. Nettoyer les données
       await _clearLocalAuthData();
@@ -562,43 +615,37 @@ class _HomePageState extends State<HomePage> {
       // 2. Attendre un cycle de frame pour éviter les conflits
       await Future.delayed(Duration(milliseconds: 100));
 
-      // 3. Navigation sécurisée avec vérification du mounted
+      // 3. Recharger la page pour mettre à jour l'interface
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Navigator.pushNamedAndRemoveUntil(
-              context,
-              Routes.bottomPageRoute,
-                  (route) => false,
-            );
-          }
+        setState(() {
+          // Le setState va déclencher un rebuild et faire disparaître les éléments nécessitant une connexion
         });
+      }
+
+      // 4. Naviguer vers la page d'accueil après un court délai pour voir le changement
+      await Future.delayed(Duration(milliseconds: 300));
+      
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          Routes.bottomPageRoute,
+          (route) => false,
+        );
       }
 
     } catch (e) {
       print("❌ Erreur lors de la déconnexion: $e");
 
-      // Même en cas d'erreur, essayer de naviguer
+      // Même en cas d'erreur, recharger la page
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          try {
-            Navigator.pushNamedAndRemoveUntil(
-              context,
-              Routes.bottomPageRoute,
-                  (route) => false,
-            );
-          } catch (navError) {
-            print("❌ Erreur de navigation critique: $navError");
-
-            // Dernière tentative avec un rechargement complet
-            if (mounted) {
-              Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (context) => HomePage()),
-                    (route) => false,
-              );
-            }
-          }
-        });
+        setState(() {});
+        
+        // Naviguer vers la page d'accueil
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          Routes.bottomPageRoute,
+          (route) => false,
+        );
       }
     }
   }
@@ -1337,6 +1384,26 @@ class _HomePageState extends State<HomePage> {
         'label': 'Vacances',
         'value': 'Vacances',
       },
+      {
+        'image': 'assets/images/Terrain.png',
+        'label': 'Terrain',
+        'value': 'Terrain',
+      },
+      {
+        'image': 'assets/images/fete.png',
+        'label': 'Salle de fête',
+        'value': 'Salle de fête',
+      },
+      {
+        'image': 'assets/images/funebre.png',
+        'label': 'Salle funéraires',
+        'value': 'Salle funéraires',
+      },
+      {
+        'image': 'assets/images/Entrepot.png',
+        'label': 'Entrepôt',
+        'value': 'Entrepôt',
+      },
     ];
 
     return Container(
@@ -1346,14 +1413,37 @@ class _HomePageState extends State<HomePage> {
         children: [
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 24),
-            child: Text(
-              'Explorer par type',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[900],
-                letterSpacing: -0.2,
-              ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Explorer par type',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[900],
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => AllServiceCategoriesPage(),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    'Voir tout',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: primaryColor,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           SizedBox(height: 5),
@@ -1574,6 +1664,325 @@ class _HomePageState extends State<HomePage> {
         },
       ),
     );
+  }
+
+  Widget _buildServiceCarousel({
+    required List<ServiceModel> services,
+    required bool isLoading,
+    required ServiceType serviceType,
+  }) {
+    if (isLoading) {
+      return Container(
+        height: 380,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: EdgeInsets.symmetric(horizontal: 24),
+          itemCount: 3,
+          itemBuilder: (context, index) {
+            return Container(
+              width: 280,
+              margin: EdgeInsets.only(right: 20),
+              child: Shimmer.fromColors(
+                baseColor: Colors.grey[300]!,
+                highlightColor: Colors.grey[100]!,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(24),
+                    color: Colors.white,
+                  ),
+                  height: 380,
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+    if (services.isEmpty) {
+      return Container(
+        height: 200,
+        margin: EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                serviceType.icon,
+                size: 48,
+                color: Colors.grey[400],
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Aucun service disponible pour le moment',
+                style: GoogleFonts.inter(
+                  color: Colors.grey[600],
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 380,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.symmetric(horizontal: 24),
+        itemCount: min(5, services.length),
+        itemBuilder: (context, index) {
+          final service = services[index];
+
+          final firstImage = service.images?.isNotEmpty ?? false
+              ? service.images!.first
+              : null;
+          final imageUrl = firstImage;
+
+          final priceText = service.priceUnit != null
+              ? '${service.price?.toStringAsFixed(0) ?? '0'}\$/${_getPriceUnitShort(service.priceUnit!)}'
+              : '${service.price?.toStringAsFixed(0) ?? '0'}\$';
+
+          return Container(
+            width: 280,
+            margin: EdgeInsets.only(right: 20, bottom: 10, top: 10),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: () {
+                    // Navigation vers le détail du service
+                    SnackbarForCasa.info(context, "Détail du service - ${service.title ?? 'Service'}");
+                  },
+                  child: AnimatedContainer(
+                    duration: Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 20,
+                          spreadRadius: 0,
+                          offset: Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Hero(
+                            tag: 'service-image-${service.serviceId}',
+                            child: AnimatedSwitcher(
+                              duration: Duration(milliseconds: 500),
+                              child: imageUrl != null && imageUrl.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: imageUrl,
+                                      fit: BoxFit.cover,
+                                      key: ValueKey(imageUrl),
+                                      placeholder: (context, url) => Container(
+                                        color: Colors.grey[200],
+                                        child: Center(
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                                          ),
+                                        ),
+                                      ),
+                                      errorWidget: (context, url, error) => Container(
+                                        color: Colors.grey[200],
+                                        child: Center(
+                                          child: Icon(
+                                            serviceType.icon,
+                                            size: 48,
+                                            color: Colors.grey[400],
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                  : Container(
+                                      color: Colors.grey[200],
+                                      child: Center(
+                                        child: Icon(
+                                          serviceType.icon,
+                                          size: 48,
+                                          color: Colors.grey[400],
+                                        ),
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ),
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withOpacity(0.9),
+                              ],
+                              stops: [0.4, 1],
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: primaryColor.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Icon(
+                                      serviceType.icon,
+                                      size: 20,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 12),
+                              MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: AnimatedContainer(
+                                  duration: Duration(milliseconds: 200),
+                                  padding: EdgeInsets.symmetric(vertical: 4),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        primaryColor.withOpacity(0.2),
+                                        Colors.transparent,
+                                      ],
+                                      stops: [0, 0.5],
+                                    ),
+                                  ),
+                                  child: Text(
+                                    service.title ?? 'Service sans titre',
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w700,
+                                      height: 1.3,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              AnimatedOpacity(
+                                opacity: 0.9,
+                                duration: Duration(milliseconds: 300),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.location_on_outlined,
+                                      size: 16,
+                                      color: Colors.white.withOpacity(0.8),
+                                    ),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        service.address ?? 'Adresse non disponible',
+                                        style: GoogleFonts.inter(
+                                          color: Colors.white.withOpacity(0.8),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(height: 20),
+                              Transform.translate(
+                                offset: Offset(0, 0),
+                                child: AnimatedContainer(
+                                  duration: Duration(milliseconds: 300),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 12,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        primaryColor.withOpacity(0.95),
+                                        primaryColor.withOpacity(0.8),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: primaryColor.withOpacity(0.3),
+                                        blurRadius: 8,
+                                        offset: Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        priceText,
+                                        style: GoogleFonts.inter(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: -0.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  String _getPriceUnitShort(String unit) {
+    switch (unit.toLowerCase()) {
+      case 'par heure':
+        return 'h';
+      case 'par jour':
+        return 'jour';
+      case 'par nuit':
+        return 'nuit';
+      case 'par semaine':
+        return 'sem.';
+      case 'par mois':
+        return 'mois';
+      default:
+        return unit;
+    }
   }
 
   Widget _buildEmptyState() {
@@ -2060,6 +2469,15 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                 ),
                               ),
+                              // Bouton favoris
+                              if (property.propertyId != null)
+                                FavoriteHeartIcon(
+                                  propertyId: property.propertyId.toString(),
+                                  size: 24,
+                                  splashRadius: 20,
+                                  activeColor: Colors.red,
+                                  inactiveColor: Colors.white,
+                                ),
                             ],
                           ),
                         ),

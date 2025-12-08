@@ -1,4 +1,5 @@
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/Routes.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -74,7 +75,10 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
                 if (!isLoggedIn) {
                   FancyNotification.show(
                     context,
-                    "Vous devez être connecté pour ajouter aux favoris",
+                    "Vous devez avoir un compte et être connecté pour ajouter aux favoris",
+                    onTap: () {
+                      Navigator.pushNamed(context, Routes.loginRoute);
+                    },
                   );
                   return;
                 }

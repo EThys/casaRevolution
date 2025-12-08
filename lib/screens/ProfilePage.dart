@@ -7,6 +7,9 @@ import '../utils/Routes.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/database/FavoriteDatabaseHelper.dart';
 import '../utils/database/ReservationDatabaseHelper.dart';
+import '../utils/DraftHelper.dart';
+import '../controllers/ThemeController.dart';
+import 'package:provider/provider.dart';
 import 'HomePage.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -634,6 +637,24 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  Widget _buildDarkModeSection() {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: _buildDarkModeToggle(),
+    );
+  }
+
   Widget _buildSettingsSection() {
     if (!isLoggedIn) return SizedBox.shrink();
 
@@ -709,6 +730,38 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  Widget _buildDarkModeToggle() {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+    
+    return Consumer<ThemeController>(
+      builder: (context, themeController, child) {
+        final isDark = themeController.isDarkMode;
+        return ListTile(
+          leading: Icon(
+            isDark ? Icons.dark_mode : Icons.light_mode,
+            color: _primaryColor,
+          ),
+          title: Text(
+            'Mode sombre',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+              color: isDarkMode ? Colors.white : _darkColor,
+            ),
+          ),
+          trailing: Switch(
+            value: isDark,
+            onChanged: (value) {
+              themeController.toggleTheme();
+            },
+            activeColor: _primaryColor,
+          ),
+        );
+      },
+    );
+  }
+
   void _navigateToLogin() {
     Navigator.pushNamed(context, Routes.loginRoute);
   }
@@ -744,6 +797,14 @@ class _ProfilePageState extends State<ProfilePage> {
 
       await FavoriteDatabaseHelper.instance.clearAllFavorites();
       await ReservationDatabaseHelper.instance.clearAllReservations();
+
+      // 2. Supprimer TOUS les brouillons lors de la déconnexion
+      try {
+        await DraftHelper.clearAllDrafts();
+        print("✅ Tous les brouillons supprimés");
+      } catch (e) {
+        print("⚠️ Erreur lors de la suppression des brouillons: $e");
+      }
 
       print("✅ Données d'authentification ET bases de données locales supprimées");
     } catch (e) {
@@ -793,61 +854,40 @@ class _ProfilePageState extends State<ProfilePage> {
     // Fermer la dialog d'abord
     Navigator.pop(context);
 
-    // Afficher un indicateur de chargement
-    final scaffold = ScaffoldMessenger.of(context);
-
     try {
       // 1. Nettoyer les données
       await _clearLocalAuthData();
 
-      // 2. Attendre un cycle de frame pour éviter les conflits
-      await Future.delayed(Duration(milliseconds: 100));
-
-      // 3. Navigation sécurisée avec vérification du mounted
+      // 2. Naviguer directement vers la page d'accueil (onglet accueil dans bottomPage)
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            Navigator.pushNamedAndRemoveUntil(
-              context,
-              Routes.bottomPageRoute,
-                  (route) => false,
-            );
-          }
-        });
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          Routes.bottomPageRoute,
+          (route) => false,
+        );
       }
 
     } catch (e) {
       print("❌ Erreur lors de la déconnexion: $e");
 
-      // Même en cas d'erreur, essayer de naviguer
+      // Même en cas d'erreur, naviguer vers la page d'accueil
       if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          try {
-            Navigator.pushNamedAndRemoveUntil(
-              context,
-              Routes.bottomPageRoute,
-                  (route) => false,
-            );
-          } catch (navError) {
-            print("❌ Erreur de navigation critique: $navError");
-
-            // Dernière tentative avec un rechargement complet
-            if (mounted) {
-              Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (context) => HomePage()),
-                    (route) => false,
-              );
-            }
-          }
-        });
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          Routes.bottomPageRoute,
+          (route) => false,
+        );
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+    
     return Scaffold(
-      backgroundColor: _lightColor,
+      backgroundColor: isDarkMode ? _darkColor : _lightColor,
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: _primaryColor))
           : SingleChildScrollView(
@@ -860,6 +900,7 @@ class _ProfilePageState extends State<ProfilePage> {
             SizedBox(height: 16),
             _buildProfileInfoCard(),
             _buildAuthOptions(),
+            _buildDarkModeSection(),
             _buildSettingsSection(),
             SizedBox(height: 20),
           ],
