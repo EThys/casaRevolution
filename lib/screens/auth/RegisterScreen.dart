@@ -11,10 +11,25 @@ import 'package:provider/provider.dart';
 import '../../controllers/LocationController.dart';
 import '../../controllers/RegisterCommissionnaireCtrl.dart';
 import '../../controllers/RegisterLocataireCtrl.dart';
+import '../../controllers/RegisterMajordomeCtrl.dart';
+import '../../controllers/RegisterPlombierCtrl.dart';
+import '../../controllers/RegisterElectricienCtrl.dart';
+import '../../controllers/RegisterSalubriteCtrl.dart';
+import '../../controllers/RegisterPeintreCtrl.dart';
+import '../../controllers/RegisterCarreleurCtrl.dart';
+import '../../controllers/RegisterMenuisierCtrl.dart';
+import '../../controllers/RegisterFrigoristeCtrl.dart';
+import '../../controllers/RegisterAjusteurCtrl.dart';
+import '../../controllers/RegisterArchitecteCtrl.dart';
+import '../../controllers/RegisterChauffeurCtrl.dart';
+import '../../controllers/RegisterDemenagementCtrl.dart';
 import '../../models/CityModel.dart';
 import '../../models/ServiceModel.dart';
 import '../../utils/FancyNotification.dart';
+import '../../utils/country_codes.dart';
+import '../../utils/city_suggestions.dart';
 import '../../utils/requetes.dart';
+import '../../controllers/TypeAccountController.dart';
 import '../termsAndPrivacy/TermsAndPrivacyPage.dart';
 
 class UserRegistrationPage extends StatefulWidget {
@@ -52,51 +67,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   int _passwordStrength = 0;
   List<CityModel> _cities = [];
   
-  // Liste de villes pour l'autocomplete (100 Congo, 100 Europe, 100 Afrique)
-  static final List<String> _allCities = [
-    // 100 villes du Congo (RDC)
-    'Kinshasa', 'Lubumbashi', 'Mbuji-Mayi', 'Kananga', 'Kisangani', 'Bukavu', 'Goma', 'Kolwezi',
-    'Matadi', 'Kikwit', 'Tshikapa', 'Uvira', 'Bunia', 'Mbandaka', 'Kalemie', 'Kindu', 'Isiro',
-    'Butembo', 'Boma', 'Gbadolite', 'Kamina', 'Beni', 'Likasi', 'Mwene-Ditu', 'Kabinda', 'Kongolo',
-    'Kipushi', 'Kasongo', 'Bumba', 'Mbanza-Ngungu', 'Lusanga', 'Kenge', 'Inongo', 'Bandundu',
-    'Kikongo', 'Mushie', 'Bolobo', 'Mangai', 'Idiofa', 'Kiri', 'Moanda', 'Tshela', 'Muanda',
-    'Banana', 'Kasangulu', 'Kisantu', 'Kimpese', 'Lukala', 'Luozi', 'Ndjili',
-    'Kikongo', 'Likasi', 'Kenge', 'Inongo', 'Bandundu', 'Kikongo', 'Mushie', 'Bolobo',
-    'Mangai', 'Idiofa', 'Kiri', 'Moanda', 'Tshela', 'Muanda', 'Banana', 'Kasangulu',
-    
-    // 100 villes d'Europe
-    'Paris', 'Londres', 'Berlin', 'Madrid', 'Rome', 'Amsterdam', 'Bruxelles', 'Vienne',
-    'Prague', 'Budapest', 'Varsovie', 'Lisbonne', 'Athènes', 'Dublin', 'Copenhague', 'Stockholm',
-    'Oslo', 'Helsinki', 'Zurich', 'Genève', 'Barcelone', 'Valence', 'Séville', 'Milan',
-    'Naples', 'Turin', 'Florence', 'Venise', 'Munich', 'Hambourg', 'Cologne', 'Francfort',
-    'Stuttgart', 'Düsseldorf', 'Rotterdam', 'La Haye', 'Utrecht', 'Eindhoven', 'Groningue',
-    'Anvers', 'Gand', 'Bruges', 'Liège', 'Charleroi', 'Bruxelles-Capitale', 'Lyon', 'Marseille',
-    'Toulouse', 'Nice', 'Nantes', 'Strasbourg', 'Montpellier', 'Bordeaux', 'Lille', 'Rennes',
-    'Reims', 'Le Havre', 'Saint-Étienne', 'Toulon', 'Grenoble', 'Dijon', 'Angers', 'Nîmes',
-    'Villeurbanne', 'Saint-Denis', 'Le Mans', 'Aix-en-Provence', 'Clermont-Ferrand', 'Brest',
-    'Limoges', 'Tours', 'Amiens', 'Perpignan', 'Metz', 'Besançon', 'Boulogne-Billancourt',
-    'Orléans', 'Mulhouse', 'Caen', 'Rouen', 'Nancy', 'Argenteuil', 'Montreuil', 'Saint-Paul',
-    'Roubaix', 'Tourcoing', 'Nanterre', 'Avignon', 'Créteil', 'Dunkerque', 'Poitiers',
-    'Asnières-sur-Seine', 'Versailles', 'Courbevoie', 'Vitry-sur-Seine', 'Colombes', 'Aulnay-sous-Bois',
-    'La Rochelle', 'Bourges', 'Champigny-sur-Marne', 'Antibes', 'Cannes', 'Mérignac', 'Drancy',
-    'Barcelone', 'Valence', 'Séville', 'Milan', 'Naples', 'Turin', 'Florence', 'Venise',
-    
-    // 100 villes d'Afrique
-    'Le Caire', 'Lagos', 'Kinshasa', 'Johannesburg', 'Casablanca', 'Abidjan', 'Nairobi', 'Addis-Abeba',
-    'Dar es Salaam', 'Accra', 'Khartoum', 'Tunis', 'Alger', 'Dakar', 'Douala', 'Yaoundé', 'Abuja',
-    'Kampala', 'Luanda', 'Maputo', 'Harare', 'Lusaka', 'Bamako', 'Ouagadougou', 'Niamey', 'Conakry',
-    'Freetown', 'Monrovia', 'Banjul', 'Bissau', 'Praia', 'Nouakchott', 'Tripoli', 'Benghazi',
-    'Alexandrie', 'Gizeh', 'Port-Saïd', 'Suez', 'Louxor', 'Assouan', 'Marrakech', 'Fès', 'Rabat',
-    'Tanger', 'Meknès', 'Agadir', 'Oujda', 'Tétouan', 'Salé', 'Kenitra', 'Nador', 'Safi',
-    'El Jadida', 'Taza', 'Khouribga', 'Béni Mellal', 'Settat', 'Berrechid', 'Khemisset', 'Tiznit',
-    'Taroudant', 'Sidi Kacem', 'Larache', 'Ksar El Kebir', 'Asilah', 'Chefchaouen', 'Ifrane',
-    'Azrou', 'Midelt', 'Errachidia', 'Ouarzazate', 'Zagora', 'Tinghir', 'Erfoud', 'Dakhla',
-    'Laâyoune', 'Smara', 'Boujdour', 'Cape Town', 'Durban', 'Pretoria', 'Port Elizabeth',
-    'Bloemfontein', 'East London', 'Pietermaritzburg', 'Nelspruit', 'Kimberley', 'Polokwane',
-    'Rustenburg', 'Welkom', 'Klerksdorp', 'Potchefstroom', 'Vereeniging', 'Soweto', 'Sandton',
-    'Randburg', 'Roodepoort', 'Boksburg', 'Benoni', 'Germiston', 'Kempton Park', 'Alberton',
-    'Kigali', 'Bujumbura', 'Brazzaville', 'Libreville', 'Malabo', 'Bangui', 'N\'Djamena', 'Djibouti',
-  ];
+  // Liste de villes pour l'autocomplete (extraite dans un fichier utilitaire)
+  static final List<String> _allCities = List<String>.from(citySuggestions);
 
 
   // États pour la gestion de la validation
@@ -110,38 +82,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
   // États pour le sélecteur de pays
   String _selectedCountryCode = '+243'; // RDC par défaut
-  final Map<String, String> _countryFlags = {
-    '+243': '🇨🇩',
-    '+1': '🇺🇸', // USA
-    '+20': '🇪🇬', // Égypte
-    '+31': '🇳🇱', // Pays-Bas
-    '+32': '🇧🇪', // Belgique
-    '+33': '🇫🇷', // France
-    '+34': '🇪🇸', // Espagne
-    '+39': '🇮🇹', // Italie
-    '+41': '🇨🇭', // Suisse
-    '+44': '🇬🇧', // UK
-    '+45': '🇩🇰', // Danemark
-    '+46': '🇸🇪', // Suède
-    '+47': '🇳🇴', // Norvège
-    '+49': '🇩🇪', // Allemagne
-    '+212': '🇲🇦', // Maroc
-    '+213': '🇩🇿', // Algérie
-    '+216': '🇹🇳', // Tunisie
-    '+221': '🇸🇳', // Sénégal
-    '+225': '🇨🇮', // Côte d'Ivoire
-    '+226': '🇧🇫', // Burkina Faso
-    '+229': '🇧🇯', // Bénin
-    '+233': '🇬🇭', // Ghana
-    '+234': '🇳🇬', // Nigeria
-    '+242': '🇨🇬', // Congo Brazzaville
-    '+251': '🇪🇹', // Éthiopie
-    '+254': '🇰🇪', // Kenya
-    '+255': '🇹🇿', // Tanzanie
-    '+258': '🇲🇿', // Mozambique
-    '+260': '🇿🇲', // Zambie
-    '+351': '🇵🇹', // Portugal
-  };
+  final Map<String, String> _countryFlags = Map<String, String>.from(countryFlags);
+  final Map<String, String> _countryNames = Map<String, String>.from(countryNames);
+
+  // Types de compte dynamiques
+  List<dynamic> _typeAccounts = [];
 
   final Color primaryColor = Color(0xFF1976D2);
   final Color accentColor = Color(0xFF64B5F6);
@@ -264,19 +209,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   };
 
   Future<void> _loadCities() async {
-    try {
-      final locationController = Provider.of<LocationController>(context, listen: false);
-      await locationController.loadAllData();
-
-      if (mounted) {
-        setState(() {
-          _cities = locationController.cities
-              .where((city) => city.name != null && city.name!.isNotEmpty)
-              .toList();
-        });
-      }
-    } catch (e) {
-      print("Erreur chargement villes: $e");
+    // Utilisation uniquement des données locales pour les suggestions.
+    if (mounted) {
+      setState(() {
+        _cities = _allCities.map((name) => CityModel(name: name)).toList();
+      });
     }
   }
 
@@ -285,6 +222,17 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   @override
   void initState() {
     super.initState();
+
+    // Charger les types de compte depuis l'API via le TypeAccountController
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final typeCtrl = context.read<TypeAccountController>();
+      await typeCtrl.fetchTypeAccounts();
+      if (mounted) {
+        setState(() {
+          _typeAccounts = typeCtrl.typeAccounts;
+        });
+      }
+    });
 
     _passwordController.addListener(_updatePasswordStrength);
     _setupFocusNavigation();
@@ -402,39 +350,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   String _getCountryNameFromCode(String countryCode) {
-    final countryNames = {
-      '+243': 'RDC',
-      '+1': 'USA',
-      '+20': 'Égypte',
-      '+31': 'Pays-Bas',
-      '+32': 'Belgique',
-      '+33': 'France',
-      '+34': 'Espagne',
-      '+39': 'Italie',
-      '+41': 'Suisse',
-      '+44': 'Royaume-Uni',
-      '+45': 'Danemark',
-      '+46': 'Suède',
-      '+47': 'Norvège',
-      '+49': 'Allemagne',
-      '+212': 'Maroc',
-      '+213': 'Algérie',
-      '+216': 'Tunisie',
-      '+221': 'Sénégal',
-      '+225': 'Côte d\'Ivoire',
-      '+226': 'Burkina Faso',
-      '+229': 'Bénin',
-      '+233': 'Ghana',
-      '+234': 'Nigeria',
-      '+242': 'Congo Brazzaville',
-      '+251': 'Éthiopie',
-      '+254': 'Kenya',
-      '+255': 'Tanzanie',
-      '+258': 'Mozambique',
-      '+260': 'Zambie',
-      '+351': 'Portugal',
-    };
-    return countryNames[countryCode] ?? 'RDC';
+    return _countryNames[countryCode] ?? _countryNames[_selectedCountryCode] ?? 'RDC';
   }
 
   Widget _buildCountryCodeDropdown() {
@@ -1025,7 +941,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             return const Iterable<CityModel>.empty();
           }
           final query = textEditingValue.text.toLowerCase();
-          return _cities.where((CityModel city) {
+          final baseCities = _allCities.map((name) => CityModel(name: name)).toList();
+          return baseCities.where((CityModel city) {
             final cityName = city.name?.toLowerCase() ?? '';
             return cityName.contains(query);
           }).take(10); // Limiter à 10 résultats comme Google
@@ -2675,7 +2592,24 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     }
 
     try {
-      final accountType = _accountTypes[_selectedAccountType]!;
+      // Déterminer l'ID de type de compte à partir de la source dynamique, sinon fallback statique.
+      Map<String, dynamic> accountType;
+      if (_typeAccounts.isNotEmpty) {
+        final match = _typeAccounts.firstWhere(
+          (e) => (e['name'] as String?)?.toLowerCase() == _selectedAccountType?.toLowerCase(),
+          orElse: () => {},
+        );
+        if (match.isNotEmpty) {
+          accountType = {
+            'value': match['typeAccountId'],
+            'name': match['name'],
+          };
+        } else {
+          accountType = _accountTypes[_selectedAccountType]!;
+        }
+      } else {
+        accountType = _accountTypes[_selectedAccountType]!;
+      }
 
       // MODIFICATION ICI : Préparer le numéro de téléphone AVEC l'indicatif pays
       String phoneNumber = _phoneController.text.trim();
@@ -2775,13 +2709,28 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         case 'Architecte':
         case 'Chauffeur':
         case 'Déménagement':
+          final roleKey = {
+            'Majordome': 'majordome',
+            'Plombier': 'plombier',
+            'Électricien': 'electricien',
+            'Salubrité': 'salubrite',
+            'Peintre': 'peintre',
+            'Carreleur': 'carreleur',
+            'Menuisier': 'menuisier',
+            'Frigoriste': 'frigoriste',
+            'Ajusteur': 'ajusteur',
+            'Architecte': 'architecte',
+            'Chauffeur': 'chauffeur',
+            'Déménagement': 'demenagement',
+          }[_selectedAccountType]!;
+
           payload = {
             "user": userData,
-            "serviceProvider": {
+            roleKey: {
               "lastName": _lastNameController.text,
               "firstName": _firstNameController.text,
               "address": _cityController.text,
-              "serviceType": accountType['value'].toString(),
+              "serviceType": accountType['value'],
               "images": "",
               "cardFront": "",
               "cardBack": "",
@@ -2820,21 +2769,78 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             typeCompteId: accountType['value'],
           );
           break;
-        // Tous les types de services utilisent l'endpoint d'inscription standard
+        // Tous les types de services utilisent leur contrôleur dédié
         case 'Majordome':
+          response = await context.read<RegisterMajordomeCtrl>().registerMajordome(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Plombier':
+          response = await context.read<RegisterPlombierCtrl>().registerPlombier(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Électricien':
+          response = await context.read<RegisterElectricienCtrl>().registerElectricien(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Salubrité':
+          response = await context.read<RegisterSalubriteCtrl>().registerSalubrite(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Peintre':
+          response = await context.read<RegisterPeintreCtrl>().registerPeintre(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Carreleur':
+          response = await context.read<RegisterCarreleurCtrl>().registerCarreleur(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Menuisier':
+          response = await context.read<RegisterMenuisierCtrl>().registerMenuisier(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Frigoriste':
+          response = await context.read<RegisterFrigoristeCtrl>().registerFrigoriste(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Ajusteur':
+          response = await context.read<RegisterAjusteurCtrl>().registerAjusteur(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Architecte':
+          response = await context.read<RegisterArchitecteCtrl>().registerArchitecte(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Chauffeur':
+          response = await context.read<RegisterChauffeurCtrl>().registerChauffeur(
+            payload,
+            typeCompteId: accountType['value'],
+          );
+          break;
         case 'Déménagement':
-          final ctrl = context.read<AuthentificationCtrl>();
-          response = await ctrl.register(payload, url: Endpoints.register);
+          response = await context.read<RegisterDemenagementCtrl>().registerDemenagement(
+            payload,
+            typeCompteId: accountType['value'],
+          );
           break;
         default:
           final ctrl = context.read<AuthentificationCtrl>();
@@ -2856,11 +2862,14 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         }
       } else {
         String errorMessage = response.errorMsg ?? "Erreur lors de l'inscription";
-        SnackbarForCasa.error(context, errorMessage);
+        print("Register error: $errorMessage");
+        // Ne pas afficher les erreurs techniques du serveur
+        SnackbarForCasa.error(context, "Une erreur est survenue lors de l'inscription. Veuillez vérifier vos informations et réessayer.");
       }
     } catch (e) {
-      SnackbarForCasa.error(context, "Erreur technique lors de l'inscription");
       print("Register error: $e");
+      // Ne pas afficher les erreurs techniques
+      SnackbarForCasa.error(context, "Une erreur est survenue lors de l'inscription. Veuillez réessayer.");
     } finally {
       if (mounted) {
         setState(() {
