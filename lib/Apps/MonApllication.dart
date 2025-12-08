@@ -5,6 +5,19 @@ import 'package:casa/controllers/ReservationController.dart';
 import 'package:casa/controllers/RegisterBailleurCtrl.dart';
 import 'package:casa/controllers/RegisterCommissionnaireCtrl.dart';
 import 'package:casa/controllers/RegisterLocataireCtrl.dart';
+import 'package:casa/controllers/RegisterMajordomeCtrl.dart';
+import 'package:casa/controllers/RegisterPlombierCtrl.dart';
+import 'package:casa/controllers/RegisterElectricienCtrl.dart';
+import 'package:casa/controllers/RegisterSalubriteCtrl.dart';
+import 'package:casa/controllers/RegisterPeintreCtrl.dart';
+import 'package:casa/controllers/RegisterCarreleurCtrl.dart';
+import 'package:casa/controllers/RegisterMenuisierCtrl.dart';
+import 'package:casa/controllers/RegisterFrigoristeCtrl.dart';
+import 'package:casa/controllers/RegisterAjusteurCtrl.dart';
+import 'package:casa/controllers/RegisterArchitecteCtrl.dart';
+import 'package:casa/controllers/RegisterChauffeurCtrl.dart';
+import 'package:casa/controllers/RegisterDemenagementCtrl.dart';
+import 'package:casa/controllers/TypeAccountController.dart';
 import 'package:casa/controllers/ServiceController.dart';
 import 'package:casa/controllers/provider/FavoriteProvider.dart';
 import 'package:casa/utils/database/FavoriteDatabaseHelper.dart';
@@ -44,6 +57,19 @@ class MonApplication extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => RegisterCommissionnaireCtrl()),
         ChangeNotifierProvider(create: (_) => RegisterBailleurCtrl()),
         ChangeNotifierProvider(create: (_) => RegisterLocataireCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterMajordomeCtrl()), 
+        ChangeNotifierProvider(create: (_) => RegisterPlombierCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterElectricienCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterSalubriteCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterPeintreCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterCarreleurCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterMenuisierCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterFrigoristeCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterAjusteurCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterArchitecteCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterChauffeurCtrl()),
+        ChangeNotifierProvider(create: (_) => RegisterDemenagementCtrl()),
+        ChangeNotifierProvider(create: (_) => TypeAccountController()),
         ChangeNotifierProvider(create: (_) => PropertyController(stockage: _stockage)),
         ChangeNotifierProvider(create: (_) => ReservationController(stockage: _stockage)),
         ChangeNotifierProvider(create: (_) => LocationController()),
