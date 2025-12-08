@@ -23,6 +23,18 @@ class Endpoints {
   static const String bailleur = "bailleurs";
   static const String commissionnaire = "commissionnaires";
   static const String locataire = "locataires";
+  static const String majordomes = "majordomes";
+  static const String plombiers = "plombiers";
+  static const String electriciens = "electriciens";
+  static const String salubrites = "salubrites";
+  static const String peintres = "peintres";
+  static const String carreleurs = "carreleurs";
+  static const String menuisiers = "menuisiers";
+  static const String frigoristes = "frigoristes";
+  static const String ajusteurs = "ajusteurs";
+  static const String architectes = "architectes";
+  static const String chauffeurs = "chauffeurs";
+  static const String demenagements = "demenagements";
 
   // location Endpoints
   static const String cities = "cities";
@@ -36,6 +48,7 @@ class Endpoints {
   static const String storeProperty = "property";
   static const String updateProperty = "properties/";
   static const String deleteProperty = "properties/";
+  static const String propertiesByOwner = "property/owner/";
 
   // Property Feature Endpoints
   static const String features = "features";
