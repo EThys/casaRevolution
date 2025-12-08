@@ -3,7 +3,13 @@ class Endpoints {
   static const String register = "register";
   static const String login = "login";
   static const String forgotPassword = "forgot-password";
+  static const String verifyOTP = "verify-otp";
   static const String resetPassword = "reset-password";
+  
+  // OTP Endpoints
+  static const String otpGenerate = "otp/generate";
+  static const String otpVerify = "otp/verify";
+  static const String resetPasswordEndpoint = "reset/password";
   static const String profile = "profile";
   static const String reservations = "reservations";
 
@@ -60,5 +66,14 @@ class Endpoints {
   // Search Endpoints
   static const String propertyFilter = "property/filter";
   static const String propertySearch = "roperty/search";
+
+  // Service Endpoints
+  static const String services = "services";
+  static const String serviceDetail = "services/";
+  static const String storeService = "services";
+  static const String updateService = "services/";
+  static const String deleteService = "services/";
+  static const String servicesByType = "services/type/";
+  static const String myServices = "services/my";
 
 }

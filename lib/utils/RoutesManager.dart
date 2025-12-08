@@ -8,6 +8,7 @@ import 'package:casa/screens/CommissionDashboardPage.dart';
 import 'package:casa/screens/CreatePropertyPostPage.dart';
 import 'package:casa/screens/HomePage.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
+import 'package:casa/screens/MyPropertiesPage.dart';
 import 'package:casa/screens/Splashcreen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +16,11 @@ import '../screens/BottomNavBar.dart';
 import '../screens/OnboardingPage.dart';
 import '../screens/auth/LoginScreen.dart';
 import '../screens/auth/RegisterScreen.dart';
+import '../screens/auth/ForgotPasswordScreen.dart';
+import '../screens/auth/OTPVerificationScreen.dart';
+import '../screens/auth/ResetPasswordScreen.dart';
+import '../screens/CreateServicePage.dart';
+import '../models/ServiceModel.dart';
 import 'Routes.dart';
 
 
@@ -47,8 +53,40 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>ParrainagePage());
       case Routes.favoriteRoute:
         return MaterialPageRoute(builder: (_)=>FavoritesPage());
+      case Routes.myPropertiesRoute:
+        return MaterialPageRoute(builder: (_)=>MyPropertiesPage());
       case Routes.createPropertyRoute:
         return MaterialPageRoute(builder: (_)=>CreatePropertyPostPage());
+      case Routes.forgotPasswordRoute:
+        return MaterialPageRoute(builder: (_)=>ForgotPasswordScreen());
+      case Routes.otpVerificationRoute:
+        final Map<String, dynamic>? args = r.arguments as Map<String, dynamic>?;
+        if (args != null && args['phoneNumber'] != null) {
+          return MaterialPageRoute(
+            builder: (_)=>OTPVerificationScreen(phoneNumber: args['phoneNumber']),
+          );
+        } else {
+          // Si pas d'arguments, rediriger vers forgot password
+          return MaterialPageRoute(builder: (_)=>ForgotPasswordScreen());
+        }
+      case Routes.resetPasswordRoute:
+        final Map<String, dynamic>? args = r.arguments as Map<String, dynamic>?;
+        if (args != null && args['userId'] != null) {
+          return MaterialPageRoute(
+            builder: (_)=>ResetPasswordScreen(
+              userId: args['userId'] as int,
+            ),
+          );
+        } else {
+          // Si pas d'arguments, rediriger vers forgot password
+          return MaterialPageRoute(builder: (_)=>ForgotPasswordScreen());
+        }
+      case Routes.createServiceRoute:
+        ServiceType? initialServiceType;
+        if (r.arguments != null && r.arguments is ServiceType) {
+          initialServiceType = r.arguments as ServiceType;
+        }
+        return MaterialPageRoute(builder: (_)=>CreateServicePage(initialServiceType: initialServiceType));
       // case Routes.visitPageRoute:
       //   final PropertyModel property = r.arguments as PropertyModel;
       //   return MaterialPageRoute(builder: (_)=>BookingVisitPage(property: property));

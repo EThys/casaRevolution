@@ -17,7 +17,11 @@ class Routes {
   static const String LocataireRoute = "locataire";
   static const String BailleurRoute = "bailleur";
   static const String favoriteRoute = "favorite";
-
+  static const String myPropertiesRoute = "myProperties";
 
   static const String createPropertyRoute = "createProperty";
+  static const String forgotPasswordRoute = "forgotPassword";
+  static const String otpVerificationRoute = "otpVerification";
+  static const String resetPasswordRoute = "resetPassword";
+  static const String createServiceRoute = "createService";
 }
