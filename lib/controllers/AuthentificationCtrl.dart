@@ -4,6 +4,7 @@ import '../models/UserModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/requetes.dart';
+import '../utils/DraftHelper.dart';
 
 class AuthentificationCtrl with ChangeNotifier {
   AuthentificationCtrl({this.stockage});
@@ -352,6 +353,14 @@ class AuthentificationCtrl with ChangeNotifier {
       await stockage?.remove(StockageKeys.userPreferenceKey);
       await stockage?.remove(StockageKeys.profileKey);
 
+      // Supprimer les brouillons expirés
+      try {
+        await DraftHelper.clearAllDrafts();
+        print("✅ Brouillons expirés supprimés");
+      } catch (e) {
+        print("⚠️ Erreur lors de la suppression des brouillons: $e");
+      }
+
       print("✅ Données d'authentification locales supprimées");
     } catch (e) {
       print("❌ Erreur lors du nettoyage des données locales: $e");
@@ -442,5 +451,108 @@ class AuthentificationCtrl with ChangeNotifier {
     await _clearLocalAuthData();
     notifyListeners();
     print("🔒 Déconnexion silencieuse effectuée");
+  }
+
+  // Mot de passe oublié - Envoie un code OTP
+  Future<HttpResponse> forgotPassword(Map<String, dynamic> data) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      var url = "${Endpoints.forgotPassword}";
+      print("URL forgot password: $url");
+      print("Données envoyées: $data");
+
+      HttpResponse response = await postDataForAuth(url, data);
+
+      print("Statut de la réponse: ${response.status}");
+      print("Réponse API: ${response.data}");
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e, stack) {
+      loading = false;
+      notifyListeners();
+      print("❌ Erreur lors de la demande de réinitialisation: $e");
+      print("🔍 Stack trace: $stack");
+
+      return HttpResponse(
+        data: {
+          'message': e.toString(),
+        },
+        status: false,
+      );
+    }
+  }
+
+  // Vérification du code OTP
+  Future<HttpResponse> verifyOTP(Map<String, dynamic> data) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      // Si votre API utilise un endpoint séparé pour la vérification, utilisez-le
+      // Sinon, vous pouvez utiliser le même endpoint que forgot-password avec un paramètre action
+      var url = "${Endpoints.verifyOTP}";
+      print("URL verify OTP: $url");
+      print("Données envoyées: ${data.containsKey('otp') ? 'phone: ${data['phone']}, otp: ***' : data}");
+
+      HttpResponse response = await postDataForAuth(url, data);
+
+      print("Statut de la réponse: ${response.status}");
+      print("Réponse API: ${response.data}");
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e, stack) {
+      loading = false;
+      notifyListeners();
+      print("❌ Erreur lors de la vérification OTP: $e");
+      print("🔍 Stack trace: $stack");
+
+      // Si l'endpoint verify-otp n'existe pas, vous pouvez essayer avec forgot-password/verify
+      // ou ajuster selon votre API
+      return HttpResponse(
+        data: {
+          'message': e.toString(),
+        },
+        status: false,
+      );
+    }
+  }
+
+  // Réinitialisation du mot de passe
+  Future<HttpResponse> resetPassword(Map<String, dynamic> data) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      var url = "${Endpoints.resetPassword}";
+      print("URL reset password: $url");
+      print("Données envoyées: ${data.containsKey('new_password') ? 'new_password: ***, confirm_password: ***' : data}");
+
+      HttpResponse response = await postDataForAuth(url, data);
+
+      print("Statut de la réponse: ${response.status}");
+      print("Réponse API: ${response.data}");
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e, stack) {
+      loading = false;
+      notifyListeners();
+      print("❌ Erreur lors de la réinitialisation du mot de passe: $e");
+      print("🔍 Stack trace: $stack");
+
+      return HttpResponse(
+        data: {
+          'message': e.toString(),
+        },
+        status: false,
+      );
+    }
   }
 }

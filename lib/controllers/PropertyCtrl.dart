@@ -5,7 +5,7 @@ import 'package:http/http.dart';
 import '../models/PropertyModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
-import '../utils/requetes.dart';
+import '../utils/requetes.dart' show getData, postData, patchData, deleteData, HttpResponse;
 
 class PropertyController with ChangeNotifier {
   PropertyController({this.stockage});
@@ -546,44 +546,117 @@ class PropertyController with ChangeNotifier {
     }
   }
 
-  // Future<HttpResponse> deleteProperty(int id) async {
-  //   try {
-  //     loading = true;
-  //     notifyListeners();
-  //
-  //     final url = "${Endpoints.properties}/$id";
-  //     final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-  //
-  //     HttpResponse response = await delete(url, token: tkn);
-  //
-  //     // Vérifier le succès basé sur la structure de votre HttpResponse
-  //     if (response.status == true) {
-  //       // Supprimer de la liste en mémoire
-  //       properties.removeWhere((p) => p.propertyId == id);
-  //       if (currentProperty?.propertyId == id) {
-  //         currentProperty = null;
-  //       }
-  //
-  //       // Supprimer du cache local
-  //       final db = DatabaseHelper.instance;
-  //       await db.deleteProperty(id);
-  //
-  //       notifyListeners();
-  //     }
-  //
-  //     loading = false;
-  //     notifyListeners();
-  //     return response;
-  //   } catch (e) {
-  //     loading = false;
-  //     notifyListeners();
-  //     return HttpResponse(
-  //       status: false,
-  //       errorMsg: "Failed to delete property: $e",
-  //       isException: true,
-  //     );
-  //   }
-  // }
+  Future<HttpResponse> deleteProperty(int id) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      final url = "${Endpoints.deleteProperty}$id";
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      HttpResponse response = await deleteData(url, token: tkn);
+
+      // Vérifier le succès basé sur la structure de votre HttpResponse
+      if (response.status == true) {
+        // Supprimer de la liste en mémoire
+        properties.removeWhere((p) => p.propertyId == id);
+        if (currentProperty?.propertyId == id) {
+          currentProperty = null;
+        }
+
+        // Supprimer du cache local
+        final db = DatabaseHelper.instance;
+        await db.deleteProperty(id);
+
+        notifyListeners();
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: "Failed to delete property: $e",
+        isException: true,
+      );
+    }
+  }
+
+  // Récupérer les propriétés de l'utilisateur connecté
+  Future<List<PropertyModel>> getMyProperties() async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final userId = stockage?.read<Map<String, dynamic>>(StockageKeys.userKey)?['userId']?.toString();
+      if (userId == null) {
+        print("❌ Aucun user ID trouvé pour récupérer les propriétés");
+        loading = false;
+        notifyListeners();
+        return [];
+      }
+
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      // Essayer d'abord de récupérer depuis l'API
+      final url = "${Endpoints.properties}/user/$userId";
+      var response = await getData(url, token: tkn);
+
+      if (response != null && response is Map<String, dynamic>) {
+        dynamic propertiesData;
+        
+        if (response.containsKey('properties')) {
+          propertiesData = response['properties'];
+        } else if (response.containsKey('data')) {
+          propertiesData = response['data'];
+        } else {
+          propertiesData = response;
+        }
+
+        if (propertiesData is List && propertiesData.isNotEmpty) {
+          List<PropertyModel> myProperties = propertiesData
+              .map<PropertyModel>((e) => PropertyModel.fromJson(e))
+              .toList();
+
+          // Filtrer par userId pour être sûr
+          myProperties = myProperties.where((p) => p.userId?.toString() == userId).toList();
+
+          loading = false;
+          notifyListeners();
+          return myProperties;
+        }
+      }
+
+      // Si pas de données en ligne, retourner les propriétés filtrées localement
+      await _loadFromCache();
+      final myProperties = properties.where((p) => p.userId?.toString() == userId).toList();
+
+      loading = false;
+      notifyListeners();
+      return myProperties;
+    } catch (e) {
+      print("❌ Erreur lors de la récupération des propriétés: $e");
+      // En cas d'erreur, retourner les propriétés filtrées localement
+      try {
+        final userId = stockage?.read<Map<String, dynamic>>(StockageKeys.userKey)?['userId']?.toString();
+        if (userId != null) {
+          await _loadFromCache();
+          final myProperties = properties.where((p) => p.userId?.toString() == userId).toList();
+          loading = false;
+          notifyListeners();
+          return myProperties;
+        }
+      } catch (cacheError) {
+        print("❌ Erreur cache: $cacheError");
+      }
+      
+      loading = false;
+      notifyListeners();
+      return [];
+    }
+  }
 
   // Méthode utilitaire pour vérifier si une propriété existe en ligne
   Future<bool> isPropertyOnline(int propertyId) async {
