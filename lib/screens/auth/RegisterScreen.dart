@@ -12,6 +12,7 @@ import '../../controllers/LocationController.dart';
 import '../../controllers/RegisterCommissionnaireCtrl.dart';
 import '../../controllers/RegisterLocataireCtrl.dart';
 import '../../models/CityModel.dart';
+import '../../models/ServiceModel.dart';
 import '../../utils/FancyNotification.dart';
 import '../../utils/requetes.dart';
 import '../termsAndPrivacy/TermsAndPrivacyPage.dart';
@@ -41,14 +42,61 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   bool _isLoading = false;
   bool _showPassword = false;
   String? _selectedAccountType;
+  ServiceType? _selectedServiceType;
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
+  bool _isServicesDropdownOpen = false;
+  bool _isImmobilierDropdownOpen = false;
 
   // Suivi de la force du mot de passe en temps réel
 
   int _passwordStrength = 0;
   List<CityModel> _cities = [];
-  String? _selectedCityId;
-  String? _selectedCityName;
+  
+  // Liste de villes pour l'autocomplete (100 Congo, 100 Europe, 100 Afrique)
+  static final List<String> _allCities = [
+    // 100 villes du Congo (RDC)
+    'Kinshasa', 'Lubumbashi', 'Mbuji-Mayi', 'Kananga', 'Kisangani', 'Bukavu', 'Goma', 'Kolwezi',
+    'Matadi', 'Kikwit', 'Tshikapa', 'Uvira', 'Bunia', 'Mbandaka', 'Kalemie', 'Kindu', 'Isiro',
+    'Butembo', 'Boma', 'Gbadolite', 'Kamina', 'Beni', 'Likasi', 'Mwene-Ditu', 'Kabinda', 'Kongolo',
+    'Kipushi', 'Kasongo', 'Bumba', 'Mbanza-Ngungu', 'Lusanga', 'Kenge', 'Inongo', 'Bandundu',
+    'Kikongo', 'Mushie', 'Bolobo', 'Mangai', 'Idiofa', 'Kiri', 'Moanda', 'Tshela', 'Muanda',
+    'Banana', 'Kasangulu', 'Kisantu', 'Kimpese', 'Lukala', 'Luozi', 'Ndjili',
+    'Kikongo', 'Likasi', 'Kenge', 'Inongo', 'Bandundu', 'Kikongo', 'Mushie', 'Bolobo',
+    'Mangai', 'Idiofa', 'Kiri', 'Moanda', 'Tshela', 'Muanda', 'Banana', 'Kasangulu',
+    
+    // 100 villes d'Europe
+    'Paris', 'Londres', 'Berlin', 'Madrid', 'Rome', 'Amsterdam', 'Bruxelles', 'Vienne',
+    'Prague', 'Budapest', 'Varsovie', 'Lisbonne', 'Athènes', 'Dublin', 'Copenhague', 'Stockholm',
+    'Oslo', 'Helsinki', 'Zurich', 'Genève', 'Barcelone', 'Valence', 'Séville', 'Milan',
+    'Naples', 'Turin', 'Florence', 'Venise', 'Munich', 'Hambourg', 'Cologne', 'Francfort',
+    'Stuttgart', 'Düsseldorf', 'Rotterdam', 'La Haye', 'Utrecht', 'Eindhoven', 'Groningue',
+    'Anvers', 'Gand', 'Bruges', 'Liège', 'Charleroi', 'Bruxelles-Capitale', 'Lyon', 'Marseille',
+    'Toulouse', 'Nice', 'Nantes', 'Strasbourg', 'Montpellier', 'Bordeaux', 'Lille', 'Rennes',
+    'Reims', 'Le Havre', 'Saint-Étienne', 'Toulon', 'Grenoble', 'Dijon', 'Angers', 'Nîmes',
+    'Villeurbanne', 'Saint-Denis', 'Le Mans', 'Aix-en-Provence', 'Clermont-Ferrand', 'Brest',
+    'Limoges', 'Tours', 'Amiens', 'Perpignan', 'Metz', 'Besançon', 'Boulogne-Billancourt',
+    'Orléans', 'Mulhouse', 'Caen', 'Rouen', 'Nancy', 'Argenteuil', 'Montreuil', 'Saint-Paul',
+    'Roubaix', 'Tourcoing', 'Nanterre', 'Avignon', 'Créteil', 'Dunkerque', 'Poitiers',
+    'Asnières-sur-Seine', 'Versailles', 'Courbevoie', 'Vitry-sur-Seine', 'Colombes', 'Aulnay-sous-Bois',
+    'La Rochelle', 'Bourges', 'Champigny-sur-Marne', 'Antibes', 'Cannes', 'Mérignac', 'Drancy',
+    'Barcelone', 'Valence', 'Séville', 'Milan', 'Naples', 'Turin', 'Florence', 'Venise',
+    
+    // 100 villes d'Afrique
+    'Le Caire', 'Lagos', 'Kinshasa', 'Johannesburg', 'Casablanca', 'Abidjan', 'Nairobi', 'Addis-Abeba',
+    'Dar es Salaam', 'Accra', 'Khartoum', 'Tunis', 'Alger', 'Dakar', 'Douala', 'Yaoundé', 'Abuja',
+    'Kampala', 'Luanda', 'Maputo', 'Harare', 'Lusaka', 'Bamako', 'Ouagadougou', 'Niamey', 'Conakry',
+    'Freetown', 'Monrovia', 'Banjul', 'Bissau', 'Praia', 'Nouakchott', 'Tripoli', 'Benghazi',
+    'Alexandrie', 'Gizeh', 'Port-Saïd', 'Suez', 'Louxor', 'Assouan', 'Marrakech', 'Fès', 'Rabat',
+    'Tanger', 'Meknès', 'Agadir', 'Oujda', 'Tétouan', 'Salé', 'Kenitra', 'Nador', 'Safi',
+    'El Jadida', 'Taza', 'Khouribga', 'Béni Mellal', 'Settat', 'Berrechid', 'Khemisset', 'Tiznit',
+    'Taroudant', 'Sidi Kacem', 'Larache', 'Ksar El Kebir', 'Asilah', 'Chefchaouen', 'Ifrane',
+    'Azrou', 'Midelt', 'Errachidia', 'Ouarzazate', 'Zagora', 'Tinghir', 'Erfoud', 'Dakhla',
+    'Laâyoune', 'Smara', 'Boujdour', 'Cape Town', 'Durban', 'Pretoria', 'Port Elizabeth',
+    'Bloemfontein', 'East London', 'Pietermaritzburg', 'Nelspruit', 'Kimberley', 'Polokwane',
+    'Rustenburg', 'Welkom', 'Klerksdorp', 'Potchefstroom', 'Vereeniging', 'Soweto', 'Sandton',
+    'Randburg', 'Roodepoort', 'Boksburg', 'Benoni', 'Germiston', 'Kempton Park', 'Alberton',
+    'Kigali', 'Bujumbura', 'Brazzaville', 'Libreville', 'Malabo', 'Bangui', 'N\'Djamena', 'Djibouti',
+  ];
 
 
   // États pour la gestion de la validation
@@ -112,19 +160,106 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       'value': 4,
       'icon': Icons.home_work_rounded,
       'description': 'Je cherche un logement à louer',
-      'color': Color(0xFF4CAF50),
+      'color': Color(0xFF1976D2),
+      'category': 'immobilier',
     },
     'Bailleur': {
       'value': 3,
       'icon': Icons.house_siding_rounded,
       'description': 'Je propose un logement en location',
-      'color': Color(0xFF2196F3),
+      'color': Color(0xFF1976D2),
+      'category': 'immobilier',
     },
     'Commissionnaire': {
       'value': 2,
       'icon': Icons.handshake_rounded,
       'description': 'Je facilite les transactions immobilières',
-      'color': Color(0xFFFF9800),
+      'color': Color(0xFF1976D2),
+      'category': 'immobilier',
+    },
+    'Majordome': {
+      'value': 5,
+      'icon': Icons.cleaning_services_rounded,
+      'description': 'Service de majordome',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Plombier': {
+      'value': 6,
+      'icon': Icons.plumbing_rounded,
+      'description': 'Service de plomberie',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Électricien': {
+      'value': 7,
+      'icon': Icons.electrical_services_rounded,
+      'description': 'Service d\'électricité',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Salubrité': {
+      'value': 8,
+      'icon': Icons.cleaning_services_rounded,
+      'description': 'Service de salubrité',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Peintre': {
+      'value': 9,
+      'icon': Icons.format_paint_rounded,
+      'description': 'Service de peinture',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Carreleur': {
+      'value': 10,
+      'icon': Icons.square_foot_rounded,
+      'description': 'Service de carrelage',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Menuisier': {
+      'value': 11,
+      'icon': Icons.carpenter_rounded,
+      'description': 'Service de menuiserie',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Frigoriste': {
+      'value': 12,
+      'icon': Icons.ac_unit_rounded,
+      'description': 'Service de frigoristerie',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Ajusteur': {
+      'value': 13,
+      'icon': Icons.build_rounded,
+      'description': 'Service d\'ajustage',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Architecte': {
+      'value': 14,
+      'icon': Icons.architecture_rounded,
+      'description': 'Service d\'architecture',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Chauffeur': {
+      'value': 15,
+      'icon': Icons.drive_eta_rounded,
+      'description': 'Service de conduite',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
+    },
+    'Déménagement': {
+      'value': 16,
+      'icon': Icons.local_shipping_rounded,
+      'description': 'Service de déménagement',
+      'color': Color(0xFF1976D2),
+      'category': 'services',
     },
   };
 
@@ -165,7 +300,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     _phoneController.addListener(_updateButtonState);
     _cityController.addListener(_updateButtonState);
     _passwordController.addListener(_updateButtonState);
-    _loadCities();
+    
+    // Charger les villes après le premier frame pour éviter setState() pendant build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadCities();
+    });
   }
 
 
@@ -710,7 +849,17 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         keyboardType: TextInputType.phone,
         textInputAction: TextInputAction.next, // Garder la navigation clavier
         onFieldSubmitted: (_) => _goToNextField(_phoneFocus, _emailFocus),
-        onChanged: (_) {
+        onChanged: (String value) {
+          // Gérer automatiquement le 0 initial
+          String cleaned = value.replaceAll(RegExp(r'[^\d]'), '');
+          if (cleaned.startsWith('0') && cleaned.length > 1) {
+            // Supprimer le 0 et garder les chiffres suivants
+            cleaned = cleaned.substring(1);
+            _phoneController.value = TextEditingValue(
+              text: cleaned,
+              selection: TextSelection.collapsed(offset: cleaned.length),
+            );
+          }
           if (_phoneTouched) _forceRevalidation();
         },
         onEditingComplete: () {
@@ -870,63 +1019,182 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           ),
         ],
       ),
-      child: DropdownButtonFormField<String>(
-        value: _selectedCityName,
-        onChanged: (String? newValue) {
-          if (newValue != null) {
-            final selectedCity = _cities.firstWhere(
-                  (city) => city.name == newValue,
-              orElse: () => CityModel(),
-            );
-            setState(() {
-              _selectedCityName = newValue;
-              _selectedCityId = selectedCity.cityId?.toString();
-              _cityTouched = true;
-            });
+      child: Autocomplete<CityModel>(
+        optionsBuilder: (TextEditingValue textEditingValue) {
+          if (textEditingValue.text.isEmpty) {
+            return const Iterable<CityModel>.empty();
           }
+          final query = textEditingValue.text.toLowerCase();
+          return _cities.where((CityModel city) {
+            final cityName = city.name?.toLowerCase() ?? '';
+            return cityName.contains(query);
+          }).take(10); // Limiter à 10 résultats comme Google
         },
-        items: _cities.map((CityModel city) {
-          return DropdownMenuItem<String>(
-            value: city.name,
-            child: Text(
-              city.name ?? 'Ville inconnue',
-              style: TextStyle(
-                color: textColor,
-                fontSize: 16,
+        displayStringForOption: (CityModel city) => city.name ?? '',
+        onSelected: (CityModel city) {
+          setState(() {
+            _cityController.text = city.name ?? '';
+            _cityTouched = true;
+            FocusScope.of(context).requestFocus(_emailFocus);
+          });
+        },
+        fieldViewBuilder: (
+          BuildContext context,
+          TextEditingController textEditingController,
+          FocusNode focusNode,
+          VoidCallback onFieldSubmitted,
+        ) {
+          // Synchroniser avec _cityController après le build
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (textEditingController.text != _cityController.text && mounted) {
+              textEditingController.text = _cityController.text;
+            }
+          });
+          
+          return TextFormField(
+            controller: textEditingController,
+            focusNode: focusNode,
+            textInputAction: TextInputAction.next,
+            onFieldSubmitted: (String value) {
+              onFieldSubmitted();
+              _goToNextField(focusNode, _emailFocus);
+            },
+            onChanged: (String value) {
+              setState(() {
+                _cityController.text = value;
+                _cityTouched = true;
+              });
+            },
+            decoration: InputDecoration(
+              labelText: 'Ville*',
+              labelStyle: TextStyle(color: secondaryTextColor),
+              prefixIcon: Container(
+                padding: EdgeInsets.all(12),
+                child: Icon(Icons.search_rounded, color: primaryColor),
+              ),
+              suffixIcon: _cityController.text.isNotEmpty
+                  ? IconButton(
+                      icon: Icon(Icons.clear_rounded, color: Colors.grey.shade400),
+                      onPressed: () {
+                        setState(() {
+                          _cityController.clear();
+                          textEditingController.clear();
+                        });
+                      },
+                    )
+                  : null,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: primaryColor, width: 2),
+              ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.red),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.red, width: 2),
+              ),
+              filled: true,
+              fillColor: lightBlue.withOpacity(0.3),
+              hintText: 'Rechercher une ville...',
+              hintStyle: TextStyle(color: Colors.grey.shade500),
+              errorText: _cityTouched ? _validateCity(_cityController.text) : null,
+            ),
+            validator: null,
+          );
+        },
+        optionsViewBuilder: (BuildContext context, AutocompleteOnSelected<CityModel> onSelected, Iterable<CityModel> options) {
+          if (options.isEmpty) {
+            return SizedBox.shrink();
+          }
+
+          return Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 8.0,
+              borderRadius: BorderRadius.circular(12),
+              shadowColor: Colors.black.withOpacity(0.2),
+              child: Container(
+                constraints: BoxConstraints(maxHeight: 300),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white,
+                ),
+                child: ListView.separated(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  shrinkWrap: true,
+                  itemCount: options.length > 8 ? 8 : options.length,
+                  separatorBuilder: (context, index) => Divider(height: 1, thickness: 1),
+                  itemBuilder: (BuildContext context, int index) {
+                    final CityModel city = options.elementAt(index);
+                    final cityName = city.name ?? '';
+                    
+                    return InkWell(
+                      onTap: () => onSelected(city),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: primaryColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.location_city_rounded,
+                                size: 20,
+                                color: primaryColor,
+                              ),
+                            ),
+                            SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    cityName,
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (city.country?.name != null && city.country!.name!.isNotEmpty)
+                                  if (city.country?.name != null && city.country!.name!.isNotEmpty)
+                                    Padding(
+                                      padding: EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        city.country!.name!,
+                                        style: TextStyle(
+                                          color: Colors.grey.shade600,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              size: 16,
+                              color: Colors.grey.shade400,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           );
-        }).toList(),
-        decoration: InputDecoration(
-          labelText: 'Ville*',
-          labelStyle: TextStyle(color: secondaryTextColor),
-          prefixIcon: Container(
-            padding: EdgeInsets.all(12),
-            child: Icon(Icons.location_city_rounded, color: primaryColor),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: primaryColor, width: 2),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red, width: 2),
-          ),
-          filled: true,
-          fillColor: lightBlue.withOpacity(0.3),
-          hintText: 'Votre ville',
-          hintStyle: TextStyle(color: Colors.grey.shade500),
-          errorText: _cityTouched ? _validateCity(_selectedCityName) : null,
-        ),
-        validator: null,
+        },
       ),
     ).animate().slideX(
       begin: 0.3,
@@ -953,6 +1221,10 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   Widget _buildAccountTypeField() {
+    // Séparer les types par catégorie
+    final immobilierTypes = _accountTypes.entries.where((e) => e.value['category'] == 'immobilier').toList();
+    final servicesTypes = _accountTypes.entries.where((e) => e.value['category'] == 'services').toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -964,10 +1236,24 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             fontWeight: FontWeight.w500,
           ),
         ),
-        SizedBox(height: 8),
-        ..._accountTypes.entries.map((entry) =>
-            _buildAccountTypeOption(entry.key, entry.value)
-        ),
+        SizedBox(height: 12),
+        
+        // Section Immobilier avec dropdown
+        if (immobilierTypes.isNotEmpty) ...[
+          _buildSectionHeader('Immobilier', Icons.home_rounded),
+          SizedBox(height: 8),
+          _buildImmobilierDropdown(immobilierTypes),
+          SizedBox(height: 16),
+        ],
+        
+        // Section Services avec dropdown
+        if (servicesTypes.isNotEmpty) ...[
+          _buildSectionHeader('Services', Icons.business_center_rounded),
+          SizedBox(height: 8),
+          _buildServicesDropdown(servicesTypes),
+        ],
+        
+        // Message d'erreur de validation
         if (_autoValidateMode == AutovalidateMode.always && _selectedAccountType == null)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 8),
@@ -992,6 +1278,543 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       duration: 500.ms,
       delay: 1600.ms,
       curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: primaryColor),
+        SizedBox(width: 8),
+        Text(
+          title,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImmobilierDropdown(List<MapEntry<String, Map<String, dynamic>>> immobilierTypes) {
+    // Trouver le type immobilier sélectionné
+    final selectedImmobilier = immobilierTypes.firstWhere(
+      (entry) => _selectedAccountType == entry.key,
+      orElse: () => immobilierTypes.first,
+    );
+    final isImmobilierSelected = immobilierTypes.any((entry) => _selectedAccountType == entry.key);
+
+    return Column(
+      children: [
+        // Bouton dropdown avec le design actuel
+        InkWell(
+          onTap: () {
+            setState(() {
+              _isImmobilierDropdownOpen = !_isImmobilierDropdownOpen;
+            });
+          },
+          borderRadius: BorderRadius.circular(16),
+          child: AnimatedContainer(
+            duration: Duration(milliseconds: 300),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: isImmobilierSelected
+                  ? LinearGradient(
+                      colors: [
+                        Color(0xFF1976D2).withOpacity(0.15),
+                        Color(0xFF1976D2).withOpacity(0.05),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                  : null,
+              border: Border.all(
+                color: isImmobilierSelected ? Color(0xFF1976D2) : Colors.grey.shade300,
+                width: isImmobilierSelected ? 2 : 1.5,
+              ),
+              boxShadow: isImmobilierSelected
+                  ? [
+                      BoxShadow(
+                        color: Color(0xFF1976D2).withOpacity(0.2),
+                        blurRadius: 8,
+                        offset: Offset(0, 4),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Container(
+              padding: EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  AnimatedContainer(
+                    duration: Duration(milliseconds: 300),
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: isImmobilierSelected
+                          ? Color(0xFF1976D2)
+                          : lightBlue.withOpacity(0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isImmobilierSelected
+                          ? (selectedImmobilier.value['icon'] as IconData)
+                          : Icons.home_rounded,
+                      color: isImmobilierSelected ? Colors.white : Color(0xFF1976D2),
+                      size: 20,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isImmobilierSelected
+                              ? selectedImmobilier.key
+                              : 'Sélectionner un type',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isImmobilierSelected ? Color(0xFF1976D2) : textColor,
+                            fontSize: 15,
+                          ),
+                        ),
+                        if (isImmobilierSelected) ...[
+                          SizedBox(height: 2),
+                          Text(
+                            selectedImmobilier.value['description'] as String,
+                            style: TextStyle(
+                              color: Color(0xFF1976D2).withOpacity(0.8),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _isImmobilierDropdownOpen ? 0.5 : 0,
+                    duration: Duration(milliseconds: 300),
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: isImmobilierSelected ? Color(0xFF1976D2) : Colors.grey.shade600,
+                      size: 24,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        
+        // Liste déroulante des types immobiliers
+        if (_isImmobilierDropdownOpen) ...[
+          SizedBox(height: 8),
+          Container(
+            constraints: BoxConstraints(
+              maxHeight: 300,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200, width: 1),
+              color: Colors.white,
+            ),
+            child: Column(
+              children: immobilierTypes.asMap().entries.map((mapEntry) {
+                final index = mapEntry.key;
+                final entry = mapEntry.value;
+                final isSelected = _selectedAccountType == entry.key;
+                final isLast = index == immobilierTypes.length - 1;
+                return InkWell(
+                  onTap: () {
+                    setState(() {
+                      _selectedAccountType = entry.key;
+                      _isImmobilierDropdownOpen = false;
+                    });
+                  },
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? Color(0xFF1976D2).withOpacity(0.1)
+                          : Colors.transparent,
+                      border: isLast ? null : Border(
+                        bottom: BorderSide(
+                          color: Colors.grey.shade200,
+                          width: 0.5,
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Color(0xFF1976D2)
+                                : lightBlue.withOpacity(0.5),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            entry.value['icon'] as IconData,
+                            color: isSelected ? Colors.white : Color(0xFF1976D2),
+                            size: 18,
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                entry.key,
+                                style: TextStyle(
+                                  fontWeight: isSelected
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                  color: isSelected
+                                      ? Color(0xFF1976D2)
+                                      : textColor,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                entry.value['description'] as String,
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (isSelected)
+                          Icon(
+                            Icons.check_circle_rounded,
+                            color: Color(0xFF1976D2),
+                            size: 20,
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildServicesDropdown(List<MapEntry<String, Map<String, dynamic>>> servicesTypes) {
+    // Trouver le type de service sélectionné
+    final selectedService = servicesTypes.firstWhere(
+      (entry) => _selectedAccountType == entry.key,
+      orElse: () => servicesTypes.first,
+    );
+    final isServiceSelected = servicesTypes.any((entry) => _selectedAccountType == entry.key);
+
+    return Column(
+      children: [
+        // Bouton dropdown avec le design actuel
+        InkWell(
+          onTap: () {
+            setState(() {
+              _isServicesDropdownOpen = !_isServicesDropdownOpen;
+            });
+          },
+          borderRadius: BorderRadius.circular(16),
+          child: AnimatedContainer(
+            duration: Duration(milliseconds: 300),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: isServiceSelected
+                  ? LinearGradient(
+                      colors: [
+                        Color(0xFF1976D2).withOpacity(0.15),
+                        Color(0xFF1976D2).withOpacity(0.05),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    )
+                  : null,
+              border: Border.all(
+                color: isServiceSelected ? Color(0xFF1976D2) : Colors.grey.shade300,
+                width: isServiceSelected ? 2 : 1.5,
+              ),
+              boxShadow: isServiceSelected
+                  ? [
+                      BoxShadow(
+                        color: Color(0xFF1976D2).withOpacity(0.2),
+                        blurRadius: 8,
+                        offset: Offset(0, 4),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Container(
+              padding: EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  AnimatedContainer(
+                    duration: Duration(milliseconds: 300),
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: isServiceSelected
+                          ? Color(0xFF1976D2)
+                          : lightBlue.withOpacity(0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isServiceSelected
+                          ? (selectedService.value['icon'] as IconData)
+                          : Icons.business_center_rounded,
+                      color: isServiceSelected ? Colors.white : Color(0xFF1976D2),
+                      size: 20,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isServiceSelected
+                              ? selectedService.key
+                              : 'Sélectionner un service',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: isServiceSelected ? Color(0xFF1976D2) : textColor,
+                            fontSize: 15,
+                          ),
+                        ),
+                        if (isServiceSelected) ...[
+                          SizedBox(height: 2),
+                          Text(
+                            selectedService.value['description'] as String,
+                            style: TextStyle(
+                              color: Color(0xFF1976D2).withOpacity(0.8),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _isServicesDropdownOpen ? 0.5 : 0,
+                    duration: Duration(milliseconds: 300),
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: isServiceSelected ? Color(0xFF1976D2) : Colors.grey.shade600,
+                      size: 24,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        
+        // Liste déroulante des services
+        if (_isServicesDropdownOpen) ...[
+          SizedBox(height: 8),
+          Container(
+            constraints: BoxConstraints(
+              maxHeight: 400,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200, width: 1),
+              color: Colors.white,
+            ),
+            child: SingleChildScrollView(
+              physics: BouncingScrollPhysics(),
+              child: Column(
+                children: servicesTypes.asMap().entries.map((mapEntry) {
+                  final index = mapEntry.key;
+                  final entry = mapEntry.value;
+                  final isSelected = _selectedAccountType == entry.key;
+                  final isLast = index == servicesTypes.length - 1;
+                  return InkWell(
+                    onTap: () {
+                      setState(() {
+                        _selectedAccountType = entry.key;
+                        _isServicesDropdownOpen = false;
+                      });
+                    },
+                    child: Container(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? Color(0xFF1976D2).withOpacity(0.1)
+                            : Colors.transparent,
+                        border: isLast ? null : Border(
+                          bottom: BorderSide(
+                            color: Colors.grey.shade200,
+                            width: 0.5,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? Color(0xFF1976D2)
+                                  : lightBlue.withOpacity(0.5),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              entry.value['icon'] as IconData,
+                              color: isSelected ? Colors.white : Color(0xFF1976D2),
+                              size: 18,
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  entry.key,
+                                  style: TextStyle(
+                                    fontWeight: isSelected
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                    color: isSelected
+                                        ? Color(0xFF1976D2)
+                                        : textColor,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  entry.value['description'] as String,
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isSelected)
+                            Icon(
+                              Icons.check_circle_rounded,
+                              color: Color(0xFF1976D2),
+                              size: 20,
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildServiceTypeSelection() {
+    final allServiceTypes = [
+      ServiceType.majordhomme,
+      ServiceType.demenagement,
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: Color(0xFFE91E63).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Color(0xFFE91E63).withOpacity(0.3),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline_rounded, size: 20, color: Color(0xFFE91E63)),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Sélectionnez le type de service que vous proposez',
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 16),
+        Row(
+          children: allServiceTypes.map((serviceType) {
+            final isSelected = _selectedServiceType == serviceType;
+            return Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: allServiceTypes.indexOf(serviceType) == 0 ? 8 : 0),
+                child: InkWell(
+                  onTap: () {
+                    setState(() {
+                      _selectedServiceType = serviceType;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected ? Color(0xFFE91E63) : Colors.grey.shade300,
+                        width: isSelected ? 2 : 1.5,
+                      ),
+                      color: isSelected ? Color(0xFFE91E63).withOpacity(0.1) : Colors.transparent,
+                    ),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          serviceType.icon,
+                          size: 24,
+                          color: isSelected ? Color(0xFFE91E63) : Colors.grey.shade600,
+                        ),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            serviceType.displayName,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                              color: isSelected ? Color(0xFFE91E63) : textColor,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
@@ -1032,6 +1855,12 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           onTap: () {
             setState(() {
               _selectedAccountType = type;
+              // Fermer les dropdowns si un type est sélectionné
+              if (_accountTypes[type]!['category'] == 'immobilier') {
+                _isServicesDropdownOpen = false;
+              } else if (_accountTypes[type]!['category'] == 'services') {
+                _isImmobilierDropdownOpen = false;
+              }
             });
           },
           child: Container(
@@ -1211,7 +2040,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     final hasRequiredFields = _firstNameController.text.isNotEmpty &&
         _lastNameController.text.isNotEmpty &&
         _phoneController.text.isNotEmpty &&
-        _selectedCityName != null &&
+        _cityController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty &&
         _selectedAccountType != null;
 
@@ -1219,7 +2048,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     final isLastNameValid = _validateName(_lastNameController.text, 'nom') == null;
     final isPhoneValid = _validatePhone(_phoneController.text) == null;
     final isEmailValid = _emailController.text.isEmpty || _validateEmail(_emailController.text) == null;
-    final isCityValid = _validateCity(_selectedCityName) == null;
+    final isCityValid = _validateCity(_cityController.text) == null;
     final isPasswordValid = _validatePassword(_passwordController.text) == null;
 
     final isFormValid = isFirstNameValid &&
@@ -1576,7 +2405,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     final hasRequiredFields = _firstNameController.text.isNotEmpty &&
         _lastNameController.text.isNotEmpty &&
         _phoneController.text.isNotEmpty &&
-        _selectedCityName != null &&
+        _cityController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty &&
         _selectedAccountType != null;
 
@@ -1588,7 +2417,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     final isLastNameValid = shouldValidate ? _validateName(_lastNameController.text, 'nom') == null : true;
     final isPhoneValid = shouldValidate ? _validatePhone(_phoneController.text) == null : true;
     final isEmailValid = _emailController.text.isEmpty || _validateEmail(_emailController.text) == null;
-    final isCityValid = shouldValidate ? _validateCity(_selectedCityName) == null : true;
+    final isCityValid = shouldValidate ? _validateCity(_cityController.text) == null : true;
     final isPasswordValid = shouldValidate ? _validatePassword(_passwordController.text) == null : true;
 
     final isFormValid = isFirstNameValid &&
@@ -1812,7 +2641,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     final lastNameError = _validateName(_lastNameController.text, 'nom');
     final phoneError = _validatePhone(_phoneController.text);
     final emailError = _validateEmail(_emailController.text);
-    final cityError = _validateCity(_selectedCityName);
+    final cityError = _validateCity(_cityController.text);
     final passwordError = _validatePassword(_passwordController.text);
 
     if (firstNameError != null || lastNameError != null || phoneError != null ||
@@ -1825,6 +2654,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       SnackbarForCasa.error(context, "Veuillez sélectionner un type de compte");
       return;
     }
+
+    // Plus besoin de vérifier le type de service car chaque service est maintenant un type de compte séparé
 
     if (!_acceptConditions) {
       SnackbarForCasa.error(context, "Veuillez accepter les conditions d'utilisation");
@@ -1846,18 +2677,33 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     try {
       final accountType = _accountTypes[_selectedAccountType]!;
 
-      // Préparer le numéro de téléphone SANS l'indicatif pays
+      // MODIFICATION ICI : Préparer le numéro de téléphone AVEC l'indicatif pays
       String phoneNumber = _phoneController.text.trim();
+
       // Nettoyer le numéro (supprimer les espaces, tirets, etc.) - garder seulement les chiffres
       final cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
+
+      // AJOUTER L'INDICATIF AU NUMÉRO
+      String phoneWithCountryCode;
+
+      // Si le numéro commence par 0 (cas typique RDC), on supprime le 0 avant d'ajouter l'indicatif
+      if (cleanedPhone.startsWith('0')) {
+        final numberWithoutZero = cleanedPhone.substring(1);
+        phoneWithCountryCode = '${_selectedCountryCode}$numberWithoutZero';
+      } else {
+        // Sinon on ajoute directement l'indicatif
+        phoneWithCountryCode = '${_selectedCountryCode}$cleanedPhone';
+      }
+
       final username = '${_firstNameController.text}${_lastNameController.text}';
 
+      // MODIFICATION ICI : Utiliser phoneWithCountryCode au lieu de cleanedPhone
       final userData = {
-        "phone": cleanedPhone,
+        "phone": phoneWithCountryCode, // ← CHANGÉ ICI : Envoi avec l'indicatif
         "password": _passwordController.text,
         "typeAccountId": accountType['value'],
         "email": _emailController.text.isNotEmpty ? _emailController.text : "",
-        "cityId": _selectedCityId != null ? int.tryParse(_selectedCityId!) : 1,
+        "city": _cityController.text.trim(),
         "country": _selectedCountryName,
         "username": username,
       };
@@ -1916,6 +2762,35 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           };
           break;
 
+        // Tous les types de services (majordome, plombier, électricien, etc.)
+        case 'Majordome':
+        case 'Plombier':
+        case 'Électricien':
+        case 'Salubrité':
+        case 'Peintre':
+        case 'Carreleur':
+        case 'Menuisier':
+        case 'Frigoriste':
+        case 'Ajusteur':
+        case 'Architecte':
+        case 'Chauffeur':
+        case 'Déménagement':
+          payload = {
+            "user": userData,
+            "serviceProvider": {
+              "lastName": _lastNameController.text,
+              "firstName": _firstNameController.text,
+              "address": _cityController.text,
+              "serviceType": accountType['value'].toString(),
+              "images": "",
+              "cardFront": "",
+              "cardBack": "",
+              "typeCardId": 1,
+              "numberCard": "",
+            }
+          };
+          break;
+
         default:
           payload = {"user": userData};
       }
@@ -1944,6 +2819,22 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             payload,
             typeCompteId: accountType['value'],
           );
+          break;
+        // Tous les types de services utilisent l'endpoint d'inscription standard
+        case 'Majordome':
+        case 'Plombier':
+        case 'Électricien':
+        case 'Salubrité':
+        case 'Peintre':
+        case 'Carreleur':
+        case 'Menuisier':
+        case 'Frigoriste':
+        case 'Ajusteur':
+        case 'Architecte':
+        case 'Chauffeur':
+        case 'Déménagement':
+          final ctrl = context.read<AuthentificationCtrl>();
+          response = await ctrl.register(payload, url: Endpoints.register);
           break;
         default:
           final ctrl = context.read<AuthentificationCtrl>();

@@ -3,6 +3,7 @@ import 'package:casa/screens/HomePage.dart';
 import 'package:casa/screens/termsAndPrivacy/TermsAndPrivacyPage.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
+import 'package:casa/screens/auth/ForgotPasswordScreen.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -447,7 +448,28 @@ class _LoginScreenState extends State<LoginScreen> {
           errorText: _emailTouched ? _validateEmail(_emailController.text) : null,
         ),
         keyboardType: _isPhoneInput ? TextInputType.phone : TextInputType.emailAddress,
-        onChanged: (_) {
+        onChanged: (String value) {
+          // Gérer automatiquement le 0 initial pour les numéros de téléphone
+          bool isPhone = _looksLikePhoneNumber(value);
+          if (isPhone) {
+            String cleaned = value.replaceAll(RegExp(r'[^\d]'), '');
+            if (cleaned.startsWith('0') && cleaned.length > 1) {
+              // Supprimer le 0 et garder les chiffres suivants
+              cleaned = cleaned.substring(1);
+              _emailController.value = TextEditingValue(
+                text: cleaned,
+                selection: TextSelection.collapsed(offset: cleaned.length),
+              );
+              // Mettre à jour l'état après modification
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _updateButtonState();
+                if (_emailTouched) {
+                  _forceRevalidation();
+                }
+              });
+              return; // Sortir pour éviter le setState double
+            }
+          }
           _updateButtonState();
           if (_emailTouched) {
             _forceRevalidation();
@@ -886,7 +908,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _buildForgotPassword() {
     return TextButton(
-      onPressed: () {},
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => ForgotPasswordScreen()),
+        );
+      },
       style: TextButton.styleFrom(
         foregroundColor: primaryColor,
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1052,23 +1079,39 @@ class _LoginScreenState extends State<LoginScreen> {
       // Préparer l'identifiant en fonction du type (email ou téléphone)
       String identifiant = _emailController.text.trim();
 
-      // Si c'est un numéro de téléphone, NE PAS AJOUTER L'INDICATIF
-      // Envoyer exactement ce que l'utilisateur a saisi
+      // MODIFICATION ICI : Si c'est un numéro de téléphone, AJOUTER L'INDICATIF
       if (_isPhoneInput) {
         // Nettoyer le numéro (supprimer les espaces, tirets, etc.) - garder seulement les chiffres
         identifiant = identifiant.replaceAll(RegExp(r'[^\d]'), '');
 
-        if (identifiant.startsWith('0') || identifiant.startsWith('8') || identifiant.startsWith('9')) {
-          identifiant = identifiant; // Garder tel quel
+        // AJOUTER L'INDICATIF AU DÉBUT DU NUMÉRO
+        String phoneWithCountryCode;
+
+        // Si le numéro commence par 0 (cas typique), on supprime le 0 avant d'ajouter l'indicatif
+        if (identifiant.startsWith('0')) {
+          final numberWithoutZero = identifiant.substring(1);
+          phoneWithCountryCode = '${_selectedCountryCode}$numberWithoutZero';
         }
-        // Si le numéro commence par l'indicatif, le supprimer
+        // Vérifier si le numéro contient déjà l'indicatif
         else if (identifiant.startsWith(_selectedCountryCode.replaceAll('+', ''))) {
-          identifiant = identifiant.substring(_selectedCountryCode.replaceAll('+', '').length);
+          // Le numéro a déjà l'indicatif, on ajoute juste le '+'
+          phoneWithCountryCode = '+$identifiant';
         }
+        // Vérifier si c'est un numéro RDC (commence par 8 ou 9 et fait 9 chiffres)
+        else if ((identifiant.startsWith('8') || identifiant.startsWith('9')) && identifiant.length == 9) {
+          // C'est un numéro RDC sans indicatif, on ajoute +243
+          phoneWithCountryCode = '${_selectedCountryCode}$identifiant';
+        }
+        else {
+          // Autres cas : on ajoute l'indicatif tel quel
+          phoneWithCountryCode = '${_selectedCountryCode}$identifiant';
+        }
+
+        identifiant = phoneWithCountryCode; // ← UTILISER LE NUMÉRO AVEC INDICATIF
       }
 
       final userData = {
-        "identifiant": identifiant, // Envoyer le numéro SANS indicatif
+        "identifiant": identifiant, // ← Maintenant avec indicatif si c'est un téléphone
         "password": _passwordController.text.trim(),
       };
 
@@ -1080,9 +1123,6 @@ class _LoginScreenState extends State<LoginScreen> {
       bool isSuccess = message.toLowerCase().contains('réussie');
 
       if (isSuccess) {
-        // SnackbarForCasa.success(context, "Connexion réussie!");`
-        // await Future.delayed(const Duration(milliseconds: 500));
-
         if (mounted) {
           Navigator.pushNamedAndRemoveUntil(
             context,
@@ -1091,7 +1131,7 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         }
       } else {
-        String errorMessage = getErrorMessage(res.data['detailMessage']);
+        String errorMessage = getErrorMessage(res.data['message']);
         SnackbarForCasa.error(context, errorMessage);
       }
     } catch (e) {
