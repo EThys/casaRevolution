@@ -1088,6 +1088,7 @@ class _CommissionDashboardPageState extends State<CommissionDashboardPage> {
 
   Widget _buildAddLandlordButton() {
     return FloatingActionButton(
+      heroTag: "commission_dashboard_fab", // Tag unique pour éviter les conflits Hero
       onPressed: () {},
       backgroundColor: primaryColor,
       foregroundColor: Colors.white,
