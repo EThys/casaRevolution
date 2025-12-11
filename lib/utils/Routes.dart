@@ -24,4 +24,10 @@ class Routes {
   static const String otpVerificationRoute = "otpVerification";
   static const String resetPasswordRoute = "resetPassword";
   static const String createServiceRoute = "createService";
+  static const String createServicePostRoute = "createServicePost";
+  static const String quickServiceRequestRoute = "quickServiceRequest";
+  static const String allReviewsRoute = "allReviews";
+  static const String serviceRequestDetailRoute = "serviceRequestDetail";
+  static const String myServiceRequestsRoute = "myServiceRequests";
+  static const String serviceRequestsForProvidersRoute = "serviceRequestsForProviders";
 }
