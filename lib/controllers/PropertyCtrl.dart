@@ -5,7 +5,8 @@ import 'package:http/http.dart';
 import '../models/PropertyModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
-import '../utils/requetes.dart' show getData, postData, patchData, deleteData, HttpResponse;
+import '../utils/Constantes.dart';
+import '../utils/requetes.dart' show getData, postData, patchData, deleteData, putData, HttpResponse;
 
 class PropertyController with ChangeNotifier {
   PropertyController({this.stockage});
@@ -14,6 +15,7 @@ class PropertyController with ChangeNotifier {
   bool loading = false;
   bool syncing = false;
   List<PropertyModel> properties = [];
+  List<PropertyModel> similarProperties = [];
   PropertyModel? currentProperty;
 
   Future<void> syncProperties() async {
@@ -36,6 +38,11 @@ class PropertyController with ChangeNotifier {
         } else {
           // Si la structure est différente, utiliser la réponse entière
           propertiesData = response;
+        }
+
+        // Cas API paginée: properties -> content
+        if (propertiesData is Map && propertiesData.containsKey('content')) {
+          propertiesData = propertiesData['content'];
         }
 
         // Vérifier que propertiesData est une List
@@ -119,6 +126,11 @@ class PropertyController with ChangeNotifier {
           propertiesData = response['data'];
         } else {
           propertiesData = response;
+        }
+
+        // Cas API paginée: properties -> content
+        if (propertiesData is Map && propertiesData.containsKey('content')) {
+          propertiesData = propertiesData['content'];
         }
 
         if (propertiesData is List && propertiesData.isNotEmpty) {
@@ -356,17 +368,51 @@ class PropertyController with ChangeNotifier {
       var url = "${Endpoints.properties}/$propertyId";
       var response = await getData(url);
 
-      if (response != null && response['data'] != null) {
-        PropertyModel property = PropertyModel.fromJson(response['data']);
-        currentProperty = property;
+      if (response != null) {
+        // Nouvelle structure: { properties: {...}, similaires: [...] }
+        dynamic propertyJson;
+        dynamic similarJson;
 
-        // Mettre à jour le cache local
-        final db = DatabaseHelper.instance;
-        await db.insertOrUpdateProperty(property);
+        if (response is Map<String, dynamic>) {
+          if (response['properties'] != null) {
+            propertyJson = response['properties'];
+          } else if (response['data'] != null) {
+            propertyJson = response['data'];
+          }
+          if (response['similaires'] != null) {
+            similarJson = response['similaires'];
+          }
+        }
 
-        loading = false;
-        notifyListeners();
-        return property;
+        if (propertyJson != null) {
+          PropertyModel property = PropertyModel.fromJson(Map<String, dynamic>.from(propertyJson));
+          currentProperty = property;
+
+          // Similar properties
+          if (similarJson is List) {
+            similarProperties = similarJson
+                .where((e) => e != null)
+                .map<PropertyModel>((e) {
+                  try {
+                    return PropertyModel.fromJson(Map<String, dynamic>.from(e));
+                  } catch (_) {
+                    return PropertyModel();
+                  }
+                })
+                .where((p) => p.propertyId != null)
+                .toList();
+          } else {
+            similarProperties = [];
+          }
+
+          // Mettre à jour le cache local
+          final db = DatabaseHelper.instance;
+          await db.insertOrUpdateProperty(property);
+
+          loading = false;
+          notifyListeners();
+          return property;
+        }
       }
     } catch (e) {
       print("Erreur réseau pour la propriété $propertyId : $e");
@@ -379,6 +425,7 @@ class PropertyController with ChangeNotifier {
 
     if (cachedProperty != null) {
       currentProperty = cachedProperty;
+      similarProperties = [];
       loading = false;
       notifyListeners();
       return cachedProperty;
@@ -497,6 +544,54 @@ class PropertyController with ChangeNotifier {
     }
   }
 
+  // Nouvelle méthode pour mettre à jour une propriété par owner
+  Future<HttpResponse> updatePropertyByOwner(int userId, int propertyId, Map<String, dynamic> propertyData) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      final url = "${Endpoints.propertiesByOwner}$userId/$propertyId";
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      print("🔄 Mise à jour propriété: $url");
+      print("📦 Données: ${propertyData.keys.toList()}");
+
+      HttpResponse response = await putData(url, propertyData, token: tkn);
+
+      if (response.status && response.data != null) {
+        // Mettre à jour la propriété dans la liste locale
+        final index = properties.indexWhere((p) => p.propertyId == propertyId);
+        if (index != -1) {
+          try {
+            final updatedProperty = PropertyModel.fromJson(response.data);
+            properties[index] = updatedProperty;
+            
+            // Mettre à jour le cache local
+            final db = DatabaseHelper.instance;
+            await db.insertOrUpdateProperty(updatedProperty);
+            
+            print("✅ Propriété $propertyId mise à jour avec succès");
+          } catch (e) {
+            print("⚠️ Erreur lors du parsing de la propriété mise à jour: $e");
+          }
+        }
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      print("❌ Erreur lors de la mise à jour: $e");
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: "Erreur lors de la mise à jour: ${e.toString()}",
+        isException: true,
+      );
+    }
+  }
+
   Future<HttpResponse> updateProperty(int id, Map<String, dynamic> propertyData) async {
     try {
       loading = true;
@@ -588,25 +683,45 @@ class PropertyController with ChangeNotifier {
   // Récupérer les propriétés de l'utilisateur connecté
   Future<List<PropertyModel>> getMyProperties() async {
     loading = true;
-    notifyListeners();
-
+    // Ne pas appeler notifyListeners() ici pour éviter setState pendant build
+    // Il sera appelé après la récupération des données dans tous les cas
+    
     try {
-      final userId = stockage?.read<Map<String, dynamic>>(StockageKeys.userKey)?['userId']?.toString();
-      if (userId == null) {
+      // Récupérer le userId depuis GetStorage
+      // Structure: {"user": {"userId": 57, ...}}
+      final userData = stockage?.read(StockageKeys.userKey);
+      String? userId;
+      
+      if (userData is Map) {
+        // Si userData est directement un Map avec userId
+        if (userData.containsKey('userId')) {
+          userId = userData['userId']?.toString();
+        } 
+        // Si userData a une clé "user" qui contient userId
+        else if (userData.containsKey('user') && userData['user'] is Map) {
+          userId = userData['user']?['userId']?.toString();
+        }
+      }
+      
+      if (userId == null || userId.isEmpty) {
         print("❌ Aucun user ID trouvé pour récupérer les propriétés");
+        print("📦 Données GetStorage userKey: $userData");
         loading = false;
         notifyListeners();
         return [];
       }
 
+      print("✅ UserId récupéré: $userId");
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-      // Essayer d'abord de récupérer depuis l'API
-      final url = "${Endpoints.properties}/user/$userId";
+      // Endpoint: api/property/owner/{userId}
+      final url = "${Endpoints.propertiesByOwner}$userId";
+      print("🌐 URL de la requête: ${Constantes.BASE_URL}$url");
       var response = await getData(url, token: tkn);
+      print("📡 Réponse API: $response");
 
       if (response != null && response is Map<String, dynamic>) {
         dynamic propertiesData;
-        
+
         if (response.containsKey('properties')) {
           propertiesData = response['properties'];
         } else if (response.containsKey('data')) {
@@ -617,30 +732,69 @@ class PropertyController with ChangeNotifier {
 
         if (propertiesData is List && propertiesData.isNotEmpty) {
           List<PropertyModel> myProperties = propertiesData
-              .map<PropertyModel>((e) => PropertyModel.fromJson(e))
+              .where((e) => e != null)
+              .map<PropertyModel>((e) {
+                try {
+                  final property = PropertyModel.fromJson(Map<String, dynamic>.from(e));
+                  // Debug: Afficher le userId parsé pour chaque propriété
+                  print("🏠 Property ${property.propertyId}: userId = ${property.userId} (attendu: $userId)");
+                  return property;
+                } catch (e) {
+                  print("❌ Erreur parsing property: $e");
+                  return PropertyModel();
+                }
+              })
+              .where((p) => p.propertyId != null)
               .toList();
 
+          print("📊 Avant filtrage: ${myProperties.length} propriétés");
           // Filtrer par userId pour être sûr
-          myProperties = myProperties.where((p) => p.userId?.toString() == userId).toList();
+          myProperties = myProperties.where((p) {
+            final matches = p.userId?.toString() == userId;
+            if (!matches) {
+              print("❌ Property ${p.propertyId} filtrée: userId=${p.userId} != $userId");
+            }
+            return matches;
+          }).toList();
+          print("✅ Après filtrage: ${myProperties.length} propriétés");
+
+          // Mettre en cache local
+          final db = DatabaseHelper.instance;
+          for (final p in myProperties) {
+            await db.insertOrUpdateProperty(p);
+          }
 
           loading = false;
           notifyListeners();
+          print("✅ ${myProperties.length} propriétés récupérées avec succès");
           return myProperties;
         }
       }
 
+      print("⚠️ Aucune donnée trouvée dans la réponse API");
       // Si pas de données en ligne, retourner les propriétés filtrées localement
       await _loadFromCache();
       final myProperties = properties.where((p) => p.userId?.toString() == userId).toList();
 
       loading = false;
       notifyListeners();
+      print("📦 ${myProperties.length} propriétés chargées depuis le cache");
       return myProperties;
     } catch (e) {
       print("❌ Erreur lors de la récupération des propriétés: $e");
       // En cas d'erreur, retourner les propriétés filtrées localement
       try {
-        final userId = stockage?.read<Map<String, dynamic>>(StockageKeys.userKey)?['userId']?.toString();
+        final userData = stockage?.read(StockageKeys.userKey);
+        String? userId;
+        
+        if (userData is Map) {
+          if (userData.containsKey('userId')) {
+            userId = userData['userId']?.toString();
+          } else if (userData.containsKey('user') && userData['user'] is Map) {
+            userId = userData['user']?['userId']?.toString();
+          }
+        }
+        
         if (userId != null) {
           await _loadFromCache();
           final myProperties = properties.where((p) => p.userId?.toString() == userId).toList();
