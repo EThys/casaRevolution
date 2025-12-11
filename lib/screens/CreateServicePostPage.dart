@@ -18,6 +18,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:casa/utils/requetes.dart';
 import '../utils/StockageKeys.dart';
@@ -55,6 +56,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _priceMinController = TextEditingController();
   final TextEditingController _priceMaxController = TextEditingController();
+  final TextEditingController _experienceController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _cityTextController = TextEditingController();
@@ -63,6 +65,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   
   // Country code for phone
   String _selectedCountryCode = '+243'; // RDC par défaut
+  String _selectedCurrency = 'CDF'; // Devise par défaut : Franc Congolais
+  File? _selectedCvFile; // Fichier CV sélectionné (PDF ou DOC)
   final Map<String, String> _countryFlags = Map<String, String>.from(countryFlags);
   final Map<String, String> _countryNames = Map<String, String>.from(countryNames);
 
@@ -185,6 +189,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     _descriptionController.dispose();
     _priceMinController.dispose();
     _priceMaxController.dispose();
+    _experienceController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
     _cityTextController.dispose();
@@ -452,47 +457,92 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           
           SizedBox(height: _mediumSpace),
           
-          // Prix Min
-          _buildModernTextField(
-            controller: _priceMinController,
-            label: 'Prix minimum',
-            hint: '0',
-            icon: Icons.attach_money_rounded,
-            keyboardType: TextInputType.number,
-            fieldKey: 'price_min',
-            validator: (v) {
-              if (v == null || v.trim().isEmpty) return 'Prix minimum requis';
-              if (double.tryParse(v) == null) return 'Nombre invalide';
-              return null;
-            },
-          ),
+          // Choix de la devise
+          _buildCurrencyDropdown(),
           
           SizedBox(height: _mediumSpace),
           
-          // Prix Max
+          // Section Fourchette de prix avec description
+          _buildSectionHeader(
+            'Fourchette de prix',
+            'Indiquez une fourchette de prix pour donner plus de flexibilité à vos clients',
+            Icons.attach_money_rounded,
+          ),
+          SizedBox(height: _mediumSpace),
+          
+          // Prix Min et Max en ligne
+          Row(
+            children: [
+              Expanded(
+                child: _buildModernTextField(
+                  controller: _priceMinController,
+                  label: 'Prix minimum',
+                  hint: '0',
+                  icon: Icons.trending_down_rounded,
+                  keyboardType: TextInputType.number,
+                  fieldKey: 'price_min',
+                  helperText: 'Le prix le plus bas pour votre service',
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Prix minimum requis';
+                    if (double.tryParse(v) == null) return 'Nombre invalide';
+                    return null;
+                  },
+                ),
+              ),
+              SizedBox(width: _smallSpace),
+              Expanded(
+                child: _buildModernTextField(
+                  controller: _priceMaxController,
+                  label: 'Prix maximum',
+                  hint: '0',
+                  icon: Icons.trending_up_rounded,
+                  keyboardType: TextInputType.number,
+                  fieldKey: 'price_max',
+                  helperText: 'Le prix le plus élevé pour votre service',
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Prix maximum requis';
+                    if (double.tryParse(v) == null) return 'Nombre invalide';
+                    final minPrice = double.tryParse(_priceMinController.text);
+                    final maxPrice = double.tryParse(v);
+                    if (minPrice != null && maxPrice != null && maxPrice < minPrice) {
+                      return 'Le prix max doit être >= au prix min';
+                    }
+                    return null;
+                  },
+                ),
+              ),
+            ],
+          ),
+          
+          SizedBox(height: _largeSpace),
+          
+          // Année d'expérience
           _buildModernTextField(
-            controller: _priceMaxController,
-            label: 'Prix maximum',
-            hint: '0',
-            icon: Icons.attach_money_rounded,
+            controller: _experienceController,
+            label: 'Années d\'expérience',
+            hint: 'Ex: 5',
+            icon: Icons.work_history_rounded,
             keyboardType: TextInputType.number,
-            fieldKey: 'price_max',
+            fieldKey: 'experience',
+            helperText: 'Nombre d\'années d\'expérience dans ce domaine',
             validator: (v) {
-              if (v == null || v.trim().isEmpty) return 'Prix maximum requis';
-              if (double.tryParse(v) == null) return 'Nombre invalide';
-              final minPrice = double.tryParse(_priceMinController.text);
-              final maxPrice = double.tryParse(v);
-              if (minPrice != null && maxPrice != null && maxPrice < minPrice) {
-                return 'Le prix max doit être >= au prix min';
+              if (v != null && v.trim().isNotEmpty && int.tryParse(v) == null) {
+                return 'Nombre invalide';
               }
               return null;
             },
           ),
-          
-          SizedBox(height: _mediumSpace),
-          
-          // Téléphone avec indicatif
+          SizedBox(height: _smallSpace),
           _buildPhoneField(),
+          SizedBox(height: _smallSpace),
+          _buildSectionHeader(
+            'Curriculum Vitae (optionnel)',
+            'Ajoutez votre CV pour renforcer votre crédibilité (PDF ou DOC)',
+            Icons.description_rounded,
+          ),
+          SizedBox(height: _mediumSpace),
+          _buildCvUploadSection(),
+          SizedBox(height: _mediumSpace),
         ],
       ),
     );
@@ -764,24 +814,181 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Future<void> _pickProfileImage() async {
-    try {
-      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
-      if (image != null) {
-        setState(() => _profileImage = image);
-      }
-    } catch (e) {
-      FancyNotification.show(context, "Erreur lors de la sélection de l'image", isError: true);
-    }
+    _showImageSourceModal(isProfile: true);
   }
 
   Future<void> _pickPortfolioImage() async {
+    _showImageSourceModal(isProfile: false);
+  }
+
+  void _showImageSourceModal({required bool isProfile}) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
+        ),
+        padding: EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Choisir une source',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: _darkColor,
+              ),
+            ),
+            SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildImageSourceButton(
+                    icon: Icons.photo_library_rounded,
+                    label: 'Galerie',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _pickImageFromSource(ImageSource.gallery, isProfile: isProfile);
+                    },
+                  ),
+                ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: _buildImageSourceButton(
+                    icon: Icons.camera_alt_rounded,
+                    label: 'Caméra',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _pickImageFromSource(ImageSource.camera, isProfile: isProfile);
+                    },
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 16),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Annuler', style: GoogleFonts.inter(color: _greyColor)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageSourceButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: _lightColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _borderColor),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: _primaryColor, size: 32),
+            SizedBox(height: 8),
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: _bodySize,
+                fontWeight: FontWeight.w600,
+                color: _darkColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImageFromSource(ImageSource source, {required bool isProfile}) async {
     try {
-      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+      // Attendre un peu pour s'assurer que le modal est bien fermé
+      await Future.delayed(Duration(milliseconds: 300));
+      
+      if (!mounted) return;
+
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1440,
+      );
+
+      // Vérifier à nouveau que le widget est toujours monté après la sélection
+      if (!mounted) return;
+
       if (image != null) {
-        setState(() => _portfolioImages.add(image));
+        // Vérifier que le fichier existe et est valide
+        final file = File(image.path);
+        
+        // Attendre un peu pour que le fichier soit complètement écrit (important pour les captures caméra)
+        await Future.delayed(Duration(milliseconds: 100));
+        
+        if (await file.exists()) {
+          // Vérifier la taille du fichier
+          final fileSize = await file.length();
+          if (fileSize == 0) {
+            if (mounted) {
+              FancyNotification.show(
+                context,
+                "Erreur : fichier image vide",
+                isError: true,
+              );
+            }
+            return;
+          }
+
+          if (isProfile) {
+            if (mounted) {
+              setState(() {
+                _profileImage = image;
+              });
+            }
+          } else {
+            if (mounted) {
+              setState(() {
+                _portfolioImages.add(image);
+              });
+            }
+          }
+        } else {
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              "Erreur : fichier image introuvable",
+              isError: true,
+            );
+          }
+        }
       }
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      print('Erreur lors de la sélection de l\'image: $e');
+      String errorMessage = "Erreur lors de la sélection de l'image";
+      if (e.code == 'photo_access_denied' || e.code == 'camera_access_denied') {
+        errorMessage = "Permission refusée. Veuillez autoriser l'accès dans les paramètres de l'application.";
+      } else if (e.code == 'camera_access_denied') {
+        errorMessage = "Accès à la caméra refusé. Veuillez autoriser l'accès dans les paramètres.";
+      }
+      FancyNotification.show(context, errorMessage, type: NotificationType.error);
     } catch (e) {
-      FancyNotification.show(context, "Erreur lors de la sélection de l'image", isError: true);
+      if (!mounted) return;
+      print('Erreur inattendue lors de la sélection de l\'image: $e');
+      FancyNotification.show(context, "Erreur lors de la sélection de l'image", type: NotificationType.error);
     }
   }
 
@@ -833,6 +1040,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     int maxLines = 1,
     String? fieldKey,
     String? Function(String?)? validator,
+    String? helperText,
   }) {
     final hasError = fieldKey != null && 
                      _shouldShowError(_currentStep, fieldKey) && 
@@ -865,6 +1073,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               }
               _validateStep(_currentStep);
             },
+            onTap: () {
+              if (fieldKey != null) {
+                _markFieldTouched(fieldKey);
+              }
+              _validateStep(_currentStep);
+            },
             decoration: InputDecoration(
               hintText: hint,
               prefixIcon: Icon(icon, color: hasError ? _errorColor : _primaryColor),
@@ -882,6 +1096,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               ),
               filled: true,
               fillColor: Colors.white,
+              helperText: helperText,
+              helperStyle: GoogleFonts.inter(
+                fontSize: _captionSize - 1,
+                color: _greyColor,
+                fontStyle: FontStyle.italic,
+              ),
             ),
           ),
           if (hasError && errorText != null)
@@ -1090,6 +1310,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         
         if (phone.isEmpty) {
           _setFieldError(1, 'phone', 'Téléphone requis');
+        } else {
+          final digits = phone.replaceAll(RegExp(r'\\D'), '');
+          if (digits.length < 9) {
+            _setFieldError(1, 'phone', 'Numéro invalide (min 9 chiffres)');
+          }
         }
         
         _stepValidations[1] = !_hasFieldErrors(1);
@@ -1182,6 +1407,13 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         imagesBase64.add(base64Encode(bytes));
       }
 
+      // Préparer le CV en base64 s'il existe
+      String? cvBase64;
+      if (_selectedCvFile != null && await _selectedCvFile!.exists()) {
+        final cvBytes = await _selectedCvFile!.readAsBytes();
+        cvBase64 = base64Encode(cvBytes);
+      }
+
       // Construire le payload
       final fullPhone = _selectedCountryCode + _phoneController.text.trim();
       final serviceData = <String, dynamic>{
@@ -1189,6 +1421,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         "description": _descriptionController.text.trim(),
         "priceMin": double.tryParse(_priceMinController.text) ?? 0.0,
         "priceMax": double.tryParse(_priceMaxController.text) ?? 0.0,
+        "currency": _selectedCurrency ?? 'CDF',
+        "experienceYears": _experienceController.text.trim().isNotEmpty ? int.tryParse(_experienceController.text) : null,
         "phone": fullPhone,
         "address": _addressController.text.trim(),
         "cityId": _isKinshasaSelected && _selectedCity != null ? _selectedCity!.cityId.toString() : "",
@@ -1201,6 +1435,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         "userId": _userId ?? 1,
         "username": _userFullName ?? "Prestataire",
         "serviceType": _userServiceType ?? "service",
+        // CV si disponible
+        if (cvBase64 != null) "cv": cvBase64,
+        if (_selectedCvFile != null) "cvFileName": _selectedCvFile!.path.split('/').last,
       };
 
       final ctrl = context.read<ServiceController>();
@@ -1220,7 +1457,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         }
       } else {
         String errorMessage = res.data?['message'] ?? res.errorMsg ?? "Erreur lors de la publication";
-        FancyNotification.show(context, "Une erreur est survenue lors de la publication. Veuillez réessayer.", isError: true);
+        FancyNotification.show(context, "Une erreur est survenue lors de la publication. Veuillez réessayer.", type: NotificationType.error);
       }
     } catch (e) {
       print("Erreur création service: $e");
@@ -1563,6 +1800,186 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     );
   }
   
+  Widget _buildCurrencyDropdown() {
+    return Container(
+      margin: EdgeInsets.only(bottom: _mediumSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Devise',
+            style: GoogleFonts.inter(
+              fontSize: _bodySize,
+              fontWeight: FontWeight.w600,
+              color: _darkColor,
+            ),
+          ),
+          SizedBox(height: _smallSpace),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _borderColor),
+            ),
+            padding: EdgeInsets.symmetric(horizontal: _mediumSpace),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedCurrency,
+                isExpanded: true,
+                icon: Icon(Icons.currency_exchange_rounded, color: _primaryColor),
+                items: [
+                  DropdownMenuItem(
+                    value: 'CDF',
+                    child: Row(
+                      children: [
+                        Text('Franc Congolais (CDF)', style: TextStyle(fontSize: _bodySize)),
+                        SizedBox(width: 8),
+                        Text('FC', style: TextStyle(fontSize: _captionSize, color: _greyColor)),
+                      ],
+                    ),
+                  ),
+                  DropdownMenuItem(
+                    value: 'USD',
+                    child: Row(
+                      children: [
+                        Text('Dollar Américain (USD)', style: TextStyle(fontSize: _bodySize)),
+                        SizedBox(width: 8),
+                        Text('\$', style: TextStyle(fontSize: _captionSize, color: _greyColor)),
+                      ],
+                    ),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _selectedCurrency = value;
+                    });
+                  }
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCvUploadSection() {
+    return Container(
+      margin: EdgeInsets.only(bottom: _mediumSpace),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _selectedCvFile != null ? _successColor : _borderColor,
+          width: _selectedCvFile != null ? 2 : 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: _pickCvFile,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: EdgeInsets.all(_mediumSpace),
+          child: Column(
+            children: [
+              Icon(
+                _selectedCvFile != null ? Icons.check_circle_rounded : Icons.upload_file_rounded,
+                color: _selectedCvFile != null ? _successColor : _primaryColor,
+                size: 48,
+              ),
+              SizedBox(height: _smallSpace),
+              Text(
+                _selectedCvFile != null ? 'CV importé' : 'Importer un CV',
+                style: GoogleFonts.inter(
+                  color: _darkColor,
+                  fontSize: _bodySize,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_selectedCvFile != null) ...[
+                SizedBox(height: 4),
+                Text(
+                  _selectedCvFile!.path.split('/').last,
+                  style: GoogleFonts.inter(
+                    color: _greyColor,
+                    fontSize: _captionSize,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: _removeCvFile,
+                  icon: Icon(Icons.delete_outline_rounded, size: 16, color: _errorColor),
+                  label: Text('Supprimer', style: GoogleFonts.inter(color: _errorColor, fontSize: _captionSize)),
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    minimumSize: Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ] else ...[
+                SizedBox(height: 4),
+                Text(
+                  'PDF ou DOC (max 5 MB)',
+                  style: GoogleFonts.inter(
+                    color: _greyColor,
+                    fontSize: _captionSize,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickCvFile() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx'],
+        withData: false,
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        
+        // Vérifier la taille du fichier (max 5 MB)
+        final fileSize = await file.length();
+        if (fileSize > 5 * 1024 * 1024) {
+          FancyNotification.show(
+            context,
+            "Le fichier est trop volumineux. Taille maximale: 5 MB",
+            type: NotificationType.error,
+          );
+          return;
+        }
+
+        setState(() {
+          _selectedCvFile = file;
+        });
+
+        SnackbarForCasa.success(context, "CV importé avec succès");
+      }
+    } catch (e) {
+      print('Erreur lors de la sélection du CV: $e');
+      FancyNotification.show(
+        context,
+        "Erreur lors de l'import du CV",
+        type: NotificationType.error,
+      );
+    }
+  }
+
+  void _removeCvFile() {
+    setState(() {
+      _selectedCvFile = null;
+    });
+  }
+
   Widget _buildPhoneField() {
     final errorText = _getFieldError(1, 'phone');
     final hasError = errorText != null && errorText.isNotEmpty && _shouldShowError(1, 'phone');
@@ -1593,7 +2010,17 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             keyboardType: TextInputType.phone,
             onChanged: (value) {
               _markFieldTouched('phone');
-              _removeFieldError(1, 'phone');
+              final digits = value.replaceAll(RegExp(r'\\D'), '');
+              if (digits.length < 9) {
+                _setFieldError(1, 'phone', 'Numéro invalide (min 9 chiffres)');
+              } else {
+                _removeFieldError(1, 'phone');
+              }
+              _validateStep(1);
+            },
+            onTap: () {
+              _markFieldTouched('phone');
+              _validateStep(1);
             },
             style: TextStyle(
               fontSize: _bodySize,
