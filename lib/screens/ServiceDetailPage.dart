@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/ServiceModel.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/FavoriteEartIcon.dart';
+import '../utils/Routes.dart';
 import 'ServiceFullScreenImageViewer.dart';
 import 'RequestInterventionPage.dart';
 
@@ -609,31 +610,57 @@ Découvrez ce service sur Casa!
 
                   // Avis clients (statiques)
                   SizedBox(height: 24),
-                  Text(
-                    'Avis des clients',
-                    style: GoogleFonts.inter(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: darkBlue,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Avis des clients',
+                        style: GoogleFonts.inter(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: darkBlue,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pushNamed(
+                            context,
+                            Routes.allReviewsRoute,
+                            arguments: widget.service,
+                          );
+                        },
+                        icon: Icon(Icons.arrow_forward_ios, size: 14),
+                        label: Text(
+                          'Voir tous',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: primaryColor,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   SizedBox(height: 12),
                   _buildReviewCard(
                     name: 'Patrick K.',
                     rating: 4.8,
                     comment: 'Travail propre et rapide, très professionnel. Je recommande.',
+                    datePosted: DateTime.now().subtract(Duration(days: 5)),
                   ),
                   SizedBox(height: 8),
                   _buildReviewCard(
                     name: 'Mireille N.',
                     rating: 4.7,
                     comment: 'Ponctuel et soigneux, les finitions sont impeccables.',
+                    datePosted: DateTime.now().subtract(Duration(days: 12)),
                   ),
                   SizedBox(height: 8),
                   _buildReviewCard(
                     name: 'Arnaud T.',
                     rating: 4.9,
                     comment: 'Très bonne communication et respect des délais.',
+                    datePosted: DateTime.now().subtract(Duration(days: 3)),
                   ),
 
                   // Bouton principal : Demander une intervention
@@ -833,10 +860,39 @@ Découvrez ce service sur Casa!
     // TODO: Implémenter l'ouverture WhatsApp avec url_launcher
   }
 
+  String _getTimeAgo(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      if (difference.inHours == 0) {
+        if (difference.inMinutes == 0) {
+          return 'À l\'instant';
+        }
+        return 'Il y a ${difference.inMinutes} ${difference.inMinutes > 1 ? 'minutes' : 'minute'}';
+      }
+      return 'Aujourd\'hui à ${date.hour.toString().padLeft(2, '0')}h${date.minute.toString().padLeft(2, '0')}';
+    } else if (difference.inDays == 1) {
+      return 'Hier à ${date.hour.toString().padLeft(2, '0')}h${date.minute.toString().padLeft(2, '0')}';
+    } else if (difference.inDays < 7) {
+      return 'Il y a ${difference.inDays} ${difference.inDays > 1 ? 'jours' : 'jour'}';
+    } else if (difference.inDays < 30) {
+      final weeks = (difference.inDays / 7).floor();
+      return 'Il y a ${weeks} ${weeks > 1 ? 'semaines' : 'semaine'}';
+    } else if (difference.inDays < 365) {
+      final months = (difference.inDays / 30).floor();
+      return 'Il y a ${months} ${months > 1 ? 'mois' : 'mois'}';
+    } else {
+      final years = (difference.inDays / 365).floor();
+      return 'Il y a ${years} ${years > 1 ? 'ans' : 'an'}';
+    }
+  }
+
   Widget _buildReviewCard({
     required String name,
     required double rating,
     required String comment,
+    DateTime? datePosted,
   }) {
     return Container(
       width: double.infinity,
@@ -891,6 +947,16 @@ Découvrez ce service sur Casa!
                             color: Colors.grey[800],
                           ),
                         ),
+                        if (datePosted != null) ...[
+                          SizedBox(width: 8),
+                          Text(
+                            '• ${_getTimeAgo(datePosted)}',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: Colors.grey[500],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],
