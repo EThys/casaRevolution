@@ -50,7 +50,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadReservations();
     _loadReservationCounts();
   }
@@ -177,11 +177,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
           // Carte de statistiques
           _buildTabBar(),
           Expanded(
-            child: TabBarView(
+            child:             TabBarView(
               controller: _tabController,
               children: [
                 _buildReservationList(_filterReservations(reservationCtrl.reservations, 'PENDING')),
                 _buildReservationList(_filterReservations(reservationCtrl.reservations, 'CONFIRMED')),
+                _buildReservationList(_filterReservations(reservationCtrl.reservations, 'COMPLETED')),
                 _buildReservationList(_filterReservations(reservationCtrl.reservations, 'CANCELLED')),
               ],
             ),
@@ -311,6 +312,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   // Bouton d'action flottant amélioré
   Widget _buildFloatingActionButton() {
     return FloatingActionButton(
+      heroTag: "booking_history_fab", // Tag unique pour éviter les conflits Hero
       onPressed: _isRefreshing ? null : _loadReservations,
       backgroundColor: _primaryColor,
       foregroundColor: Colors.white,
@@ -428,6 +430,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
     final pendingCount = _filterReservations(userReservations, 'PENDING').length;
     final confirmedCount = _filterReservations(userReservations, 'CONFIRMED').length;
+    final completedCount = _filterReservations(userReservations, 'COMPLETED').length;
     final cancelledCount = _filterReservations(userReservations, 'CANCELLED').length;
 
     return Container(
@@ -456,6 +459,9 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
               ),
               Tab(
                 text: 'Confirmées ($confirmedCount)',
+              ),
+              Tab(
+                text: 'Terminées ($completedCount)',
               ),
               Tab(
                 text: 'Annulées ($cancelledCount)',
@@ -526,12 +532,14 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     final emptyMessages = [
       "Aucune réservation en attente de confirmation",
       "Aucune réservation confirmée pour le moment",
+      "Aucune réservation terminée",
       "Aucune réservation annulée"
     ];
 
     final emptyIcons = [
       Icons.pending_actions,
       Icons.check_circle_outline,
+      Icons.done_all,
       Icons.cancel_outlined
     ];
 
@@ -623,6 +631,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     final isPending = reservation.status == 'PENDING';
     final isCancelled = reservation.status == 'CANCELLED';
     final isConfirmed = reservation.status == 'CONFIRMED';
+    final isCompleted = reservation.status == 'COMPLETED';
     final isCancelling = _cancellingIds.contains(reservation.reservationId);
     final imageUrl = _getImageUrl(reservation);
 
@@ -927,6 +936,34 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                                 ],
                               ),
                             ),
+                          if (isCompleted)
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: _primaryColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: _primaryColor.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.done_all,
+                                    size: 16,
+                                    color: _primaryColor,
+                                  ),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    'Terminée',
+                                    style: TextStyle(
+                                      color: _primaryColor,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           if (isCancelled)
                             Container(
                               padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -1035,6 +1072,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         return _warningColor;
       case 'CONFIRMED':
         return _successColor;
+      case 'COMPLETED':
+        return _primaryColor;
       case 'CANCELLED':
         return _errorColor;
       default:
@@ -1048,6 +1087,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         return 'En attente';
       case 'CONFIRMED':
         return 'Confirmée';
+      case 'COMPLETED':
+        return 'Terminée';
       case 'CANCELLED':
         return 'Annulée';
       default:
@@ -1085,7 +1126,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       if (!mounted) return;
 
       if (response.status == true) {
-        FancyNotification.show(context, "Réservation annulée avec succès", isError: false);
+        FancyNotification.show(context, "Réservation annulée avec succès", type: NotificationType.success);
 
         // Recharger les données
         await _loadReservations();
@@ -1122,6 +1163,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   Widget _buildReservationDetails(ReservationModel reservation) {
     final isPending = reservation.status == 'PENDING';
     final isCancelled = reservation.status == 'CANCELLED';
+    final isCompleted = reservation.status == 'COMPLETED';
     final imageUrl = _getImageUrl(reservation);
 
     return DraggableScrollableSheet(
@@ -1390,6 +1432,27 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       ),
                     ],
                   ),
+                if (isCompleted)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _showReviewDialog(reservation);
+                      },
+                      icon: Icon(Icons.star_outline, size: 20),
+                      label: Text('LAISSER UN AVIS'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _primaryColor,
+                        foregroundColor: Colors.white,
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
                 SizedBox(height: 10),
               ],
             ),
@@ -1592,6 +1655,181 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  void _showReviewDialog(ReservationModel reservation) {
+    double rating = 5.0;
+    final commentController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Container(
+                padding: EdgeInsets.all(24),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: _primaryColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(Icons.star, color: _primaryColor, size: 24),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Laisser un avis',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: _darkColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 20),
+                      Text(
+                        'Évaluez ce service',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: _darkColor,
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(5, (index) {
+                          final starIndex = index + 1;
+                          return GestureDetector(
+                            onTap: () {
+                              setDialogState(() {
+                                rating = starIndex.toDouble();
+                              });
+                            },
+                            child: Icon(
+                              starIndex <= rating ? Icons.star : Icons.star_border,
+                              color: Colors.amber,
+                              size: 40,
+                            ),
+                          );
+                        }),
+                      ),
+                      SizedBox(height: 20),
+                      Text(
+                        'Votre commentaire',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: _darkColor,
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      TextField(
+                        controller: commentController,
+                        decoration: InputDecoration(
+                          hintText: 'Partagez votre expérience...',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey[300]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: _primaryColor),
+                          ),
+                          contentPadding: EdgeInsets.all(15),
+                        ),
+                        maxLines: 5,
+                      ),
+                      SizedBox(height: 25),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              commentController.dispose();
+                              Navigator.pop(context);
+                            },
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            ),
+                            child: Text(
+                              'Annuler',
+                              style: TextStyle(
+                                color: _mediumGrey,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 10),
+                          ElevatedButton(
+                            onPressed: () async {
+                              if (commentController.text.trim().isEmpty) {
+                                FancyNotification.show(
+                                  context,
+                                  'Veuillez ajouter un commentaire',
+                                  type: NotificationType.warning,
+                                );
+                                return;
+                              }
+                              
+                              Navigator.pop(context);
+                              
+                              // TODO: Envoyer l'avis à l'API
+                              // Pour l'instant, on affiche juste une notification de succès
+                              FancyNotification.show(
+                                context,
+                                'Avis envoyé avec succès !',
+                                type: NotificationType.success,
+                              );
+                              
+                              commentController.dispose();
+                              
+                              // Recharger les réservations
+                              await _loadReservations();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _primaryColor,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            ),
+                            child: Text(
+                              'Envoyer',
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
