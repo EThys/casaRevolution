@@ -60,7 +60,7 @@ Future<HttpResponse> postDataOtp(String api_url, Map data, {String? token}) asyn
 
 Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
   try {
-    var url = Uri.parse("${Constantes.URL_BASE}$api_url");
+    var url = Uri.parse("${Constantes.BASE_URL}$api_url");
     String dataStr = json.encode(data);
     var tkn = token ?? Constantes.DefaultToken;
     var response = await http.put(url, body: dataStr, headers: {
