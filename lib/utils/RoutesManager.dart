@@ -20,7 +20,14 @@ import '../screens/auth/ForgotPasswordScreen.dart';
 import '../screens/auth/OTPVerificationScreen.dart';
 import '../screens/auth/ResetPasswordScreen.dart';
 import '../screens/CreateServicePage.dart';
+import '../screens/CreateServicePostPage.dart';
+import '../screens/QuickServiceRequestPage.dart';
+import '../screens/AllReviewsPage.dart';
+import '../screens/ServiceRequestDetailPage.dart';
+import '../screens/MyServiceRequestsPage.dart';
+import '../screens/ServiceRequestsForProvidersPage.dart';
 import '../models/ServiceModel.dart';
+import '../models/ServiceRequestModel.dart';
 import 'Routes.dart';
 
 
@@ -87,6 +94,20 @@ class RoutesManager {
           initialServiceType = r.arguments as ServiceType;
         }
         return MaterialPageRoute(builder: (_)=>CreateServicePage(initialServiceType: initialServiceType));
+      case Routes.createServicePostRoute:
+        return MaterialPageRoute(builder: (_)=>CreateServicePostPage());
+      case Routes.quickServiceRequestRoute:
+        return MaterialPageRoute(builder: (_)=>QuickServiceRequestPage());
+      case Routes.allReviewsRoute:
+        final ServiceModel service = r.arguments as ServiceModel;
+        return MaterialPageRoute(builder: (_)=>AllReviewsPage(service: service));
+      case Routes.serviceRequestDetailRoute:
+        final ServiceRequestModel request = r.arguments as ServiceRequestModel;
+        return MaterialPageRoute(builder: (_)=>ServiceRequestDetailPage(request: request));
+      case Routes.myServiceRequestsRoute:
+        return MaterialPageRoute(builder: (_)=>MyServiceRequestsPage());
+      case Routes.serviceRequestsForProvidersRoute:
+        return MaterialPageRoute(builder: (_)=>ServiceRequestsForProvidersPage());
       // case Routes.visitPageRoute:
       //   final PropertyModel property = r.arguments as PropertyModel;
       //   return MaterialPageRoute(builder: (_)=>BookingVisitPage(property: property));
