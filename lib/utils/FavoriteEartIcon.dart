@@ -37,6 +37,8 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
         final isFavorite = isLoggedIn
             ? provider.state.isFavorite(widget.propertyId)
             : false;
+        // Vérifier seulement si CETTE propriété spécifique est en chargement
+        final isLoadingThisProperty = provider.state.isLoadingProperty(widget.propertyId) || _isProcessing;
 
         return Stack(
           alignment: Alignment.center,
@@ -46,30 +48,45 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
               splashRadius: widget.splashRadius,
               padding: EdgeInsets.zero,
               icon: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
+                duration: const Duration(milliseconds: 200),
                 transitionBuilder: (child, animation) {
                   return ScaleTransition(
                     scale: animation,
-                    child: child,
+                    child: FadeTransition(
+                      opacity: animation,
+                      child: child,
+                    ),
                   );
                 },
-                child: Icon(
-                  isFavorite ? Icons.favorite : Icons.favorite_border,
-                  key: ValueKey<bool>(isFavorite),
-                  color: isFavorite
-                      ? widget.activeColor
-                      : widget.inactiveColor,
-                  size: widget.size,
-                  shadows: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
-                      blurRadius: 2,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
+                child: isLoadingThisProperty
+                    ? SizedBox(
+                        key: ValueKey('loading-${widget.propertyId}'),
+                        width: widget.size * 0.6,
+                        height: widget.size * 0.6,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            widget.activeColor ?? Colors.red,
+                          ),
+                        ),
+                      )
+                    : Icon(
+                        isFavorite ? Icons.favorite : Icons.favorite_border,
+                        key: ValueKey('${widget.propertyId}-${isFavorite}'),
+                        color: isFavorite
+                            ? widget.activeColor
+                            : widget.inactiveColor,
+                        size: widget.size,
+                        shadows: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 3,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
               ),
-              onPressed: _isProcessing
+              onPressed: isLoadingThisProperty
                   ? null
                   : () async {
                 if (!isLoggedIn) {
@@ -82,6 +99,11 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
                   );
                   return;
                 }
+
+                // Feedback haptique (vibration légère)
+                try {
+                  // HapticFeedback.lightImpact(); // Décommentez si vous avez le package
+                } catch (e) {}
 
                 setState(() => _isProcessing = true);
                 try {
@@ -98,6 +120,7 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
                   FancyNotification.show(
                     context,
                     'Erreur: ${e.toString().replaceAll("Null check", "Veuillez vous connecter")}',
+                    isError: true,
                   );
                 } finally {
                   if (mounted) {
@@ -106,24 +129,6 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
                 }
               },
             ),
-            if (_isProcessing)
-              Positioned(
-                child: Container(
-                  width: widget.size * 0.5,
-                  height: widget.size * 0.5,
-                  padding: EdgeInsets.all(widget.size * 0.1),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.8),
-                    shape: BoxShape.circle,
-                  ),
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      widget.activeColor ?? Colors.red,
-                    ),
-                  ),
-                ),
-              ),
           ],
         );
       },
