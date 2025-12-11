@@ -89,4 +89,20 @@ class Endpoints {
   static const String servicesByType = "services/type/";
   static const String myServices = "services/my";
 
+  // Service Requests Endpoints
+  static const String serviceRequests = "service-requests";
+  static const String createServiceRequest = "service-requests";
+  static const String getServiceRequests = "service-requests/user"; // Pour le demandeur
+  static const String getServiceRequestsForProviders = "service-requests/for-providers"; // Pour les prestataires
+  static const String serviceRequestDetail = "service-requests/";
+  static const String respondToRequest = "service-requests"; // POST avec requestId dans le body
+  static const String acceptResponse = "service-requests"; // PUT avec requestId et responseId
+  static const String cancelRequest = "service-requests"; // DELETE avec requestId
+
+  // Notifications Endpoints
+  static const String notifications = "notifications";
+  static const String markNotificationRead = "notifications/"; // PUT avec id
+  static const String markAllNotificationsRead = "notifications/read-all";
+  static const String deleteNotification = "notifications/"; // DELETE avec id
+
 }
