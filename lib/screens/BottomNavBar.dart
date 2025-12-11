@@ -77,6 +77,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           width: 60, // Réduit de 70 à 60
           height: 60, // Réduit de 70 à 60
           child: FloatingActionButton(
+            heroTag: "bottom_nav_bar_fab", // Tag unique pour éviter les conflits Hero
             backgroundColor: Colors.transparent,
             elevation: 0,
             highlightElevation: 0,
@@ -139,36 +140,13 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
                 return;
               }
 
-              if (typeAccountId == 5) {
-                // Prestataire de service - vérifier le type de service
-                var profile = _stockage.read(StockageKeys.profileKey);
-                var serviceProvider = userData?['serviceProvider'] ?? profile?['serviceProvider'];
-                var serviceType = serviceProvider?['serviceType'] ?? 
-                                 serviceProvider?['service_type'] ?? 
-                                 profile?['serviceType'] ??
-                                 userData?['serviceType'];
-                
-                if (serviceType == 'majordhomme' || serviceType == 'Majordhomme') {
-                  // Rediriger vers CreateServicePage avec type majordhomme
-                  Navigator.pushNamed(
-                    context,
-                    Routes.createServiceRoute,
-                    arguments: ServiceType.majordhomme,
-                  );
-                } else if (serviceType == 'demenagement' || serviceType == 'Demenagement') {
-                  // Rediriger vers CreateServicePage avec type déménagement
-                  Navigator.pushNamed(
-                    context,
-                    Routes.createServiceRoute,
-                    arguments: ServiceType.demenagement,
-                  );
-                } else {
-                  // Si le type n'est pas trouvé, permettre à l'utilisateur de choisir
-                  Navigator.pushNamed(
-                    context,
-                    Routes.createServiceRoute,
-                  );
-                }
+              // Prestataires de services (types de comptes de 5 à 20)
+              if (typeAccountId != null && typeAccountId >= 5 && typeAccountId <= 20) {
+                // Prestataire de service - rediriger vers la page de création de service pour prestataires
+                Navigator.pushNamed(
+                  context,
+                  Routes.createServicePostRoute,
+                );
                 return;
               }
 
