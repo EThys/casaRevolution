@@ -3887,7 +3887,23 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
       if (!mounted) return;
 
-      final isSuccess = (res.status && (res.data?['properties'] != null || res.data?['data'] != null || res.data?['success'] == true));
+      // Gérer le cas où res.data est null (erreur de parsing JSON/HTML)
+      if (res.data == null && !res.status!) {
+        await _trackEvent('property_creation_api_error', {
+          'error_message': res.errorMsg ?? 'Réponse serveur invalide (HTML au lieu de JSON)',
+          'step': _currentStep,
+          'property_type': _selectedCategory,
+        });
+
+        FancyNotification.show(
+          context,
+          res.errorMsg ?? "Le serveur a retourné une erreur. Veuillez réessayer plus tard.",
+          isError: true,
+        );
+        return;
+      }
+
+      final isSuccess = (res.status == true && (res.data?['properties'] != null || res.data?['data'] != null || res.data?['success'] == true));
       
       if (isSuccess) {
         await _trackEvent('property_creation_success', {
@@ -3916,7 +3932,16 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           );
         }
       } else {
-        String errorMessage = res.data['detailMessage'] ?? res.data['message'] ?? "Erreur lors de la publication de l'annonce";
+        // Erreur API
+        String errorMessage = "Une erreur est survenue lors de la publication";
+        
+        // Utiliser errorMsg si disponible (plus fiable)
+        if (res.errorMsg != null && res.errorMsg!.isNotEmpty) {
+          errorMessage = res.errorMsg!;
+        } else if (res.data != null && res.data is Map) {
+          errorMessage = res.data['detailMessage'] ?? res.data['message'] ?? res.data['error'] ?? "Erreur lors de la publication de l'annonce";
+        }
+        
         print("❌ Erreur API: $errorMessage");
 
         await _trackEvent('property_creation_api_error', {
@@ -3925,8 +3950,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           'property_type': _selectedCategory,
         });
 
-        // Ne pas afficher les erreurs techniques du serveur
-        FancyNotification.show(context, "Une erreur est survenue lors de la publication. Veuillez réessayer.", isError: true);
+        // Afficher le message d'erreur approprié
+        FancyNotification.show(context, errorMessage, isError: true);
       }
     } catch (e) {
       _clearImageCache();
