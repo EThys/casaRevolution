@@ -1,6 +1,5 @@
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/models/PropertyModel.dart';
-import 'package:casa/models/ServiceModel.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
@@ -10,73 +9,78 @@ import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:pull_to_refresh/pull_to_refresh.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:shimmer/shimmer.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class MyPropertiesPage extends StatefulWidget {
   @override
   _MyPropertiesPageState createState() => _MyPropertiesPageState();
 }
 
-class _MyPropertiesPageState extends State<MyPropertiesPage> {
+class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  bool _isLoadingData = true;
+  bool _isRefreshing = false;
+  final DateFormat _dateFormat = DateFormat('dd MMM yyyy', 'fr_FR');
+  final GetStorage _stockage = GetStorage();
+  
+  // Couleurs modernes (même que FavoritesPage)
   final Color _primaryColor = Color(0xFF1976D2);
-  final Color _accentColor = Color(0xFF64B5F6);
-  final Color _darkColor = Color(0xFF1A237E);
-  final Color _greyColor = Color(0xFF607D8B);
-  final Color _greyLight = Color(0xFFECEFF1);
-  final Color _cardColor = Colors.white;
-  final Color _dangerColor = Color(0xFFF44336);
-  final Color _successColor = Color(0xFF4CAF50);
+  final Color _secondaryColor = Color(0xFF64B5F6);
+  final Color _darkColor = Color(0xFF1A1D26);
+  final Color _lightGrey = Color(0xFFF5F6FA);
+  final Color _mediumGrey = Color(0xFF7F8C8D);
+  final Color _successColor = Color(0xFF00B894);
+  final Color _warningColor = Color(0xFFFDCB6E);
+  final Color _errorColor = Color(0xFFD63031);
+  final Color _cardBackground = Colors.white;
+  final Color _chipBackground = Color(0xFFE8F4F8);
 
   List<PropertyModel> _myProperties = [];
-  bool _isLoading = true;
-  String _searchQuery = '';
-  final GetStorage _stockage = GetStorage();
-  final RefreshController _refreshController = RefreshController(initialRefresh: false);
+  List<int> _deletingIds = [];
 
   @override
   void initState() {
     super.initState();
-    _loadMyProperties();
+    _tabController = TabController(length: 3, vsync: this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadMyProperties();
+    });
   }
 
   @override
   void dispose() {
-    _refreshController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadMyProperties({bool isRefresh = false}) async {
-    if (!isRefresh) {
-      setState(() => _isLoading = true);
-    }
+  Future<void> _loadMyProperties() async {
     try {
+      setState(() {
+        _isLoadingData = true;
+        _isRefreshing = true;
+      });
+
       final propertyController = Provider.of<PropertyController>(context, listen: false);
       final properties = await propertyController.getMyProperties();
+      
       if (mounted) {
         setState(() {
           _myProperties = properties;
-          _isLoading = false;
+          _isLoadingData = false;
+          _isRefreshing = false;
         });
-        if (isRefresh) {
-          _refreshController.refreshCompleted();
-
-        }
       }
     } catch (e) {
       print("❌ Erreur lors du chargement des propriétés: $e");
       if (mounted) {
-        setState(() => _isLoading = false);
-        if (isRefresh) {
-          _refreshController.refreshFailed();
-        }
+        setState(() {
+          _isLoadingData = false;
+          _isRefreshing = false;
+        });
         FancyNotification.show(context, "Erreur lors du chargement des propriétés");
       }
     }
-  }
-
-  void _onRefresh() async {
-    await _loadMyProperties(isRefresh: true);
   }
 
   Future<void> _deleteProperty(PropertyModel property) async {
@@ -85,25 +89,40 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(
-          'Supprimer la propriété',
-          style: TextStyle(fontWeight: FontWeight.w700, color: _darkColor),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: _errorColor, size: 28),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Supprimer',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: _darkColor,
+                ),
+              ),
+            ),
+          ],
         ),
         content: Text(
-          'Êtes-vous sûr de vouloir supprimer "${property.title}" ? Cette action est irréversible.',
-          style: TextStyle(color: _greyColor),
+          'Êtes-vous sûr de vouloir supprimer "${property.title}" ?\n\nCette action est irréversible.',
+          style: TextStyle(
+            color: _mediumGrey,
+            fontSize: 14,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Annuler', style: TextStyle(color: _greyColor)),
+            child: Text('Annuler', style: TextStyle(color: _mediumGrey)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: _dangerColor,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              backgroundColor: _errorColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             child: Text('Supprimer', style: TextStyle(color: Colors.white)),
           ),
@@ -112,6 +131,12 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> {
     );
 
     if (confirmed != true) return;
+
+    setState(() {
+      if (property.propertyId != null) {
+        _deletingIds.add(property.propertyId!);
+      }
+    });
 
     try {
       final propertyController = Provider.of<PropertyController>(context, listen: false);
@@ -124,7 +149,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> {
             "Propriété supprimée avec succès",
             type: NotificationType.success,
           );
-          _loadMyProperties();
+          await _loadMyProperties();
         }
       } else {
         if (mounted) {
@@ -138,15 +163,22 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> {
       if (mounted) {
         FancyNotification.show(context, "Erreur: ${e.toString()}");
       }
+    } finally {
+      if (mounted && property.propertyId != null) {
+        setState(() {
+          _deletingIds.remove(property.propertyId!);
+        });
+      }
     }
   }
 
   void _editProperty(PropertyModel property) {
-    Navigator.pushNamed(
+    // TODO: Créer une page séparée pour l'édition ou restaurer la fonctionnalité
+    FancyNotification.show(
       context,
-      Routes.createPropertyRoute,
-      arguments: property, // Passer la propriété pour l'édition
-    ).then((_) => _loadMyProperties());
+      "La modification sera disponible prochainement",
+      type: NotificationType.info,
+    );
   }
 
   void _viewProperty(PropertyModel property) {
@@ -161,962 +193,368 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> {
   void _handleCreateProperty() {
     var token = _stockage.read(StockageKeys.tokenKey);
     var userData = _stockage.read(StockageKeys.userKey);
-    // typeAccount peut être un objet imbriqué ou directement un ID
     var typeAccountObj = userData?['typeAccount'];
     var typeAccountId = typeAccountObj is Map 
         ? (typeAccountObj['typeAccountId'] ?? typeAccountObj['TypeAccountId'])
         : (userData?['typeAccountId'] ?? userData?['TypeAccountId']);
 
     if (token == null) {
-      SnackbarForCasa.info(
+      FancyNotification.show(
         context,
         "Vous devez avoir un compte et être connecté pour publier une annonce",
-        onTap: () {
-          Navigator.pushNamed(context, Routes.loginRoute);
-        },
+        type: NotificationType.info,
       );
       return;
     }
 
-    // Vérifier le type de compte
     if (typeAccountId == 4) {
-      // Locataire - ne peut pas créer
-      SnackbarForCasa.info(
+      FancyNotification.show(
         context,
         "La création d'annonces est réservée aux bailleurs, commissionnaires et prestataires de services",
+        type: NotificationType.info,
       );
       return;
     }
 
-    if (typeAccountId == 5) {
-      // Prestataire de service - vérifier le type de service
-      var profile = _stockage.read(StockageKeys.profileKey);
-      var serviceProvider = userData?['serviceProvider'] ?? profile?['serviceProvider'];
-      var serviceType = serviceProvider?['serviceType'] ?? 
-                       serviceProvider?['service_type'] ?? 
-                       profile?['serviceType'] ??
-                       userData?['serviceType'];
-      
-      if (serviceType == 'majordhomme' || serviceType == 'Majordhomme') {
-        // Rediriger vers CreateServicePage avec type majordhomme
-        Navigator.pushNamed(
-          context,
-          Routes.createServiceRoute,
-          arguments: ServiceType.majordhomme,
-        ).then((_) => _loadMyProperties());
-      } else if (serviceType == 'demenagement' || serviceType == 'Demenagement') {
-        // Rediriger vers CreateServicePage avec type déménagement
-        Navigator.pushNamed(
-          context,
-          Routes.createServiceRoute,
-          arguments: ServiceType.demenagement,
-        ).then((_) => _loadMyProperties());
-      } else {
-        // Si le type n'est pas trouvé, permettre à l'utilisateur de choisir
-        Navigator.pushNamed(
-          context,
-          Routes.createServiceRoute,
-        ).then((_) => _loadMyProperties());
-      }
+    if (typeAccountId != null && typeAccountId >= 5 && typeAccountId <= 20) {
+      Navigator.pushNamed(
+        context,
+        Routes.createServicePostRoute,
+      ).then((_) => _loadMyProperties());
       return;
     }
 
-    // Bailleur (3) ou Commissionnaire (2) - peuvent créer des propriétés
     if (typeAccountId == 2 || typeAccountId == 3) {
       Navigator.pushNamed(context, Routes.createPropertyRoute)
           .then((_) => _loadMyProperties());
     } else {
-      SnackbarForCasa.info(
+      FancyNotification.show(
         context,
         "Type de compte non reconnu. Veuillez contacter le support.",
+        type: NotificationType.info,
       );
     }
   }
 
-  List<PropertyModel> get _filteredProperties {
-    if (_searchQuery.isEmpty) return _myProperties;
-    return _myProperties.where((property) {
-      final title = property.title?.toLowerCase() ?? '';
-      final address = property.address?.toLowerCase() ?? '';
-      final query = _searchQuery.toLowerCase();
-      return title.contains(query) || address.contains(query);
-    }).toList();
+  List<PropertyModel> get _activeProperties => _myProperties.where((p) => p.isActive == true).toList();
+  List<PropertyModel> get _inactiveProperties => _myProperties.where((p) => p.isActive != true).toList();
+
+  List<PropertyModel> _filterProperties(String filter) {
+    switch (filter) {
+      case 'active':
+        return _activeProperties;
+      case 'inactive':
+        return _inactiveProperties;
+      case 'all':
+      default:
+        return _myProperties;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _greyLight,
-      appBar: PreferredSize(
-        preferredSize: Size.fromHeight(120),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [_primaryColor, _accentColor],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: _primaryColor.withOpacity(0.3),
-                blurRadius: 8,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: IconButton(
-                      icon: Icon(Icons.arrow_back_ios_rounded, color: Colors.white, size: 20),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ),
-                  SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Mes Propriétés',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            fontSize: 22,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          '${_myProperties.length} annonce${_myProperties.length > 1 ? 's' : ''}',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: IconButton(
-                      icon: Icon(Icons.refresh_rounded, color: Colors.white),
-                      onPressed: _loadMyProperties,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+      backgroundColor: _lightGrey,
+      appBar: _buildAppBar(),
       body: Column(
         children: [
-          // Barre de recherche améliorée
-          Container(
-            margin: EdgeInsets.fromLTRB(16, 16, 16, 12),
-            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-            decoration: BoxDecoration(
-              color: _cardColor,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 12,
-                  offset: Offset(0, 4),
-                  spreadRadius: 0,
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.search_rounded, color: _primaryColor, size: 22),
-                SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    onChanged: (value) => setState(() => _searchQuery = value),
-                    style: TextStyle(fontSize: 15, color: _darkColor),
-                    decoration: InputDecoration(
-                      hintText: 'Rechercher une propriété...',
-                      hintStyle: TextStyle(color: _greyColor, fontSize: 15),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
-                ),
-                if (_searchQuery.isNotEmpty)
-                  GestureDetector(
-                    onTap: () => setState(() => _searchQuery = ''),
-                    child: Container(
-                      padding: EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: _greyLight,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.close_rounded, color: _greyColor, size: 18),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-
-          // Statistiques améliorées
-          if (!_isLoading && _myProperties.isNotEmpty)
-            Container(
-              margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              padding: EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: _cardColor,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
-                    blurRadius: 16,
-                    offset: Offset(0, 4),
-                    spreadRadius: 0,
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildStatItem(
-                    Icons.home_rounded,
-                    '${_myProperties.length}',
-                    'Total',
-                    _primaryColor,
-                  ),
-                  Container(width: 1, height: 40, color: _greyLight),
-                  _buildStatItem(
-                    Icons.check_circle_rounded,
-                    '${_myProperties.where((p) => p.isActive == true).length}',
-                    'Actives',
-                    _successColor,
-                  ),
-                  Container(width: 1, height: 40, color: _greyLight),
-                  _buildStatItem(
-                    Icons.visibility_rounded,
-                    '${_myProperties.fold(0, (sum, p) => sum + (p.viewCount ?? 0))}',
-                    'Vues',
-                    _accentColor,
-                  ),
-                ],
-              ),
-            ),
-
-          SizedBox(height: 16),
-
-          // Liste des propriétés avec SmartRefresher
+          _buildTabBar(),
           Expanded(
-            child: _isLoading
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(color: _primaryColor),
-                        SizedBox(height: 16),
-                        Text(
-                          'Chargement de vos propriétés...',
-                          style: TextStyle(
-                            color: _greyColor,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : _filteredProperties.isEmpty
-                    ? SmartRefresher(
-                        controller: _refreshController,
-                        enablePullDown: true,
-                        enablePullUp: false,
-                        header: CustomHeader(
-                          builder: (context, mode) {
-                            return _buildRefreshHeader(mode!);
-                          },
-                        ),
-                        onRefresh: _onRefresh,
-                        child: _buildEmptyState(),
-                      )
-                    : SmartRefresher(
-                        controller: _refreshController,
-                        enablePullDown: true,
-                        enablePullUp: false,
-                        header: CustomHeader(
-                          builder: (context, mode) {
-                            return _buildRefreshHeader(mode!);
-                          },
-                        ),
-                        onRefresh: _onRefresh,
-                        child: ListView.separated(
-                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          itemCount: _filteredProperties.length,
-                          separatorBuilder: (context, index) => SizedBox(height: 16),
-                          itemBuilder: (context, index) {
-                            return _buildPropertyCard(_filteredProperties[index])
-                                .animate()
-                                .fadeIn(duration: 300.ms, delay: (index * 50).ms)
-                                .slideY(begin: 0.1, end: 0, duration: 300.ms, delay: (index * 50).ms);
-                          },
-                        ),
-                      ),
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildPropertyList(_filterProperties('all')),
+                _buildPropertyList(_filterProperties('active')),
+                _buildPropertyList(_filterProperties('inactive')),
+              ],
+            ),
           ),
         ],
       ),
-      floatingActionButton: Container(
-        width: 56,
-        height: 56,
-        child: FloatingActionButton(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          highlightElevation: 0,
-          splashColor: Colors.transparent,
-          child: Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [_primaryColor, _accentColor],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _primaryColor.withOpacity(0.4),
-                  spreadRadius: 1,
-                  blurRadius: 12,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Icon(Icons.add_rounded, color: Colors.white, size: 28),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: "my_properties_fab",
+        onPressed: _handleCreateProperty,
+        backgroundColor: _primaryColor,
+        foregroundColor: Colors.white,
+        elevation: 3,
+        icon: Icon(Icons.add_rounded, size: 24),
+        label: Text(
+          'Nouveau',
+          style: TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: 14,
           ),
-          onPressed: _handleCreateProperty,
         ),
       ),
     );
   }
 
-  Widget _buildStatItem(IconData icon, String value, String label, Color color) {
-    return Expanded(
-      child: Column(
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      elevation: 0,
+      flexibleSpace: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [_primaryColor, _secondaryColor],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+      ),
+      title: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            padding: EdgeInsets.all(10),
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              shape: BoxShape.circle,
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(icon, color: color, size: 22),
+            child: Icon(Icons.home_rounded, color: Colors.white, size: 18),
           ),
-          SizedBox(height: 12),
+          SizedBox(width: 12),
           Text(
-            value,
+            'Mes propriétés',
             style: TextStyle(
-              color: _darkColor,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.5,
-            ),
-          ),
-          SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: _greyColor,
-              fontSize: 12,
+              color: Colors.white,
               fontWeight: FontWeight.w600,
+              fontSize: 18,
             ),
+            textAlign: TextAlign.left,
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildPropertyCard(PropertyModel property) {
-    final firstImage = property.propertyImage?.isNotEmpty ?? false
-        ? property.propertyImage!.first
-        : null;
-    final imageUrl = firstImage?.path != null
-        ? "${firstImage!.path}"
-        : null;
-
-    final isActive = property.isActive == true;
-    final priceText = property.transactionType?.toLowerCase() == 'vente'
-        ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$'
-        : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$/mois';
-
-    return Container(
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 20,
-            offset: Offset(0, 6),
-            spreadRadius: 0,
-          ),
-          BoxShadow(
-            color: _primaryColor.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 2),
-            spreadRadius: 0,
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(24),
-          onTap: () => _viewProperty(property),
-          splashColor: _primaryColor.withOpacity(0.1),
-          highlightColor: _primaryColor.withOpacity(0.05),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      actions: [
+        Tooltip(
+          message: 'Actualiser',
+          child: Stack(
             children: [
-              // Image avec badge de statut
-              Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                    child: Stack(
-                      children: [
-                        imageUrl != null
-                            ? CachedNetworkImage(
-                                imageUrl: imageUrl,
-                                width: double.infinity,
-                                height: 180,
-                                fit: BoxFit.cover,
-                                placeholder: (context, url) => Container(
-                                  height: 180,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        _greyLight,
-                                        _greyLight.withOpacity(0.8),
-                                      ],
-                                    ),
-                                  ),
-                                  child: Center(
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
-                                    ),
-                                  ),
-                                ),
-                                errorWidget: (context, url, error) => Container(
-                                  height: 180,
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        _greyLight,
-                                        _greyLight.withOpacity(0.8),
-                                      ],
-                                    ),
-                                  ),
-                                  child: Icon(Icons.home_rounded, size: 40, color: _greyColor),
-                                ),
-                              )
-                            : Container(
-                                height: 180,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      _greyLight,
-                                      _greyLight.withOpacity(0.8),
-                                    ],
-                                  ),
-                                ),
-                                child: Icon(Icons.home_rounded, size: 40, color: _greyColor),
-                              ),
-                        // Gradient overlay
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black.withOpacity(0.1),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: isActive
-                              ? [_successColor, _successColor.withOpacity(0.8)]
-                              : [_dangerColor, _dangerColor.withOpacity(0.8)],
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (isActive ? _successColor : _dangerColor).withOpacity(0.4),
-                            blurRadius: 8,
-                            offset: Offset(0, 2),
-                            spreadRadius: 0,
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          SizedBox(width: 6),
-                          Text(
-                            isActive ? 'Active' : 'Inactive',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  if (property.viewCount != null && property.viewCount! > 0)
-                    Positioned(
-                      top: 12,
-                      left: 12,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.7),
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.3),
-                              blurRadius: 8,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.visibility_rounded, color: Colors.white, size: 16),
-                            SizedBox(width: 6),
-                            Text(
-                              '${property.viewCount}',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
+              IconButton(
+                icon: Icon(_isRefreshing ? Icons.refresh : Icons.refresh, color: Colors.white),
+                onPressed: _isRefreshing ? null : _loadMyProperties,
               ),
-
-              // Contenu
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      property.title ?? 'Sans titre',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: _darkColor,
+              if (_isRefreshing)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    constraints: BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(Icons.location_on_rounded, size: 16, color: _greyColor),
-                        SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            property.address ?? 'Adresse non spécifiée',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: _greyColor,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          priceText,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: _primaryColor,
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            if (property.bedrooms != null && property.bedrooms! > 0) ...[
-                              _buildFeatureChip('${property.bedrooms}', Icons.bed_rounded),
-                              SizedBox(width: 8),
-                            ],
-                            if (property.bathroom != null && property.bathroom! > 0) ...[
-                              _buildFeatureChip('${property.bathroom}', Icons.bathroom_rounded),
-                              SizedBox(width: 8),
-                            ],
-                            if (property.surface != null && property.surface! > 0)
-                              _buildFeatureChip(
-                                '${property.surface!.toStringAsFixed(0)}m²',
-                                Icons.square_foot_rounded,
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            height: 44,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [_primaryColor, _accentColor],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: _primaryColor.withOpacity(0.3),
-                                  blurRadius: 8,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => _editProperty(property),
-                                borderRadius: BorderRadius.circular(12),
-                                child: Center(
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.edit_rounded, color: Colors.white, size: 18),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        'Modifier',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Container(
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: _dangerColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: _dangerColor, width: 1.5),
-                            ),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => _deleteProperty(property),
-                                borderRadius: BorderRadius.circular(12),
-                                child: Center(
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(Icons.delete_rounded, color: _dangerColor, size: 18),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        'Supprimer',
-                                        style: TextStyle(
-                                          color: _dangerColor,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
-              ),
             ],
           ),
         ),
+      ],
+      bottom: PreferredSize(
+        preferredSize: Size.fromHeight(1),
+        child: Container(
+          height: 1,
+          color: Colors.white.withOpacity(0.2),
+        ),
       ),
     );
   }
 
-  Widget _buildFeatureChip(String label, IconData icon) {
+  Widget _buildTabBar() {
+    final allCount = _filterProperties('all').length;
+    final activeCount = _filterProperties('active').length;
+    final inactiveCount = _filterProperties('inactive').length;
+
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: _primaryColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      color: Colors.white,
+      child: Column(
         children: [
-          Icon(icon, size: 14, color: _primaryColor),
-          SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: _primaryColor,
+          TabBar(
+            controller: _tabController,
+            labelColor: _primaryColor,
+            unselectedLabelColor: _mediumGrey,
+            indicatorColor: _primaryColor,
+            indicatorWeight: 3,
+            indicatorSize: TabBarIndicatorSize.tab,
+            indicatorPadding: EdgeInsets.symmetric(horizontal: 10),
+            labelStyle: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
             ),
+            unselectedLabelStyle: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 13,
+            ),
+            tabs: [
+              Tab(text: 'Toutes ($allCount)'),
+              Tab(text: 'Actives ($activeCount)'),
+              Tab(text: 'Inactives ($inactiveCount)'),
+            ],
           ),
+          if (_isLoadingData)
+            LinearProgressIndicator(
+              backgroundColor: _lightGrey,
+              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+              minHeight: 2,
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildRefreshHeader(RefreshStatus mode) {
-    Widget content;
-
-    switch (mode) {
-      case RefreshStatus.idle:
-        content = _buildHeaderItem(
-          icon: Icons.arrow_downward_rounded,
-          text: "Tirer pour rafraîchir",
-          color: _greyColor,
+  Widget _buildPropertyList(List<PropertyModel> properties) {
+    return AnimatedSwitcher(
+      duration: Duration(milliseconds: 300),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return ScaleTransition(
+          scale: animation,
+          child: FadeTransition(
+            opacity: animation,
+            child: child,
+          ),
         );
-        break;
-      case RefreshStatus.canRefresh:
-        content = _buildHeaderItem(
-          icon: Icons.arrow_upward_rounded,
-          text: "Relâcher pour rafraîchir",
-          color: _primaryColor,
-        );
-        break;
-      case RefreshStatus.refreshing:
-        content = _buildRefreshInProgress();
-        break;
-      case RefreshStatus.completed:
-        content = _buildHeaderItem(
-          icon: Icons.check_circle_rounded,
-          text: "Rafraîchissement terminé",
-          color: _successColor,
-        );
-        break;
-      case RefreshStatus.failed:
-        content = _buildHeaderItem(
-          icon: Icons.error_outline_rounded,
-          text: "Échec du rafraîchissement",
-          color: _dangerColor,
-        );
-        break;
-      default:
-        content = Container();
-    }
-
-    return Container(
-      height: 80,
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      child: Center(child: content),
+      },
+      child: _isLoadingData
+          ? _buildShimmerEffect()
+          : properties.isEmpty
+          ? _buildEmptyState()
+          : _buildPropertyListContent(properties),
     );
   }
 
-  Widget _buildHeaderItem({required IconData icon, required String text, required Color color}) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          padding: EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: color, size: 22),
-        ),
-        SizedBox(height: 8),
-        Text(
-          text,
-          style: TextStyle(
-            color: color,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildRefreshInProgress() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          padding: EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: _primaryColor.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.5,
-              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+  Widget _buildShimmerEffect() {
+    return ListView.separated(
+      padding: EdgeInsets.all(20),
+      itemCount: 4,
+      separatorBuilder: (_, __) => SizedBox(height: 20),
+      itemBuilder: (context, index) {
+        return Shimmer.fromColors(
+          baseColor: Colors.grey[300]!,
+          highlightColor: Colors.grey[100]!,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+            ),
+            padding: EdgeInsets.all(1),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  height: 180,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                    color: Colors.grey[400],
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 20,
+                        width: double.infinity,
+                        color: Colors.grey[400],
+                      ),
+                      SizedBox(height: 8),
+                      Container(
+                        height: 16,
+                        width: 150,
+                        color: Colors.grey[400],
+                      ),
+                      SizedBox(height: 12),
+                      Container(
+                        height: 16,
+                        width: 200,
+                        color: Colors.grey[400],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        SizedBox(height: 8),
-        Text(
-          "Mise à jour...",
-          style: TextStyle(
-            color: _primaryColor,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
   Widget _buildEmptyState() {
+    final emptyMessages = [
+      "Aucune propriété publiée",
+      "Aucune propriété active",
+      "Aucune propriété inactive"
+    ];
+
+    final emptyIcons = [
+      Icons.home_work_outlined,
+      Icons.check_circle_outline,
+      Icons.hourglass_empty
+    ];
+
     return Center(
-      child: Padding(
-        padding: EdgeInsets.all(32),
+      child: SingleChildScrollView(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: EdgeInsets.all(24),
+              width: 120,
+              height: 120,
               decoration: BoxDecoration(
-                color: _primaryColor.withOpacity(0.1),
+                color: _lightGrey,
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.home_work_outlined,
-                size: 64,
-                color: _primaryColor,
+                emptyIcons[_tabController.index],
+                size: 60,
+                color: _mediumGrey.withOpacity(0.3),
               ),
             ),
-            SizedBox(height: 24),
+            SizedBox(height: 20),
             Text(
               'Aucune propriété',
               style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                color: _darkColor,
-                letterSpacing: -0.5,
+                color: _mediumGrey,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            SizedBox(height: 12),
-            Text(
-              'Commencez par créer votre première annonce\net partagez vos biens immobiliers',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                color: _greyColor,
-                height: 1.5,
-              ),
-            ),
-            SizedBox(height: 32),
-            Container(
-              height: 50,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [_primaryColor, _accentColor],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+            SizedBox(height: 10),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 40),
+              child: Text(
+                emptyMessages[_tabController.index],
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _mediumGrey.withOpacity(0.8),
+                  fontSize: 14,
                 ),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: _primaryColor.withOpacity(0.4),
-                    blurRadius: 12,
-                    offset: Offset(0, 4),
-                  ),
-                ],
               ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: _handleCreateProperty,
-                  borderRadius: BorderRadius.circular(16),
-                  child: Center(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.add_rounded, color: Colors.white, size: 24),
-                        SizedBox(width: 8),
-                        Text(
-                          'Créer une annonce',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+            ),
+            SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _handleCreateProperty,
+              icon: Icon(Icons.add_rounded, size: 20),
+              label: Text('Créer une annonce'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryColor,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
             ),
@@ -1125,5 +563,384 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> {
       ),
     );
   }
-}
 
+  Widget _buildPropertyListContent(List<PropertyModel> properties) {
+    return RefreshIndicator(
+      color: _primaryColor,
+      backgroundColor: Colors.white,
+      onRefresh: _loadMyProperties,
+      child: ListView.separated(
+        padding: EdgeInsets.all(20),
+        itemCount: properties.length,
+        separatorBuilder: (_, __) => SizedBox(height: 20),
+        itemBuilder: (context, index) {
+          final property = properties[index];
+          return AnimatedSwitcher(
+            duration: Duration(milliseconds: 300),
+            child: _buildPropertyCard(property),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPropertyCard(PropertyModel property) {
+    final isForRent = property.transactionType?.toLowerCase() == 'location';
+    final isAvailable = property.isActive == true;
+    final isDeleting = _deletingIds.contains(property.propertyId);
+
+    final firstImage = property.propertyImage?.isNotEmpty ?? false
+        ? property.propertyImage!.first
+        : null;
+    final imageUrl = firstImage?.path;
+
+    final priceText = isForRent
+        ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$/mois'
+        : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$';
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => _viewProperty(property),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: _cardBackground,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 20,
+              spreadRadius: 1,
+              offset: Offset(0, 10),
+            )
+          ],
+        ),
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    Container(
+                      height: 180,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        color: _lightGrey,
+                      ),
+                      child: imageUrl != null
+                          ? ClipRRect(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        child: CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          placeholder: (context, url) => Container(
+                            color: _lightGrey,
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: _primaryColor,
+                              ),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) {
+                            return Container(
+                              color: _lightGrey,
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.home, size: 50, color: _mediumGrey),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Image non disponible',
+                                      style: TextStyle(
+                                        color: _mediumGrey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                          : Container(
+                        color: _lightGrey,
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.home, size: 50, color: _mediumGrey),
+                              SizedBox(height: 8),
+                              Text(
+                                'Aucune image',
+                                style: TextStyle(
+                                  color: _mediumGrey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 15,
+                      left: 15,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isAvailable ? _successColor.withOpacity(0.9) : _errorColor.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          isAvailable ? 'Active' : 'Inactive',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 15,
+                      right: 15,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          priceText,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (property.viewCount != null && property.viewCount! > 0)
+                      Positioned(
+                        top: 15,
+                        left: 15,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.6),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.visibility_rounded, color: Colors.white, size: 14),
+                              SizedBox(width: 4),
+                              Text(
+                                '${property.viewCount}',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "${property.title ?? 'Propriété sans titre'}",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                          color: _darkColor,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on_outlined,
+                            size: 16,
+                            color: _mediumGrey,
+                          ),
+                          SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              "${property.address ?? 'Adresse non disponible'}",
+                              style: TextStyle(
+                                color: _mediumGrey,
+                                fontSize: 14,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 15),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _buildFeatureChips(property),
+                      ),
+                      SizedBox(height: 15),
+                      Divider(height: 1, color: _lightGrey),
+                      SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _editProperty(property),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _primaryColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: _primaryColor.withOpacity(0.3)),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.edit_outlined,
+                                      size: 16,
+                                      color: _primaryColor,
+                                    ),
+                                    SizedBox(width: 5),
+                                    Text(
+                                      'Modifier',
+                                      style: TextStyle(
+                                        color: _primaryColor,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () => _deleteProperty(property),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _errorColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: _errorColor.withOpacity(0.3)),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    if (isDeleting)
+                                      SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: _errorColor,
+                                        ),
+                                      )
+                                    else
+                                      Icon(
+                                        Icons.delete_outline,
+                                        size: 16,
+                                        color: _errorColor,
+                                      ),
+                                    if (!isDeleting) ...[
+                                      SizedBox(width: 5),
+                                      Text(
+                                        'Supprimer',
+                                        style: TextStyle(
+                                          color: _errorColor,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (isDeleting)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildFeatureChips(PropertyModel property) {
+    final features = <Widget>[];
+
+    if (property.bedrooms != null && property.bedrooms! > 0) {
+      features.add(_buildFeatureChip('${property.bedrooms} chambres'));
+    }
+    if (property.bathroom != null && property.bathroom! > 0) {
+      features.add(_buildFeatureChip('${property.bathroom} sdb'));
+    }
+    if (property.surface != null && property.surface! > 0) {
+      features.add(_buildFeatureChip('${property.surface!.toStringAsFixed(0)}m²'));
+    }
+    if (property.rooms != null && property.rooms! > 0) {
+      features.add(_buildFeatureChip('${property.rooms} pièces'));
+    }
+
+    return features;
+  }
+
+  Widget _buildFeatureChip(String text) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: _chipBackground,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          color: _darkColor,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+}
