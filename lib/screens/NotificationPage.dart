@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../utils/Routes.dart';
+import '../models/ServiceRequestModel.dart';
+import 'ServiceRequestDetailPage.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({Key? key}) : super(key: key);
@@ -11,26 +14,64 @@ class _NotificationsPageState extends State<NotificationsPage> {
   final List<NotificationItem> _notifications = [
     NotificationItem(
       id: '1',
+      title: 'Nouvelle demande de service',
+      description: 'Une nouvelle demande de plomberie vous attend',
+      time: 'Il y a 5 min',
+      icon: Icons.add_task_rounded,
+      iconColor: Colors.blueAccent,
+      isRead: false,
+      category: 'Demandes',
+      type: NotificationType.serviceRequest,
+      data: {'requestId': 1},
+    ),
+    NotificationItem(
+      id: '2',
+      title: 'Réponse à votre demande',
+      description: 'Un prestataire a répondu à votre demande de plomberie',
+      time: 'Il y a 10 min',
+      icon: Icons.reply_rounded,
+      iconColor: Colors.greenAccent,
+      isRead: false,
+      category: 'Demandes',
+      type: NotificationType.serviceResponse,
+      data: {'requestId': 2},
+    ),
+    NotificationItem(
+      id: '3',
+      title: 'Demande acceptée',
+      description: 'Votre réponse a été acceptée par le client',
+      time: 'Il y a 15 min',
+      icon: Icons.check_circle_rounded,
+      iconColor: Colors.greenAccent,
+      isRead: true,
+      category: 'Demandes',
+      type: NotificationType.serviceAccepted,
+      data: {'requestId': 3},
+    ),
+    NotificationItem(
+      id: '4',
       title: 'Nouveau message',
       description: 'Vous avez reçu un message de Peter Mposhi',
-      time: 'Il y a 5 min',
+      time: 'Il y a 1 heure',
       icon: Icons.message_rounded,
       iconColor: Colors.blueAccent,
       isRead: false,
       category: 'Messages',
+      type: NotificationType.message,
     ),
     NotificationItem(
-      id: '2',
+      id: '5',
       title: 'Rappel de rendez-vous',
       description: 'Rendez-vous demain à 14h30',
-      time: 'Il y a 1 heure',
+      time: 'Il y a 2 heures',
       icon: Icons.calendar_today_rounded,
       iconColor: Colors.greenAccent,
       isRead: false,
       category: 'Agenda',
+      type: NotificationType.appointment,
     ),
     NotificationItem(
-      id: '3',
+      id: '6',
       title: 'Paiement confirmé',
       description: 'Votre paiement de 149\$ a été accepté',
       time: 'Il y a 3 heures',
@@ -38,9 +79,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
       iconColor: Colors.greenAccent,
       isRead: true,
       category: 'Finances',
+      type: NotificationType.payment,
     ),
     NotificationItem(
-      id: '4',
+      id: '7',
       title: 'Sécurité',
       description: 'Connexion détectée depuis un nouvel appareil',
       time: 'Il y a 6 heures',
@@ -48,9 +90,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
       iconColor: Colors.orangeAccent,
       isRead: true,
       category: 'Sécurité',
+      type: NotificationType.security,
     ),
     NotificationItem(
-      id: '5',
+      id: '8',
       title: 'Promotion spéciale',
       description: 'Profitez de -30% sur tous les services ce week-end',
       time: 'Il y a 1 jour',
@@ -58,9 +101,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
       iconColor: Colors.purpleAccent,
       isRead: true,
       category: 'Promotions',
+      type: NotificationType.promotion,
     ),
     NotificationItem(
-      id: '6',
+      id: '9',
       title: 'Mise à jour disponible',
       description: 'Nouvelle version de l\'application Casa',
       time: 'Il y a 2 jours',
@@ -68,6 +112,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       iconColor: Colors.blueAccent,
       isRead: true,
       category: 'Système',
+      type: NotificationType.system,
     ),
   ];
 
@@ -285,6 +330,38 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
+  void _handleNotificationTap(NotificationItem notification) {
+    // Marquer comme lu
+    if (!notification.isRead) {
+      _toggleReadStatus(notification.id);
+    }
+
+    // Navigation selon le type
+    switch (notification.type) {
+      case NotificationType.serviceRequest:
+      case NotificationType.serviceResponse:
+      case NotificationType.serviceAccepted:
+      case NotificationType.serviceCompleted:
+        if (notification.data != null && notification.data!['requestId'] != null) {
+          final requestId = notification.data!['requestId'];
+          // TODO: Charger la demande depuis l'API ou passer l'objet complet
+          // Pour l'instant, on simule avec un objet minimal
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ServiceRequestDetailPage(
+                request: ServiceRequestModel(requestId: requestId),
+              ),
+            ),
+          );
+        }
+        break;
+      default:
+        // Autres types de notifications - pas de navigation spéciale
+        break;
+    }
+  }
+
   Widget _buildNotificationCard(NotificationItem notification) {
     return Dismissible(
       key: Key(notification.id),
@@ -304,7 +381,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
         ),
       ),
       onDismissed: (direction) => _deleteNotification(notification.id),
-      child: Container(
+      child: InkWell(
+        onTap: () => _handleNotificationTap(notification),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
         margin: EdgeInsets.only(bottom: 12),
         padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
@@ -415,6 +495,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -463,6 +544,19 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 }
 
+enum NotificationType {
+  message,
+  appointment,
+  payment,
+  security,
+  promotion,
+  system,
+  serviceRequest, // Nouvelle demande de service
+  serviceResponse, // Nouvelle réponse à une demande
+  serviceAccepted, // Demande acceptée
+  serviceCompleted, // Service terminé
+}
+
 class NotificationItem {
   final String id;
   final String title;
@@ -472,6 +566,8 @@ class NotificationItem {
   final Color iconColor;
   bool isRead;
   final String category;
+  final NotificationType type;
+  final Map<String, dynamic>? data; // Données pour navigation (ex: requestId)
 
   NotificationItem({
     required this.id,
@@ -482,6 +578,8 @@ class NotificationItem {
     required this.iconColor,
     required this.isRead,
     required this.category,
+    this.type = NotificationType.system,
+    this.data,
   });
 }
 
