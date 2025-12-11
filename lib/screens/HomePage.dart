@@ -27,6 +27,11 @@ import 'CategoryPropertiesPage.dart';
 import 'AllServiceCategoriesPage.dart';
 import 'NotificationPage.dart';
 import '../utils/DraftHelper.dart';
+import '../utils/static_services_data.dart';
+import 'ServiceDetailPage.dart';
+import 'ServiceCategoryPage.dart';
+import 'QuickServiceRequestModal.dart';
+import 'QuickServiceRequestPage.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -88,8 +93,25 @@ class _HomePageState extends State<HomePage> {
 
     final rentalProperties = properties.where((p) => p.transactionType == 'location').toList();
     final saleProperties = properties.where((p) => p.transactionType == 'vente').toList();
-    final majordhommeServices = services.where((s) => s.serviceType == ServiceType.majordhomme).toList();
-    final demenagementServices = services.where((s) => s.serviceType == ServiceType.demenagement).toList();
+    
+    // Utiliser les données statiques pour majordome et demenagement
+    final staticServices = StaticServicesData.getStaticServices();
+    final majordhommeServices = staticServices.where((s) => s.serviceType == ServiceType.majordhomme).toList();
+    final demenagementServices = staticServices.where((s) => s.serviceType == ServiceType.demenagement).toList();
+    
+    // Autres services (excluant majordhomme et demenagement)
+    final otherServices = services.where((s) => 
+      s.serviceType != ServiceType.majordhomme && 
+      s.serviceType != ServiceType.demenagement
+    ).toList();
+    
+    // Grouper les autres services par type
+    final Map<ServiceType, List<ServiceModel>> servicesByType = {};
+    for (var service in otherServices) {
+      if (service.serviceType != null) {
+        servicesByType.putIfAbsent(service.serviceType!, () => []).add(service);
+      }
+    }
 
     return Scaffold(
       key: _scaffoldKey,
@@ -129,19 +151,35 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Section Hero
+              // ============================================
+              // ZONE 1 : HERO & NAVIGATION RAPIDE
+              // ============================================
               _buildHeroSection(),
-              SizedBox(height: 20),
-              _buildCategorySection(),
+              SizedBox(height: 24),
 
-              // Indicateurs de statut discrets
+              _buildCategorySection(),
+              SizedBox(height: 15),
+              
               if (propertyCtrl.syncing && !_isManualRefresh)
-                _buildMinimalSyncIndicator(),
+                Padding(
+                  padding: EdgeInsets.only(bottom: 16),
+                  child: _buildMinimalSyncIndicator(),
+                ),
 
               if (_isManualRefresh && propertyCtrl.syncing)
-                _buildMinimalSyncIndicator(),
+                Padding(
+                  padding: EdgeInsets.only(bottom: 16),
+                  child: _buildMinimalSyncIndicator(),
+                ),
 
-              // Section Locations
+              // ============================================
+              // ZONE 2 : PROPRIÉTÉS (Contenu principal)
+              // ============================================
+              // PromoBanner avant propriétés (séparateur visuel)
+              PromoBanner(),
+              SizedBox(height: 32),
+              
+              // Section Locations (priorité car plus recherchée)
               _buildSectionHeader(
                 title: "Maisons en Location",
                 subtitle: "Découvrez nos meilleures offres",
@@ -158,14 +196,15 @@ class _HomePageState extends State<HomePage> {
                   );
                 },
               ),
+              SizedBox(height: 16),
               _buildPropertyCarousel(
                 isForRent: true,
                 properties: rentalProperties,
                 isLoading: propertyCtrl.loading,
               ),
-              SizedBox(height: 20),
-              PromoBanner(),
-              SizedBox(height: 20),
+              SizedBox(height: 32),
+              
+              // Section Ventes
               _buildSectionHeader(
                 title: "Maisons en Vente",
                 subtitle: "Investissez dans votre avenir",
@@ -182,49 +221,114 @@ class _HomePageState extends State<HomePage> {
                   );
                 },
               ),
+              SizedBox(height: 16),
               _buildPropertyCarousel(
                 isForRent: false,
                 properties: saleProperties,
                 isLoading: propertyCtrl.loading,
               ),
-              SizedBox(height: 20),
+              SizedBox(height: 32),
               
-              // Section Services Majordome
+              // ============================================
+              // ZONE 3 : SERVICES PRINCIPAUX
+              // ============================================
+              // PromoBanner avant services (transition visuelle)
+              PromoBanner(),
+              SizedBox(height: 32),
+              
+              // Section Services Majordome (service populaire)
               _buildSectionHeader(
                 title: "Femme de Ménage",
                 subtitle: "Nettoyage professionnel à domicile",
                 onSeeAll: () {
-                  SnackbarForCasa.info(context, "Page des services de ménage - En développement");
-                  // TODO: Créer une page dédiée pour les services
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ServiceCategoryPage(
+                        serviceType: ServiceType.majordhomme,
+                        services: majordhommeServices,
+                      ),
+                    ),
+                  );
                 },
               ),
+              SizedBox(height: 16),
               _buildServiceCarousel(
                 services: majordhommeServices,
-                isLoading: serviceCtrl.loading,
+                isLoading: false,
                 serviceType: ServiceType.majordhomme,
               ),
-              SizedBox(height: 20),
-              PromoBanner(),
-              SizedBox(height: 20),
+              SizedBox(height: 32),
               
               // Section Services de Déménagement
               _buildSectionHeader(
                 title: "Déménagement",
                 subtitle: "Déménagez en toute sérénité",
                 onSeeAll: () {
-                  SnackbarForCasa.info(context, "Page des services de déménagement - En développement");
-                  // TODO: Créer une page dédiée pour les services
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ServiceCategoryPage(
+                        serviceType: ServiceType.demenagement,
+                        services: demenagementServices,
+                      ),
+                    ),
+                  );
                 },
               ),
+              SizedBox(height: 16),
               _buildServiceCarousel(
                 services: demenagementServices,
-                isLoading: serviceCtrl.loading,
+                isLoading: false,
                 serviceType: ServiceType.demenagement,
               ),
-              SizedBox(height: 20),
+              SizedBox(height: 32),
+              
+              // ============================================
+              // ZONE 4 : AUTRES SERVICES (Complémentaire)
+              // ============================================
+              _buildSectionHeader(
+                title: "Autres Services",
+                subtitle: "Découvrez tous nos professionnels",
+                onSeeAll: () { 
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AllServiceCategoriesPage(),
+                    ),
+                  );
+                },
+              ),
+              SizedBox(height: 16),
+              _buildOtherServicesGrid(
+                servicesByType: servicesByType,
+                isLoading: serviceCtrl.loading,
+              ),
+              SizedBox(height: 32),
+              
+              // ============================================
+              // ZONE 5 : CALL-TO-ACTION FINAL
+              // ============================================
+              // PromoBanner final (engagement en fin de parcours)
+              PromoBanner(),
+              SizedBox(height: 32),
             ],
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        heroTag: "home_page_fab", // Tag unique pour éviter les conflits Hero
+        onPressed: () {
+          _showQuickServiceRequest();
+        },
+        backgroundColor: primaryColor,
+        elevation: 4,
+        child: Icon(
+          Icons.add_task_rounded,
+          color: Colors.white,
+          size: 28,
+        ),
+        tooltip: 'Demander un service',
       ),
     );
   }
@@ -863,6 +967,13 @@ class _HomePageState extends State<HomePage> {
                             isSelected:  selectedRoute == Routes.favoriteRoute,
                             onTap: () => _handleNavigation(Routes.favoriteRoute),
                           ),
+                          _buildDrawerItem(
+                            icon: Icons.add_task_rounded,
+                            title: 'Demander un service',
+                            routeName: Routes.quickServiceRequestRoute,
+                            isSelected: selectedRoute == Routes.quickServiceRequestRoute,
+                            onTap: () => _handleNavigation(Routes.quickServiceRequestRoute),
+                          ),
                           if (isLoggedIn) ...[
                             _buildDrawerItem(
                               icon: Icons.calendar_today_rounded,
@@ -877,6 +988,13 @@ class _HomePageState extends State<HomePage> {
                               routeName: Routes.commissionnaireDashboardPageRoute,
                               isSelected: selectedRoute == Routes.commissionnaireDashboardPageRoute,
                               onTap: () => _handleNavigation(Routes.commissionnaireDashboardPageRoute),
+                            ),
+                            _buildDrawerItem(
+                              icon: Icons.apartment_rounded,
+                              title: 'Mes propriétés',
+                              routeName: Routes.myPropertiesRoute,
+                              isSelected: selectedRoute == Routes.myPropertiesRoute,
+                              onTap: () => _handleNavigation(Routes.myPropertiesRoute),
                             ),
                           ],
                         ],
@@ -1076,7 +1194,9 @@ class _HomePageState extends State<HomePage> {
     if (routeName == Routes.bottomPageRoute ||
         routeName == Routes.commissionnaireDashboardPageRoute ||
         routeName == Routes.favoriteRoute ||
-        routeName == Routes.bookingHistoryPageRoute) {
+        routeName == Routes.myPropertiesRoute ||
+        routeName == Routes.bookingHistoryPageRoute ||
+        routeName == Routes.quickServiceRequestRoute) {
       Navigator.pushNamed(context, routeName);
     } else {
       SnackbarForCasa.info(
@@ -1084,6 +1204,14 @@ class _HomePageState extends State<HomePage> {
         "Fonctionnalité en cours de développement",
       );
     }
+  }
+
+  void _showQuickServiceRequest() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => QuickServiceRequestModal(),
+    );
   }
 
   void _animateAvatar() {
@@ -1744,10 +1872,6 @@ class _HomePageState extends State<HomePage> {
               : null;
           final imageUrl = firstImage;
 
-          final priceText = service.priceUnit != null
-              ? '${service.price?.toStringAsFixed(0) ?? '0'}\$/${_getPriceUnitShort(service.priceUnit!)}'
-              : '${service.price?.toStringAsFixed(0) ?? '0'}\$';
-
           return Container(
             width: 280,
             margin: EdgeInsets.only(right: 20, bottom: 10, top: 10),
@@ -1758,8 +1882,12 @@ class _HomePageState extends State<HomePage> {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(24),
                   onTap: () {
-                    // Navigation vers le détail du service
-                    SnackbarForCasa.info(context, "Détail du service - ${service.title ?? 'Service'}");
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ServiceDetailPage(service: service),
+                      ),
+                    );
                   },
                   child: AnimatedContainer(
                     duration: Duration(milliseconds: 300),
@@ -1786,8 +1914,12 @@ class _HomePageState extends State<HomePage> {
                                   ? CachedNetworkImage(
                                       imageUrl: imageUrl,
                                       fit: BoxFit.cover,
+                                      width: double.infinity,
+                                      height: double.infinity,
                                       key: ValueKey(imageUrl),
                                       placeholder: (context, url) => Container(
+                                        width: double.infinity,
+                                        height: double.infinity,
                                         color: Colors.grey[200],
                                         child: Center(
                                           child: CircularProgressIndicator(
@@ -1797,6 +1929,8 @@ class _HomePageState extends State<HomePage> {
                                         ),
                                       ),
                                       errorWidget: (context, url, error) => Container(
+                                        width: double.infinity,
+                                        height: double.infinity,
                                         color: Colors.grey[200],
                                         child: Center(
                                           child: Icon(
@@ -1808,6 +1942,8 @@ class _HomePageState extends State<HomePage> {
                                       ),
                                     )
                                   : Container(
+                                      width: double.infinity,
+                                      height: double.infinity,
                                       color: Colors.grey[200],
                                       child: Center(
                                         child: Icon(
@@ -1818,6 +1954,18 @@ class _HomePageState extends State<HomePage> {
                                       ),
                                     ),
                             ),
+                          ),
+                        ),
+                        // Bouton favoris
+                        Positioned(
+                          top: 12,
+                          right: 12,
+                          child: FavoriteHeartIcon(
+                            propertyId: 'service_${service.serviceId}',
+                            size: 24,
+                            splashRadius: 20,
+                            activeColor: Colors.red,
+                            inactiveColor: Colors.white,
                           ),
                         ),
                         Container(
@@ -1941,7 +2089,7 @@ class _HomePageState extends State<HomePage> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
-                                        priceText,
+                                        _getPriceRange(service),
                                         style: GoogleFonts.inter(
                                           color: Colors.white,
                                           fontSize: 18,
@@ -1980,9 +2128,319 @@ class _HomePageState extends State<HomePage> {
         return 'sem.';
       case 'par mois':
         return 'mois';
+      case 'par intervention':
+        return 'interv.';
+      case 'par projet':
+        return 'projet';
+      case 'par transport':
+        return 'transport';
+      case 'par déménagement':
+        return 'démén.';
+      case 'par visite':
+        return 'visite';
       default:
         return unit;
     }
+  }
+
+  String _getPriceRange(ServiceModel service) {
+    if (service.price == null) return 'Prix sur demande';
+
+    final double basePrice = service.price!;
+    // Calculer une plage de prix (±20%)
+    final double minPrice = (basePrice * 0.8);
+    final double maxPrice = (basePrice * 1.2);
+
+    if (minPrice.round() == maxPrice.round()) {
+      return '${_formatServicePrice(basePrice)} \$';
+    }
+
+    return '${_formatServicePrice(minPrice)} - ${_formatServicePrice(maxPrice)} \$';
+  }
+
+  String _formatServicePrice(num price) {
+    if (price >= 1000000) {
+      return '${(price / 1000000).toStringAsFixed(1)}M';
+    } else if (price >= 1000) {
+      return (price / 1000).toStringAsFixed(0) + 'K';
+    }
+    return price.toStringAsFixed(0);
+  }
+
+  Widget _buildOtherServicesGrid({
+    required Map<ServiceType, List<ServiceModel>> servicesByType,
+    required bool isLoading,
+  }) {
+    // Utiliser les données statiques
+    final staticServices = StaticServicesData.getStaticServices();
+    
+    // Grouper par type de service
+    final Map<ServiceType, List<ServiceModel>> groupedServices = {};
+    for (var service in staticServices) {
+      if (service.serviceType != null) {
+        groupedServices.putIfAbsent(service.serviceType!, () => []).add(service);
+      }
+    }
+
+    // Liste des types de services à afficher (priorité)
+    final List<ServiceType> priorityServiceTypes = [
+      ServiceType.plomberie,
+      ServiceType.electricite,
+      ServiceType.peinture,
+      ServiceType.carrelage,
+      ServiceType.climatisation,
+      ServiceType.reparation,
+      ServiceType.nettoyage,
+      ServiceType.transport,
+      ServiceType.renovation,
+      ServiceType.installation,
+      ServiceType.serrurerie,
+      ServiceType.vitrerie,
+    ];
+
+    // Filtrer et trier les services par priorité
+    final List<ServiceType> availableServiceTypes = priorityServiceTypes
+        .where((type) => groupedServices.containsKey(type) && groupedServices[type]!.isNotEmpty)
+        .take(6) // Limiter à 6 services pour la grille 2x3
+        .toList();
+
+    if (isLoading || availableServiceTypes.isEmpty) {
+      return Container(
+        height: 200,
+        margin: EdgeInsets.symmetric(horizontal: 24),
+        child: GridView.builder(
+          shrinkWrap: true,
+          physics: NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 0.85,
+          ),
+          itemCount: 6,
+          itemBuilder: (context, index) {
+            return Shimmer.fromColors(
+              baseColor: Colors.grey[300]!,
+              highlightColor: Colors.grey[100]!,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 24),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: NeverScrollableScrollPhysics(),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          // Un ratio plus petit pour donner plus de hauteur et éviter l'overflow
+          childAspectRatio: 0.72,
+        ),
+        itemCount: availableServiceTypes.length,
+        itemBuilder: (context, index) {
+          final serviceType = availableServiceTypes[index];
+          final serviceList = groupedServices[serviceType]!;
+          final serviceCount = serviceList.length;
+          final firstService = serviceList.first;
+
+          // Récupérer l'image de fond depuis le premier service
+          final backgroundImageUrl = firstService.images != null && 
+                                     firstService.images!.isNotEmpty
+              ? firstService.images!.first
+              : null;
+
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ServiceCategoryPage(
+                      serviceType: serviceType,
+                      services: serviceList,
+                    ),
+                  ),
+                );
+              },
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  height: double.infinity,
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 12,
+                        spreadRadius: 0,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // Image de fond
+                      backgroundImageUrl != null
+                          ? CachedNetworkImage(
+                              imageUrl: backgroundImageUrl,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      primaryColor.withOpacity(0.3),
+                                      primaryColor.withOpacity(0.1),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                ),
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white.withOpacity(0.7),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              errorWidget: (context, url, error) => Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      primaryColor.withOpacity(0.3),
+                                      primaryColor.withOpacity(0.1),
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                )
+                              ),
+                            )
+                          : Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    primaryColor.withOpacity(0.3),
+                                    primaryColor.withOpacity(0.1),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                            ),
+                      
+                      // Contenu superposé
+                      Container(
+                        padding: EdgeInsets.all(12),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.25),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.5),
+                                  width: 2,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 8,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // Texte et badge en bas
+                            Column(
+                              children: [
+                                Text(
+                                  serviceType.displayName,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    height: 1.2,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black.withOpacity(0.5),
+                                        offset: Offset(0, 1),
+                                        blurRadius: 3,
+                                      ),
+                                    ],
+                                  ),
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                SizedBox(height: 6),
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.25),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.5),
+                                      width: 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.1),
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Text(
+                                    '$serviceCount service${serviceCount > 1 ? 's' : ''}',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                      shadows: [
+                                        Shadow(
+                                          color: Colors.black.withOpacity(0.3),
+                                          offset: Offset(0, 1),
+                                          blurRadius: 2,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Widget _buildEmptyState() {
