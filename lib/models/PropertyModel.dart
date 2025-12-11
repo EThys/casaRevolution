@@ -213,7 +213,11 @@ class PropertyModel {
       propertyType: json["propertyType"] is Map<String, dynamic>
           ? PropertyTypeModel.fromJson(json["propertyType"])
           : null,
-      userId: _parseInt(json["userId"]) ?? 0,
+      // Extraire userId depuis json["userId"] ou depuis json["user"]["userId"]
+      userId: _parseInt(json["userId"]) ?? 
+              (json["user"] is Map && json["user"]["userId"] != null 
+                ? _parseInt(json["user"]["userId"]) 
+                : 0),
       user: json["user"] is Map<String, dynamic>
           ? UserModel.fromJson(json["user"])
           : null,
