@@ -19,6 +19,7 @@ import 'package:casa/controllers/RegisterChauffeurCtrl.dart';
 import 'package:casa/controllers/RegisterDemenagementCtrl.dart';
 import 'package:casa/controllers/TypeAccountController.dart';
 import 'package:casa/controllers/ServiceController.dart';
+import 'package:casa/controllers/ServiceRequestController.dart';
 import 'package:casa/controllers/provider/FavoriteProvider.dart';
 import 'package:casa/utils/database/FavoriteDatabaseHelper.dart';
 import 'package:flutter/material.dart';
@@ -74,6 +75,7 @@ class MonApplication extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ReservationController(stockage: _stockage)),
         ChangeNotifierProvider(create: (_) => LocationController()),
         ChangeNotifierProvider(create: (_) => ServiceController(stockage: _stockage)),
+        ChangeNotifierProvider(create: (_) => ServiceRequestController(stockage: _stockage)),
         ChangeNotifierProvider<PropertyFavoriteCtrl>(
           create: (_) => PropertyFavoriteCtrl(stockage: _stockage),
         ),
@@ -402,18 +404,18 @@ class MonApplication extends StatelessWidget {
             color: Colors.white24,
             thickness: 1,
             space: 1,
-          ),
+          ), 
           cardTheme: CardThemeData(
             color: const Color(0xFF1E1E1E),
             elevation: 2,
             shadowColor: Colors.black.withOpacity(0.5),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
-            ),
+            ), 
           ),
           chipTheme: ChipThemeData(
             backgroundColor: const Color(0xFF2C2C2C),
-            selectedColor: const Color(0xFF1976D2),
+            selectedColor: const Color(0xFF1976D2), 
             labelStyle: const TextStyle(color: Colors.white70),
             secondaryLabelStyle: const TextStyle(color: Colors.white),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
