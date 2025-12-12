@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:casa/controllers/ServiceController.dart';
@@ -9,16 +10,20 @@ import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/models/ServiceModel.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
+import 'package:casa/utils/city_suggestions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/StockageKeys.dart';
+// Firebase imports
+import 'package:firebase_analytics/firebase_analytics.dart';
 
 class CreateServicePage extends StatefulWidget {
   final ServiceType? initialServiceType;
@@ -59,6 +64,8 @@ class _CreateServicePageState extends State<CreateServicePage> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
+  final TextEditingController _minPriceController = TextEditingController();
+  final TextEditingController _maxPriceController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _whatsappController = TextEditingController();
@@ -67,6 +74,11 @@ class _CreateServicePageState extends State<CreateServicePage> {
   final TextEditingController _availableHoursController = TextEditingController();
   final TextEditingController _teamSizeController = TextEditingController();
   final TextEditingController _postalCodeController = TextEditingController();
+  // Controllers pour les champs texte de localisation (hors Kinshasa)
+  final TextEditingController _cityTextController = TextEditingController();
+  final TextEditingController _districtTextController = TextEditingController();
+  final TextEditingController _communeTextController = TextEditingController();
+  final TextEditingController _quartierTextController = TextEditingController();
   
   // Controllers spécifiques pour les nouveaux types
   final TextEditingController _numberOfRoomsController = TextEditingController();
@@ -83,6 +95,7 @@ class _CreateServicePageState extends State<CreateServicePage> {
   int _currentStep = 0;
   ServiceType? _selectedServiceType;
   String? _selectedPriceUnit;
+  String? _selectedCurrency = 'CDF'; // Devise par défaut : Franc Congolais
   String? _selectedVacationType;
   String? _selectedLandType;
   String? _selectedWarehouseType;
@@ -90,6 +103,7 @@ class _CreateServicePageState extends State<CreateServicePage> {
   LatLng? _selectedLocation;
   final ImagePicker _picker = ImagePicker();
   List<XFile> _selectedImages = [];
+  File? _selectedCvFile; // Fichier CV sélectionné (PDF ou DOC)
   Set<String> _selectedSpecialties = {};
   Set<String> _selectedDays = {};
   Set<String> _selectedHotelServices = {};
@@ -119,6 +133,25 @@ class _CreateServicePageState extends State<CreateServicePage> {
   // Validation errors
   Map<int, bool> _stepValidations = {0: false, 1: false, 2: false};
   Map<int, String> _stepErrorMessages = {};
+  Map<int, Map<String, String>> _stepFieldErrors = {
+    0: {}, // Erreurs par champ pour l'étape 0
+    1: {}, // Erreurs par champ pour l'étape 1
+    2: {}, // Erreurs par champ pour l'étape 2
+  };
+  Map<String, bool> _fieldTouched = {};
+  bool _hasAttemptedSubmit = false;
+  
+  // Firebase Analytics
+  final FirebaseAnalytics _analytics = FirebaseAnalytics.instance;
+  DateTime? _pageStartTime;
+  Timer? _pageDurationTimer;
+  int _totalPageTimeSeconds = 0;
+  int _clickCount = 0;
+  
+  // Détection Kinshasa
+  bool get _isKinshasaSelected =>
+      (_selectedCity?.name?.toLowerCase().trim() ?? '') == 'kinshasa' ||
+      (_cityTextController.text.toLowerCase().trim() == 'kinshasa');
 
   final stockage = GetStorage();
   late final profile = stockage.read(StockageKeys.profileKey);
@@ -247,7 +280,15 @@ class _CreateServicePageState extends State<CreateServicePage> {
       // Ne pas changer l'étape, juste pré-sélectionner le type
     }
     _postalCodeController.text = '243';
+    _cityTextController.text = '';
+    _districtTextController.text = '';
+    _communeTextController.text = '';
+    _quartierTextController.text = '';
+    
     _initSharedPreferences();
+    
+    // Démarrer le tracking Firebase
+    _startPageTracking();
   }
 
   Future<void> _initSharedPreferences() async {
@@ -263,14 +304,22 @@ class _CreateServicePageState extends State<CreateServicePage> {
       if (mounted) {
         setState(() {
           _availableCities = locationCtrl.cities;
+          // Charger toutes les communes et quartiers pour les suggestions
+          _availableCommunes = locationCtrl.communes;
+          _availableQuartiers = locationCtrl.quartiers;
+          
           if (_availableCities.isNotEmpty) {
-            _selectedCity = _availableCities.first;
-            _updateDistrictsForCity();
+            // Ne pas pré-sélectionner automatiquement la première ville
+            // L'utilisateur doit choisir
           }
         });
       }
     } catch (e) {
       print("Erreur lors du chargement des données de localisation: $e");
+      _availableCities = [];
+      _availableDistricts = [];
+      _availableCommunes = [];
+      _availableQuartiers = [];
     }
   }
 
@@ -318,8 +367,161 @@ class _CreateServicePageState extends State<CreateServicePage> {
     });
   }
 
+  // =============================================
+  // FIREBASE ANALYTICS METHODS
+  // =============================================
+
+  void _startPageTracking() {
+    _pageStartTime = DateTime.now();
+    _totalPageTimeSeconds = 0;
+    _clickCount = 0;
+    
+    // Démarrer un timer pour suivre le temps passé sur la page
+    _pageDurationTimer = Timer.periodic(Duration(seconds: 10), (timer) {
+      if (mounted && _pageStartTime != null) {
+        _totalPageTimeSeconds += 10;
+        _trackEvent('page_time_update', {
+          'page_name': 'create_service',
+          'duration_seconds': _totalPageTimeSeconds,
+          'step': _currentStep,
+        });
+      } else {
+        timer.cancel();
+      }
+    });
+    
+    _trackEvent('page_view', {
+      'page_name': 'create_service',
+      'timestamp': _pageStartTime!.millisecondsSinceEpoch,
+    });
+    _trackPageView('create_service_page');
+  }
+
+  void _endPageTracking() {
+    // Annuler le timer
+    _pageDurationTimer?.cancel();
+    _pageDurationTimer = null;
+    
+    if (_pageStartTime != null) {
+      final duration = DateTime.now().difference(_pageStartTime!);
+      _trackEvent('page_exit', {
+        'page_name': 'create_service',
+        'duration_seconds': duration.inSeconds,
+        'total_time_tracked_seconds': _totalPageTimeSeconds,
+        'steps_completed': _currentStep,
+        'service_type': _selectedServiceType?.value ?? 'none',
+        'click_count': _clickCount,
+        'has_attempted_submit': _hasAttemptedSubmit,
+      });
+    }
+  }
+
+  Future<void> _trackEvent(String name, Map<String, dynamic> parameters) async {
+    try {
+      final Map<String, Object> convertedParams = {};
+
+      parameters.forEach((key, value) {
+        if (value is String) {
+          convertedParams[key] = value;
+        } else if (value is int) {
+          convertedParams[key] = value;
+        } else if (value is double) {
+          convertedParams[key] = value;
+        } else if (value is bool) {
+          convertedParams[key] = value;
+        } else if (value == null) {
+          convertedParams[key] = 'null';
+        } else {
+          convertedParams[key] = value.toString();
+        }
+      });
+
+      await _analytics.logEvent(
+        name: name,
+        parameters: convertedParams,
+      );
+      print('📊 Firebase Event: $name - $convertedParams');
+    } catch (e) {
+      print('❌ Firebase Analytics Error: $e');
+    }
+  }
+
+  Future<void> _trackPageView(String pageName) async {
+    try {
+      await _analytics.logScreenView(
+        screenName: pageName,
+        screenClass: 'CreateServicePage',
+      );
+    } catch (e) {
+      print('❌ Firebase Page View Error: $e');
+    }
+  }
+
+  Future<void> _trackSelection(String type, String value) async {
+    await _trackEvent('selection_$type', {
+      'value': value,
+      'step': _currentStep,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  // =============================================
+  // VALIDATION HELPERS
+  // =============================================
+
+  List<String> _filterSuggestions(String query, List<String> source) {
+    if (query.isEmpty) return source.take(15).toList();
+    final lower = query.toLowerCase();
+    return source
+        .where((item) => item.toLowerCase().contains(lower))
+        .take(15)
+        .toList();
+  }
+
+  void _setFieldError(int step, String field, String error) {
+    if (!_stepFieldErrors.containsKey(step)) {
+      _stepFieldErrors[step] = {};
+    }
+    _stepFieldErrors[step]![field] = error;
+  }
+  
+  void _markFieldTouched(String field) {
+    _fieldTouched[field] = true;
+    // Track field interaction
+    _trackEvent('field_interaction', {
+      'field_name': field,
+      'step': _currentStep,
+    });
+  }
+  
+  bool _shouldShowError(int step, String field) {
+    // Afficher l'erreur seulement si :
+    // 1. L'utilisateur a tenté de soumettre, OU
+    // 2. Le champ a été touché/interagi
+    return _hasAttemptedSubmit || _fieldTouched[field] == true;
+  }
+
+  void _removeFieldError(int step, String field) {
+    if (_stepFieldErrors.containsKey(step)) {
+      _stepFieldErrors[step]!.remove(field);
+    }
+  }
+
+  String? _getFieldError(int step, String field) {
+    return _stepFieldErrors[step]?[field];
+  }
+
+  bool _hasFieldErrors(int step) {
+    return _stepFieldErrors[step]?.isNotEmpty ?? false;
+  }
+
   @override
   void dispose() {
+    // Annuler le timer de tracking
+    _pageDurationTimer?.cancel();
+    _pageDurationTimer = null;
+    _endPageTracking();
+    
     _titleController.dispose();
     _descriptionController.dispose();
     _priceController.dispose();
@@ -331,6 +533,12 @@ class _CreateServicePageState extends State<CreateServicePage> {
     _availableHoursController.dispose();
     _teamSizeController.dispose();
     _postalCodeController.dispose();
+    _cityTextController.dispose();
+    _districtTextController.dispose();
+    _communeTextController.dispose();
+    _quartierTextController.dispose();
+    _minPriceController.dispose();
+    _maxPriceController.dispose();
     _numberOfRoomsController.dispose();
     _surfaceAreaController.dispose();
     _numberOfDesksController.dispose();
@@ -775,11 +983,68 @@ class _CreateServicePageState extends State<CreateServicePage> {
           SizedBox(height: _mediumSpace),
           _buildTextField(_descriptionController, 'Description détaillée', Icons.description_rounded, maxLines: 5),
           SizedBox(height: _mediumSpace),
+          
+          // Choix de la devise
+          _buildCurrencyDropdown(),
+          SizedBox(height: _mediumSpace),
+          
+          // Prix minimum et maximum
+          _buildModernSectionHeader(title: 'Fourchette de prix', icon: Icons.attach_money_rounded),
+          SizedBox(height: _smallSpace),
+          Container(
+            padding: EdgeInsets.all(_mediumSpace),
+            decoration: BoxDecoration(
+              color: _primaryColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _primaryColor.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, color: _primaryColor, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Indiquez une fourchette de prix pour donner plus de flexibilité à vos clients',
+                    style: TextStyle(
+                      color: _greyColor,
+                      fontSize: _captionSize,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: _mediumSpace),
+          Row(
+            children: [
+              Expanded(
+                child: _buildTextField(
+                  _minPriceController,
+                  'Prix minimum',
+                  Icons.trending_down_rounded,
+                  keyboardType: TextInputType.number,
+                  helperText: 'Le prix le plus bas pour votre service',
+                ),
+              ),
+              SizedBox(width: _smallSpace),
+              Expanded(
+                child: _buildTextField(
+                  _maxPriceController,
+                  'Prix maximum',
+                  Icons.trending_up_rounded,
+                  keyboardType: TextInputType.number,
+                  helperText: 'Le prix le plus élevé pour votre service',
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: _mediumSpace),
           Row(
             children: [
               Expanded(
                 flex: 2,
-                child: _buildTextField(_priceController, 'Prix', Icons.attach_money_rounded, keyboardType: TextInputType.number),
+                child: _buildTextField(_priceController, 'Prix fixe (optionnel)', Icons.attach_money_rounded, keyboardType: TextInputType.number),
               ),
               SizedBox(width: _smallSpace),
               Expanded(
@@ -788,12 +1053,52 @@ class _CreateServicePageState extends State<CreateServicePage> {
             ],
           ),
           SizedBox(height: _largeSpace),
+          
+          // Année d'expérience (pour tous les services)
+          _buildTextField(
+            _experienceController,
+            'Années d\'expérience',
+            Icons.work_history_rounded,
+            keyboardType: TextInputType.number,
+            helperText: 'Nombre d\'années d\'expérience dans ce domaine',
+          ),
+          SizedBox(height: _largeSpace),
+          
+          // Import CV (optionnel)
+          _buildModernSectionHeader(title: 'Curriculum Vitae (optionnel)', icon: Icons.description_rounded),
+          SizedBox(height: _smallSpace),
+          Container(
+            padding: EdgeInsets.all(_mediumSpace),
+            decoration: BoxDecoration(
+              color: _primaryColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _primaryColor.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, color: _primaryColor, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Ajoutez votre CV pour renforcer votre crédibilité (PDF ou DOC)',
+                    style: TextStyle(
+                      color: _greyColor,
+                      fontSize: _captionSize,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: _mediumSpace),
+          _buildCvUploadSection(),
+          SizedBox(height: _largeSpace),
           if (_selectedServiceType == ServiceType.majordhomme) ...[
             _buildModernSectionHeader(title: 'Spécialités', icon: Icons.star_rounded),
             SizedBox(height: _mediumSpace),
             _buildSpecialtiesGrid(),
             SizedBox(height: _largeSpace),
-            _buildTextField(_experienceController, 'Années d\'expérience', Icons.work_history_rounded, keyboardType: TextInputType.number),
           ],
           if (_selectedServiceType == ServiceType.demenagement) ...[
             _buildModernSectionHeader(title: 'Informations supplémentaires', icon: Icons.info_rounded),
@@ -973,26 +1278,84 @@ class _CreateServicePageState extends State<CreateServicePage> {
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String label, IconData icon, {int maxLines = 1, TextInputType? keyboardType}) {
+  Widget _buildTextField(TextEditingController controller, String label, IconData icon, {int maxLines = 1, TextInputType? keyboardType, void Function(String)? onChanged, String? helperText}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: _cardColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _borderColor),
+          ),
+          child: TextField(
+            controller: controller,
+            maxLines: maxLines,
+            keyboardType: keyboardType,
+            style: TextStyle(color: _darkColor, fontSize: _bodySize),
+            decoration: InputDecoration(
+              labelText: label,
+              prefixIcon: Icon(icon, color: _primaryColor),
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              labelStyle: TextStyle(color: _greyColor),
+              helperText: helperText,
+              helperStyle: TextStyle(
+                color: _greyColor,
+                fontSize: _captionSize,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            onChanged: onChanged ?? (_) => _validateStep1(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCurrencyDropdown() {
     return Container(
       decoration: BoxDecoration(
         color: _cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: _borderColor),
       ),
-      child: TextField(
-        controller: controller,
-        maxLines: maxLines,
-        keyboardType: keyboardType,
-        style: TextStyle(color: _darkColor, fontSize: _bodySize),
-        decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(icon, color: _primaryColor),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          labelStyle: TextStyle(color: _greyColor),
+      padding: EdgeInsets.symmetric(horizontal: 12),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedCurrency,
+          hint: Text('Devise', style: TextStyle(color: _greyColor, fontSize: _bodySize)),
+          isExpanded: true,
+          items: [
+            DropdownMenuItem(
+              value: 'CDF',
+              child: Row(
+                children: [
+                  Text('Franc Congolais (CDF)', style: TextStyle(fontSize: _bodySize)),
+                  SizedBox(width: 8),
+                  Text('FC', style: TextStyle(fontSize: _captionSize, color: _greyColor)),
+                ],
+              ),
+            ),
+            DropdownMenuItem(
+              value: 'USD',
+              child: Row(
+                children: [
+                  Text('Dollar Américain (USD)', style: TextStyle(fontSize: _bodySize)),
+                  SizedBox(width: 8),
+                  Text('\$', style: TextStyle(fontSize: _captionSize, color: _greyColor)),
+                ],
+              ),
+            ),
+          ],
+          onChanged: (value) {
+            setState(() {
+              _selectedCurrency = value;
+              _trackSelection('currency', value ?? 'unknown');
+            });
+          },
+          icon: Icon(Icons.currency_exchange_rounded, color: _primaryColor),
         ),
-        onChanged: (_) => _validateStep1(),
       ),
     );
   }
@@ -1025,6 +1388,134 @@ class _CreateServicePageState extends State<CreateServicePage> {
         ),
       ),
     );
+  }
+
+  Widget _buildCvUploadSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _selectedCvFile != null ? _successColor : _borderColor,
+          width: _selectedCvFile != null ? 2 : 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: _pickCvFile,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: EdgeInsets.all(_mediumSpace),
+          child: Column(
+            children: [
+              Icon(
+                _selectedCvFile != null ? Icons.check_circle_rounded : Icons.upload_file_rounded,
+                color: _selectedCvFile != null ? _successColor : _primaryColor,
+                size: 48,
+              ),
+              SizedBox(height: _smallSpace),
+              Text(
+                _selectedCvFile != null ? 'CV importé' : 'Importer un CV',
+                style: TextStyle(
+                  color: _darkColor,
+                  fontSize: _bodySize,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              if (_selectedCvFile != null) ...[
+                SizedBox(height: 4),
+                Text(
+                  _selectedCvFile!.path.split('/').last,
+                  style: TextStyle(
+                    color: _greyColor,
+                    fontSize: _captionSize,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: _removeCvFile,
+                  icon: Icon(Icons.delete_outline_rounded, size: 16, color: _errorColor),
+                  label: Text('Supprimer', style: TextStyle(color: _errorColor, fontSize: _captionSize)),
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    minimumSize: Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ] else ...[
+                SizedBox(height: 4),
+                Text(
+                  'PDF ou DOC (max 5 MB)',
+                  style: TextStyle(
+                    color: _greyColor,
+                    fontSize: _captionSize,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickCvFile() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx'],
+        withData: false,
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        
+        // Vérifier la taille du fichier (max 5 MB)
+        final fileSize = await file.length();
+        if (fileSize > 5 * 1024 * 1024) {
+          FancyNotification.show(
+            context,
+            "Le fichier est trop volumineux. Taille maximale: 5 MB",
+            isError: true,
+          );
+          return;
+        }
+
+        setState(() {
+          _selectedCvFile = file;
+        });
+
+        _trackEvent('cv_file_selected', {
+          'file_name': file.path.split('/').last,
+          'file_size_mb': (fileSize / (1024 * 1024)).toStringAsFixed(2),
+        });
+
+        FancyNotification.show(
+          context,
+          "CV importé avec succès",
+          isError: false,
+        );
+      }
+    } catch (e) {
+      print('Erreur lors de la sélection du CV: $e');
+      _trackEvent('cv_file_selection_error', {
+        'error': e.toString(),
+      });
+      FancyNotification.show(
+        context,
+        "Erreur lors de l'import du CV",
+        isError: true,
+      );
+    }
+  }
+
+  void _removeCvFile() {
+    setState(() {
+      _selectedCvFile = null;
+    });
+    _trackEvent('cv_file_removed', {});
   }
 
   Widget _buildSpecialtiesGrid() {
@@ -1248,7 +1739,13 @@ class _CreateServicePageState extends State<CreateServicePage> {
         children: [
           _buildModernSectionHeader(title: 'Coordonnées', icon: Icons.contact_phone_rounded),
           SizedBox(height: _mediumSpace),
-          _buildTextField(_phoneController, 'Téléphone', Icons.phone_rounded, keyboardType: TextInputType.phone),
+          _buildTextField(
+            _phoneController, 
+            'Téléphone', 
+            Icons.phone_rounded, 
+            keyboardType: TextInputType.phone,
+            onChanged: (_) => _validateStep2(),
+          ),
           SizedBox(height: _mediumSpace),
           _buildTextField(_emailController, 'Email (optionnel)', Icons.email_rounded, keyboardType: TextInputType.emailAddress),
           SizedBox(height: _mediumSpace),
@@ -1269,51 +1766,477 @@ class _CreateServicePageState extends State<CreateServicePage> {
 
   Widget _buildLocationDropdowns() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildLocationDropdown<CityModel>(
-          'Ville',
-          _selectedCity?.name ?? 'Sélectionner une ville',
-          _availableCities,
-          (city) => setState(() {
-            _selectedCity = city;
-            _updateDistrictsForCity();
-          }),
-          Icons.location_city_rounded,
+        // Ville avec suggestions (typeahead)
+        _buildCitySuggestionField(),
+        SizedBox(height: _mediumSpace),
+        
+        if (_isKinshasaSelected) ...[
+          // Dropdowns premium pour Kinshasa
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return Row(
+                children: [
+                  Container(
+                    width: constraints.maxWidth * 0.48,
+                    child: _buildPremiumDropdown<DistrictModel>(
+                      label: 'District',
+                      value: _selectedDistrict,
+                      items: _availableDistricts,
+                      displayText: (district) => district.name ?? '',
+                      onChanged: (DistrictModel? newValue) {
+                        if (mounted) {
+                          _markFieldTouched('district');
+                          _clickCount++;
+                          setState(() {
+                            _selectedDistrict = newValue;
+                            _removeFieldError(2, 'district');
+                            _updateCommunesForDistrict();
+                            _validateStep2();
+                          });
+                          _trackSelection('district', newValue?.name ?? 'unknown');
+                        }
+                      },
+                      icon: Icons.account_balance_rounded,
+                      errorText: _shouldShowError(2, 'district') ? _getFieldError(2, 'district') : null,
+                      hintText: 'Sélectionnez un district',
+                    ),
+                  ),
+                  SizedBox(width: constraints.maxWidth * 0.04),
+                  Container(
+                    width: constraints.maxWidth * 0.48,
+                    child: _buildPremiumDropdown<CommuneModel>(
+                      label: 'Commune',
+                      value: _selectedCommune,
+                      items: _availableCommunes,
+                      displayText: (commune) => commune.name ?? '',
+                      onChanged: (CommuneModel? newValue) {
+                        if (mounted) {
+                          _markFieldTouched('commune');
+                          _clickCount++;
+                          setState(() {
+                            _selectedCommune = newValue;
+                            _removeFieldError(2, 'commune');
+                            _updateQuartiersForCommune();
+                            _validateStep2();
+                          });
+                          _trackSelection('commune', newValue?.name ?? 'unknown');
+                        }
+                      },
+                      icon: Icons.place_rounded,
+                      errorText: _shouldShowError(2, 'commune') ? _getFieldError(2, 'commune') : null,
+                      hintText: 'Sélectionnez une commune',
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          SizedBox(height: _mediumSpace),
+        ] else ...[
+          // Mode hors Kinshasa : champs avec suggestions/autocomplete
+          _buildSuggestionTextField(
+            label: 'District',
+            controller: _districtTextController,
+            fieldKey: 'district',
+            suggestions: _availableDistricts.map((d) => d.name ?? '').where((n) => n.isNotEmpty).toList(),
+          ),
+          SizedBox(height: _smallSpace),
+          _buildSuggestionTextField(
+            label: 'Commune',
+            controller: _communeTextController,
+            fieldKey: 'commune',
+            suggestions: _availableCommunes.map((c) => c.name ?? '').where((n) => n.isNotEmpty).toList(),
+          ),
+          SizedBox(height: _smallSpace),
+          _buildSuggestionTextField(
+            label: 'Quartier',
+            controller: _quartierTextController,
+            fieldKey: 'quartier',
+            suggestions: _availableQuartiers.map((q) => q.name ?? '').where((n) => n.isNotEmpty).toList(),
+          ),
+          SizedBox(height: _mediumSpace),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCitySuggestionField() {
+    final errorText = _getFieldError(2, 'city');
+    final hasError = errorText != null && errorText.isNotEmpty && _shouldShowError(2, 'city');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(bottom: 6, left: 4),
+          child: Row(
+            children: [
+              Text(
+                'Ville',
+                style: TextStyle(
+                  fontSize: _bodySize,
+                  fontWeight: FontWeight.w600,
+                  color: hasError ? _errorColor : _darkColor,
+                ),
+              ),
+              Text('*', style: TextStyle(color: _errorColor, fontWeight: FontWeight.bold)),
+            ],
+          ),
         ),
-        SizedBox(height: _mediumSpace),
-        if (_availableDistricts.isNotEmpty)
-          _buildLocationDropdown<DistrictModel>(
-            'District',
-            _selectedDistrict?.name ?? 'Sélectionner un district',
-            _availableDistricts,
-            (district) => setState(() {
-              _selectedDistrict = district;
-              _updateCommunesForDistrict();
-            }),
-            Icons.map_rounded,
-          ),
-        SizedBox(height: _mediumSpace),
-        if (_availableCommunes.isNotEmpty)
-          _buildLocationDropdown<CommuneModel>(
-            'Commune',
-            _selectedCommune?.name ?? 'Sélectionner une commune',
-            _availableCommunes,
-            (commune) => setState(() {
-              _selectedCommune = commune;
-              _updateQuartiersForCommune();
-            }),
-            Icons.business_rounded,
-          ),
-        SizedBox(height: _mediumSpace),
-        if (_availableQuartiers.isNotEmpty)
-          _buildLocationDropdown<QuartierModel>(
-            'Quartier',
-            _selectedQuartier?.name ?? 'Sélectionner un quartier',
-            _availableQuartiers,
-            (quartier) => setState(() => _selectedQuartier = quartier),
-            Icons.home_work_rounded,
+        Autocomplete<String>(
+          initialValue: TextEditingValue(text: _cityTextController.text),
+          optionsBuilder: (TextEditingValue textEditingValue) {
+            return _filterSuggestions(textEditingValue.text, CitySuggestions.cities);
+          },
+          onSelected: (String selection) {
+            _markFieldTouched('city');
+            _clickCount++;
+            setState(() {
+              _cityTextController.text = selection;
+              // si Kinshasa, utiliser la sélection stricte et garder le workflow existant
+              final kin = _availableCities.firstWhere(
+                  (c) => (c.name ?? '').toLowerCase() == selection.toLowerCase(),
+                  orElse: () => _selectedCity ?? (_availableCities.isNotEmpty ? _availableCities.first : CityModel(cityId: 1, name: 'Kinshasa')));
+              if (selection.toLowerCase().trim() == 'kinshasa') {
+                _selectedCity = kin.name == null ? _selectedCity : kin;
+                _updateDistrictsForCity();
+              } else {
+                _selectedCity = null;
+                _selectedDistrict = null;
+                _selectedCommune = null;
+                _selectedQuartier = null;
+              }
+              _removeFieldError(2, 'city');
+              _validateStep2();
+            });
+            _trackSelection('city', selection);
+          },
+          fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+            _cityTextController.value = controller.value;
+            return TextField(
+              controller: controller,
+              focusNode: focusNode,
+              onChanged: (value) {
+                _markFieldTouched('city');
+                _removeFieldError(2, 'city');
+                // Vérifier si Kinshasa est tapé
+                if (value.toLowerCase().trim() == 'kinshasa') {
+                  final kin = _availableCities.firstWhere(
+                      (c) => (c.name ?? '').toLowerCase() == 'kinshasa',
+                      orElse: () => _availableCities.isNotEmpty ? _availableCities.first : CityModel(cityId: 1, name: 'Kinshasa'));
+                  _selectedCity = kin;
+                  _updateDistrictsForCity();
+                } else {
+                  _selectedCity = null;
+                  _selectedDistrict = null;
+                  _selectedCommune = null;
+                  _selectedQuartier = null;
+                }
+                _validateStep2();
+              },
+              decoration: InputDecoration(
+                hintText: 'Ex: Kinshasa, Lubumbashi...',
+                prefixIcon: Icon(Icons.location_city_rounded, color: hasError ? _errorColor : _primaryColor),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor),
+                ),
+                errorText: null, // géré manuellement
+              ),
+              onSubmitted: (_) => onFieldSubmitted(),
+            );
+          },
+        ),
+        if (hasError)
+          Padding(
+            padding: EdgeInsets.only(top: 6, left: 4),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                SizedBox(width: 6),
+                Text(
+                  errorText!,
+                  style: TextStyle(
+                    color: _errorColor,
+                    fontSize: _captionSize,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
       ],
+    );
+  }
+
+  Widget _buildSuggestionTextField({
+    required String label,
+    required TextEditingController controller,
+    required String fieldKey,
+    required List<String> suggestions,
+  }) {
+    final errorText = _getFieldError(2, fieldKey);
+    final hasError = errorText != null && errorText.isNotEmpty && _shouldShowError(2, fieldKey);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(bottom: 6, left: 4, top: _smallSpace),
+          child: Row(
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: _captionSize,
+                  fontWeight: FontWeight.w600,
+                  color: hasError ? _errorColor : _darkColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Autocomplete<String>(
+          initialValue: TextEditingValue(text: controller.text),
+          optionsBuilder: (TextEditingValue textEditingValue) {
+            return _filterSuggestions(textEditingValue.text, suggestions);
+          },
+          onSelected: (String selection) {
+            _markFieldTouched(fieldKey);
+            _clickCount++;
+            setState(() {
+              controller.text = selection;
+              _removeFieldError(2, fieldKey);
+              _validateStep2();
+            });
+            _trackSelection(fieldKey, selection);
+          },
+          fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) {
+            controller.value = textController.value;
+            return TextField(
+              controller: textController,
+              focusNode: focusNode,
+              onChanged: (value) {
+                _markFieldTouched(fieldKey);
+                _removeFieldError(2, fieldKey);
+                _validateStep2();
+              },
+              style: TextStyle(
+                fontSize: _bodySize,
+                color: _darkColor,
+              ),
+              decoration: InputDecoration(
+                hintText: 'Saisir $label',
+                hintStyle: TextStyle(
+                  fontSize: _bodySize,
+                  color: Colors.grey.shade500,
+                ),
+                prefixIcon: Icon(Icons.place_rounded, color: hasError ? _errorColor : _primaryColor),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 2),
+                ),
+                errorText: null,
+                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              ),
+              onSubmitted: (_) => onFieldSubmitted(),
+            );
+          },
+        ),
+        if (hasError)
+          Padding(
+            padding: EdgeInsets.only(top: 6, left: 4),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                SizedBox(width: 6),
+                Text(
+                  errorText!,
+                  style: TextStyle(
+                    color: _errorColor,
+                    fontSize: _captionSize,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPremiumDropdown<T>({
+    required String label,
+    required T? value,
+    required List<T> items,
+    required String Function(T) displayText,
+    required void Function(T?) onChanged,
+    required IconData icon,
+    String? errorText,
+    String? hintText,
+    bool isRequired = true,
+  }) {
+    final hasError = errorText != null && errorText.isNotEmpty;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: _smallSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(bottom: 6, left: 4),
+            child: Row(
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: _bodySize,
+                    fontWeight: FontWeight.w600,
+                    color: hasError ? _errorColor : _darkColor,
+                  ),
+                ),
+                if (isRequired)
+                  Padding(
+                    padding: EdgeInsets.only(left: 4),
+                    child: Text(
+                      '*',
+                      style: TextStyle(
+                        color: _errorColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: hasError ? _errorColor : value != null ? _primaryColor.withOpacity(0.3) : _borderColor,
+                width: hasError ? 1.5 : 1,
+              ),
+              color: Colors.white,
+              boxShadow: [
+                if (value != null)
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+              ],
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<T>(
+                value: value,
+                isExpanded: true,
+                items: [
+                  DropdownMenuItem<T>(
+                    value: null,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        hintText ?? 'Sélectionnez...',
+                        style: TextStyle(
+                          color: _greyColor,
+                          fontSize: _bodySize,
+                        ),
+                      ),
+                    ),
+                  ),
+                  ...items.map((T item) {
+                    return DropdownMenuItem<T>(
+                      value: item,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                displayText(item),
+                                style: TextStyle(
+                                  fontSize: _bodySize,
+                                  color: _darkColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            if (value == item)
+                              Icon(
+                                Icons.check_circle_rounded,
+                                size: 16,
+                                color: _successColor,
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ],
+                onChanged: onChanged,
+                style: TextStyle(
+                  fontSize: _bodySize,
+                  color: _darkColor,
+                ),
+                icon: Padding(
+                  padding: EdgeInsets.only(right: 16),
+                  child: Icon(
+                    Icons.arrow_drop_down_rounded,
+                    color: hasError ? _errorColor : _greyColor,
+                    size: 24,
+                  ),
+                ),
+                dropdownColor: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                elevation: 4,
+                menuMaxHeight: 300,
+              ),
+            ),
+          ),
+
+          if (hasError)
+            Padding(
+              padding: EdgeInsets.only(top: 6, left: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                  SizedBox(width: 6),
+                  Text(
+                    errorText!,
+                    style: TextStyle(
+                      color: _errorColor,
+                      fontSize: _captionSize,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -1429,9 +2352,16 @@ class _CreateServicePageState extends State<CreateServicePage> {
           Expanded(
             flex: _currentStep == 0 ? 1 : 2,
             child: ElevatedButton(
-              onPressed: _isLoading ? null : _handleNextOrSubmit,
+              onPressed: _isLoading ? null : () {
+                _clickCount++;
+                _handleNextOrSubmit();
+              },
               style: ElevatedButton.styleFrom(
-                backgroundColor: _primaryColor,
+                backgroundColor: _isLoading 
+                    ? _greyColor 
+                    : (_hasFieldErrors(_currentStep) && _hasAttemptedSubmit 
+                        ? _errorColor.withOpacity(0.7) 
+                        : _primaryColor),
                 padding: EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1461,12 +2391,43 @@ class _CreateServicePageState extends State<CreateServicePage> {
   void _handleNextOrSubmit() {
     if (_currentStep < 2) {
       if (_validateCurrentStep()) {
+        _trackEvent('step_completed', {
+          'step': _currentStep,
+          'step_name': _getStepName(_currentStep),
+        });
         setState(() => _currentStep++);
       } else {
+        _hasAttemptedSubmit = true;
         _showStepErrors();
+        _trackEvent('step_validation_failed', {
+          'step': _currentStep,
+          'step_name': _getStepName(_currentStep),
+          'errors': _stepErrorMessages[_currentStep] ?? '',
+        });
       }
     } else {
-      _handleCreateService();
+      _hasAttemptedSubmit = true;
+      if (_validateCurrentStep()) {
+        _handleCreateService();
+      } else {
+        _showStepErrors();
+        _trackEvent('submit_validation_failed', {
+          'errors': _stepErrorMessages[_currentStep] ?? '',
+        });
+      }
+    }
+  }
+
+  String _getStepName(int step) {
+    switch (step) {
+      case 0:
+        return 'type_and_photos';
+      case 1:
+        return 'details';
+      case 2:
+        return 'contact_and_location';
+      default:
+        return 'unknown';
     }
   }
 
@@ -1494,12 +2455,29 @@ class _CreateServicePageState extends State<CreateServicePage> {
     if (_descriptionController.text.trim().isEmpty) {
       errors.add('La description est requise');
     }
-    if (_priceController.text.trim().isEmpty) {
-      errors.add('Le prix est requis');
+    
+    // Validation prix : soit prix fixe, soit min/max
+    final hasFixedPrice = _priceController.text.trim().isNotEmpty;
+    final hasMinPrice = _minPriceController.text.trim().isNotEmpty;
+    final hasMaxPrice = _maxPriceController.text.trim().isNotEmpty;
+    
+    if (!hasFixedPrice && !hasMinPrice && !hasMaxPrice) {
+      errors.add('Veuillez renseigner au moins un prix (fixe ou min/max)');
     }
+    
+    // Si min et max sont renseignés, vérifier que max >= min
+    if (hasMinPrice && hasMaxPrice) {
+      final minPrice = double.tryParse(_minPriceController.text.trim());
+      final maxPrice = double.tryParse(_maxPriceController.text.trim());
+      if (minPrice != null && maxPrice != null && maxPrice < minPrice) {
+        errors.add('Le prix maximum doit être supérieur ou égal au prix minimum');
+      }
+    }
+    
     if (_selectedPriceUnit == null) {
       errors.add('Veuillez sélectionner une unité de prix');
     }
+    
     final isValid = errors.isEmpty;
     setState(() {
       _stepValidations[1] = isValid;
@@ -1510,12 +2488,63 @@ class _CreateServicePageState extends State<CreateServicePage> {
 
   bool _validateStep2() {
     final errors = <String>[];
+    
+    // Validation téléphone
     if (_phoneController.text.trim().isEmpty) {
       errors.add('Le numéro de téléphone est requis');
+      _setFieldError(2, 'phone', 'Le numéro de téléphone est requis');
+    } else {
+      _removeFieldError(2, 'phone');
     }
-    if (_selectedCity == null) {
-      errors.add('Veuillez sélectionner une ville');
+    
+    // Validation ville
+    if (_selectedCity == null && _cityTextController.text.trim().isEmpty) {
+      errors.add('Veuillez sélectionner ou saisir une ville');
+      _setFieldError(2, 'city', 'Veuillez sélectionner ou saisir une ville');
+    } else {
+      _removeFieldError(2, 'city');
     }
+    
+    // Validation localisation selon si Kinshasa ou non
+    if (_isKinshasaSelected) {
+      // Pour Kinshasa : validation des dropdowns
+      if (_selectedDistrict == null) {
+        errors.add('Veuillez sélectionner un district');
+        _setFieldError(2, 'district', 'Veuillez sélectionner un district');
+      } else {
+        _removeFieldError(2, 'district');
+      }
+      
+      if (_selectedCommune == null) {
+        errors.add('Veuillez sélectionner une commune');
+        _setFieldError(2, 'commune', 'Veuillez sélectionner une commune');
+      } else {
+        _removeFieldError(2, 'commune');
+      }
+      
+      if (_selectedQuartier == null) {
+        errors.add('Veuillez sélectionner un quartier');
+        _setFieldError(2, 'quartier', 'Veuillez sélectionner un quartier');
+      } else {
+        _removeFieldError(2, 'quartier');
+      }
+    } else {
+      // Pour les autres villes : validation des champs texte
+      if (_communeTextController.text.trim().isEmpty) {
+        errors.add('Veuillez saisir une commune');
+        _setFieldError(2, 'commune', 'Veuillez saisir une commune');
+      } else {
+        _removeFieldError(2, 'commune');
+      }
+      
+      if (_quartierTextController.text.trim().isEmpty) {
+        errors.add('Veuillez saisir un quartier');
+        _setFieldError(2, 'quartier', 'Veuillez saisir un quartier');
+      } else {
+        _removeFieldError(2, 'quartier');
+      }
+    }
+    
     final isValid = errors.isEmpty;
     setState(() {
       _stepValidations[2] = isValid;
@@ -1547,6 +2576,9 @@ class _CreateServicePageState extends State<CreateServicePage> {
   Future<void> _handleCreateService() async {
     if (!_validateStep2()) {
       _showStepErrors();
+      _trackEvent('service_creation_validation_failed', {
+        'errors': _stepErrorMessages[2] ?? '',
+      });
       return;
     }
 
@@ -1561,8 +2593,19 @@ class _CreateServicePageState extends State<CreateServicePage> {
     if (!isConnected) {
       FancyNotification.show(context, "Pas de connexion internet", isError: true);
       setState(() => _isLoading = false);
+      _trackEvent('service_creation_no_internet', {});
       return;
     }
+
+    // Track début de création
+    await _trackEvent('service_api_call_start', {
+      'service_type': _selectedServiceType?.value ?? 'unknown',
+      'images_count': _selectedImages.length,
+      'has_city': _selectedCity != null || _cityTextController.text.isNotEmpty,
+      'is_kinshasa': _isKinshasaSelected,
+      'has_district': _isKinshasaSelected ? (_selectedDistrict != null) : (_districtTextController.text.isNotEmpty),
+      'has_commune': _isKinshasaSelected ? (_selectedCommune != null) : (_communeTextController.text.isNotEmpty),
+    });
 
     try {
       final GetStorage storage = GetStorage();
@@ -1580,33 +2623,51 @@ class _CreateServicePageState extends State<CreateServicePage> {
         }
       }
 
-      // Construire la map de base
+      // Préparer le CV en base64 s'il existe
+      String? cvBase64;
+      if (_selectedCvFile != null && await _selectedCvFile!.exists()) {
+        final cvBytes = await _selectedCvFile!.readAsBytes();
+        cvBase64 = base64Encode(cvBytes);
+      }
+
+      // Construire la map de base avec gestion Kinshasa
       final serviceData = <String, dynamic>{
         "title": _titleController.text.trim(),
         "description": _descriptionController.text.trim(),
         "serviceType": _selectedServiceType?.value,
-        "price": double.tryParse(_priceController.text) ?? 0.0,
+        "price": _priceController.text.trim().isNotEmpty ? double.tryParse(_priceController.text) : null,
+        "minPrice": _minPriceController.text.trim().isNotEmpty ? double.tryParse(_minPriceController.text) : null,
+        "maxPrice": _maxPriceController.text.trim().isNotEmpty ? double.tryParse(_maxPriceController.text) : null,
+        "currency": _selectedCurrency ?? 'CDF',
         "priceUnit": _selectedPriceUnit,
+        "experienceYears": _experienceController.text.trim().isNotEmpty ? int.tryParse(_experienceController.text) : null,
         "phone": _phoneController.text.trim(),
         "email": _emailController.text.trim().isNotEmpty ? _emailController.text.trim() : null,
         "whatsapp": _whatsappController.text.trim().isNotEmpty ? _whatsappController.text.trim() : null,
         "address": _addressController.text.trim(),
-        "cityId": _selectedCity?.cityId,
-        "communeId": _selectedCommune?.communeId,
-        "quartierId": _selectedQuartier?.quartierId,
-        "districtId": _selectedDistrict?.districtId,
-        "postalCode": _postalCodeController.text.trim(),
+        "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : null,
+        "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : null,
+        "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : null,
+        "districtId": _isKinshasaSelected && _selectedDistrict?.districtId != null ? _selectedDistrict!.districtId! : null,
+        "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
         "isAvailable": _isAvailable,
         "availableDays": _selectedDays.toList(),
         "availableHours": _availableHoursController.text.trim(),
         "images": imagesBase64,
         "userId": userId ?? 1,
         "username": fullname,
+        // Valeurs texte pour mode hors Kinshasa
+        "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : ""),
+        "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+        "districtValue": _isKinshasaSelected ? (_selectedDistrict?.name ?? "") : (_districtTextController.text.trim().isNotEmpty ? _districtTextController.text.trim() : ""),
+        "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : (_quartierTextController.text.trim().isNotEmpty ? _quartierTextController.text.trim() : ""),
+        // CV si disponible
+        if (cvBase64 != null) "cv": cvBase64,
+        if (_selectedCvFile != null) "cvFileName": _selectedCvFile!.path.split('/').last,
       };
 
       // Ajouter les champs spécifiques selon le type de service
       if (_selectedServiceType == ServiceType.majordhomme) {
-        serviceData["experienceYears"] = int.tryParse(_experienceController.text) ?? 0;
         serviceData["specialties"] = _selectedSpecialties.toList();
       } else if (_selectedServiceType == ServiceType.demenagement) {
         serviceData["hasVehicle"] = _hasVehicle;
@@ -1649,6 +2710,13 @@ class _CreateServicePageState extends State<CreateServicePage> {
       if (!mounted) return;
 
       if (res.status == true || res.data['success'] == true || res.data['service'] != null) {
+        // Track succès
+        await _trackEvent('service_creation_success', {
+          'service_type': _selectedServiceType?.value ?? 'unknown',
+          'images_count': imagesBase64.length,
+          'duration_seconds': _totalPageTimeSeconds,
+        });
+        
         SnackbarForCasa.success(context, "Service publié avec succès!");
         await Future.delayed(Duration(milliseconds: 1500));
         if (mounted) {
@@ -1660,9 +2728,19 @@ class _CreateServicePageState extends State<CreateServicePage> {
         }
       } else {
         String errorMessage = res.data['message'] ?? res.errorMsg ?? "Erreur lors de la publication du service";
+        // Track erreur API
+        await _trackEvent('service_creation_api_error', {
+          'error_message': errorMessage,
+          'service_type': _selectedServiceType?.value ?? 'unknown',
+        });
         FancyNotification.show(context, errorMessage, isError: true);
       }
     } catch (e) {
+      // Track erreur technique
+      await _trackEvent('service_creation_error', {
+        'error': e.toString(),
+        'service_type': _selectedServiceType?.value ?? 'unknown',
+      });
       FancyNotification.show(context, "Erreur technique lors de la publication du service: $e", isError: true);
       print("Service creation error: $e");
     } finally {

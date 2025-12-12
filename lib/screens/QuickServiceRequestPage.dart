@@ -13,7 +13,7 @@ class QuickServiceRequestPage extends StatefulWidget {
   _QuickServiceRequestPageState createState() => _QuickServiceRequestPageState();
 }
 
-class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> {
+class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> with SingleTickerProviderStateMixin {
   final Color _primaryColor = Color(0xFF1976D2);
   final Color _primaryDark = Color(0xFF1565C0);
   final Color _accentColor = Color(0xFFE3F2FD);
@@ -22,11 +22,23 @@ class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> {
   final Color _cardColor = Colors.white;
   final Color _borderColor = Color(0xFFEEEEEE);
 
+  late TabController _tabController;
   final TextEditingController _messageController = TextEditingController();
   ServiceType? _selectedServiceType;
   bool _isUrgent = false;
   bool _isLoading = false;
   final GetStorage _storage = GetStorage();
+
+  // Propriété demandée
+  String _propertyType = 'location'; // 'location' ou 'vente'
+  String? _propertyCategory;
+  double? _minPrice;
+  double? _maxPrice;
+  int? _bedrooms;
+  int? _bathrooms;
+  String? _city;
+  String? _commune;
+  String? _quartier;
 
   // Types de services populaires avec icônes
   final List<Map<String, dynamic>> _serviceTypes = [
@@ -43,7 +55,14 @@ class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
   void dispose() {
+    _tabController.dispose();
     _messageController.dispose();
     super.dispose();
   }
@@ -107,7 +126,7 @@ class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> {
       if (!mounted) return;
 
       // Afficher le message de succès
-      _showSuccessDialog();
+      _showSuccessDialog('Votre demande de service a été envoyée avec succès !');
     } catch (e) {
       if (mounted) {
         FancyNotification.show(
@@ -120,7 +139,7 @@ class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> {
     }
   }
 
-  void _showSuccessDialog() {
+  void _showSuccessDialog([String? message]) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -240,16 +259,486 @@ class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> {
     );
   }
 
+  Future<void> _submitPropertyRequest() async {
+    // TODO: Implémenter la création de demande de propriété
+    if (!mounted || _isLoading) return;
+    setState(() => _isLoading = true);
+
+    await Future.delayed(Duration(seconds: 1));
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    
+    _showSuccessDialog('Votre demande de propriété a été envoyée avec succès !');
+  }
+
+  // void _showSuccessDialog([String? message]) {
+  //   showDialog(
+  //     context: context,
+  //     barrierDismissible: false,
+  //     builder: (context) => Dialog(
+  //       shape: RoundedRectangleBorder(
+  //         borderRadius: BorderRadius.circular(20),
+  //       ),
+  //       child: Container(
+  //         padding: EdgeInsets.all(28),
+  //         child: Column(
+  //           mainAxisSize: MainAxisSize.min,
+  //           children: [
+  //             Container(
+  //               width: 80,
+  //               height: 80,
+  //               decoration: BoxDecoration(
+  //                 gradient: LinearGradient(
+  //                   colors: [_primaryColor, _primaryDark],
+  //                   begin: Alignment.topLeft,
+  //                   end: Alignment.bottomRight,
+  //                 ),
+  //                 shape: BoxShape.circle,
+  //               ),
+  //               child: Icon(
+  //                 Icons.check_rounded,
+  //                 color: Colors.white,
+  //                 size: 40,
+  //               ),
+  //             ),
+  //             SizedBox(height: 24),
+  //             Text(
+  //               'Demande envoyée !',
+  //               style: GoogleFonts.inter(
+  //                 fontSize: 22,
+  //                 fontWeight: FontWeight.w700,
+  //                 color: _textPrimary,
+  //               ),
+  //             ),
+  //             SizedBox(height: 8),
+  //             Text(
+  //               message ?? 'Votre demande a été transmise aux prestataires. Vous recevrez des réponses sous peu.',
+  //               textAlign: TextAlign.center,
+  //               style: GoogleFonts.inter(
+  //                 color: _textSecondary,
+  //                 fontSize: 15,
+  //               ),
+  //             ),
+  //             SizedBox(height: 28),
+  //             SizedBox(
+  //               width: double.infinity,
+  //               child: ElevatedButton(
+  //                 onPressed: () {
+  //                   Navigator.pop(context); // Fermer le dialog de succès
+  //                   Navigator.pop(context); // Retourner à la page précédente
+  //                   setState(() => _isLoading = false);
+  //                 },
+  //                 style: ElevatedButton.styleFrom(
+  //                   backgroundColor: _primaryColor,
+  //                   foregroundColor: Colors.white,
+  //                   shape: RoundedRectangleBorder(
+  //                     borderRadius: BorderRadius.circular(12),
+  //                   ),
+  //                   padding: EdgeInsets.symmetric(vertical: 16),
+  //                 ),
+  //                 child: Text(
+  //                   'Parfait',
+  //                   style: GoogleFonts.inter(
+  //                     fontWeight: FontWeight.w600,
+  //                     fontSize: 16,
+  //                   ),
+  //                 ),
+  //               ),
+  //             ),
+  //           ],
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  // }
+
+  Widget _buildPropertyTab() {
+    return SingleChildScrollView(
+      padding: EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Type de transaction
+          Text(
+            'Type de transaction',
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _textPrimary,
+            ),
+          ),
+          SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildChoiceChip(
+                  label: 'Location',
+                  selected: _propertyType == 'location',
+                  icon: Icons.home_outlined,
+                  onSelected: (selected) {
+                    if (selected) setState(() => _propertyType = 'location');
+                  },
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: _buildChoiceChip(
+                  label: 'Vente',
+                  selected: _propertyType == 'vente',
+                  icon: Icons.sell_outlined,
+                  onSelected: (selected) {
+                    if (selected) setState(() => _propertyType = 'vente');
+                  },
+                ),
+              ),
+            ],
+          ),
+
+          SizedBox(height: 24),
+
+          // Catégorie
+          Text(
+            'Type de bien',
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _textPrimary,
+            ),
+          ),
+          SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _borderColor),
+              color: _cardColor,
+            ),
+            child: DropdownButtonFormField<String>(
+              value: _propertyCategory,
+              isExpanded: true,
+              decoration: InputDecoration(
+                hintText: 'Sélectionnez un type de bien',
+                hintStyle: GoogleFonts.inter(
+                  color: _textSecondary.withOpacity(0.6),
+                  fontSize: 14,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: _primaryColor, width: 2),
+                ),
+                filled: true,
+                fillColor: _cardColor,
+                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              ),
+              items: ['Maison', 'Appartement', 'Villa', 'Studio', 'Terrain', 'Bureau', 'Local commercial']
+                  .map((type) => DropdownMenuItem(
+                        value: type,
+                        child: Text(type),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() => _propertyCategory = value);
+              },
+            ),
+          ),
+
+          SizedBox(height: 24),
+
+          // Budget
+          Text(
+            'Budget',
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _textPrimary,
+            ),
+          ),
+          SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildNumberField(
+                  label: 'Min (CDF)',
+                  value: _minPrice,
+                  onChanged: (value) => setState(() => _minPrice = value),
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: _buildNumberField(
+                  label: 'Max (CDF)',
+                  value: _maxPrice,
+                  onChanged: (value) => setState(() => _maxPrice = value),
+                ),
+              ),
+            ],
+          ),
+
+          SizedBox(height: 24),
+
+          // Caractéristiques
+          Text(
+            'Caractéristiques',
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _textPrimary,
+            ),
+          ),
+          SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildNumberField(
+                  label: 'Chambres',
+                  value: _bedrooms?.toDouble(),
+                  onChanged: (value) => setState(() => _bedrooms = value?.toInt()),
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: _buildNumberField(
+                  label: 'Salles de bain',
+                  value: _bathrooms?.toDouble(),
+                  onChanged: (value) => setState(() => _bathrooms = value?.toInt()),
+                ),
+              ),
+            ],
+          ),
+
+          SizedBox(height: 24),
+
+          // Localisation
+          Text(
+            'Localisation',
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _textPrimary,
+            ),
+          ),
+          SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _borderColor),
+              color: _cardColor,
+            ),
+            child: TextField(
+              decoration: InputDecoration(
+                labelText: 'Ville',
+                hintText: 'Ex: Kinshasa',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: _primaryColor, width: 2),
+                ),
+                filled: true,
+                fillColor: _cardColor,
+                contentPadding: EdgeInsets.all(16),
+              ),
+              onChanged: (value) => setState(() => _city = value),
+            ),
+          ),
+
+          SizedBox(height: 32),
+
+          // Bouton
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isLoading ? null : _submitPropertyRequest,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: EdgeInsets.symmetric(vertical: 18),
+                elevation: 4,
+                shadowColor: _primaryColor.withOpacity(0.4),
+              ),
+              child: _isLoading
+                  ? SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.send_rounded, size: 20),
+                        SizedBox(width: 10),
+                        Text(
+                          'ENVOYER MA DEMANDE',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChoiceChip({
+    required String label,
+    required bool selected,
+    required IconData icon,
+    required Function(bool) onSelected,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => onSelected(true),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: selected ? _primaryColor.withOpacity(0.1) : Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? _primaryColor : _borderColor,
+              width: selected ? 2 : 1.5,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: selected ? _primaryColor : _textSecondary,
+                size: 20,
+              ),
+              SizedBox(width: 8),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  color: selected ? _primaryColor : _textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNumberField({
+    required String label,
+    double? value,
+    required Function(double?) onChanged,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _borderColor),
+        color: _cardColor,
+      ),
+      child: TextField(
+        keyboardType: TextInputType.number,
+        controller: TextEditingController(
+          text: value != null ? value.toInt().toString() : '',
+        ),
+        decoration: InputDecoration(
+          labelText: label,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: _primaryColor, width: 2),
+          ),
+          filled: true,
+          fillColor: _cardColor,
+          contentPadding: EdgeInsets.all(16),
+        ),
+        onChanged: (text) => onChanged(double.tryParse(text)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: _buildAppBar(),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      body: Column(
+        children: [
+          // Tabs
+          Container(
+            margin: EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              indicator: BoxDecoration(
+                color: _primaryColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              dividerColor: Colors.transparent,
+              labelColor: Colors.white,
+              unselectedLabelColor: _textSecondary,
+              labelStyle: GoogleFonts.inter(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+              tabs: [
+                Tab(
+                  icon: Icon(Icons.build_rounded, size: 20),
+                  text: 'Service',
+                ),
+                Tab(
+                  icon: Icon(Icons.home_rounded, size: 20),
+                  text: 'Propriété',
+                ),
+              ],
+            ),
+          ),
+
+          // Tab content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                SingleChildScrollView(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
             // Header card
             Container(
               padding: EdgeInsets.all(20),
@@ -542,10 +1031,17 @@ class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> {
               ),
             ),
             SizedBox(height: 20),
-          ],
-        ),
+                    ],
+                  ),
+                ),
+                _buildPropertyTab(),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
+
 

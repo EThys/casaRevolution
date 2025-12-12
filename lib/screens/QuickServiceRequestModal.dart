@@ -6,7 +6,6 @@ import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/controllers/ServiceRequestController.dart';
 import 'package:provider/provider.dart';
 import 'package:get_storage/get_storage.dart';
-import '../widgets/ModernModal.dart';
 
 class QuickServiceRequestModal extends StatefulWidget {
   const QuickServiceRequestModal({Key? key}) : super(key: key);
@@ -228,9 +227,10 @@ class _QuickServiceRequestModalState extends State<QuickServiceRequestModal> wit
   }
 
   Widget _buildServiceTab() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         // Type de service - Dropdown
         Text(
           'Type de service',
@@ -546,14 +546,16 @@ class _QuickServiceRequestModalState extends State<QuickServiceRequestModal> wit
             ),
           ),
         ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildPropertyTab() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         // Type de transaction
         Text(
           'Type de transaction',
@@ -809,7 +811,8 @@ class _QuickServiceRequestModalState extends State<QuickServiceRequestModal> wit
             ),
           ),
         ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -899,58 +902,128 @@ class _QuickServiceRequestModalState extends State<QuickServiceRequestModal> wit
 
   @override
   Widget build(BuildContext context) {
-    return ModernModal(
-      title: 'Demander une intervention',
-      subtitle: 'Remplissez le formulaire pour recevoir des propositions',
-      icon: Icons.add_task_rounded,
-      iconColor: _primaryColor,
+    return Container(
       height: MediaQuery.of(context).size.height * 0.9,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          // Tabs
+          // Handle bar
           Container(
+            margin: EdgeInsets.only(top: 12, bottom: 8),
+            width: 40,
+            height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
             ),
-            child: TabBar(
-              controller: _tabController,
-              indicator: BoxDecoration(
-                color: _primaryColor,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              indicatorSize: TabBarIndicatorSize.tab,
-              dividerColor: Colors.transparent,
-              labelColor: Colors.white,
-              unselectedLabelColor: _textSecondary,
-              labelStyle: GoogleFonts.inter(
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-              ),
-              tabs: [
-                Tab(
-                  icon: Icon(Icons.build_rounded, size: 20),
-                  text: 'Service',
+          ),
+          
+          // Header
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.add_task_rounded,
+                    color: _primaryColor,
+                    size: 24,
+                  ),
                 ),
-                Tab(
-                  icon: Icon(Icons.home_rounded, size: 20),
-                  text: 'Propriété',
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Demander une intervention',
+                        style: GoogleFonts.inter(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Remplissez le formulaire pour recevoir des propositions',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: _textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.close_rounded, color: _textSecondary),
+                  onPressed: () => Navigator.pop(context),
                 ),
               ],
             ),
           ),
 
-          SizedBox(height: 32),
+          Divider(height: 1, color: _borderColor),
+
+          // Tabs
+          Padding(
+            padding: EdgeInsets.all(20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicator: BoxDecoration(
+                  color: _primaryColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                labelColor: Colors.white,
+                unselectedLabelColor: _textSecondary,
+                labelStyle: GoogleFonts.inter(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+                tabs: [
+                  Tab(
+                    icon: Icon(Icons.build_rounded, size: 20),
+                    text: 'Service',
+                  ),
+                  Tab(
+                    icon: Icon(Icons.home_rounded, size: 20),
+                    text: 'Propriété',
+                  ),
+                ],
+              ),
+            ),
+          ),
 
           // Tab content
-          SizedBox(
-            height: MediaQuery.of(context).size.height * 0.55,
+          Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
-                _buildServiceTab(),
-                _buildPropertyTab(),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildServiceTab(),
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildPropertyTab(),
+                ),
               ],
             ),
           ),
