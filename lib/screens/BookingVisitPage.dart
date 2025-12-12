@@ -1,15 +1,21 @@
 import 'package:casa/controllers/ReservationController.dart';
 import 'package:casa/models/PropertyModel.dart';
-import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/networkCheck.dart';
+import 'package:casa/utils/Constantes.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_datetime_picker_plus/flutter_datetime_picker_plus.dart' as picker;
 import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:flutter/services.dart' show rootBundle;
+import 'dart:io';
+import 'dart:typed_data';
 
 class BookingVisitPage extends StatefulWidget {
   final PropertyModel property;
@@ -44,6 +50,280 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   String _userEmail = '';
   String _userPhone = '';
   int? _userId;
+  Map<String, dynamic>? _lastReservationSummary;
+  pw.MemoryImage? _logoImage;
+
+  String _normalize(String input) {
+    return input
+        .toLowerCase()
+        .replaceAll(RegExp(r'[éèêë]'), 'e')
+        .replaceAll(RegExp(r'[àâä]'), 'a')
+        .replaceAll(RegExp(r'[îï]'), 'i')
+        .replaceAll(RegExp(r'[ôö]'), 'o')
+        .replaceAll(RegExp(r'[ùûü]'), 'u')
+        .replaceAll(RegExp(r'[ç]'), 'c');
+  }
+
+  String _toFrenchError(String message) {
+    final lower = message.toLowerCase();
+    if (lower.contains("you already have a pending reservation")) {
+      return "Vous avez déjà une réservation en attente pour ce bien";
+    }
+    if (lower.contains("you can't reserve your own property") ||
+        lower.contains("you can\'t reserve your own property")) {
+      return "Vous ne pouvez pas réserver votre propre bien";
+    }
+    if (lower.contains("already") && lower.contains("book")) {
+      return "Ce créneau est déjà réservé, veuillez choisir une autre heure.";
+    }
+    if (lower.contains("not available") || lower.contains("unavailable")) {
+      return "Ce créneau n'est plus disponible, choisissez un autre horaire.";
+    }
+    return message;
+  }
+
+  bool _isSuccessMessage(String? message) {
+    if (message == null) return false;
+    final normalized = _normalize(message);
+    return normalized.contains("a ete cree avec succes") ||
+        normalized.contains("a ete creee avec succes") ||
+        normalized.contains("a ete creer avec succes") ||
+        normalized.contains("a ete creee avec succes");
+  }
+
+  Future<Uint8List> _buildReservationPdfBytes() async {
+    final summary = _lastReservationSummary;
+    final doc = pw.Document();
+    final now = DateFormat('dd/MM/yy HH:mm').format(DateTime.now());
+
+    // Extraire les données de la réponse API si disponibles
+    final responseData = summary?['responseData'] as Map<String, dynamic>?;
+    final reservationData = responseData?['reservation'] as Map<String, dynamic>?;
+    final propertyData = reservationData?['property'] as Map<String, dynamic>?;
+    final publisherData = propertyData?['user'] as Map<String, dynamic>?;
+    final typeAccountData = publisherData?['typeAccount'] as Map<String, dynamic>?;
+
+    // Infos propriétaire/commissionnaire depuis la réponse API
+    final publisherName = publisherData?['username']?.toString() ?? 
+        publisherData?['email']?.toString()?.split('@').first ?? 
+        'Non renseigné';
+    final publisherPhone = publisherData?['phone']?.toString() ?? 'Non renseigné';
+    final publisherEmail = publisherData?['email']?.toString() ?? 'Non renseigné';
+    final typeAccountName = typeAccountData?['name']?.toString()?.toLowerCase() ?? '';
+    final publisherRole = typeAccountName.contains('bailleur')
+        ? 'Bailleur'
+        : (typeAccountName.contains('commission') || typeAccountName.contains('commissionnaire')
+            ? 'Commissionnaire'
+            : 'Annonceur');
+
+    // Localisation enrichie : priorité aux objets (city.name, quartier.name, commune.name), puis fallback sur *Value
+    final cityObj = propertyData?['city'] as Map<String, dynamic>?;
+    final quartierObj = propertyData?['quartier'] as Map<String, dynamic>?;
+    final communeObj = propertyData?['commune'] as Map<String, dynamic>?;
+    final countryObj = cityObj?['country'] as Map<String, dynamic>?;
+    
+    final quartierName = quartierObj?['name']?.toString() ?? 
+        propertyData?['quartierValue']?.toString() ?? '';
+    final communeName = communeObj?['name']?.toString() ?? 
+        propertyData?['communeValue']?.toString() ?? '';
+    final cityName = cityObj?['name']?.toString() ?? 
+        propertyData?['cityValue']?.toString() ?? '';
+    final countryName = countryObj?['name']?.toString() ?? 
+        propertyData?['countryValue']?.toString() ?? '';
+    
+    final addressParts = <String>[
+      propertyData?['address']?.toString() ?? widget.property.address ?? '',
+      quartierName,
+      communeName,
+      cityName,
+      countryName,
+    ].where((e) => e.isNotEmpty).toList();
+    final fullAddress = addressParts.join(', ');
+
+    doc.addPage(
+      pw.Page(
+        build: (context) => pw.Container(
+          padding: const pw.EdgeInsets.all(24),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // Header
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  if (_logoImage != null)
+                    pw.Container(
+                      width: 48,
+                      height: 48,
+                      margin: const pw.EdgeInsets.only(right: 12),
+                      child: pw.Image(_logoImage!),
+                    ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'CasaNayo',
+                        style: pw.TextStyle(
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        'Confirmation de la visite',
+                        style: pw.TextStyle(
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text('Généré le $now'),
+              pw.Divider(),
+              pw.SizedBox(height: 12),
+
+              pw.Text('Propriété', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text(summary?['propertyTitle'] ?? widget.property.title ?? 'Propriété'),
+              if (fullAddress.isNotEmpty) ...[
+                pw.SizedBox(height: 6),
+                pw.Text(fullAddress),
+              ],
+              pw.SizedBox(height: 16),
+
+              pw.Text('Visite', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('Date : ${summary?['startDate'] ?? ''}'),
+              pw.Text('Heure : ${summary?['startTime'] ?? ''}'),
+              pw.Text('Fin estimée : ${summary?['endDate'] ?? ''} à ${summary?['endTime'] ?? ''}'),
+              pw.SizedBox(height: 16),
+
+              pw.Text('Client', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('Nom : ${summary?['userName'] ?? safeUsername}'),
+              if ((_userPhone).isNotEmpty) pw.Text('Téléphone : $_userPhone'),
+              if ((_userEmail).isNotEmpty) pw.Text('Email : $_userEmail'),
+              pw.SizedBox(height: 16),
+
+              pw.Text('Publié par', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('Nom : $publisherName'),
+              pw.Text('Rôle : $publisherRole'),
+              pw.Text('Téléphone : $publisherPhone'),
+              pw.Text('Email : $publisherEmail'),
+              pw.SizedBox(height: 24),
+
+              pw.Text(
+                "Ce document constitue un aval préalable pour accéder à la visite. "
+                "Le $publisherRole doit encore valider la demande ; un document complémentaire sera émis après acceptation. "
+                "Conservez ce PDF comme preuve de demande et présentez-le le jour de la visite.",
+                style: pw.TextStyle(fontSize: 12),
+                textAlign: pw.TextAlign.justify,
+              ),
+              pw.SizedBox(height: 18),
+              pw.Text(
+                "Coordonnées CasaNayo :",
+                style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.Text("Siège : CasaNayo, Service Réservations"),
+              pw.Text("Téléphone : +243 820 000 000"),
+              pw.Text("Email : contact@casanayo.com"),
+              pw.Text("CEO : Gaius Handjila"),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return doc.save();
+  }
+
+  Future<void> _downloadPdf() async {
+    final summary = _lastReservationSummary;
+    if (summary == null) {
+      FancyNotification.show(context, "Aucune réservation à exporter");
+      return;
+    }
+    try {
+      final bytes = await _buildReservationPdfBytes();
+      final dir = await _getExportDir();
+      final baseName = '${(summary['userName'] ?? safeUsername).toString().replaceAll(' ', '_')}_${summary['startDate']}_${summary['startTime']}'.replaceAll(':', '-');
+      final filePath = '${dir.path}/reservation_${baseName}.pdf';
+      final file = File(filePath);
+      await file.writeAsBytes(bytes, flush: true);
+      FancyNotification.show(
+        context,
+        "PDF enregistré dans ${dir.path}",
+        isError: false,
+        type: NotificationType.success,
+      );
+    } catch (e) {
+      FancyNotification.show(context, "Impossible de générer le PDF");
+    }
+  }
+
+  Future<void> _sharePdf() async {
+    final summary = _lastReservationSummary;
+    if (summary == null) {
+      FancyNotification.show(context, "Aucune réservation à partager");
+      return;
+    }
+    try {
+      final bytes = await _buildReservationPdfBytes();
+      final baseName = '${(summary['userName'] ?? safeUsername).toString().replaceAll(' ', '_')}_${summary['startDate']}_${summary['startTime']}'.replaceAll(':', '-');
+      final xfile = XFile.fromData(
+        bytes,
+        mimeType: 'application/pdf',
+        name: 'reservation_$baseName.pdf',
+      );
+      await Share.shareXFiles(
+        [xfile],
+        text: "Confirmation de réservation - ${summary['propertyTitle'] ?? 'Propriété'}",
+      );
+    } catch (e) {
+      FancyNotification.show(context, "Partage du PDF impossible");
+    }
+  }
+
+  Future<Directory> _getExportDir() async {
+    try {
+      // Sur Android, utiliser directement le chemin du stockage externe public
+      if (Platform.isAndroid) {
+        final dir = Directory('/storage/emulated/0/casaNayo/documents');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return dir;
+      }
+      
+      // Pour les autres plateformes, utiliser getExternalStorageDirectory
+      final ext = await getExternalStorageDirectory();
+      if (ext != null) {
+        // Remonter jusqu'à la racine (même niveau que Android/DCIM)
+        final parts = ext.path.split('/');
+        int androidIndex = parts.indexOf('Android');
+        String base;
+        if (androidIndex > 0) {
+          base = parts.sublist(0, androidIndex).join('/');
+        } else {
+          base = ext.path;
+        }
+        if (base.isEmpty) base = '/storage/emulated/0';
+        final dir = Directory('$base/casaNayo/documents');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return dir;
+      }
+    } catch (e) {
+      print("Erreur lors de la création du répertoire: $e");
+    }
+
+    // Fallback: répertoire documents applicatif
+    final docs = await getApplicationDocumentsDirectory();
+    final fallbackDir = Directory('${docs.path}/casaNayo/documents');
+    if (!await fallbackDir.exists()) {
+      await fallbackDir.create(recursive: true);
+    }
+    return fallbackDir;
+  }
 
   String get safeUsername {
     final dynamic userData = storage.read(StockageKeys.userKey);
@@ -67,9 +347,6 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     TimeOfDay(hour: 16, minute: 0),
     TimeOfDay(hour: 17, minute: 0),
     TimeOfDay(hour: 18, minute: 0),
-    TimeOfDay(hour: 19, minute: 0),
-    TimeOfDay(hour: 20, minute: 0),
-    TimeOfDay(hour: 21, minute: 0),
   ];
 
   @override
@@ -77,6 +354,18 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     super.initState();
     initializeDateFormatting('fr_FR');
     _loadUserInfo();
+    _loadLogo();
+  }
+
+  Future<void> _loadLogo() async {
+    try {
+      final data = await rootBundle.load('assets/images/logoCasa.png');
+      setState(() {
+        _logoImage = pw.MemoryImage(data.buffer.asUint8List());
+      });
+    } catch (_) {
+      // ignore logo load failure
+    }
   }
 
   void _loadUserInfo() {
@@ -90,7 +379,63 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
           _userId = user['userId'] is int
               ? user['userId']
               : int.tryParse(user['userId']?.toString() ?? '');
-          _userName = '${user['username'] ?? user['name'] ?? ''}'.trim();
+          
+          // Récupérer le nom depuis profile stocké séparément dans StockageKeys.profileKey
+          final profileData = storage.read(StockageKeys.profileKey);
+          Map<String, dynamic>? profile;
+          
+          if (profileData != null) {
+            if (profileData is Map<String, dynamic>) {
+              profile = profileData;
+            } else if (profileData is Map<dynamic, dynamic>) {
+              profile = _convertToStringMap(profileData);
+            }
+          }
+          
+          // Si profile n'est pas trouvé dans profileKey, essayer dans user['profile']
+          if (profile == null) {
+            final profileFromUser = user['profile'];
+            if (profileFromUser != null) {
+              if (profileFromUser is Map<String, dynamic>) {
+                profile = profileFromUser;
+              } else if (profileFromUser is Map<dynamic, dynamic>) {
+                profile = _convertToStringMap(profileFromUser);
+              }
+            }
+          }
+          
+          if (profile != null) {
+            final firstname = profile['firstname']?.toString() ?? '';
+            final lastname = profile['lastname']?.toString() ?? '';
+            print("📋 Profile trouvé - firstname: $firstname, lastname: $lastname");
+            
+            if (firstname.isNotEmpty || lastname.isNotEmpty) {
+              _userName = '${firstname} ${lastname}'.trim();
+            } else {
+              // Fallback sur fullname si disponible
+              final fullname = profile['fullname']?.toString() ?? '';
+              _userName = fullname.isNotEmpty ? fullname : '';
+            }
+            print("✅ Nom récupéré: $_userName");
+          } else {
+            print("⚠️ Profile non trouvé dans profileKey ni dans userData");
+            // Fallback sur les autres champs si profile n'existe pas
+            final username = user['username']?.toString() ?? '';
+            final name = user['name']?.toString() ?? '';
+            final firstName = user['firstName']?.toString() ?? '';
+            final lastname = user['lastname']?.toString() ?? user['lastName']?.toString() ?? '';
+            
+            if (username.isNotEmpty) {
+              _userName = username.replaceAll('@', '').trim();
+            } else if (name.isNotEmpty) {
+              _userName = name.trim();
+            } else if (firstName.isNotEmpty || lastname.isNotEmpty) {
+              _userName = '${firstName} ${lastname}'.trim();
+            } else {
+              _userName = '';
+            }
+          }
+          
           _userEmail = user['email']?.toString() ?? '';
           _userPhone = user['phone']?.toString() ?? '';
         });
@@ -104,7 +449,13 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     if (data is Map<String, dynamic>) {
       return data;
     } else if (data is Map<dynamic, dynamic>) {
-      return data.map((key, value) => MapEntry(key.toString(), value));
+      return data.map((key, value) {
+        // Convertir récursivement les valeurs qui sont aussi des Maps
+        if (value is Map<dynamic, dynamic>) {
+          return MapEntry(key.toString(), _convertToStringMap(value));
+        }
+        return MapEntry(key.toString(), value);
+      });
     }
     return {};
   }
@@ -208,6 +559,35 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     }
 
     try {
+      final reservationCtrl = context.read<ReservationController>();
+      final propertyOwnerId =
+          widget.property.userId ?? widget.property.user?.userId;
+
+      // L'utilisateur tente de réserver son propre bien
+      if (propertyOwnerId != null &&
+          propertyOwnerId.toString() == userId) {
+        FancyNotification.show(
+            context, "Vous ne pouvez pas réserver votre propre bien");
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      // Vérifier localement une réservation en attente déjà existante
+      final hasPendingForSameProperty = reservationCtrl.reservations.any(
+        (r) =>
+            r.user?.userId?.toString() == userId &&
+            r.property?.propertyId?.toString() ==
+                widget.property.propertyId.toString() &&
+            (r.status?.toUpperCase() == 'PENDING'),
+      );
+
+      if (hasPendingForSameProperty) {
+        FancyNotification.show(context,
+            "Vous avez déjà une réservation en attente pour ce bien");
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
       final formattedDate = DateFormat('yyyy-MM-dd').format(_selectedDate!);
       // MODIFICATION ICI : Format HH:mm:ss au lieu de HH:mm
       final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}:00';
@@ -250,17 +630,54 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       print("- Fin: $formattedEndDate à $formattedEndTime");
       print("- Durée: 1 heure");
 
-      final ctrl = context.read<ReservationController>();
-      final response = await ctrl.createReservation(reservationData);
+      final response = await reservationCtrl.createReservation(
+        reservationData,
+        propertyOwnerId: propertyOwnerId,
+      );
 
       if (!mounted) return;
 
-      if (response.status == true) {
+      final rawMessage = response.data?['message'] ??
+          response.data?['error'] ??
+          response.errorMsg;
+
+      final hasApiError = response.data?['error'] != null ||
+          (rawMessage != null &&
+              rawMessage
+                  .toString()
+                  .toLowerCase()
+                  .contains("you already have a pending reservation")) ||
+          (rawMessage != null &&
+              rawMessage
+                  .toString()
+                  .toLowerCase()
+                  .contains("you can't reserve your own property"));
+
+      final isSuccess = _isSuccessMessage(rawMessage?.toString());
+
+      if (isSuccess && !hasApiError) {
+        // Formater les dates en dd-MM-yyyy
+        final formattedStartDate = DateFormat('dd-MM-yyyy').format(_selectedDate!);
+        final formattedEndDateDisplay = DateFormat('dd-MM-yyyy').format(visitEndDateTime);
+        
+        setState(() {
+          _lastReservationSummary = {
+            'propertyTitle': widget.property.title ?? 'Propriété',
+            'address': widget.property.address ?? '',
+            'startDate': formattedStartDate,
+            'startTime': formattedTime,
+            'endDate': formattedEndDateDisplay,
+            'endTime': formattedEndTime,
+            'userName': safeUsername,
+            'createdAt': formattedCreatedAt,
+            'responseData': response.data, // Stocker la réponse complète pour le PDF
+          };
+        });
         _showConfirmationDialog();
       } else {
-        final errorMessage = response.data?['message'] ??
-            response.errorMsg ??
-            "Erreur lors de la réservation";
+        final errorMessage = _toFrenchError(
+          rawMessage?.toString() ?? "Erreur lors de la réservation",
+        );
         FancyNotification.show(context, errorMessage);
         print("Erreur réponse: ${response.data}");
       }
@@ -278,7 +695,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     }
   }
 
-  void _showConfirmationDialog() {
+  void _showConfirmationDialog( ) {
     final formattedDate = DateFormat('EEEE d MMMM y', 'fr_FR').format(_selectedDate!);
     final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}h${_selectedTime!.minute == 0 ? '' : _selectedTime!.minute.toString().padLeft(2, '0')}';
 
@@ -402,6 +819,57 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                     ),
                   ),
                   const SizedBox(height: 28),
+
+                  // Export / Partage (confirmation)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async => await _downloadPdf(),
+                          icon: Icon(Icons.download_rounded, color: _primaryColor),
+                          label: Text(
+                            "Télécharger",
+                            style: TextStyle(
+                              color: _textPrimary.withOpacity(0.9),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            side: BorderSide(
+                              color: _primaryColor.withOpacity(0.3),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () async => await _sharePdf(),
+                          icon: Icon(Icons.ios_share_rounded),
+                          label: Text(
+                            "Partager",
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            backgroundColor: _primaryColor,
+                            foregroundColor: Colors.white,
+                            elevation: 2,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
 
                   SizedBox(
                     width: double.infinity,
@@ -542,8 +1010,10 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     final firstImage = widget.property.propertyImage?.isNotEmpty ?? false
         ? widget.property.propertyImage!.first
         : null;
-    final imageUrl = firstImage != null
-        ? "${Constantes.URL_IMAGES}${firstImage.path ?? firstImage.path}"
+    final imageUrl = firstImage?.path != null && firstImage!.path!.isNotEmpty
+        ? (firstImage.path!.startsWith('http') 
+            ? firstImage.path 
+            : "${Constantes.URL_IMAGES}${firstImage.path}")
         : null;
 
     return Container(
@@ -807,7 +1277,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                   // Actions
                   Row(
                     children: [
-                      // Bouton Fermer
+                      // Bouton Retour
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => Navigator.of(context).pop(),
@@ -821,7 +1291,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                             ),
                           ),
                           child: Text(
-                            "Plus tard",
+                            "Retour",
                             style: TextStyle(
                               color: _textPrimary.withOpacity(0.8),
                               fontWeight: FontWeight.w600,
@@ -831,60 +1301,93 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                       ),
                       const SizedBox(width: 12),
 
-                      // Bouton Principal
+                      // Bouton Partager PDF
                       Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                            _navigateToContactPage();
-                          },
+                        child: ElevatedButton.icon(
+                          onPressed: () async => await _sharePdf(),
+                          icon: Icon(Icons.ios_share_rounded),
+                          label: Text(
+                            "Partager",
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _primaryColor,
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            elevation: 0,
-                            shadowColor: Colors.transparent,
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.calendar_today_rounded,
-                                size: 18,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                "Rendez-vous",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
+                            backgroundColor: _primaryColor,
+                            foregroundColor: Colors.white,
+                            elevation: 2,
                           ),
                         ),
                       ),
                     ],
                   ),
-
-                  // Lien de contact alternatif
                   const SizedBox(height: 16),
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.of(context).pop();
-                      _navigateToContactPage();
-                    },
-                    child: Text(
-                      "Ou nous contacter par téléphone",
-                      style: TextStyle(
-                        color: _primaryColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        decoration: TextDecoration.underline,
+
+                  // Bouton Télécharger (désormais sous forme pleine largeur pour ce modal)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async => await _downloadPdf(),
+                      icon: Icon(Icons.download_rounded, color: _primaryColor),
+                      label: Text(
+                        "Télécharger le PDF",
+                        style: TextStyle(
+                          color: _textPrimary.withOpacity(0.9),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        side: BorderSide(
+                          color: _primaryColor.withOpacity(0.3),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Bouton Principal
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        Navigator.of(context).pop();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _primaryColor,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                        shadowColor: Colors.transparent,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.check_circle_rounded,
+                            size: 18,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            "Fermer",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -903,6 +1406,74 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   }
 
   Widget _buildUserInfoSection() {
+    // Récupérer le nom depuis GetStorage de manière sécurisée
+    String displayName = _userName; // Utiliser le nom déjà chargé dans _loadUserInfo()
+    
+    // Si _userName est vide ou null, essayer de récupérer depuis GetStorage directement
+    if (displayName.isEmpty || displayName == 'null') {
+      try {
+        // Essayer d'abord depuis StockageKeys.profileKey (stockage séparé)
+        final dynamic profileData = storage.read(StockageKeys.profileKey);
+        print("🔍 Profile depuis profileKey: $profileData");
+        
+        Map<String, dynamic>? profile;
+        
+        if (profileData != null) {
+          if (profileData is Map<String, dynamic>) {
+            profile = profileData;
+          } else if (profileData is Map<dynamic, dynamic>) {
+            profile = _convertToStringMap(profileData);
+          }
+        }
+        
+        // Si pas trouvé, essayer depuis userData['profile']
+        if (profile == null) {
+          final dynamic userData = storage.read(StockageKeys.userKey);
+          print("🔍 UserData depuis userKey: $userData");
+          
+          if (userData != null) {
+            final Map<String, dynamic> user = _convertToStringMap(userData);
+            final profileFromUser = user['profile'];
+            
+            if (profileFromUser != null) {
+              if (profileFromUser is Map<String, dynamic>) {
+                profile = profileFromUser;
+              } else if (profileFromUser is Map<dynamic, dynamic>) {
+                profile = _convertToStringMap(profileFromUser);
+              }
+            }
+          }
+        }
+        
+        if (profile != null) {
+          final firstname = profile['firstname']?.toString() ?? '';
+          final lastname = profile['lastname']?.toString() ?? '';
+          print("📋 Profile trouvé - firstname: $firstname, lastname: $lastname");
+          
+          if (firstname.isNotEmpty || lastname.isNotEmpty) {
+            displayName = '${firstname} ${lastname}'.trim();
+          } else {
+            final fullname = profile['fullname']?.toString() ?? '';
+            displayName = fullname.isNotEmpty ? fullname : 'Visiteur';
+          }
+        } else {
+          print("⚠️ Profile non trouvé dans profileKey ni dans userData");
+          displayName = 'Visiteur';
+        }
+      } catch (e, stackTrace) {
+        print("❌ Erreur lors de la récupération du nom: $e");
+        print("Stack trace: $stackTrace");
+        displayName = (_userName.isNotEmpty && _userName != 'null') ? _userName : 'Visiteur';
+      }
+    }
+    
+    // Nettoyer le nom si c'est "null" ou vide
+    if (displayName == 'null' || displayName.isEmpty) {
+      displayName = 'Visiteur';
+    }
+    
+    print("✅ Nom final à afficher: $displayName");
+    
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -946,7 +1517,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _userName.isNotEmpty ? 'Bonjour, $_userName' : 'Bonjour',
+                  displayName.isNotEmpty ? 'Bonjour, $displayName' : 'Bonjour',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: _textPrimary,
@@ -1044,7 +1615,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
             Icon(Icons.access_time_rounded, size: 18, color: _primaryColor),
             const SizedBox(width: 8),
             Text(
-              'Heure de visite (7h - 21h)',
+              'Heure de visite (7h - 18h)',
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 color: _textPrimary,
@@ -1095,54 +1666,71 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               final isSelected = _selectedTime == time;
               final isPastTime = _isPastTime(time);
 
-              return InkWell(
-                onTap: isPastTime ? null : () => _selectTime(time),
-                borderRadius: BorderRadius.circular(10),
-                child: AnimatedContainer(
-                  duration: Duration(milliseconds: 300),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? _primaryColor
-                        : isPastTime
-                        ? Colors.grey[100]
-                        : _cardColor,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
+              return Tooltip(
+                message: isPastTime ? 'Cette heure est déjà passée' : '',
+                child: InkWell(
+                  onTap: isPastTime ? null : () => _selectTime(time),
+                  borderRadius: BorderRadius.circular(10),
+                  child: AnimatedContainer(
+                    duration: Duration(milliseconds: 300),
+                    decoration: BoxDecoration(
                       color: isSelected
                           ? _primaryColor
                           : isPastTime
-                          ? Colors.grey[300]!
-                          : _borderColor,
-                      width: isSelected ? 2 : 1.5,
-                    ),
-                    boxShadow: isSelected
-                        ? [
-                      BoxShadow(
-                        color: _primaryColor.withOpacity(0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ]
-                        : [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${time.hour.toString().padLeft(2, '0')}h${time.minute == 0 ? '' : time.minute.toString().padLeft(2, '0')}',
-                      style: TextStyle(
+                          ? Colors.grey[100]
+                          : _cardColor,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
                         color: isSelected
-                            ? Colors.white
+                            ? _primaryColor
                             : isPastTime
-                            ? _textLight
-                            : _textPrimary,
-                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                        fontSize: 14,
+                            ? Colors.grey[300]!
+                            : _borderColor,
+                        width: isSelected ? 2 : 1.5,
                       ),
+                      boxShadow: isSelected
+                          ? [
+                        BoxShadow(
+                          color: _primaryColor.withOpacity(0.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                          : [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        Center(
+                          child: Text(
+                            '${time.hour.toString().padLeft(2, '0')}h${time.minute == 0 ? '' : time.minute.toString().padLeft(2, '0')}',
+                            style: TextStyle(
+                              color: isSelected
+                                  ? Colors.white
+                                  : isPastTime
+                                  ? _textLight
+                                  : _textPrimary,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        if (isPastTime)
+                          Positioned(
+                            top: 2,
+                            right: 2,
+                            child: Icon(
+                              Icons.block,
+                              size: 12,
+                              color: Colors.red.withOpacity(0.7),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),

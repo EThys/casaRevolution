@@ -20,6 +20,25 @@ class ReservationController with ChangeNotifier {
     return userData?['userId']?.toString();
   }
 
+  String _normalize(String input) {
+    return input
+        .toLowerCase()
+        .replaceAll(RegExp(r'[éèêë]'), 'e')
+        .replaceAll(RegExp(r'[àâä]'), 'a')
+        .replaceAll(RegExp(r'[îï]'), 'i')
+        .replaceAll(RegExp(r'[ôö]'), 'o')
+        .replaceAll(RegExp(r'[ùûü]'), 'u')
+        .replaceAll(RegExp(r'[ç]'), 'c');
+  }
+
+  bool _isSuccessMessage(String? message) {
+    if (message == null) return false;
+    final normalized = _normalize(message);
+    return normalized.contains("a ete cree avec succes") ||
+        normalized.contains("a ete creee avec succes") ||
+        normalized.contains("a ete creer avec succes");
+  }
+
   // Récupérer toutes les réservations de l'utilisateur connecté
   Future<List<ReservationModel>> getAllReservations() async {
     final userId = _getCurrentUserId();
@@ -200,10 +219,51 @@ class ReservationController with ChangeNotifier {
     return reservation;
   }
 
-  Future<HttpResponse> createReservation(Map<String, dynamic> reservationData) async {
+  Future<HttpResponse> createReservation(
+    Map<String, dynamic> reservationData, {
+    int? propertyOwnerId,
+  }) async {
     try {
       loading = true;
       notifyListeners();
+
+      // Vérification locale avant l'appel réseau
+      final userId = _getCurrentUserId();
+      if (userId != null) {
+        // Empêcher la réservation de son propre bien
+        if (propertyOwnerId != null &&
+            propertyOwnerId.toString() == userId) {
+          loading = false;
+          notifyListeners();
+          const errorMsg = "You can't reserve your own property";
+          return HttpResponse(
+            status: false,
+            data: {'error': errorMsg},
+            errorMsg: errorMsg,
+          );
+        }
+
+        // Empêcher la duplication d'une réservation en attente pour le même bien
+        final propertyId = reservationData['propertyId']?.toString();
+        final hasPending = reservations.any(
+          (r) =>
+              r.user?.userId?.toString() == userId &&
+              r.property?.propertyId?.toString() == propertyId &&
+              (r.status?.toUpperCase() == 'PENDING'),
+        );
+
+        if (hasPending) {
+          loading = false;
+          notifyListeners();
+          const errorMsg =
+              "You already have a pending reservation with this property";
+          return HttpResponse(
+            status: false,
+            data: {'error': errorMsg},
+            errorMsg: errorMsg,
+          );
+        }
+      }
 
       final url = Endpoints.addReservations;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
@@ -212,6 +272,26 @@ class ReservationController with ChangeNotifier {
 
       HttpResponse response = await postData(url, reservationData, token: tkn);
       print("REPONSE: ${response.data}");
+
+      final rawMessage = response.data?['message'] ?? response.data?['msg'];
+      final isSuccess = _isSuccessMessage(rawMessage?.toString());
+
+      // Gérer explicitement les erreurs renvoyées par l'API, même si status HTTP est true
+      final apiError = response.data?['error'] ?? (isSuccess ? null : response.data?['message']);
+      if (apiError != null && !isSuccess) {
+        loading = false;
+        notifyListeners();
+        return HttpResponse(
+          status: false,
+          data: response.data,
+          errorMsg: apiError.toString(),
+        );
+      }
+
+      // Si le message indique le succès, force le statut à true
+      if (isSuccess) {
+        response.status = true;
+      }
 
       // Vérifier si la création a réussi
       if (response.status == true && response.data != null) {
