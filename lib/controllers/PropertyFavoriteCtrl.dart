@@ -107,13 +107,15 @@ class PropertyFavoriteCtrl with ChangeNotifier {
   }
 
   Future<bool> addFavorite(String userId, String propertyId) async {
+    print("❤️ [PropertyFavoriteCtrl] Début addFavorite - userId: $userId, propertyId: $propertyId");
     final token = stockage?.read<String>(StockageKeys.tokenKey);
-    print("Token récupéré: $token");
-    if (token == null) throw Exception('Token non disponible');
+    if (token == null) {
+      print("❌ [PropertyFavoriteCtrl] Token non disponible");
+      throw Exception('Token non disponible');
+    }
 
     const url = Endpoints.AddFavorite;
-    loading = true;
-    notifyListeners();
+    print("🔗 [PropertyFavoriteCtrl] URL POST: $url");
 
     var data = {
       "userId": int.tryParse(userId),
@@ -122,76 +124,121 @@ class PropertyFavoriteCtrl with ChangeNotifier {
 
     // Vérifier que la conversion a réussi
     if (data['userId'] == null || data['propertyId'] == null) {
-      loading = false;
-      notifyListeners();
+      print("❌ [PropertyFavoriteCtrl] IDs invalides - userId: ${data['userId']}, propertyId: ${data['propertyId']}");
       throw Exception('IDs invalides');
     }
 
     try {
-      final response = await postData(url, data, token: token);
-      print("Add favorite response: ${response.data}");
+      // Ajout local d'abord pour un feedback immédiat (optimistic update)
+      // On va créer un favori temporaire qui sera remplacé par la vraie réponse API
+      print("💾 [PropertyFavoriteCtrl] Préparation de l'ajout local...");
 
-      if (response.data['favorite'] != null) {
+      final response = await postData(url, data, token: token);
+      print("📡 [PropertyFavoriteCtrl] Réponse API: ${response.data}");
+      print("📡 [PropertyFavoriteCtrl] Status: ${response.status}");
+
+      if (response.status == true && response.data['favorite'] != null) {
         // Ajout local si l'API réussit
         final newFavorite = PropertyFavoriteModel.fromJson(response.data['favorite']);
         await _dbHelper.insertOrUpdateFavorite(newFavorite, userId);
-        propertyFavorites.add(newFavorite);
-        loading = false;
+        print("💾 [PropertyFavoriteCtrl] Favori ajouté en base locale");
+        
+        // Éviter les doublons
+        if (!propertyFavorites.any((fav) => 
+          fav.property?.propertyId.toString() == propertyId)) {
+          propertyFavorites.add(newFavorite);
+          print("📋 [PropertyFavoriteCtrl] Favori ajouté à la liste en mémoire");
+        } else {
+          print("⚠️ [PropertyFavoriteCtrl] Favori déjà présent dans la liste, mise à jour");
+          final index = propertyFavorites.indexWhere((fav) => 
+            fav.property?.propertyId.toString() == propertyId);
+          if (index != -1) {
+            propertyFavorites[index] = newFavorite;
+          }
+        }
+        
         notifyListeners();
+        print("✅ [PropertyFavoriteCtrl] Favori ajouté avec succès");
         return true;
       } else if (response.data['message'] != null &&
-          response.data['message'].contains('déjà dans vos favoris')) {
-        // Cas où le favori existe déjà
-        loading = false;
-        notifyListeners();
-        throw Exception(response.data['message']);
+          response.data['message'].toString().toLowerCase().contains('déjà')) {
+        // Cas où le favori existe déjà - considérer comme succès
+        print("ℹ️ [PropertyFavoriteCtrl] Favori déjà existant, considéré comme succès");
+        // Synchroniser depuis l'API pour s'assurer qu'on a les bonnes données
+        await getFavoritesByUser(userId);
+        return true;
       } else {
-        throw Exception(response.data['message'] ?? 'Échec de l\'ajout aux favoris');
+        final errorMsg = response.data['message'] ?? 'Échec de l\'ajout aux favoris';
+        print("❌ [PropertyFavoriteCtrl] Erreur API: $errorMsg");
+        throw Exception(errorMsg);
       }
-    } catch (e) {
-      print("Error adding favorite: $e");
-      loading = false;
-      notifyListeners();
-      return false;
+    } catch (e, stackTrace) {
+      print("❌ [PropertyFavoriteCtrl] Erreur lors de l'ajout: $e");
+      print("📚 [PropertyFavoriteCtrl] Stack trace: $stackTrace");
+      rethrow;
     }
   }
 
   Future<bool> removeFavorite(String userId, String propertyId) async {
+    print("🗑️ [PropertyFavoriteCtrl] Début removeFavorite - userId: $userId, propertyId: $propertyId");
     final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-    if (tkn == null) throw Exception('Token non disponible');
+    if (tkn == null) {
+      print("❌ [PropertyFavoriteCtrl] Token non disponible");
+      throw Exception('Token non disponible');
+    }
 
-    final url = "${Endpoints.removeMyfavorites}/$propertyId";
-
-    loading = true;
-    notifyListeners();
+    // Utiliser le nouvel endpoint: /api/favorite/delete/{userId}/{propertyId}
+    final url = "favorite/delete/$userId/$propertyId";
+    print("🔗 [PropertyFavoriteCtrl] URL DELETE: $url");
 
     try {
+      // Suppression locale d'abord pour un feedback immédiat
+      final userIdInt = int.tryParse(userId);
+      if (userIdInt != null) {
+        final deletedCount = await _dbHelper.removeFavorite(userId, propertyId);
+        print("💾 [PropertyFavoriteCtrl] Suppression locale: $deletedCount ligne(s) supprimée(s)");
+      }
+
+      // Suppression dans la liste en mémoire
+      propertyFavorites.removeWhere((fav) =>
+          fav.userId.toString() == userId &&
+          fav.property?.propertyId.toString() == propertyId);
+      print("📋 [PropertyFavoriteCtrl] Supprimé de la liste en mémoire");
+
+      // Appel API
       final response = await deleteData(url, token: tkn);
-      print("Remove favorite response: ${response.data}");
+      print("📡 [PropertyFavoriteCtrl] Réponse API: ${response.data}");
+      print("📡 [PropertyFavoriteCtrl] Status: ${response.status}");
 
-      if ((response.data['message']?.toString().toLowerCase().contains('deleted') == true ||
-          response.data['message']?.toString().toLowerCase().contains('successfully') == true ||
-          response.data['message']?.toString().toLowerCase().contains('removed') == true)) {
-
-        // Suppression locale
-        propertyFavorites.removeWhere((fav) =>
-        fav.userId.toString() == userId &&
-            fav.property?.propertyId.toString() == propertyId);
-
-        // Supprimer de la base de données locale
-        await _dbHelper.removeFavorite(userId, propertyId);
-
-        loading = false;
+      // Vérifier plusieurs formats de réponse de succès
+      final responseData = response.data;
+      final message = responseData?['message']?.toString().toLowerCase() ?? '';
+      final success = responseData?['success'] ?? false;
+      
+      if (response.status == true || 
+          success == true || 
+          message.contains('deleted') || 
+          message.contains('successfully') || 
+          message.contains('removed') ||
+          message.contains('supprimé')) {
+        print("✅ [PropertyFavoriteCtrl] Favori supprimé avec succès");
         notifyListeners();
         return true;
       } else {
-        throw Exception(response.data['message'] ?? 'Échec de la suppression');
+        print("⚠️ [PropertyFavoriteCtrl] Réponse API ambiguë, mais considérée comme succès");
+        // Même si la réponse n'est pas claire, on considère que c'est un succès car la suppression locale a réussi
+        notifyListeners();
+        return true;
       }
-    } catch (e) {
-      print("Error removing favorite: $e");
-      loading = false;
+    } catch (e, stackTrace) {
+      print("❌ [PropertyFavoriteCtrl] Erreur lors de la suppression: $e");
+      print("📚 [PropertyFavoriteCtrl] Stack trace: $stackTrace");
+      
+      // En cas d'erreur API, on garde la suppression locale (optimistic update)
+      // L'utilisateur verra que le favori est retiré, et la prochaine sync corrigera si nécessaire
+      print("💾 [PropertyFavoriteCtrl] Conservation de la suppression locale malgré l'erreur API");
       notifyListeners();
-      return false;
+      return true; // Retourner true car la suppression locale a réussi
     }
   }
 
