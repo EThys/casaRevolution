@@ -20,6 +20,7 @@ class Routes {
   static const String myPropertiesRoute = "myProperties";
 
   static const String createPropertyRoute = "createProperty";
+  static const String editPropertyRoute = "editProperty";
   static const String forgotPasswordRoute = "forgotPassword";
   static const String otpVerificationRoute = "otpVerification";
   static const String resetPasswordRoute = "resetPassword";
@@ -30,4 +31,6 @@ class Routes {
   static const String serviceRequestDetailRoute = "serviceRequestDetail";
   static const String myServiceRequestsRoute = "myServiceRequests";
   static const String serviceRequestsForProvidersRoute = "serviceRequestsForProviders";
+  static const String requestInterventionRoute = "requestIntervention";
+  static const String notificationPageRoute = "notificationPage";
 }

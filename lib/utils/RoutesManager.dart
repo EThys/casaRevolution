@@ -6,6 +6,7 @@ import 'package:casa/screens/BookingHistoryPage.dart';
 import 'package:casa/screens/BookingVisitPage.dart';
 import 'package:casa/screens/CommissionDashboardPage.dart';
 import 'package:casa/screens/CreatePropertyPostPage.dart';
+import 'package:casa/screens/EditPropertyPage.dart';
 import 'package:casa/screens/HomePage.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/screens/MyPropertiesPage.dart';
@@ -26,6 +27,8 @@ import '../screens/AllReviewsPage.dart';
 import '../screens/ServiceRequestDetailPage.dart';
 import '../screens/MyServiceRequestsPage.dart';
 import '../screens/ServiceRequestsForProvidersPage.dart';
+import '../screens/RequestInterventionPage.dart';
+import '../screens/NotificationPage.dart';
 import '../models/ServiceModel.dart';
 import '../models/ServiceRequestModel.dart';
 import 'Routes.dart';
@@ -64,6 +67,8 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>MyPropertiesPage());
       case Routes.createPropertyRoute:
         return MaterialPageRoute(builder: (_)=>CreatePropertyPostPage());
+      case Routes.editPropertyRoute:
+        return MaterialPageRoute(builder: (_)=>EditPropertyPage(property: r.arguments as PropertyModel));
       case Routes.forgotPasswordRoute:
         return MaterialPageRoute(builder: (_)=>ForgotPasswordScreen());
       case Routes.otpVerificationRoute:
@@ -108,6 +113,11 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>MyServiceRequestsPage());
       case Routes.serviceRequestsForProvidersRoute:
         return MaterialPageRoute(builder: (_)=>ServiceRequestsForProvidersPage());
+      case Routes.requestInterventionRoute:
+        final ServiceModel service = r.arguments as ServiceModel;
+        return MaterialPageRoute(builder: (_)=>RequestInterventionPage(service: service));
+      case Routes.notificationPageRoute:
+        return MaterialPageRoute(builder: (_)=>NotificationsPage());
       // case Routes.visitPageRoute:
       //   final PropertyModel property = r.arguments as PropertyModel;
       //   return MaterialPageRoute(builder: (_)=>BookingVisitPage(property: property));

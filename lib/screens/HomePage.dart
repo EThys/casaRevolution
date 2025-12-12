@@ -549,10 +549,7 @@ class _HomePageState extends State<HomePage> {
                   size: 22,
                 ),
                 onPressed: () {
-                  SnackbarForCasa.info(
-                    context,
-                    "Fonctionnalité en cours de développement",
-                  );
+                  Navigator.pushNamed(context, Routes.notificationPageRoute);
                 },
                 splashRadius: 20,
                 padding: EdgeInsets.zero,
@@ -875,7 +872,7 @@ class _HomePageState extends State<HomePage> {
                                 maxWidth: 200, // Limite la largeur maximale
                               ),
                               child: Text(
-                                "${profile?['fullname'] ?? 'Utilisateur'}",
+                                _getDisplayName(profile, user),
                                 key: ValueKey('user'),
                                 style: TextStyle(
                                   color: Colors.white,
@@ -975,6 +972,28 @@ class _HomePageState extends State<HomePage> {
                             onTap: () => _handleNavigation(Routes.quickServiceRequestRoute),
                           ),
                           if (isLoggedIn) ...[
+                            _buildDrawerItem(
+                              icon: Icons.request_quote_rounded,
+                              title: 'Mes demandes',
+                              routeName: Routes.myServiceRequestsRoute,
+                              isSelected: selectedRoute == Routes.myServiceRequestsRoute,
+                              onTap: () => _handleNavigation(Routes.myServiceRequestsRoute),
+                            ),
+                            _buildDrawerItem(
+                              icon: Icons.construction_rounded,
+                              title: 'Demander intervention',
+                              routeName: Routes.requestInterventionRoute,
+                              isSelected: selectedRoute == Routes.requestInterventionRoute,
+                              onTap: () {
+                                // Note: Cette route nécessite un ServiceModel en argument
+                                // Pour l'instant, on affiche juste un message
+                                Navigator.pop(context);
+                                SnackbarForCasa.info(
+                                  context,
+                                  "Sélectionnez un service pour demander une intervention",
+                                );
+                              },
+                            ),
                             _buildDrawerItem(
                               icon: Icons.calendar_today_rounded,
                               title: 'Mes Réservations',
@@ -1188,6 +1207,27 @@ class _HomePageState extends State<HomePage> {
   }
 
 
+  String _getDisplayName(dynamic profile, dynamic user) {
+    // Priorité aux données du profil, puis user
+    if (profile != null && profile is Map) {
+      final fullname = profile['fullname']?.toString();
+      if (fullname != null && fullname.isNotEmpty && fullname != 'null') {
+        return fullname;
+      }
+    }
+    if (user != null && user is Map) {
+      final username = user['username']?.toString();
+      if (username != null && username.isNotEmpty && username != 'null') {
+        return username;
+      }
+      final email = user['email']?.toString();
+      if (email != null && email.isNotEmpty) {
+        return email.split('@').first;
+      }
+    }
+    return 'Utilisateur';
+  }
+
   void _handleNavigation(String routeName) {
     Navigator.pop(context);
 
@@ -1196,7 +1236,9 @@ class _HomePageState extends State<HomePage> {
         routeName == Routes.favoriteRoute ||
         routeName == Routes.myPropertiesRoute ||
         routeName == Routes.bookingHistoryPageRoute ||
-        routeName == Routes.quickServiceRequestRoute) {
+        routeName == Routes.quickServiceRequestRoute ||
+        routeName == Routes.myServiceRequestsRoute ||
+        routeName == Routes.notificationPageRoute) {
       Navigator.pushNamed(context, routeName);
     } else {
       SnackbarForCasa.info(
@@ -1207,9 +1249,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _showQuickServiceRequest() {
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => QuickServiceRequestModal(),
     );
   }
@@ -2687,6 +2730,7 @@ class _HomePageState extends State<HomePage> {
 
           return Container(
             width: 280,
+            height: 380, // Hauteur fixe pour que l'image remplisse toute la carte
             margin: EdgeInsets.only(right: 20, bottom: 10, top: 10),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(24),
@@ -2717,6 +2761,7 @@ class _HomePageState extends State<HomePage> {
                       ],
                     ),
                     child: Stack(
+                      fit: StackFit.expand, // S'assurer que le Stack prend toute la place
                       children: [
                         Positioned.fill(
                           child: Hero(
@@ -2727,9 +2772,36 @@ class _HomePageState extends State<HomePage> {
                                   ? CachedNetworkImage(
                                 imageUrl: imageUrl,
                                 fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: double.infinity,
                                 key: ValueKey(imageUrl),
+                                placeholder: (context, url) => Container(
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  color: Colors.grey[200],
+                                  child: Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => Container(
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  color: Colors.grey[200],
+                                  child: Center(
+                                    child: Icon(
+                                      Icons.photo_outlined,
+                                      size: 48,
+                                      color: Colors.grey[400],
+                                    ),
+                                  ),
+                                ),
                               )
                                   : Container(
+                                width: double.infinity,
+                                height: double.infinity,
                                 color: Colors.grey[200],
                                 child: Center(
                                   child: Icon(
