@@ -77,4 +77,64 @@ class RegisterLocataireCtrl with ChangeNotifier {
       );
     }
   }
+
+  Future<HttpResponse> updateLocataireProfile(
+      int locataireId,
+      Map<String, dynamic> payload
+      ) async {
+    try {
+      var url = "${Endpoints.locataire}/$locataireId";
+      print("Payload de modification locataire: ${(payload)}");
+
+      HttpResponse response = await putData(url, payload);
+
+      if (response.data == null) {
+        return HttpResponse(
+          status: false,
+          errorMsg: "Réponse vide du serveur",
+          isException: true,
+        );
+      }
+
+      print("Réponse API modification locataire: ${(response.data)}");
+
+      if (response.status) {
+        try {
+          LocataireModel locataire = LocataireModel.fromJson(response.data);
+          this.locataire = locataire;
+          notifyListeners();
+
+          return HttpResponse(
+            status: true,
+            data: response.data,
+            errorMsg: response.data['message'] ?? "Profil modifié avec succès",
+          );
+        } catch (e) {
+          print("Erreur parsing LocataireModel: $e");
+          return HttpResponse(
+            status: true,
+            data: response.data,
+            errorMsg: response.data['message'] ?? "Profil modifié avec succès",
+          );
+        }
+      } else {
+        String errorMsg = response.data['message'] ??
+            response.errorMsg ??
+            "Erreur lors de la modification du profil";
+        return HttpResponse(
+          status: false,
+          errorMsg: errorMsg,
+          data: response.data,
+        );
+      }
+    } catch (e, stackTrace) {
+      print("Exception lors de la modification du locataire: $e");
+      print("Stack trace: $stackTrace");
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
 }

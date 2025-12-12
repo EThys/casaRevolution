@@ -77,4 +77,64 @@ class RegisterBailleurCtrl with ChangeNotifier {
       );
     }
   }
+
+  Future<HttpResponse> updateBailleurProfile(
+      int bailleurId,
+      Map<String, dynamic> payload
+      ) async {
+    try {
+      var url = "${Endpoints.bailleur}/$bailleurId";
+      print("Payload de modification bailleur: ${(payload)}");
+
+      HttpResponse response = await putData(url, payload);
+
+      if (response.data == null) {
+        return HttpResponse(
+          status: false,
+          errorMsg: "Réponse vide du serveur",
+          isException: true,
+        );
+      }
+
+      print("Réponse API modification bailleur: ${(response.data)}");
+
+      if (response.status) {
+        try {
+          BailleurModel bailleur = BailleurModel.fromJson(response.data);
+          this.bailleur = bailleur;
+          notifyListeners();
+
+          return HttpResponse(
+            status: true,
+            data: response.data,
+            errorMsg: response.data['message'] ?? "Profil modifié avec succès",
+          );
+        } catch (e) {
+          print("Erreur parsing BailleurModel: $e");
+          return HttpResponse(
+            status: true,
+            data: response.data,
+            errorMsg: response.data['message'] ?? "Profil modifié avec succès",
+          );
+        }
+      } else {
+        String errorMsg = response.data['message'] ??
+            response.errorMsg ??
+            "Erreur lors de la modification du profil";
+        return HttpResponse(
+          status: false,
+          errorMsg: errorMsg,
+          data: response.data,
+        );
+      }
+    } catch (e, stackTrace) {
+      print("Exception lors de la modification du bailleur: $e");
+      print("Stack trace: $stackTrace");
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
 }
