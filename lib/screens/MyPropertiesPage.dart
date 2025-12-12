@@ -38,6 +38,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
 
   List<PropertyModel> _myProperties = [];
   List<int> _deletingIds = [];
+  bool _isGridView = false; // Toggle pour vue liste/grille
 
   @override
   void initState() {
@@ -173,12 +174,15 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
   }
 
   void _editProperty(PropertyModel property) {
-    // TODO: Créer une page séparée pour l'édition ou restaurer la fonctionnalité
-    FancyNotification.show(
+    Navigator.pushNamed(
       context,
-      "La modification sera disponible prochainement",
-      type: NotificationType.info,
-    );
+      Routes.editPropertyRoute,
+      arguments: property,
+    ).then((success) {
+      if (success == true) {
+        _loadMyProperties(); // Recharger la liste après modification
+      }
+    });
   }
 
   void _viewProperty(PropertyModel property) {
@@ -326,6 +330,21 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
         ],
       ),
       actions: [
+        // Toggle vue liste/grille
+        Tooltip(
+          message: _isGridView ? 'Vue liste' : 'Vue grille',
+          child: IconButton(
+            icon: Icon(
+              _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+              color: Colors.white,
+            ),
+            onPressed: () {
+              setState(() {
+                _isGridView = !_isGridView;
+              });
+            },
+          ),
+        ),
         Tooltip(
           message: 'Actualiser',
           child: Stack(
@@ -569,17 +588,237 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
       color: _primaryColor,
       backgroundColor: Colors.white,
       onRefresh: _loadMyProperties,
-      child: ListView.separated(
-        padding: EdgeInsets.all(20),
-        itemCount: properties.length,
-        separatorBuilder: (_, __) => SizedBox(height: 20),
-        itemBuilder: (context, index) {
-          final property = properties[index];
-          return AnimatedSwitcher(
-            duration: Duration(milliseconds: 300),
-            child: _buildPropertyCard(property),
-          );
-        },
+      child: _isGridView
+          ? _buildPropertyGridContent(properties)
+          : ListView.separated(
+              padding: EdgeInsets.all(20),
+              itemCount: properties.length,
+              separatorBuilder: (_, __) => SizedBox(height: 20),
+              itemBuilder: (context, index) {
+                final property = properties[index];
+                return AnimatedSwitcher(
+                  duration: Duration(milliseconds: 300),
+                  child: _buildPropertyCard(property),
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildPropertyGridContent(List<PropertyModel> properties) {
+    return GridView.builder(
+      padding: EdgeInsets.all(16),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 0.75, // Ajusté pour éviter l'overflow
+      ),
+      itemCount: properties.length,
+      itemBuilder: (context, index) {
+        final property = properties[index];
+        return AnimatedSwitcher(
+          duration: Duration(milliseconds: 300),
+          child: _buildPropertyGridCard(property),
+        );
+      },
+    );
+  }
+
+  Widget _buildPropertyGridCard(PropertyModel property) {
+    final isForRent = property.transactionType?.toLowerCase() == 'location';
+    final isAvailable = property.isActive == true;
+    final isDeleting = _deletingIds.contains(property.propertyId);
+
+    final firstImage = property.propertyImage?.isNotEmpty ?? false
+        ? property.propertyImage!.first
+        : null;
+    final imageUrl = firstImage?.path;
+
+    final priceText = isForRent
+        ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$/mois'
+        : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$';
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => _viewProperty(property),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: _cardBackground,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              spreadRadius: 1,
+              offset: Offset(0, 4),
+            )
+          ],
+        ),
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Image
+                Expanded(
+                  flex: 3,
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                          color: _lightGrey,
+                        ),
+                        child: imageUrl != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                                child: CachedNetworkImage(
+                                  imageUrl: imageUrl,
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  placeholder: (context, url) => Container(
+                                    color: _lightGrey,
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: _primaryColor,
+                                      ),
+                                    ),
+                                  ),
+                                  errorWidget: (context, url, error) => Container(
+                                    color: _lightGrey,
+                                    child: Icon(Icons.home, size: 30, color: _mediumGrey),
+                                  ),
+                                ),
+                              )
+                            : Container(
+                                color: _lightGrey,
+                                child: Icon(Icons.home, size: 30, color: _mediumGrey),
+                              ),
+                      ),
+                      Positioned(
+                        bottom: 8,
+                        left: 8,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isAvailable ? _successColor.withOpacity(0.9) : _errorColor.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            isAvailable ? 'Active' : 'Inactive',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.7),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            priceText,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Contenu
+                Expanded(
+                  flex: 2,
+                  child: Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          property.title ?? 'Propriété',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: _darkColor,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.location_on_rounded, size: 12, color: _mediumGrey),
+                            SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                property.address ?? 'Adresse non renseignée',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: _mediumGrey,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 4),
+                        Row(
+                          children: [
+                            if (property.bedrooms != null && property.bedrooms! > 0) ...[
+                              Icon(Icons.bed_rounded, size: 12, color: _mediumGrey),
+                              SizedBox(width: 4),
+                              Text(
+                                '${property.bedrooms}',
+                                style: TextStyle(fontSize: 11, color: _mediumGrey),
+                              ),
+                              SizedBox(width: 8),
+                            ],
+                            if (property.bathroom != null && property.bathroom! > 0) ...[
+                              Icon(Icons.bathtub_rounded, size: 12, color: _mediumGrey),
+                              SizedBox(width: 4),
+                              Text(
+                                '${property.bathroom}',
+                                style: TextStyle(fontSize: 11, color: _mediumGrey),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (isDeleting)
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.black.withOpacity(0.5),
+                ),
+                child: Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

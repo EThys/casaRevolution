@@ -450,6 +450,8 @@ class PropertyController with ChangeNotifier {
       HttpResponse response = await postData(url, propertyData, token: tkn);
 
       // Vérifier si la requête a réussi (basé sur le status)
+      print("📊 Réponse reçue - Status: ${response.status}, Data: ${response.data != null ? 'présent' : 'null'}, Error: ${response.errorMsg}");
+      
       if (response.status == true) {
         // Traitement de la réponse réussie
         if (response.data != null && response.data is Map) {
