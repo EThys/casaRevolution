@@ -1,8 +1,8 @@
-import 'package:casa/screens/BottomNavBar.dart';
-import 'package:casa/utils/Routes.dart';
+import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:smooth_page_indicator/smooth_page_indicator.dart';
-import 'package:flutter/animation.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:casa/screens/BottomNavBar.dart';
 
 class OnboardingScreen extends StatefulWidget {
   @override
@@ -10,371 +10,631 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen>
-    with SingleTickerProviderStateMixin {
-  final PageController _pageController = PageController();
-  int _currentPage = 0;
-  late AnimationController _animationController;
-  late Animation<double> _scaleAnimation;
+    with TickerProviderStateMixin {
+  int _selectedIndex = 0;
+  Timer? _timer;
+  late PageController _pageController;
+  
+  // Contrôleurs d'animation
+  late AnimationController _backgroundAnimationController;
+  late AnimationController _textAnimationController;
+  late AnimationController _logoAnimationController;
+  late AnimationController _buttonAnimationController;
+  
   late Animation<double> _fadeAnimation;
-  late Animation<Color?> _colorAnimation;
+  late Animation<double> _slideAnimation;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _logoRotationAnimation;
+  late Animation<Offset> _textSlideAnimation;
 
-
-
-  final List<OnboardingPage> _pages = [
-    OnboardingPage(
-      title: "Découvrez votre futur chez-vous",
-      description: "Des milliers de propriétés qui n'attendent que vous !",
-      imagePath: "assets/illustrationOne.png",
-      color: Color(0xFF2196F3), // Bleu clair
-      secondaryColor: Color(0xFF64B5F6),
-    ),
-    OnboardingPage(
-      title: "Des propriétés sûres et vérifiées",
-      description: "Avec Casanayo, chaque bien est inspecté et validé pour votre tranquillité d'esprit.",
-      imagePath: "assets/illustrationTwo.png",
-      color: Color(0xFFFF9800), // Orange énergique
-      secondaryColor: Color(0xFFFFC107),
-    ),
-
-    OnboardingPage(
-      title: "Parrainez, touchez, gagnez.",
-      description: "Recevez une commission à chaque fois qu'un propriétaire que vous parrainez loue son bien",
-      imagePath: "assets/illustrationThree.png",
-      color: Color(0xFF2196F3), // Bleu clair
-      secondaryColor: Color(0xFF64B5F6),
-    ),
-
+  // Images et textes pour chaque page
+  final List<Map<String, String>> _pages = [
+    {
+      'image': 'assets/images/ville.jpg',
+      'text':
+          'Trouvez votre maison idéale à louer parmi des milliers de propriétés en République Démocratique du Congo. Découvrez des biens adaptés à vos besoins.'
+    },
+    {
+      'image': 'assets/images/kin.jpg',
+      'text':
+          'Besoin d\'un plombier, d\'un peintre ou d\'un service de déménagement ? Trouvez tous les professionnels du secteur immobilier en quelques clics sur CasaNayo.'
+    },
+    {
+      'image': 'assets/images/lingwala.jpg',
+      'text':
+          'De la recherche de logement aux services de réparation, CasaNayo regroupe tout ce dont vous avez besoin pour votre bien immobilier en un seul endroit.'
+    },
   ];
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
+    _pageController = PageController();
+    
+    // Initialisation des contrôleurs d'animation
+    _backgroundAnimationController = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: 800),
     );
+    
+    _textAnimationController = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: 600),
+    );
+    
+    _logoAnimationController = AnimationController(
+      vsync: this,
+      duration: Duration(seconds: 2),
+    )..repeat();
+    
+    _buttonAnimationController = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: 1500),
+    );
 
+    // Animations
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _textAnimationController,
+        curve: Curves.easeOut,
+      ),
+    );
+    
+    _slideAnimation = Tween<double>(begin: 50.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _textAnimationController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    
     _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(
-        parent: _animationController,
+        parent: _buttonAnimationController,
         curve: Curves.elasticOut,
       ),
     );
-
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+    
+    _logoRotationAnimation = Tween<double>(begin: 0, end: 2 * math.pi).animate(
       CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeInOut,
+        parent: _logoAnimationController,
+        curve: Curves.linear,
+      ),
+    );
+    
+    _textSlideAnimation = Tween<Offset>(
+      begin: Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _textAnimationController,
+        curve: Curves.easeOutCubic,
       ),
     );
 
-    _colorAnimation = ColorTween(
-      begin: _pages[0].color.withOpacity(0.1),
-      end: _pages[0].color.withOpacity(0.1),
-    ).animate(_animationController);
+    // Démarrage des animations
+    _backgroundAnimationController.forward();
+    _textAnimationController.forward();
+    _buttonAnimationController.forward();
 
-    _animationController.forward();
+    // Changement automatique toutes les 5 secondes
+    _timer = Timer.periodic(Duration(seconds: 5), (timer) {
+      if (mounted && _pageController.hasClients) {
+        final nextIndex = (_selectedIndex + 1) % _pages.length;
+        _pageController.animateToPage(
+          nextIndex,
+          duration: Duration(milliseconds: 800),
+          curve: Curves.easeInOutCubic,
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
+    _timer?.cancel();
     _pageController.dispose();
-    _animationController.dispose();
+    _backgroundAnimationController.dispose();
+    _textAnimationController.dispose();
+    _logoAnimationController.dispose();
+    _buttonAnimationController.dispose();
     super.dispose();
   }
 
   void _onPageChanged(int page) {
     setState(() {
-      _currentPage = page;
-      _colorAnimation = ColorTween(
-        begin: _colorAnimation.value ?? _pages[0].color.withOpacity(0.1), // Null check
-        end: _pages[page].color.withOpacity(0.1),
-      ).animate(
-        CurvedAnimation(
-          parent: _animationController,
-          curve: Curves.easeInOut,
-        ),
-      );
-      _animationController.reset();
-      _animationController.forward();
+      _selectedIndex = page;
     });
+    _textAnimationController.reset();
+    _textAnimationController.forward();
   }
 
   @override
   Widget build(BuildContext context) {
+    final primaryColor = Color(0xFF1976D2);
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: AnimatedBuilder(
-        animation: _animationController,
-        builder: (context, child) {
-          return Stack(
-            children: [
-              // Fond animé avec dégradé
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      _pages[_currentPage].secondaryColor.withOpacity(0.1),
-                      Colors.white,
-                    ],
-                  ),
-                ),
-              ),
-
-              // Bulles décoratives animées
-              Positioned(
-                top: -50,
-                right: -30,
-                child: ScaleTransition(
-                  scale: _scaleAnimation,
-                  child: Container(
-                    width: 150,
-                    height: 150,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _pages[_currentPage].color.withOpacity(0.1),
-                    ),
-                  ),
-                ),
-              ),
-
-              Positioned(
-                bottom: 100,
-                left: -50,
-                child: ScaleTransition(
-                  scale: _scaleAnimation,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _pages[_currentPage].secondaryColor.withOpacity(0.1),
-                    ),
-                  ),
-                ),
-              ),
-
-              // Contenu principal
-              Column(
-                children: [
-                  Expanded(
-                    child: PageView.builder(
-                      controller: _pageController,
-                      itemCount: _pages.length,
-                      onPageChanged: _onPageChanged,
-                      itemBuilder: (context, index) {
-                        return FadeTransition(
-                          opacity: _fadeAnimation,
-                          child: ScaleTransition(
-                            scale: _scaleAnimation,
-                            child: HappyOnboardingPage(page: _pages[index]),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-
-                  // Indicateur de page joyeux
-                  Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: SmoothPageIndicator(
-                      controller: _pageController,
-                      count: _pages.length,
-                      effect: WormEffect(
-                        activeDotColor: _pages[_currentPage].color,
-                        dotColor: _pages[_currentPage].color.withOpacity(0.2),
-                        dotHeight: 10,
-                        dotWidth: 10,
-                        spacing: 12,
-                        type: WormType.thinUnderground,
-                      ),
-                    ),
-                  ),
-
-                  // Bouton de navigation dynamique
-                  Padding(
-                    padding: EdgeInsets.only(bottom: 40, left: 24, right: 24),
-                    child: AnimatedSwitcher(
-                      duration: Duration(milliseconds: 400),
-                      transitionBuilder: (child, animation) {
-                        return ScaleTransition(
-                          scale: animation,
-                          child: child,
-                        );
-                      },
-                      child: _currentPage == _pages.length - 1
-                          ? ElevatedButton(
-                        key: ValueKey('start_button'),
-                        onPressed: () {
-                          Navigator.pushAndRemoveUntil(
-                            context,
-                            MaterialPageRoute(builder: (context) => BottomNavBar()),
-                                (route) => false,
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _pages[_currentPage].color,
-                          foregroundColor: Colors.white,
-                          shape: StadiumBorder(),
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 48, vertical: 16),
-                          elevation: 8,
-                          shadowColor: _pages[_currentPage].color.withOpacity(0.4),
-                          animationDuration: Duration(milliseconds: 300),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              "Commencer l'aventure",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                          : Row(
-                        key: ValueKey('nav_buttons'),
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              _pageController.animateToPage(
-                                _pages.length - 1,
-                                duration: Duration(milliseconds: 500),
-                                curve: Curves.easeInOut,
-                              );
-                            },
-                            child: Text(
-                              "Passer",
-                              style: TextStyle(
-                                color: _pages[_currentPage].color,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          FloatingActionButton(
-                            onPressed: () {
-                              _pageController.nextPage(
-                                duration: Duration(milliseconds: 500),
-                                curve: Curves.easeInOut,
-                              );
-                            },
-                            backgroundColor: _pages[_currentPage].color,
-                            child: Icon(Icons.arrow_forward_rounded,
-                                color: Colors.white),
-                            elevation: 5,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class HappyOnboardingPage extends StatelessWidget {
-  final OnboardingPage page;
-
-  const HappyOnboardingPage({required this.page});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      body: Stack(
         children: [
-          // Illustration avec effet de rebond
-          Expanded(
-            flex: 3,
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Image.asset(
-                page.imagePath,
-                fit: BoxFit.contain,
+          // Images de fond avec effet parallaxe
+          _buildParallaxBackground(),
+
+          // Superposition bleue animée
+          AnimatedBuilder(
+            animation: _backgroundAnimationController,
+            builder: (context, child) {
+              return Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: Alignment.topRight,
+                      radius: 1.5,
+                      colors: [
+                        primaryColor.withOpacity(0.6 + (_selectedIndex * 0.1)),
+                        primaryColor.withOpacity(0.4 + (_selectedIndex * 0.1)),
+                        primaryColor.withOpacity(0.5),
+                      ],
+                      stops: [0.0, 0.5, 1.0],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // Gradient noir depuis le bas
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: screenHeight * 0.45,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.black.withOpacity(0.95),
+                    Colors.black.withOpacity(0.85),
+                    Colors.black.withOpacity(0.7),
+                    Colors.black.withOpacity(0.4),
+                    Colors.transparent,
+                  ],
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  stops: [0.0, 0.3, 0.6, 0.85, 1.0],
+                ),
               ),
             ),
           ),
 
-          // Contenu texte avec entrée en fondu
-          Expanded(
-            flex: 2,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  page.title,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: page.color,
-                    height: 1.3,
-                    shadows: [
-                      Shadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 4,
-                        offset: Offset(1, 1),
-                      ),
-                    ],
-                  ),
+          // Effet de particules animées en arrière-plan
+          _buildAnimatedParticles(),
+
+          // Header avec logo animé
+          _buildAnimatedHeader(primaryColor),
+
+          // Contenu principal avec animations
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 20, right: 20, bottom: 50),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Texte avec animations sophistiquées
+                    _buildAnimatedText(),
+                    SizedBox(height: 48),
+
+                    // Indicateurs et bouton avec animations
+                    _buildAnimatedControls(primaryColor),
+                  ],
                 ),
-                SizedBox(height: 16),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    page.description,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[700],
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-                SizedBox(height: 24),
-                // Élément décoratif
-                Container(
-                  width: 50,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: page.secondaryColor,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildParallaxBackground() {
+    return PageView.builder(
+      controller: _pageController,
+      itemCount: _pages.length,
+      onPageChanged: _onPageChanged,
+      physics: BouncingScrollPhysics(),
+      itemBuilder: (context, index) {
+        return TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.0, end: _selectedIndex == index ? 1.0 : 0.0),
+          duration: Duration(milliseconds: 800),
+          curve: Curves.easeInOut,
+          builder: (context, value, child) {
+            return Transform.scale(
+              scale: 1.0 + (value * 0.1),
+              child: Opacity(
+                opacity: _selectedIndex == index ? 1.0 : 0.0,
+                child: Image.asset(
+                  _pages[index]['image']!,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildAnimatedParticles() {
+    return Positioned.fill(
+      child: CustomPaint(
+        painter: ParticlesPainter(
+          animation: _logoAnimationController,
+          particleCount: 30,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnimatedHeader(Color primaryColor) {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          child: Row(
+            children: [
+              // Logo avec rotation subtile
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: Duration(milliseconds: 1000),
+                curve: Curves.elasticOut,
+                builder: (context, value, child) {
+                  return Transform.scale(
+                    scale: value,
+                    child: Transform.rotate(
+                      angle: value * 0.1,
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.3),
+                            width: 2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 20,
+                              offset: Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Image.asset(
+                            'assets/images/logoCasa.png',
+                            width: 40,
+                            height: 40,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Icon(
+                                Icons.home_rounded,
+                                color: Colors.white,
+                                size: 28,
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              SizedBox(width: 16),
+              // Texte CasaNayo avec animation
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.0, end: 1.0),
+                duration: Duration(milliseconds: 800),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: value,
+                    child: Transform.translate(
+                      offset: Offset(0, 20 * (1 - value)),
+                      child: Text(
+                        'CasaNayo',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black.withOpacity(0.5),
+                              blurRadius: 15,
+                              offset: Offset(0, 4),
+                            ),
+                            Shadow(
+                              color: primaryColor.withOpacity(0.5),
+                              blurRadius: 20,
+                              offset: Offset(0, 0),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnimatedText() {
+    return SlideTransition(
+      position: _textSlideAnimation,
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Indicateur de page stylisé
+            Row(
+              children: List.generate(_pages.length, (index) {
+                return AnimatedContainer(
+                  duration: Duration(milliseconds: 400),
+                  curve: Curves.easeInOutCubic,
+                  margin: EdgeInsets.only(right: index < _pages.length - 1 ? 8 : 0),
+                  width: _selectedIndex == index ? 32 : 8,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: _selectedIndex == index
+                        ? Colors.white
+                        : Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
+                    boxShadow: _selectedIndex == index
+                        ? [
+                            BoxShadow(
+                              color: Colors.white.withOpacity(0.5),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                          ]
+                        : null,
+                  ),
+                );
+              }),
+            ),
+            SizedBox(height: 32),
+
+            // Texte avec animation de typewriter
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: Duration(milliseconds: 1200),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) {
+                final text = _pages[_selectedIndex]['text']!;
+                final visibleLength = (text.length * value).floor();
+                return Text(
+                  text.substring(0, visibleLength.clamp(0, text.length)),
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    height: 1.5,
+                    letterSpacing: 0.2,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black.withOpacity(0.5),
+                        blurRadius: 10,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnimatedControls(Color primaryColor) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Indicateurs personnalisés améliorés
+        Row(
+          children: List.generate(_pages.length, (index) {
+            return GestureDetector(
+              onTap: () {
+                _pageController.animateToPage(
+                  index,
+                  duration: Duration(milliseconds: 600),
+                  curve: Curves.easeInOutCubic,
+                );
+              },
+              child: AnimatedContainer(
+                duration: Duration(milliseconds: 400),
+                curve: Curves.easeInOutCubic,
+                margin: EdgeInsets.only(right: index < _pages.length - 1 ? 12 : 0),
+                width: _selectedIndex == index ? 48 : 32,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _selectedIndex == index
+                      ? Colors.white
+                      : Colors.white.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(2),
+                  boxShadow: _selectedIndex == index
+                      ? [
+                          BoxShadow(
+                            color: Colors.white.withOpacity(0.6),
+                            blurRadius: 12,
+                            spreadRadius: 3,
+                          ),
+                        ]
+                      : null,
+                ),
+              ),
+            );
+          }),
+        ),
+
+        // Bouton "Allons-y!" avec animations premium
+        ScaleTransition(
+          scale: _scaleAnimation,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () {
+              _timer?.cancel();
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BottomNavBar(),
+                ),
+              );
+            },
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: Duration(milliseconds: 800),
+              curve: Curves.elasticOut,
+              builder: (context, value, child) {
+                return Transform.scale(
+                  scale: value,
+                  child: Container(
+                    height: 64,
+                    width: 160,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(32),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.white,
+                          Colors.white.withOpacity(0.95),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: primaryColor.withOpacity(0.4),
+                          blurRadius: 20,
+                          spreadRadius: 2,
+                          offset: Offset(0, 8),
+                        ),
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 15,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        // Effet de brillance animé
+                        AnimatedBuilder(
+                          animation: _logoAnimationController,
+                          builder: (context, child) {
+                            return Positioned.fill(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(32),
+                                  gradient: LinearGradient(
+                                    begin: Alignment(-1.0 + (_logoAnimationController.value * 2), -1.0),
+                                    end: Alignment(1.0 - (_logoAnimationController.value * 2), 1.0),
+                                    colors: [
+                                      Colors.transparent,
+                                      Colors.white.withOpacity(0.3),
+                                      Colors.transparent,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        // Texte du bouton
+                        Center(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Allons-y!',
+                                style: GoogleFonts.inter(
+                                  color: primaryColor,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Icon(
+                                Icons.arrow_forward_rounded,
+                                color: primaryColor,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
-class OnboardingPage {
-  final String title;
-  final String description;
-  final String imagePath;
-  final Color color;
-  final Color secondaryColor;
+// Painter pour les particules animées
+class ParticlesPainter extends CustomPainter {
+  final Animation<double> animation;
+  final int particleCount;
 
-  OnboardingPage({
-    required this.title,
-    required this.description,
-    required this.imagePath,
-    required this.color,
-    required this.secondaryColor,
-  });
+  ParticlesPainter({
+    required this.animation,
+    required this.particleCount,
+  }) : super(repaint: animation);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withOpacity(0.1)
+      ..style = PaintingStyle.fill;
+
+    final random = math.Random(42);
+    
+    for (int i = 0; i < particleCount; i++) {
+      final progress = (animation.value + (i / particleCount)) % 1.0;
+      final x = size.width * (0.2 + random.nextDouble() * 0.6);
+      final y = size.height * (0.3 + progress * 0.4);
+      final radius = 2.0 + random.nextDouble() * 3.0;
+      final opacity = (math.sin(progress * math.pi * 2) * 0.5 + 0.5) * 0.3;
+      
+      canvas.drawCircle(
+        Offset(x, y),
+        radius,
+        paint..color = Colors.white.withOpacity(opacity),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

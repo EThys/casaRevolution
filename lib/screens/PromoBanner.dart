@@ -36,9 +36,10 @@ class _PromoBannerState extends State<PromoBanner> with SingleTickerProviderStat
 
   late PageController _pageController;
   int _currentPage = 0;
-  late Timer _timer;
+  Timer? _timer;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+  bool _disposed = false;
 
   @override
   void initState() {
@@ -59,34 +60,40 @@ class _PromoBannerState extends State<PromoBanner> with SingleTickerProviderStat
 
   @override
   void dispose() {
+    _disposed = true;
     _pageController.dispose();
-    _timer.cancel();
+    _timer?.cancel();
     _animationController.dispose();
     super.dispose();
   }
 
   void _startAutoPlay() {
     _timer = Timer.periodic(Duration(seconds: 6), (Timer timer) {
-      if (_pageController.hasClients) {
-        if (_currentPage < _promoItems.length - 1) {
-          _currentPage++;
-        } else {
-          _currentPage = 0;
-        }
-
-        _animationController.reset();
-        _pageController.animateToPage(
-          _currentPage,
-          duration: Duration(milliseconds: 800),
-          curve: Curves.easeInOutCubic,
-        ).then((_) {
-          _animationController.forward();
-        });
+      if (_disposed || !mounted || !_pageController.hasClients) {
+        timer.cancel();
+        return;
       }
+
+      if (_currentPage < _promoItems.length - 1) {
+        _currentPage++;
+      } else {
+        _currentPage = 0;
+      }
+
+      _animationController.reset();
+      _pageController.animateToPage(
+        _currentPage,
+        duration: Duration(milliseconds: 800),
+        curve: Curves.easeInOutCubic,
+      ).then((_) {
+        if (_disposed || !mounted) return;
+        _animationController.forward();
+      });
     });
   }
 
   void _onPageChanged(int index) {
+    if (_disposed) return;
     setState(() {
       _currentPage = index;
     });

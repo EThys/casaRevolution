@@ -618,11 +618,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         String errorMessage = res.data != null && res.data is Map
             ? (res.data as Map)['message'] ?? "Erreur lors de l'envoi du code"
             : res.errorMsg ?? "Erreur lors de l'envoi du code";
-        SnackbarForCasa.error(context, errorMessage);
+        print("Forgot password error: $errorMessage");
+        // Ne pas afficher les erreurs techniques du serveur
+        SnackbarForCasa.error(context, "Une erreur est survenue lors de l'envoi du code. Veuillez vérifier votre numéro et réessayer.");
       }
     } catch (e) {
-      SnackbarForCasa.error(context, "Erreur technique lors de l'envoi du code");
       print("Forgot password error: $e");
+      // Ne pas afficher les erreurs techniques
+      SnackbarForCasa.error(context, "Une erreur est survenue lors de l'envoi du code. Veuillez réessayer.");
     } finally {
       if (mounted) {
         setState(() {

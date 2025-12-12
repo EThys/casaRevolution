@@ -16,6 +16,8 @@ import '../models/PropertyImageModel.dart';
 import '../models/PropertyFeatureModel.dart';
 import '../utils/FancyNotification.dart';
 import 'dart:async';
+import 'package:provider/provider.dart';
+import '../controllers/PropertyCtrl.dart';
 
 class PropertyDetailPage extends StatefulWidget {
   final PropertyModel property;
@@ -86,6 +88,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     // Démarrer le défilement automatique après l'initialisation
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startAutoScroll();
+      // Charger la propriété et ses similaires depuis l'API détail
+      final ctrl = context.read<PropertyController>();
+      if (widget.property.propertyId != null) {
+        ctrl.getPropertyById(widget.property.propertyId!);
+      }
     });
   }
 
@@ -187,6 +194,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   Widget build(BuildContext context) {
     final groupedImages = _getGroupedImages();
     final allImages = _getAllImages();
+    final similar = context.watch<PropertyController>().similarProperties;
 
     return Scaffold(
       backgroundColor: _lightColor,
@@ -219,7 +227,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 // SizedBox(height: 20),
                 // _buildLocationSection(),
                 SizedBox(height: 20),
-                _buildSimilarProperties(),
+                _buildSimilarProperties(similar),
                 SizedBox(height: 100),
               ].where((widget) => widget != null).toList()),
             ),
@@ -1107,7 +1115,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "${widget.property.username ?? ''}".trim(),
+                      "${user?.username ?? widget.property.username ?? ''}".trim(),
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 16,
@@ -1364,8 +1372,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  Widget _buildSimilarProperties() {
-    // Cette section peut être remplie avec des données réelles plus tard
+  Widget _buildSimilarProperties(List<PropertyModel> similars) {
+    if (similars.isEmpty) {
+      return SizedBox.shrink();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1378,19 +1389,117 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           ),
         ),
         SizedBox(height: 16),
-        Container(
-          padding: EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(16),
+        SizedBox(height: 12),
+        SizedBox(
+          height: 240,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: similars.length,
+            separatorBuilder: (_, __) => SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final prop = similars[index];
+              final image = (prop.propertyImage != null && prop.propertyImage!.isNotEmpty)
+                  ? prop.propertyImage!.first.path
+                  : (prop.propertyImageRoom != null && prop.propertyImageRoom!.isNotEmpty)
+                      ? prop.propertyImageRoom!.first.path
+                      : null;
+              return GestureDetector(
+                onTap: () {
+                  // Éviter de “piler” la navigation : si on est déjà sur ce bien, ne rien faire.
+                  if (prop.propertyId == widget.property.propertyId) return;
+                  // Remplacer la page actuelle pour ne pas empiler de multiples détails.
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PropertyDetailPage(property: prop),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 180,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 12,
+                        offset: Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                        child: image != null
+                            ? CachedNetworkImage(
+                                imageUrl: image,
+                                height: 120,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                                placeholder: (_, __) => Container(
+                                  height: 120,
+                                  color: Colors.grey.shade200,
+                                ),
+                                errorWidget: (_, __, ___) => Container(
+                                  height: 120,
+                                  color: Colors.grey.shade200,
+                                  child: Icon(Icons.image_not_supported, color: Colors.grey),
+                                ),
+                              )
+                            : Container(
+                                height: 120,
+                                width: double.infinity,
+                                color: Colors.grey.shade200,
+                                child: Icon(Icons.image, color: Colors.grey),
+                              ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              prop.title ?? "Sans titre",
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: _darkColor,
+                              ),
+                            ),
+                            SizedBox(height: 6),
+                            Text(
+                              prop.address ?? prop.cityValue ?? prop.communeValue ?? "Adresse inconnue",
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _greyColor,
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              prop.price != null ? "${prop.price} \$" : "--",
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: _primaryColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
-          child: Center(
-            child: Text(
-              'Aucune propriété similaire pour le moment',
-              style: TextStyle(color: _greyColor),
-            ),
-          ),
-        ),
+        )
       ],
     );
   }

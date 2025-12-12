@@ -9,6 +9,23 @@ import '../utils/database/FavoriteDatabaseHelper.dart';
 import '../utils/database/ReservationDatabaseHelper.dart';
 import '../utils/DraftHelper.dart';
 import '../controllers/ThemeController.dart';
+import '../controllers/RegisterBailleurCtrl.dart';
+import '../controllers/RegisterLocataireCtrl.dart';
+import '../controllers/RegisterCommissionnaireCtrl.dart';
+import '../controllers/RegisterPlombierCtrl.dart';
+import '../controllers/RegisterElectricienCtrl.dart';
+import '../controllers/RegisterSalubriteCtrl.dart';
+import '../controllers/RegisterChauffeurCtrl.dart';
+import '../controllers/RegisterMajordomeCtrl.dart';
+import '../controllers/RegisterPeintreCtrl.dart';
+import '../controllers/RegisterCarreleurCtrl.dart';
+import '../controllers/RegisterMenuisierCtrl.dart';
+import '../controllers/RegisterFrigoristeCtrl.dart';
+import '../controllers/RegisterAjusteurCtrl.dart';
+import '../controllers/RegisterArchitecteCtrl.dart';
+import '../controllers/RegisterDemenagementCtrl.dart';
+import '../utils/FancyNotification.dart';
+import '../utils/requetes.dart';
 import 'package:provider/provider.dart';
 import 'HomePage.dart';
 
@@ -119,6 +136,40 @@ class _ProfilePageState extends State<ProfilePage> {
     return profileData?['fullname']?.toString() ?? safeUsername;
   }
 
+  String get accountType {
+    final userData = storage.read(StockageKeys.userKey);
+    if (userData != null && userData['typeAccount'] != null) {
+      return userData['typeAccount']['name']?.toString() ?? 'Non spécifié';
+    }
+    return 'Non spécifié';
+  }
+
+  Map<String, dynamic>? get profileData {
+    return storage.read(StockageKeys.profileKey);
+  }
+
+  int? get profileId {
+    final userData = storage.read(StockageKeys.userKey);
+    
+    // L'ID du profil est le userId pour tous les types de comptes
+    // Les endpoints PUT utilisent le userId (ex: /api/bailleurs/{userId})
+    if (userData != null && userData['userId'] != null) {
+      final userId = userData['userId'];
+      if (userId is int) return userId;
+      if (userId is String) return int.tryParse(userId);
+    }
+    
+    // Fallback: chercher dans le profile si userId n'est pas disponible
+    final profile = profileData;
+    if (profile != null && profile['userId'] != null) {
+      final userId = profile['userId'];
+      if (userId is int) return userId;
+      if (userId is String) return int.tryParse(userId);
+    }
+    
+    return null;
+  }
+
   String get publishedProperties {
     return storage.read('published_properties_count')?.toString() ?? '0';
   }
@@ -126,6 +177,7 @@ class _ProfilePageState extends State<ProfilePage> {
   String get referralsCount {
     return storage.read('referrals_count')?.toString() ?? '0';
   }
+
 
   Future<void> _pickImage() async {
     final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
@@ -194,7 +246,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               IconButton(
                 icon: Icon(Icons.arrow_forward_ios, size: 16, color: _greyColor),
-                onPressed: _navigateToCompleteProfile,
+                onPressed: _navigateToEditProfile,
               ),
             ],
           ),
@@ -315,46 +367,38 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             textAlign: TextAlign.center,
           ),
+          SizedBox(height: 12),
+          // Badge du type de compte
+          if (isLoggedIn)
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: _cardColor.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: _cardColor.withOpacity(0.3), width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.badge_outlined, size: 16, color: _cardColor),
+                  SizedBox(width: 6),
+                  Text(
+                    accountType,
+                    style: TextStyle(
+                      color: _cardColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           SizedBox(height: 16),
-          if (isLoggedIn) _buildEditProfileButton(),
-          SizedBox(height: 8),
         ],
       ),
     );
   }
 
-  Widget _buildEditProfileButton() {
-    return Container(
-      width: 140,
-      height: 36,
-      child: ElevatedButton(
-        onPressed: _navigateToCompleteProfile,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _cardColor,
-          foregroundColor: _primaryColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          elevation: 2,
-          padding: EdgeInsets.symmetric(horizontal: 16),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.edit, size: 16),
-            SizedBox(width: 6),
-            Text(
-              'Modifier',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildStatsCard() {
     return Container(
@@ -478,6 +522,15 @@ class _ProfilePageState extends State<ProfilePage> {
             value: safeAddress.isNotEmpty ? safeAddress : 'Non renseignée',
             isComplete: safeAddress.isNotEmpty,
           ),
+          if (isLoggedIn) ...[
+            Divider(height: 24, color: _borderColor),
+            _buildInfoRow(
+              icon: Icons.badge_outlined,
+              label: 'Type de compte',
+              value: accountType,
+              isComplete: true,
+            ),
+          ],
         ],
       ),
     );
@@ -674,9 +727,9 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Column(
         children: [
           _buildSettingItem(
-            icon: Icons.person_outline,
-            title: 'Compléter mon profil',
-            onTap: _navigateToCompleteProfile,
+            icon: Icons.edit_outlined,
+            title: 'Modifier mon profil',
+            onTap: _navigateToEditProfile,
             color: _primaryColor,
           ),
           Divider(height: 1, indent: 16, endIndent: 16, color: _borderColor),
@@ -770,11 +823,13 @@ class _ProfilePageState extends State<ProfilePage> {
     Navigator.pushNamed(context, Routes.registerRoute);
   }
 
-  void _navigateToCompleteProfile() {
+  void _navigateToEditProfile() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => CompleteProfileScreen(
+        builder: (context) => EditProfilePage(
+          accountType: accountType,
+          profileId: profileId,
           onProfileUpdated: () {
             setState(() {
               _loadSavedData();
@@ -795,10 +850,19 @@ class _ProfilePageState extends State<ProfilePage> {
       await storage.remove(StockageKeys.userPreferenceKey);
       await storage.remove(StockageKeys.profileKey);
 
+      // 2. Supprimer les données de cache du profil
+      await storage.remove('user_image_path');
+      await storage.remove('profile_image_path');
+      await storage.remove('card_front_path');
+      await storage.remove('card_back_path');
+      await storage.remove('user_data');
+      await storage.remove('published_properties_count');
+      await storage.remove('referrals_count');
+
       await FavoriteDatabaseHelper.instance.clearAllFavorites();
       await ReservationDatabaseHelper.instance.clearAllReservations();
 
-      // 2. Supprimer TOUS les brouillons lors de la déconnexion
+      // 3. Supprimer TOUS les brouillons lors de la déconnexion
       try {
         await DraftHelper.clearAllDrafts();
         print("✅ Tous les brouillons supprimés");
@@ -806,7 +870,13 @@ class _ProfilePageState extends State<ProfilePage> {
         print("⚠️ Erreur lors de la suppression des brouillons: $e");
       }
 
-      print("✅ Données d'authentification ET bases de données locales supprimées");
+      // 4. Réinitialiser l'état local
+      setState(() {
+        _imageFile = null;
+        _profileCompletion = 0.0;
+      });
+
+      print("✅ Données d'authentification, cache du profil et bases de données locales supprimées");
     } catch (e) {
       print("❌ Erreur lors du nettoyage des données locales: $e");
       throw e;
@@ -885,25 +955,29 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
-    
-    return Scaffold(
-      backgroundColor: isDarkMode ? _darkColor : _lightColor,
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: _primaryColor))
-          : SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildProfileHeader(),
-            SizedBox(height: 16),
-            _buildProfileCompletionCard(),
-            _buildStatsCard(),
-            SizedBox(height: 16),
-            _buildProfileInfoCard(),
-            _buildAuthOptions(),
-            _buildDarkModeSection(),
-            _buildSettingsSection(),
-            SizedBox(height: 20),
-          ],
+    final defaultStyle = theme.textTheme.bodyMedium ?? const TextStyle();
+
+    return DefaultTextStyle(
+      style: defaultStyle,
+      child: Scaffold(
+        backgroundColor: isDarkMode ? _darkColor : _lightColor,
+        body: _isLoading
+            ? Center(child: CircularProgressIndicator(color: _primaryColor))
+            : SingleChildScrollView(
+          child: Column(
+            children: [
+              _buildProfileHeader(),
+              SizedBox(height: 16),
+              _buildProfileCompletionCard(),
+              _buildStatsCard(),
+              SizedBox(height: 16),
+              _buildProfileInfoCard(),
+              _buildAuthOptions(),
+              _buildDarkModeSection(),
+              _buildSettingsSection(),
+              SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
@@ -2248,6 +2322,456 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> with Sing
           ],
         ),
       ),
+    );
+  }
+}
+
+// Page de modification de profil
+class EditProfilePage extends StatefulWidget {
+  final String accountType;
+  final int? profileId;
+  final VoidCallback onProfileUpdated;
+
+  const EditProfilePage({
+    Key? key,
+    required this.accountType,
+    required this.profileId,
+    required this.onProfileUpdated,
+  }) : super(key: key);
+
+  @override
+  _EditProfilePageState createState() => _EditProfilePageState();
+}
+
+class _EditProfilePageState extends State<EditProfilePage> {
+  final GetStorage storage = GetStorage();
+  final _formKey = GlobalKey<FormState>();
+  
+  final TextEditingController _firstNameController = TextEditingController();
+  final TextEditingController _lastNameController = TextEditingController();
+  final TextEditingController _addressController = TextEditingController();
+  final TextEditingController _numberCardController = TextEditingController();
+  
+  bool _isLoading = false;
+  
+  final Color _primaryColor = Color(0xFF1976D2);
+  final Color _darkColor = Color(0xFF2D3748);
+  final Color _lightColor = Color(0xFFF7FAFC);
+  final Color _greyColor = Color(0xFF718096);
+  final Color _cardColor = Colors.white;
+  final Color _borderColor = Color(0xFFE2E8F0);
+  final Color _errorColor = Color(0xFFE53E3E);
+  final Color _successColor = Color(0xFF48BB78);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfileData();
+  }
+
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _addressController.dispose();
+    _numberCardController.dispose();
+    super.dispose();
+  }
+
+  void _loadProfileData() {
+    final profileData = storage.read(StockageKeys.profileKey);
+    final userData = storage.read(StockageKeys.userKey);
+    
+    if (profileData != null) {
+      setState(() {
+        _firstNameController.text = profileData['firstname']?.toString() ?? '';
+        _lastNameController.text = profileData['lastname']?.toString() ?? '';
+        _addressController.text = profileData['address']?.toString() ?? '';
+        _numberCardController.text = profileData['numberCard']?.toString() ?? '';
+      });
+    }
+    
+    // Charger aussi les données utilisateur si disponibles
+    if (userData != null) {
+      // Les données utilisateur sont déjà chargées, on peut les utiliser dans le payload
+    }
+  }
+
+  Future<void> _updateProfile() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (widget.profileId == null) {
+      // Debug: afficher les données disponibles
+      final profileData = storage.read(StockageKeys.profileKey);
+      final userData = storage.read(StockageKeys.userKey);
+      print("❌ Profile ID non trouvé");
+      print("📋 Account Type: ${widget.accountType}");
+      print("📋 Profile Data: $profileData");
+      print("📋 User Data: $userData");
+      
+      FancyNotification.show(
+        context,
+        "Impossible de modifier le profil : ID non trouvé pour le type de compte '${widget.accountType}'. Veuillez vous reconnecter.",
+        isError: true,
+      );
+      return;
+    }
+    
+    print("✅ Profile ID trouvé: ${widget.profileId} pour le type: ${widget.accountType}");
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Récupérer les données utilisateur depuis le storage
+      final userData = storage.read(StockageKeys.userKey) ?? {};
+      final profileData = storage.read(StockageKeys.profileKey) ?? {};
+      
+      // Construire le payload selon la structure de l'API
+      final accountTypeLower = widget.accountType.toLowerCase();
+      
+      // Déterminer la clé de l'ID selon le type de compte
+      String profileIdKey = '${accountTypeLower}Id';
+      if (accountTypeLower == 'salubrité' || accountTypeLower == 'salubrite') {
+        profileIdKey = 'salubriteId';
+      } else if (accountTypeLower == 'menusier' || accountTypeLower == 'menuisier') {
+        profileIdKey = 'menuisierId';
+      } else if (accountTypeLower == 'architect' || accountTypeLower == 'architecte') {
+        profileIdKey = 'architecteId';
+      }
+      
+      // Récupérer l'ID du profil depuis les données stockées ou utiliser le profileId
+      int? existingProfileId = profileData[profileIdKey] ?? widget.profileId;
+      
+      // Construire le payload complet selon la structure de l'API
+      Map<String, dynamic> payload = {
+        profileIdKey: existingProfileId ?? widget.profileId ?? 0, // ID du profil (non modifié)
+        "firstName": _firstNameController.text.trim(),
+        "lastName": _lastNameController.text.trim(),
+        "fullName": "${_firstNameController.text.trim()} ${_lastNameController.text.trim()}",
+        "address": _addressController.text.trim(),
+        "images": profileData['images']?.toString() ?? "",
+        "cardFront": profileData['cardFront']?.toString() ?? "",
+        "cardBack": profileData['cardBack']?.toString() ?? "",
+        "numberCard": _numberCardController.text.trim().isNotEmpty ? _numberCardController.text.trim() : "",
+        "user": {
+          "userId": userData['userId'] ?? widget.profileId ?? 0,
+          "typeAccount": userData['typeAccount'] ?? {
+            "typeAccountId": 0,
+            "name": widget.accountType
+          },
+          "email": userData['email']?.toString() ?? "",
+          "username": userData['username']?.toString() ?? "",
+          "phone": userData['phone']?.toString() ?? "",
+          "city": userData['city']?.toString() ?? "",
+          "country": userData['country']?.toString() ?? "",
+          "isPremium": userData['isPremium'] ?? false,
+          "isCertified": userData['isCertified'] ?? false,
+        },
+        "typeCard": {
+          "typeCardId": profileData['typeCard']?['typeCardId'] ?? 1,
+          "name": profileData['typeCard']?['name']?.toString() ?? "Carte d'identité"
+        },
+      };
+
+      // Ajouter des champs spécifiques selon le type de compte
+      if (accountTypeLower == 'bailleur') {
+        payload["note"] = profileData['note']?.toString() ?? "";
+      }
+
+      HttpResponse? response;
+
+      // Appeler la méthode appropriée selon le type de compte
+      if (accountTypeLower == 'bailleur') {
+        final ctrl = context.read<RegisterBailleurCtrl>();
+        response = await ctrl.updateBailleurProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'locataire') {
+        final ctrl = context.read<RegisterLocataireCtrl>();
+        response = await ctrl.updateLocataireProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'commissionnaire') {
+        final ctrl = context.read<RegisterCommissionnaireCtrl>();
+        response = await ctrl.updateCommissionnaireProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'plombier') {
+        final ctrl = context.read<RegisterPlombierCtrl>();
+        response = await ctrl.updatePlombierProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'electricien') {
+        final ctrl = context.read<RegisterElectricienCtrl>();
+        response = await ctrl.updateElectricienProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'salubrité' || accountTypeLower == 'salubrite') {
+        final ctrl = context.read<RegisterSalubriteCtrl>();
+        response = await ctrl.updateSalubriteProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'chauffeur') {
+        final ctrl = context.read<RegisterChauffeurCtrl>();
+        response = await ctrl.updateChauffeurProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'majordome') {
+        final ctrl = context.read<RegisterMajordomeCtrl>();
+        response = await ctrl.updateMajordomeProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'peintre') {
+        final ctrl = context.read<RegisterPeintreCtrl>();
+        response = await ctrl.updatePeintreProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'carreleur') {
+        final ctrl = context.read<RegisterCarreleurCtrl>();
+        response = await ctrl.updateCarreleurProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'menusier' || accountTypeLower == 'menuisier') {
+        final ctrl = context.read<RegisterMenuisierCtrl>();
+        response = await ctrl.updateMenuisierProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'frigoriste') {
+        final ctrl = context.read<RegisterFrigoristeCtrl>();
+        response = await ctrl.updateFrigoristeProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'ajusteur') {
+        final ctrl = context.read<RegisterAjusteurCtrl>();
+        response = await ctrl.updateAjusteurProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'architect' || accountTypeLower == 'architecte') {
+        final ctrl = context.read<RegisterArchitecteCtrl>();
+        response = await ctrl.updateArchitecteProfile(widget.profileId!, payload);
+      } else if (accountTypeLower == 'demenagement') {
+        final ctrl = context.read<RegisterDemenagementCtrl>();
+        response = await ctrl.updateDemenagementProfile(widget.profileId!, payload);
+      } else {
+        FancyNotification.show(
+          context,
+          "Type de compte non pris en charge : ${widget.accountType}",
+          isError: true,
+        );
+        return;
+      }
+
+      if (response != null && response.status) {
+        // Mettre à jour les données locales
+        final profileData = storage.read(StockageKeys.profileKey) ?? {};
+        profileData['firstname'] = _firstNameController.text.trim();
+        profileData['lastname'] = _lastNameController.text.trim();
+        profileData['fullname'] = "${_firstNameController.text.trim()} ${_lastNameController.text.trim()}";
+        profileData['address'] = _addressController.text.trim();
+        profileData['numberCard'] = _numberCardController.text.trim();
+        await storage.write(StockageKeys.profileKey, profileData);
+
+        FancyNotification.show(
+          context,
+          response.errorMsg ?? "Profil modifié avec succès",
+          isError: false,
+        );
+
+        widget.onProfileUpdated();
+        Navigator.pop(context);
+      } else {
+        FancyNotification.show(
+          context,
+          response?.errorMsg ?? "Erreur lors de la modification du profil",
+          isError: true,
+        );
+      }
+    } catch (e) {
+      print("❌ Erreur lors de la modification: $e");
+      FancyNotification.show(
+        context,
+        "Erreur technique lors de la modification du profil",
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    String? hint,
+    TextInputType? keyboardType,
+    int maxLines = 1,
+  }) {
+    return Container(
+      margin: EdgeInsets.only(bottom: 16),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          prefixIcon: Icon(icon, color: _primaryColor),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: _borderColor),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: _borderColor),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: _primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: _errorColor),
+          ),
+          filled: true,
+          fillColor: _cardColor,
+          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        ),
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) {
+            return 'Ce champ est requis';
+          }
+          return null;
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _lightColor,
+      appBar: AppBar(
+        backgroundColor: _primaryColor,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          'Modifier le profil',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: _isLoading
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: _primaryColor),
+                  SizedBox(height: 16),
+                  Text(
+                    'Modification en cours...',
+                    style: TextStyle(color: _greyColor),
+                  ),
+                ],
+              ),
+            )
+          : SingleChildScrollView(
+              padding: EdgeInsets.all(20),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // En-tête avec type de compte
+                    Container(
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: _primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: _primaryColor.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: _primaryColor),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Type de compte',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _greyColor,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  widget.accountType,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: _primaryColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: 24),
+
+                    // Champs du formulaire
+                    _buildTextField(
+                      controller: _firstNameController,
+                      label: 'Prénom',
+                      icon: Icons.person_outline,
+                      hint: 'Entrez votre prénom',
+                    ),
+                    _buildTextField(
+                      controller: _lastNameController,
+                      label: 'Nom',
+                      icon: Icons.person_outline,
+                      hint: 'Entrez votre nom',
+                    ),
+                    _buildTextField(
+                      controller: _addressController,
+                      label: 'Adresse',
+                      icon: Icons.location_on_outlined,
+                      hint: 'Entrez votre adresse',
+                      maxLines: 2,
+                    ),
+                    _buildTextField(
+                      controller: _numberCardController,
+                      label: 'Numéro de carte',
+                      icon: Icons.credit_card_outlined,
+                      hint: 'Entrez le numéro de votre pièce d\'identité',
+                      keyboardType: TextInputType.text,
+                    ),
+
+                    SizedBox(height: 32),
+
+                    // Bouton de sauvegarde
+                    Container(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: _updateProfile,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _primaryColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 2,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.save, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Enregistrer les modifications',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }

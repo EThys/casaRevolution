@@ -2710,7 +2710,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         case 'Chauffeur':
         case 'Déménagement':
           final roleKey = {
-            'Majordome': 'majordome',
+            'Majordome':  'majordome',
             'Plombier': 'plombier',
             'Électricien': 'electricien',
             'Salubrité': 'salubrite',

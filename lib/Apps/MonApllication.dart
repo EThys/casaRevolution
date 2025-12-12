@@ -117,11 +117,11 @@ class MonApplication extends StatelessWidget {
               letterSpacing: -0.25,
             ),
             displayMedium: TextStyle(
-              fontSize: 45,
+              fontSize: 45, 
               fontWeight: FontWeight.w400,
             ),
             displaySmall: TextStyle(
-              fontSize: 36,
+              fontSize: 36, 
               fontWeight: FontWeight.w400,
             ),
             headlineLarge: TextStyle(

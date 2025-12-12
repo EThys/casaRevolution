@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/ServiceModel.dart';
-import 'CategoryPropertiesPage.dart';
+import '../utils/static_services_data.dart';
+import 'ServiceCategoryPage.dart';
+import 'CategoryPropertiesPage.dart'; // fallback legacy import
 
-class AllServiceCategoriesPage extends StatelessWidget {
+class AllServiceCategoriesPage extends StatefulWidget {
   final Color primaryColor = Color(0xFF1976D2);
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
@@ -85,14 +87,30 @@ class AllServiceCategoriesPage extends StatelessWidget {
   ];
 
   @override
+  State<AllServiceCategoriesPage> createState() => _AllServiceCategoriesPageState();
+}
+
+class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
+  Color get primaryColor => widget.primaryColor;
+  Color get accentColor => widget.accentColor;
+  Color get darkBlue => widget.darkBlue;
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [widget.primaryColor, widget.darkBlue],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: Colors.grey[900]),
+          icon: Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
@@ -100,7 +118,7 @@ class AllServiceCategoriesPage extends StatelessWidget {
           style: GoogleFonts.inter(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Colors.grey[900],
+            color: Colors.white,
           ),
         ),
         centerTitle: false,
@@ -128,9 +146,9 @@ class AllServiceCategoriesPage extends StatelessWidget {
                 mainAxisSpacing: 16,
                 childAspectRatio: 1.1,
               ),
-              itemCount: serviceCategories.length,
+              itemCount: widget.serviceCategories.length,
               itemBuilder: (context, index) {
-                final category = serviceCategories[index];
+                final category = widget.serviceCategories[index];
                 return _buildCategoryCard(context, category);
               },
             ),
@@ -141,18 +159,19 @@ class AllServiceCategoriesPage extends StatelessWidget {
   }
 
   Widget _buildCategoryCard(BuildContext context, Map<String, dynamic> category) {
-    final color = category['color'] as Color;
-    
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () {
+          final serviceType = ServiceTypeExtension.fromString(category['value'] as String);
+          final services = StaticServicesData.getServicesByType(serviceType);
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => CategoryPropertiesPage(
-                category: category['value'] as String,
+              builder: (context) => ServiceCategoryPage(
+                serviceType: serviceType,
+                services: services,
               ),
             ),
           );
@@ -170,8 +189,8 @@ class AllServiceCategoriesPage extends StatelessWidget {
               ),
             ],
             border: Border.all(
-              color: Colors.grey[200]!,
-              width: 1,
+              color: primaryColor.withOpacity(0.2),
+              width: 1.5,
             ),
           ),
           child: Column(
@@ -181,12 +200,23 @@ class AllServiceCategoriesPage extends StatelessWidget {
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  gradient: LinearGradient(
+                    colors: [primaryColor, accentColor],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                   shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: primaryColor.withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
                 ),
                 child: Icon(
                   category['icon'] as IconData,
-                  color: color,
+                  color: Colors.white,
                   size: 32,
                 ),
               ),
@@ -196,7 +226,7 @@ class AllServiceCategoriesPage extends StatelessWidget {
                 style: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey[900],
+                  color: darkBlue,
                 ),
                 textAlign: TextAlign.center,
                 maxLines: 2,

@@ -1132,11 +1132,14 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       } else {
         String errorMessage = getErrorMessage(res.data['message']);
-        SnackbarForCasa.error(context, errorMessage);
+        print("Login error: $errorMessage");
+        // Ne pas afficher les erreurs techniques du serveur
+        SnackbarForCasa.error(context, "Identifiants incorrects ou compte inexistant. Veuillez réessayer.");
       }
     } catch (e) {
-      SnackbarForCasa.error(context, "Erreur technique lors de la connexion");
       print("Login error: $e");
+      // Ne pas afficher les erreurs techniques
+      SnackbarForCasa.error(context, "Une erreur est survenue lors de la connexion. Veuillez réessayer.");
     } finally {
       if (mounted) {
         setState(() {
