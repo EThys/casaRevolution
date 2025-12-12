@@ -84,26 +84,105 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
 
 
   Future<HttpResponse> postData(String api_url, Map data, {String? token}) async {
+    print("🌐 [postData] ========== DÉBUT postData ==========");
+    print("🌐 [postData] api_url: $api_url");
     try {
       var url = Uri.parse("${Constantes.BASE_URL}$api_url");
+      print("🌐 [postData] URL complète: $url");
       String dataStr = json.encode(data);
+      print("🌐 [postData] Taille des données JSON: ${dataStr.length} caractères");
       var tkn = token ?? Constantes.DefaultToken;
+      print("🌐 [postData] Token utilisé: ${tkn.isNotEmpty ? 'Oui (${tkn.length} caractères)' : 'Non (DefaultToken)'}");
+      
+      print("🌐 [postData] Envoi de la requête POST...");
       var response = await http.post(url, body: dataStr, headers: {
         "Content-Type": "application/json",
         "Authorization": "Bearer $tkn"
       }).timeout(Duration(seconds: 30));
+      
+      print("🌐 [postData] Réponse reçue - Status Code: ${response.statusCode}");
+      print("🌐 [postData] Headers: ${response.headers}");
+      
      /* if(!kReleaseMode){
         alice.onHttpResponse(response);
       }*/
       var successList = [200, 201];
-      var msg = json.decode(response.body);
       var st = successList.contains(response.statusCode);
-      return HttpResponse(status: st, data: msg);
+      print("🌐 [postData] Status dans successList: $st");
+      
+      // Vérifier le Content-Type pour s'assurer que c'est du JSON
+      final contentType = response.headers['content-type'] ?? '';
+      print("🌐 [postData] Content-Type: $contentType");
+      dynamic msg;
+      
+      if (contentType.contains('application/json')) {
+        try {
+          print("🌐 [postData] Parsing du JSON...");
+          msg = json.decode(response.body);
+          print("🌐 [postData] JSON parsé avec succès");
+          if (msg is Map) {
+            print("🌐 [postData] Clés dans la réponse: ${msg.keys.toList()}");
+            if (msg.containsKey('message')) {
+              print("🌐 [postData] Message: ${msg['message']}");
+            }
+            if (msg.containsKey('error')) {
+              print("🌐 [postData] Erreur: ${msg['error']}");
+            }
+          }
+        } catch (e) {
+          print("❌ [postData] Erreur de parsing JSON: $e");
+          print("📄 [postData] Corps de la réponse (premiers 500 caractères): ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}");
+          return HttpResponse(
+            status: false,
+            errorMsg: "Erreur de format de réponse du serveur (HTML au lieu de JSON). Code: ${response.statusCode}",
+            isException: true,
+            data: {'statusCode': response.statusCode, 'body': response.body.substring(0, 500)},
+          );
+        }
+      } else {
+        // La réponse n'est pas du JSON (probablement HTML d'erreur)
+        print("❌ [postData] Réponse serveur n'est pas du JSON. Content-Type: $contentType");
+        print("📄 [postData] Status Code: ${response.statusCode}");
+        print("📄 [postData] Corps de la réponse (premiers 500 caractères): ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}");
+        
+        // Essayer de parser comme JSON malgré tout (parfois le Content-Type est incorrect)
+        try {
+          print("🌐 [postData] Tentative de parsing JSON malgré le Content-Type...");
+          msg = json.decode(response.body);
+          print("🌐 [postData] Parsing réussi malgré le Content-Type incorrect");
+        } catch (e) {
+          // Ce n'est vraiment pas du JSON
+          print("❌ [postData] Parsing échoué, ce n'est pas du JSON");
+          return HttpResponse(
+            status: false,
+            errorMsg: "Erreur serveur (code ${response.statusCode}). Le serveur a retourné du HTML au lieu de JSON. Veuillez réessayer plus tard.",
+            isException: true,
+            data: {'statusCode': response.statusCode, 'isHtml': true},
+          );
+        }
+      }
+      
+      final errorMsg = st ? null : (msg['message'] ?? msg['error'] ?? "Erreur inconnue");
+      print("🌐 [postData] Création de HttpResponse - status: $st, errorMsg: $errorMsg");
+      print("🌐 [postData] ========== FIN postData ==========");
+      return HttpResponse(status: st, data: msg, errorMsg: errorMsg);
     } catch (e, trace) {
-      print(e.toString());
-      print(trace.toString());
+      print("❌ [postData] ========== EXCEPTION dans postData ==========");
+      print("❌ [postData] Exception: $e");
+      print("📋 [postData] Stack trace: $trace");
+      print("🌐 [postData] ========== FIN postData (avec erreur) ==========");
+      String errorMessage = "Erreur inattendue";
+      
+      if (e.toString().contains('TimeoutException')) {
+        errorMessage = "Le serveur met trop de temps à répondre. Veuillez réessayer.";
+      } else if (e.toString().contains('FormatException')) {
+        errorMessage = "Erreur de format de réponse du serveur. Veuillez réessayer.";
+      } else if (e.toString().contains('SocketException')) {
+        errorMessage = "Impossible de se connecter au serveur. Vérifiez votre connexion internet.";
+      }
+      
       return HttpResponse(
-          status: false, errorMsg: "Erreur inattendue", isException: true);
+          status: false, errorMsg: errorMessage, isException: true);
     }
   }
 
