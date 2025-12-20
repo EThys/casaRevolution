@@ -155,7 +155,7 @@ class _CreateServicePageState extends State<CreateServicePage> {
 
   final stockage = GetStorage();
   late final profile = stockage.read(StockageKeys.profileKey);
-  late var fullname = profile["fullname"];
+  late var fullname = (profile is Map) ? (profile["fullname"] ?? "Utilisateur") : "Utilisateur";
 
   // Options
   final List<String> _priceUnits = ['Par heure', 'Par jour', 'Par nuit', 'Par semaine', 'Par mois', 'Sur devis'];
