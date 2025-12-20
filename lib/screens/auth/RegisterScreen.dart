@@ -99,115 +99,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
   bool _acceptConditions = false;
 
-  // Types de compte
-  final Map<String, Map<String, dynamic>> _accountTypes = {
-    'Locataire': {
-      'value': 4,
-      'icon': Icons.home_work_rounded,
-      'description': 'Je cherche un logement à louer',
-      'color': Color(0xFF1976D2),
-      'category': 'immobilier',
-    },
-    'Bailleur': {
-      'value': 3,
-      'icon': Icons.house_siding_rounded,
-      'description': 'Je propose un logement en location',
-      'color': Color(0xFF1976D2),
-      'category': 'immobilier',
-    },
-    'Commissionnaire': {
-      'value': 2,
-      'icon': Icons.handshake_rounded,
-      'description': 'Je facilite les transactions immobilières',
-      'color': Color(0xFF1976D2),
-      'category': 'immobilier',
-    },
-    'Majordome': {
-      'value': 5,
-      'icon': Icons.cleaning_services_rounded,
-      'description': 'Service de majordome',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Plombier': {
-      'value': 6,
-      'icon': Icons.plumbing_rounded,
-      'description': 'Service de plomberie',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Électricien': {
-      'value': 7,
-      'icon': Icons.electrical_services_rounded,
-      'description': 'Service d\'électricité',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Salubrité': {
-      'value': 8,
-      'icon': Icons.cleaning_services_rounded,
-      'description': 'Service de salubrité',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Peintre': {
-      'value': 9,
-      'icon': Icons.format_paint_rounded,
-      'description': 'Service de peinture',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Carreleur': {
-      'value': 10,
-      'icon': Icons.square_foot_rounded,
-      'description': 'Service de carrelage',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Menuisier': {
-      'value': 11,
-      'icon': Icons.carpenter_rounded,
-      'description': 'Service de menuiserie',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Frigoriste': {
-      'value': 12,
-      'icon': Icons.ac_unit_rounded,
-      'description': 'Service de frigoristerie',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Ajusteur': {
-      'value': 13,
-      'icon': Icons.build_rounded,
-      'description': 'Service d\'ajustage',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Architecte': {
-      'value': 14,
-      'icon': Icons.architecture_rounded,
-      'description': 'Service d\'architecture',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Chauffeur': {
-      'value': 15,
-      'icon': Icons.drive_eta_rounded,
-      'description': 'Service de conduite',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-    'Déménagement': {
-      'value': 16,
-      'icon': Icons.local_shipping_rounded,
-      'description': 'Service de déménagement',
-      'color': Color(0xFF1976D2),
-      'category': 'services',
-    },
-  };
-
   Future<void> _loadCities() async {
     // Utilisation uniquement des données locales pour les suggestions.
     if (mounted) {
@@ -1138,9 +1029,14 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   Widget _buildAccountTypeField() {
-    // Séparer les types par catégorie
-    final immobilierTypes = _accountTypes.entries.where((e) => e.value['category'] == 'immobilier').toList();
-    final servicesTypes = _accountTypes.entries.where((e) => e.value['category'] == 'services').toList();
+    if (_typeAccounts.isEmpty) {
+       return Center(
+         child: Padding(
+           padding: const EdgeInsets.all(8.0),
+           child: CircularProgressIndicator(strokeWidth: 2),
+         )
+       );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1154,23 +1050,43 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           ),
         ),
         SizedBox(height: 12),
-        
-        // Section Immobilier avec dropdown
-        if (immobilierTypes.isNotEmpty) ...[
-          _buildSectionHeader('Immobilier', Icons.home_rounded),
-          SizedBox(height: 8),
-          _buildImmobilierDropdown(immobilierTypes),
-          SizedBox(height: 16),
-        ],
-        
-        // Section Services avec dropdown
-        if (servicesTypes.isNotEmpty) ...[
-          _buildSectionHeader('Services', Icons.business_center_rounded),
-          SizedBox(height: 8),
-          _buildServicesDropdown(servicesTypes),
-        ],
-        
-        // Message d'erreur de validation
+        ..._typeAccounts.map((type) {
+           String name = type['name'] ?? 'Inconnu';
+           IconData icon;
+           String desc;
+           Color color;
+           String category;
+           
+           final lowerName = name.toLowerCase();
+           
+           if (lowerName.contains('client')) {
+             category = 'immobilier';
+             icon = Icons.person_outline_rounded;
+             desc = "Je cherche un logement ou un service";
+             color = Color(0xFF1976D2);
+           } else if (lowerName.contains('proprietaire') || 
+                      lowerName.contains('bailleur') || 
+                      lowerName.contains('gerant')) {
+             category = 'immobilier';
+             icon = Icons.home_work_outlined;
+             desc = "Je possède ou gère un bien immobilier";
+             color = Color(0xFF2E7D32);
+           } else {
+             category = 'services';
+             icon = Icons.handyman_outlined;
+             desc = "Je propose mes services";
+             color = Color(0xFFE64A19);
+           }
+           
+           return _buildAccountTypeOption(name, {
+             'icon': icon,
+             'description': desc,
+             'color': color,
+             'category': category,
+             'value': type['typeAccountId']
+           });
+        }).toList(),
+
         if (_autoValidateMode == AutovalidateMode.always && _selectedAccountType == null)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 8),
@@ -1198,450 +1114,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     );
   }
 
-  Widget _buildSectionHeader(String title, IconData icon) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: primaryColor),
-        SizedBox(width: 8),
-        Text(
-          title,
-          style: TextStyle(
-            color: textColor,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.5,
-          ),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildImmobilierDropdown(List<MapEntry<String, Map<String, dynamic>>> immobilierTypes) {
-    // Trouver le type immobilier sélectionné
-    final selectedImmobilier = immobilierTypes.firstWhere(
-      (entry) => _selectedAccountType == entry.key,
-      orElse: () => immobilierTypes.first,
-    );
-    final isImmobilierSelected = immobilierTypes.any((entry) => _selectedAccountType == entry.key);
 
-    return Column(
-      children: [
-        // Bouton dropdown avec le design actuel
-        InkWell(
-          onTap: () {
-            setState(() {
-              _isImmobilierDropdownOpen = !_isImmobilierDropdownOpen;
-            });
-          },
-          borderRadius: BorderRadius.circular(16),
-          child: AnimatedContainer(
-            duration: Duration(milliseconds: 300),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: isImmobilierSelected
-                  ? LinearGradient(
-                      colors: [
-                        Color(0xFF1976D2).withOpacity(0.15),
-                        Color(0xFF1976D2).withOpacity(0.05),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    )
-                  : null,
-              border: Border.all(
-                color: isImmobilierSelected ? Color(0xFF1976D2) : Colors.grey.shade300,
-                width: isImmobilierSelected ? 2 : 1.5,
-              ),
-              boxShadow: isImmobilierSelected
-                  ? [
-                      BoxShadow(
-                        color: Color(0xFF1976D2).withOpacity(0.2),
-                        blurRadius: 8,
-                        offset: Offset(0, 4),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Container(
-              padding: EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  AnimatedContainer(
-                    duration: Duration(milliseconds: 300),
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: isImmobilierSelected
-                          ? Color(0xFF1976D2)
-                          : lightBlue.withOpacity(0.5),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      isImmobilierSelected
-                          ? (selectedImmobilier.value['icon'] as IconData)
-                          : Icons.home_rounded,
-                      color: isImmobilierSelected ? Colors.white : Color(0xFF1976D2),
-                      size: 20,
-                    ),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isImmobilierSelected
-                              ? selectedImmobilier.key
-                              : 'Sélectionner un type',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: isImmobilierSelected ? Color(0xFF1976D2) : textColor,
-                            fontSize: 15,
-                          ),
-                        ),
-                        if (isImmobilierSelected) ...[
-                          SizedBox(height: 2),
-                          Text(
-                            selectedImmobilier.value['description'] as String,
-                            style: TextStyle(
-                              color: Color(0xFF1976D2).withOpacity(0.8),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  AnimatedRotation(
-                    turns: _isImmobilierDropdownOpen ? 0.5 : 0,
-                    duration: Duration(milliseconds: 300),
-                    child: Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      color: isImmobilierSelected ? Color(0xFF1976D2) : Colors.grey.shade600,
-                      size: 24,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        
-        // Liste déroulante des types immobiliers
-        if (_isImmobilierDropdownOpen) ...[
-          SizedBox(height: 8),
-          Container(
-            constraints: BoxConstraints(
-              maxHeight: 300,
-            ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200, width: 1),
-              color: Colors.white,
-            ),
-            child: Column(
-              children: immobilierTypes.asMap().entries.map((mapEntry) {
-                final index = mapEntry.key;
-                final entry = mapEntry.value;
-                final isSelected = _selectedAccountType == entry.key;
-                final isLast = index == immobilierTypes.length - 1;
-                return InkWell(
-                  onTap: () {
-                    setState(() {
-                      _selectedAccountType = entry.key;
-                      _isImmobilierDropdownOpen = false;
-                    });
-                  },
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? Color(0xFF1976D2).withOpacity(0.1)
-                          : Colors.transparent,
-                      border: isLast ? null : Border(
-                        bottom: BorderSide(
-                          color: Colors.grey.shade200,
-                          width: 0.5,
-                        ),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? Color(0xFF1976D2)
-                                : lightBlue.withOpacity(0.5),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            entry.value['icon'] as IconData,
-                            color: isSelected ? Colors.white : Color(0xFF1976D2),
-                            size: 18,
-                          ),
-                        ),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                entry.key,
-                                style: TextStyle(
-                                  fontWeight: isSelected
-                                      ? FontWeight.w600
-                                      : FontWeight.w500,
-                                  color: isSelected
-                                      ? Color(0xFF1976D2)
-                                      : textColor,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                entry.value['description'] as String,
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (isSelected)
-                          Icon(
-                            Icons.check_circle_rounded,
-                            color: Color(0xFF1976D2),
-                            size: 20,
-                          ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
 
-  Widget _buildServicesDropdown(List<MapEntry<String, Map<String, dynamic>>> servicesTypes) {
-    // Trouver le type de service sélectionné
-    final selectedService = servicesTypes.firstWhere(
-      (entry) => _selectedAccountType == entry.key,
-      orElse: () => servicesTypes.first,
-    );
-    final isServiceSelected = servicesTypes.any((entry) => _selectedAccountType == entry.key);
-
-    return Column(
-      children: [
-        // Bouton dropdown avec le design actuel
-        InkWell(
-          onTap: () {
-            setState(() {
-              _isServicesDropdownOpen = !_isServicesDropdownOpen;
-            });
-          },
-          borderRadius: BorderRadius.circular(16),
-          child: AnimatedContainer(
-            duration: Duration(milliseconds: 300),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: isServiceSelected
-                  ? LinearGradient(
-                      colors: [
-                        Color(0xFF1976D2).withOpacity(0.15),
-                        Color(0xFF1976D2).withOpacity(0.05),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    )
-                  : null,
-              border: Border.all(
-                color: isServiceSelected ? Color(0xFF1976D2) : Colors.grey.shade300,
-                width: isServiceSelected ? 2 : 1.5,
-              ),
-              boxShadow: isServiceSelected
-                  ? [
-                      BoxShadow(
-                        color: Color(0xFF1976D2).withOpacity(0.2),
-                        blurRadius: 8,
-                        offset: Offset(0, 4),
-                      ),
-                    ]
-                  : null,
-            ),
-            child: Container(
-              padding: EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  AnimatedContainer(
-                    duration: Duration(milliseconds: 300),
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: isServiceSelected
-                          ? Color(0xFF1976D2)
-                          : lightBlue.withOpacity(0.5),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      isServiceSelected
-                          ? (selectedService.value['icon'] as IconData)
-                          : Icons.business_center_rounded,
-                      color: isServiceSelected ? Colors.white : Color(0xFF1976D2),
-                      size: 20,
-                    ),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isServiceSelected
-                              ? selectedService.key
-                              : 'Sélectionner un service',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: isServiceSelected ? Color(0xFF1976D2) : textColor,
-                            fontSize: 15,
-                          ),
-                        ),
-                        if (isServiceSelected) ...[
-                          SizedBox(height: 2),
-                          Text(
-                            selectedService.value['description'] as String,
-                            style: TextStyle(
-                              color: Color(0xFF1976D2).withOpacity(0.8),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  AnimatedRotation(
-                    turns: _isServicesDropdownOpen ? 0.5 : 0,
-                    duration: Duration(milliseconds: 300),
-                    child: Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      color: isServiceSelected ? Color(0xFF1976D2) : Colors.grey.shade600,
-                      size: 24,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        
-        // Liste déroulante des services
-        if (_isServicesDropdownOpen) ...[
-          SizedBox(height: 8),
-          Container(
-            constraints: BoxConstraints(
-              maxHeight: 400,
-            ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200, width: 1),
-              color: Colors.white,
-            ),
-            child: SingleChildScrollView(
-              physics: BouncingScrollPhysics(),
-              child: Column(
-                children: servicesTypes.asMap().entries.map((mapEntry) {
-                  final index = mapEntry.key;
-                  final entry = mapEntry.value;
-                  final isSelected = _selectedAccountType == entry.key;
-                  final isLast = index == servicesTypes.length - 1;
-                  return InkWell(
-                    onTap: () {
-                      setState(() {
-                        _selectedAccountType = entry.key;
-                        _isServicesDropdownOpen = false;
-                      });
-                    },
-                    child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? Color(0xFF1976D2).withOpacity(0.1)
-                            : Colors.transparent,
-                        border: isLast ? null : Border(
-                          bottom: BorderSide(
-                            color: Colors.grey.shade200,
-                            width: 0.5,
-                          ),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? Color(0xFF1976D2)
-                                  : lightBlue.withOpacity(0.5),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              entry.value['icon'] as IconData,
-                              color: isSelected ? Colors.white : Color(0xFF1976D2),
-                              size: 18,
-                            ),
-                          ),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  entry.key,
-                                  style: TextStyle(
-                                    fontWeight: isSelected
-                                        ? FontWeight.w600
-                                        : FontWeight.w500,
-                                    color: isSelected
-                                        ? Color(0xFF1976D2)
-                                        : textColor,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                SizedBox(height: 2),
-                                Text(
-                                  entry.value['description'] as String,
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (isSelected)
-                            Icon(
-                              Icons.check_circle_rounded,
-                              color: Color(0xFF1976D2),
-                              size: 20,
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
 
   Widget _buildServiceTypeSelection() {
     final allServiceTypes = [
@@ -1772,12 +1247,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           onTap: () {
             setState(() {
               _selectedAccountType = type;
-              // Fermer les dropdowns si un type est sélectionné
-              if (_accountTypes[type]!['category'] == 'immobilier') {
-                _isServicesDropdownOpen = false;
-              } else if (_accountTypes[type]!['category'] == 'services') {
-                _isImmobilierDropdownOpen = false;
-              }
             });
           },
           child: Container(
@@ -2540,8 +2009,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   Future<void> _handleRegister() async {
-    // Marquer tous les champs comme touchés pour afficher les erreurs
-    setState(() {
+     setState(() {
       _firstNameTouched = true;
       _lastNameTouched = true;
       _phoneTouched = true;
@@ -2553,17 +2021,13 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
     await Future.delayed(Duration(milliseconds: 50));
 
-    // Valider tous les champs
-    final firstNameError = _validateName(_firstNameController.text, 'prénom');
-    final lastNameError = _validateName(_lastNameController.text, 'nom');
-    final phoneError = _validatePhone(_phoneController.text);
-    final emailError = _validateEmail(_emailController.text);
-    final cityError = _validateCity(_cityController.text);
-    final passwordError = _validatePassword(_passwordController.text);
-
-    if (firstNameError != null || lastNameError != null || phoneError != null ||
-        emailError != null || cityError != null || passwordError != null) {
-      SnackbarForCasa.error(context, "Veuillez corriger les erreurs ci-dessus");
+    if (_validateName(_firstNameController.text, 'prénom') != null || 
+        _validateName(_lastNameController.text, 'nom') != null || 
+        _validatePhone(_phoneController.text) != null ||
+        _validateEmail(_emailController.text) != null || 
+        _validateCity(_cityController.text) != null || 
+        _validatePassword(_passwordController.text) != null) {
+      SnackbarForCasa.error(context, "Veuillez corriger les erreurs");
       return;
     }
 
@@ -2572,304 +2036,87 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       return;
     }
 
-    // Plus besoin de vérifier le type de service car chaque service est maintenant un type de compte séparé
-
     if (!_acceptConditions) {
-      SnackbarForCasa.error(context, "Veuillez accepter les conditions d'utilisation");
+      SnackbarForCasa.error(context, "Veuillez accepter les conditions");
       return;
     }
 
-    if (!mounted || _isLoading) return;
     setState(() => _isLoading = true);
-
     FocusScope.of(context).unfocus();
 
-    final isConnected = await NetworkUtils.checkInternetConnectivity();
-    if (!isConnected) {
+    if (!await NetworkUtils.checkInternetConnectivity()) {
       SnackbarForCasa.error(context, "Pas de connexion internet");
       setState(() => _isLoading = false);
       return;
     }
 
     try {
-      // Déterminer l'ID de type de compte à partir de la source dynamique, sinon fallback statique.
-      Map<String, dynamic> accountType;
-      if (_typeAccounts.isNotEmpty) {
-        final match = _typeAccounts.firstWhere(
-          (e) => (e['name'] as String?)?.toLowerCase() == _selectedAccountType?.toLowerCase(),
-          orElse: () => {},
-        );
-        if (match.isNotEmpty) {
-          accountType = {
-            'value': match['typeAccountId'],
-            'name': match['name'],
-          };
-        } else {
-          accountType = _accountTypes[_selectedAccountType]!;
-        }
-      } else {
-        accountType = _accountTypes[_selectedAccountType]!;
+      // Trouver l'objet accountType complet depuis la liste dynamique
+      final selectedTypeObj = _typeAccounts.firstWhere(
+        (t) => t['name'] == _selectedAccountType,
+        orElse: () => null
+      );
+      
+      if (selectedTypeObj == null) {
+         SnackbarForCasa.error(context, "Type de compte invalide");
+         setState(() => _isLoading = false);
+         return;
       }
+      
+      int typeAccountId = selectedTypeObj['typeAccountId'];
 
-      // MODIFICATION ICI : Préparer le numéro de téléphone AVEC l'indicatif pays
       String phoneNumber = _phoneController.text.trim();
-
-      // Nettoyer le numéro (supprimer les espaces, tirets, etc.) - garder seulement les chiffres
       final cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
+      String phoneWithCountryCode = cleanedPhone.startsWith('0') 
+          ? '${_selectedCountryCode}${cleanedPhone.substring(1)}'
+          : '${_selectedCountryCode}$cleanedPhone';
 
-      // AJOUTER L'INDICATIF AU NUMÉRO
-      String phoneWithCountryCode;
-
-      // Si le numéro commence par 0 (cas typique RDC), on supprime le 0 avant d'ajouter l'indicatif
-      if (cleanedPhone.startsWith('0')) {
-        final numberWithoutZero = cleanedPhone.substring(1);
-        phoneWithCountryCode = '${_selectedCountryCode}$numberWithoutZero';
-      } else {
-        // Sinon on ajoute directement l'indicatif
-        phoneWithCountryCode = '${_selectedCountryCode}$cleanedPhone';
-      }
-
-      final username = '${_firstNameController.text}${_lastNameController.text}';
-
-      // MODIFICATION ICI : Utiliser phoneWithCountryCode au lieu de cleanedPhone
       final userData = {
-        "phone": phoneWithCountryCode, // ← CHANGÉ ICI : Envoi avec l'indicatif
+        "phone": phoneWithCountryCode,
         "password": _passwordController.text,
-        "typeAccountId": accountType['value'],
         "email": _emailController.text.isNotEmpty ? _emailController.text : "",
         "city": _cityController.text.trim(),
-        "country": _selectedCountryName,
-        "username": username,
+        "country": _selectedCountryName ?? "RDC",
+        "username": "@${_firstNameController.text}${_lastNameController.text}".replaceAll(' ', ''),
+      };
+      
+      final actorData = {
+          "lastName": _lastNameController.text,
+          "firstName": _firstNameController.text,
+          "address": _cityController.text,
+          "images": "",
+          "cardFront": "",
+          "cardBack": "",
+          "typeCardId": 0,
+          "parrainId": 0,
+          "numberCard": ""
+      };
+      
+      // Payload unifié
+      final Map<String, dynamic> payload = {
+        "user": userData,
+        "account": [
+          {
+            "typeAccount": typeAccountId
+          }
+        ],
+        "actor": actorData
       };
 
-      Map<String, dynamic> payload;
-
-      // Construction du payload selon le type de compte
-      switch (_selectedAccountType) {
-        case 'Bailleur':
-          payload = {
-            "user": userData,
-            "bailleur": {
-              "lastName": _lastNameController.text,
-              "firstName": _firstNameController.text,
-              "address": _cityController.text,
-              "images": "",
-              "cardFront": "",
-              "cardBack": "",
-              "parrainId": 0,
-              "typeCardId": 1,
-              "numberCard": "",
-              "note": "Nouveau bailleur"
-            }
-          };
-          break;
-
-        case 'Locataire':
-          payload = {
-            "user": userData,
-            "locataire": {
-              "lastName": _lastNameController.text,
-              "firstName": _firstNameController.text,
-              "address": _cityController.text,
-              "images": "",
-              "cardFront": "",
-              "cardBack": "",
-              "typeCardId": 1,
-              "numberCard": "",
-            }
-          };
-          break;
-
-        case 'Commissionnaire':
-          payload = {
-            "user": userData,
-            "commissionnaire": {
-              "lastName": _lastNameController.text,
-              "firstName": _firstNameController.text,
-              "address": _cityController.text,
-              "images": "",
-              "cardFront": "",
-              "cardBack": "",
-              "typeCardId": 1,
-              "numberCard": "",
-            }
-          };
-          break;
-
-        // Tous les types de services (majordome, plombier, électricien, etc.)
-        case 'Majordome':
-        case 'Plombier':
-        case 'Électricien':
-        case 'Salubrité':
-        case 'Peintre':
-        case 'Carreleur':
-        case 'Menuisier':
-        case 'Frigoriste':
-        case 'Ajusteur':
-        case 'Architecte':
-        case 'Chauffeur':
-        case 'Déménagement':
-          final roleKey = {
-            'Majordome':  'majordome',
-            'Plombier': 'plombier',
-            'Électricien': 'electricien',
-            'Salubrité': 'salubrite',
-            'Peintre': 'peintre',
-            'Carreleur': 'carreleur',
-            'Menuisier': 'menuisier',
-            'Frigoriste': 'frigoriste',
-            'Ajusteur': 'ajusteur',
-            'Architecte': 'architecte',
-            'Chauffeur': 'chauffeur',
-            'Déménagement': 'demenagement',
-          }[_selectedAccountType]!;
-
-          payload = {
-            "user": userData,
-            roleKey: {
-              "lastName": _lastNameController.text,
-              "firstName": _firstNameController.text,
-              "address": _cityController.text,
-              "serviceType": accountType['value'],
-              "images": "",
-              "cardFront": "",
-              "cardBack": "",
-              "typeCardId": 1,
-              "numberCard": "",
-            }
-          };
-          break;
-
-        default:
-          payload = {"user": userData};
-      }
-
-      HttpResponse response;
-
-      // Redirection vers le contrôleur approprié selon le type de compte
-      switch (_selectedAccountType) {
-        case 'Bailleur':
-          final ctrl = context.read<RegisterBailleurCtrl>();
-          response = await ctrl.registerBailleur(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Locataire':
-          final ctrl = context.read<RegisterLocataireCtrl>();
-          response = await ctrl.registerLocataire(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Commissionnaire':
-          final ctrl = context.read<RegisterCommissionnaireCtrl>();
-          response = await ctrl.registerCommissionnaire(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        // Tous les types de services utilisent leur contrôleur dédié
-        case 'Majordome':
-          response = await context.read<RegisterMajordomeCtrl>().registerMajordome(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Plombier':
-          response = await context.read<RegisterPlombierCtrl>().registerPlombier(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Électricien':
-          response = await context.read<RegisterElectricienCtrl>().registerElectricien(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Salubrité':
-          response = await context.read<RegisterSalubriteCtrl>().registerSalubrite(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Peintre':
-          response = await context.read<RegisterPeintreCtrl>().registerPeintre(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Carreleur':
-          response = await context.read<RegisterCarreleurCtrl>().registerCarreleur(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Menuisier':
-          response = await context.read<RegisterMenuisierCtrl>().registerMenuisier(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Frigoriste':
-          response = await context.read<RegisterFrigoristeCtrl>().registerFrigoriste(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Ajusteur':
-          response = await context.read<RegisterAjusteurCtrl>().registerAjusteur(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Architecte':
-          response = await context.read<RegisterArchitecteCtrl>().registerArchitecte(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Chauffeur':
-          response = await context.read<RegisterChauffeurCtrl>().registerChauffeur(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        case 'Déménagement':
-          response = await context.read<RegisterDemenagementCtrl>().registerDemenagement(
-            payload,
-            typeCompteId: accountType['value'],
-          );
-          break;
-        default:
-          final ctrl = context.read<AuthentificationCtrl>();
-          response = await ctrl.register(payload, url: Endpoints.register);
-      }
-
-      if (!mounted) return;
+      final authCtrl = context.read<AuthentificationCtrl>();
+      final response = await authCtrl.register(payload, url: '');
 
       if (response.status == true) {
-        SnackbarForCasa.success(context, "Inscription réussie!");
-        await Future.delayed(const Duration(milliseconds: 1500));
-
-        if (mounted) {
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            Routes.loginRoute,
-                (route) => false,
-          );
-        }
+         SnackbarForCasa.success(context, "Inscription réussie !");
+         await Future.delayed(Duration(milliseconds: 500));
+         Navigator.of(context).pushReplacementNamed(Routes.bottomPageRoute);
       } else {
-        String errorMessage = response.errorMsg ?? "Erreur lors de l'inscription";
-        print("Register error: $errorMessage");
-        // Ne pas afficher les erreurs techniques du serveur
-        SnackbarForCasa.error(context, "Une erreur est survenue lors de l'inscription. Veuillez vérifier vos informations et réessayer.");
+         SnackbarForCasa.error(context, response.errorMsg ?? "Erreur lors de l'inscription");
       }
+
     } catch (e) {
-      print("Register error: $e");
-      // Ne pas afficher les erreurs techniques
-      SnackbarForCasa.error(context, "Une erreur est survenue lors de l'inscription. Veuillez réessayer.");
+      print("Erreur inscription: $e");
+      SnackbarForCasa.error(context, "Une erreur est survenue: $e");
     } finally {
       if (mounted) {
         setState(() {
