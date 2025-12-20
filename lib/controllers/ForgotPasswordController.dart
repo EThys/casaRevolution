@@ -21,7 +21,7 @@ class ForgotPasswordController with ChangeNotifier {
         "identifier": identifier,
       };
 
-      HttpResponse response = await postDataOtp(url, data);
+      HttpResponse response = await postDataOtp(url, data, token: "");
 
       if (response.status == true && response.data != null) {
         // Vérifier la structure de la réponse
@@ -81,7 +81,7 @@ class ForgotPasswordController with ChangeNotifier {
         "code": code,
       };
 
-      HttpResponse response = await postDataOtp(url, data);
+      HttpResponse response = await postDataOtp(url, data, token: "");
 
       if (response.status == true && response.data != null) {
         // Vérifier la structure de la réponse
@@ -162,7 +162,7 @@ class ForgotPasswordController with ChangeNotifier {
         "userId": userUserId,
       };
 
-      HttpResponse response = await putData(url, data);
+      HttpResponse response = await putData(url, data, token: "");
 
       if (response.status == true) {
         print("✅ Mot de passe réinitialisé avec succès");
