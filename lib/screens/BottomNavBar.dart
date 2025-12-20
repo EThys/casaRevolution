@@ -72,19 +72,19 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
         bucket: _bucket,
       ),
       floatingActionButton: Visibility(
-        visible: !_isKeyboardVisible,
+        visible: !_isKeyboardVisible && _shouldShowFab(),
         child: Container(
-          width: 60, // Réduit de 70 à 60
-          height: 60, // Réduit de 70 à 60
+          width: 60,
+          height: 60,
           child: FloatingActionButton(
-            heroTag: "bottom_nav_bar_fab", // Tag unique pour éviter les conflits Hero
+            heroTag: "bottom_nav_bar_fab",
             backgroundColor: Colors.transparent,
             elevation: 0,
             highlightElevation: 0,
             splashColor: Colors.transparent,
             child: Container(
-              width: 56, // Réduit de 60 à 56
-              height: 56, // Réduit de 60 à 56
+              width: 56,
+              height: 56,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
@@ -107,59 +107,10 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
               child: Icon(
                 Icons.add,
                 color: Colors.white,
-                size: 26, // Réduit de 28 à 26
+                size: 26,
               ),
             ),
-            onPressed: () {
-              var token = _stockage.read(StockageKeys.tokenKey);
-              var userData = _stockage.read(StockageKeys.userKey);
-              // typeAccount peut être un objet imbriqué ou directement un ID
-              var typeAccountObj = userData?['typeAccount'];
-              var typeAccountId = typeAccountObj is Map 
-                  ? (typeAccountObj['typeAccountId'] ?? typeAccountObj['TypeAccountId'])
-                  : (userData?['typeAccountId'] ?? userData?['TypeAccountId']);
-
-              if (token == null) {
-                SnackbarForCasa.info(
-                  context,
-                  "Vous devez avoir un compte et être connecté pour publier une annonce",
-                  onTap: () {
-                    Navigator.pushNamed(context, Routes.loginRoute);
-                  },
-                );
-                return;
-              }
-
-              // Vérifier le type de compte
-              if (typeAccountId == 4) {
-                // Locataire - ne peut pas créer
-                SnackbarForCasa.info(
-                  context,
-                  "La création d'annonces est réservée aux bailleurs, commissionnaires et prestataires de services",
-                );
-                return;
-              }
-
-              // Prestataires de services (types de comptes de 5 à 20)
-              if (typeAccountId != null && typeAccountId >= 5 && typeAccountId <= 20) {
-                // Prestataire de service - rediriger vers la page de création de service pour prestataires
-                Navigator.pushNamed(
-                  context,
-                  Routes.createServicePostRoute,
-                );
-                return;
-              }
-
-              // Bailleur (3) ou Commissionnaire (2) - peuvent créer des propriétés
-              if (typeAccountId == 2 || typeAccountId == 3) {
-                Navigator.pushNamed(context, Routes.createPropertyRoute);
-              } else {
-                SnackbarForCasa.info(
-                  context,
-                  "Type de compte non reconnu. Veuillez contacter le support.",
-                );
-              }
-            },
+            onPressed: _handleFabPress,
           ),
         ),
       ),
@@ -218,6 +169,73 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
         ),
       ),
     );
+  }
+
+  bool _shouldShowFab() {
+    var token = _stockage.read(StockageKeys.tokenKey);
+    if (token == null) return true; // Montrer pour permettre la connexion
+
+    // Lire les comptes depuis 'user_accounts' (Liste)
+    List<dynamic>? userAccounts = _stockage.read('user_accounts');
+    
+    if (userAccounts == null || userAccounts.isEmpty) {
+      return false;
+    }
+
+    // Vérifier si au moins un compte permet de publier (ID 2 ou 3)
+    bool canPublish = userAccounts.any((acc) {
+      var typeAcc = acc['typeAccount'];
+      var id = typeAcc is Map 
+          ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'])
+          : (acc['typeAccountId'] ?? acc['TypeAccountId']);
+      return id == 2 || id == 3;
+    });
+
+    return canPublish;
+  }
+
+  void _handleFabPress() {
+    var token = _stockage.read(StockageKeys.tokenKey);
+    if (token == null) {
+      SnackbarForCasa.info(
+        context,
+        "Vous devez avoir un compte et être connecté pour publier une annonce",
+        onTap: () {
+          Navigator.pushNamed(context, Routes.loginRoute);
+        },
+      );
+      return;
+    }
+
+    // Lire les comptes depuis 'user_accounts'
+    List<dynamic>? userAccounts = _stockage.read('user_accounts');
+    
+    if (userAccounts == null || userAccounts.isEmpty) {
+      SnackbarForCasa.info(context, "Aucun compte associé trouvé.");
+      return;
+    }
+
+    // Extraire les IDs de types de comptes
+    Set<int> typeIds = userAccounts.map<int>((acc) {
+      var typeAcc = acc['typeAccount'];
+      return typeAcc is Map 
+          ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'] ?? 0)
+          : (acc['typeAccountId'] ?? acc['TypeAccountId'] ?? 0);
+    }).toSet();
+
+    // Priorité de routage si l'utilisateur a plusieurs types de comptes
+    if (typeIds.contains(3) && !typeIds.contains(2)) {
+      // Uniquement Prestataire (ID: 3)
+      Navigator.pushNamed(context, Routes.createServicePostRoute);
+    } else if (typeIds.contains(2)) {
+      // Propriétaire (ID: 2) - On privilégie la création de propriété par défaut
+      Navigator.pushNamed(context, Routes.createPropertyRoute);
+    } else if (typeIds.contains(1)) {
+      // Uniquement Client (ID: 1)
+      SnackbarForCasa.info(context, "Les comptes clients ne peuvent pas publier d'annonces.");
+    } else {
+      SnackbarForCasa.info(context, "Type de compte non reconnu.");
+    }
   }
 
   Widget _buildNavItem({
