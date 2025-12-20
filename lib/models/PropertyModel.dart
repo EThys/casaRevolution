@@ -170,50 +170,55 @@ class PropertyModel {
   });
 
   factory PropertyModel.fromJson(Map<String, dynamic> json) {
+    // Détection de la nouvelle structure imbriquée
+    final Map<String, dynamic> propertyNode = json["property"] is Map ? json["property"] : json;
+    final Map<String, dynamic> imagesNode = json["images"] is Map ? json["images"] : json;
+    final Map<String, dynamic> addressNode = json["address"] is Map ? json["address"] : json;
+    final Map<String, dynamic> geoNode = json["geoZone"] is Map ? json["geoZone"] : json;
+    final Map<String, dynamic> typeNode = json["typeProperty"] is Map ? json["typeProperty"] : json;
+    
     // Debug logging
-    print('🔍 Parsing PropertyModel from JSON:');
-    json.forEach((key, value) {
-      if (value != null) {
-        print('   $key: $value (${value.runtimeType})');
-      }
-    });
+    print('🔍 Parsing PropertyModel (detected structure: ${json["property"] != null ? 'NESTED' : 'FLAT'})');
 
     return PropertyModel(
-      propertyId: _parseInt(json["propertyId"]) ?? _parseInt(json["id"]),
-      title: _parseString(json["title"]),
-      description: _parseString(json["description"]),
-      username: _parseString(json["username"]),
-      price: _parseDouble(json["price"]) ?? 0.0,
-      surface: _parseDouble(json["surface"]) ?? 0.0,
-      rooms: _parseInt(json["rooms"]) ?? 0,
-      bedrooms: _parseInt(json["bedrooms"]) ?? 0,
-      kitchen: _parseInt(json["kitchen"]) ?? 0,
-      livingRoom: _parseInt(json["livingRoom"]) ?? 0,
-      bathroom: _parseInt(json["bathroom"]) ?? 0,
-      floor: _parseInt(json["floor"]) ?? 0,
-      address: _parseString(json["address"]),
+      propertyId: _parseInt(propertyNode["propertyId"]) ?? _parseInt(propertyNode["id"]),
+      title: _parseString(propertyNode["title"]),
+      description: _parseString(propertyNode["description"]),
+      username: _parseString(json["postBy"]) ?? _parseString(propertyNode["username"]) ?? _parseString(json["username"]),
+      price: _parseDouble(propertyNode["price"]) ?? 0.0,
+      surface: _parseDouble(propertyNode["surface"]) ?? 0.0,
+      rooms: _parseInt(propertyNode["rooms"]) ?? 0,
+      bedrooms: _parseInt(propertyNode["bedrooms"]) ?? 0,
+      kitchen: _parseInt(propertyNode["kitchen"]) ?? 0,
+      livingRoom: _parseInt(propertyNode["livingRoom"]) ?? 0,
+      bathroom: _parseInt(propertyNode["bathroom"]) ?? 0,
+      floor: _parseInt(propertyNode["floor"]) ?? 0,
+      address: _parseString(addressNode["address"]) ?? _parseString(propertyNode["address"]),
 
       // NOUVELLES PROPRIÉTES
-      guarantee: _parseString(json["guarantee"]),
-      communeValue: _parseString(json["communeValue"]),
-      cityValue: _parseString(json["cityValue"]),
-      countryValue: _parseString(json["countryValue"]),
-      districtValue: _parseString(json["districtValue"]),
-      quartierValue: _parseString(json["quartierValue"]),
+      guarantee: _parseString(propertyNode["guarantee"]),
+      communeValue: _parseString(addressNode["communeValue"]) ?? _parseString(propertyNode["communeValue"]),
+      cityValue: _parseString(addressNode["cityValue"]) ?? _parseString(propertyNode["cityValue"]),
+      countryValue: _parseString(addressNode["countryValue"]) ?? _parseString(propertyNode["countryValue"]),
+      districtValue: _parseString(addressNode["districtValue"]) ?? _parseString(propertyNode["districtValue"]),
+      quartierValue: _parseString(addressNode["quartierValue"]) ?? _parseString(propertyNode["quartierValue"]),
 
-      cityId: _parseInt(json["cityId"]) ?? 0,
-      communeId: _parseInt(json["communeId"]) ?? 0,
-      quartierId: _parseInt(json["quartierId"]) ?? 0,
-      districtId: _parseInt(json["districtId"]) ?? 0,
-      postalCode: _parseString(json["postalCode"]),
-      quartier: _parseString(json["quartier"]),
-      sold: _parseBool(json["sold"]),
-      transactionType: _parseString(json["transactionType"]),
-      propertyTypeId: _parseInt(json["propertyTypeId"]) ?? 0,
-      propertyType: json["propertyType"] is Map<String, dynamic>
-          ? PropertyTypeModel.fromJson(json["propertyType"])
-          : null,
-      // Extraire userId depuis json["userId"] ou depuis json["user"]["userId"]
+      cityId: _parseInt(addressNode["cityId"]) ?? _parseInt(propertyNode["cityId"]) ?? 0,
+      communeId: _parseInt(addressNode["communeId"]) ?? _parseInt(propertyNode["communeId"]) ?? 0,
+      quartierId: _parseInt(addressNode["quartierId"]) ?? _parseInt(propertyNode["quartierId"]) ?? 0,
+      districtId: _parseInt(addressNode["districtId"]) ?? _parseInt(propertyNode["districtId"]) ?? 0,
+      postalCode: _parseString(addressNode["postalCode"]) ?? _parseString(propertyNode["postalCode"]),
+      quartier: _parseString(addressNode["quartier"]) ?? _parseString(propertyNode["quartier"]),
+      sold: _parseBool(propertyNode["sold"]),
+      transactionType: _parseString(propertyNode["transactionType"]),
+      propertyTypeId: _parseInt(typeNode["propertyTypeId"]) ?? _parseInt(propertyNode["propertyTypeId"]) ?? 0,
+      
+      propertyType: typeNode.isNotEmpty && typeNode["propertyTypeId"] != null
+          ? PropertyTypeModel.fromJson(typeNode)
+          : (propertyNode["propertyType"] is Map<String, dynamic>
+              ? PropertyTypeModel.fromJson(propertyNode["propertyType"])
+              : null),
+
       userId: _parseInt(json["userId"]) ?? 
               (json["user"] is Map && json["user"]["userId"] != null 
                 ? _parseInt(json["user"]["userId"]) 
@@ -221,13 +226,13 @@ class PropertyModel {
       user: json["user"] is Map<String, dynamic>
           ? UserModel.fromJson(json["user"])
           : null,
-      latitude: _parseDouble(json["latitude"]) ?? 0.0,
-      longitude: _parseDouble(json["longitude"]) ?? 0.0,
-      createdStart: _parseString(json["createdStart"]) ?? _parseString(json["createdAt"]),
-      updatedAt: _parseString(json["updatedAt"]),
-      createdAt: _parseString(json["createdAt"]),
-      electric: _parseInt(json["electric"]) ?? 0,
-      water: _parseInt(json["water"]) ?? 0,
+      latitude: _parseDouble(geoNode["lat"]) ?? _parseDouble(propertyNode["latitude"]) ?? 0.0,
+      longitude: _parseDouble(geoNode["lng"]) ?? _parseDouble(propertyNode["longitude"]) ?? 0.0,
+      createdStart: _parseString(propertyNode["createdStart"]) ?? _parseString(propertyNode["createdAt"]) ?? _parseString(json["createdAt"]),
+      updatedAt: _parseString(propertyNode["updatedAt"]) ?? _parseString(json["updatedAt"]),
+      createdAt: _parseString(propertyNode["createdAt"]) ?? _parseString(json["createdAt"]),
+      electric: _parseInt(propertyNode["electric"]) ?? 0,
+      water: _parseInt(propertyNode["water"]) ?? 0,
 
       // NOUVELLES PROPRIÉTES STATISTIQUES
       viewCount: _parseInt(json["viewCount"]) ?? 0,
@@ -237,31 +242,35 @@ class PropertyModel {
       reviewCount: _parseInt(json["reviewCount"]) ?? 0,
 
       // NOUVELLES PROPRIÉTES MÉTADONNÉES
-      isActive: _parseBool(json["isActive"]) ?? true,
-      isVerified: _parseBool(json["isVerified"]) ?? false,
-      isFeatured: _parseBool(json["isFeatured"]) ?? false,
-      status: _parseString(json["status"]) ?? "active",
-      rejectionReason: _parseString(json["rejectionReason"]),
+      isActive: _parseBool(propertyNode["isActive"]) ?? true,
+      isVerified: _parseBool(propertyNode["isVerified"]) ?? false,
+      isFeatured: _parseBool(propertyNode["isFeatured"]) ?? false,
+      status: _parseString(propertyNode["status"]) ?? "active",
+      rejectionReason: _parseString(propertyNode["rejectionReason"]),
 
-      features: json["features"] is List
+      features: (json["features"] ?? propertyNode["features"]) is List
           ? List<PropertyFeatureModel>.from(
-          (json["features"] as List).where((x) => x != null).map((x) => PropertyFeatureModel.fromJson(x)))
+          ((json["features"] ?? propertyNode["features"]) as List).where((x) => x != null).map((x) => PropertyFeatureModel.fromJson(x)))
           : <PropertyFeatureModel>[],
-      propertyImage: json["propertyImage"] is List
+          
+      propertyImage: (imagesNode["main"] ?? json["propertyImage"] ?? propertyNode["propertyImage"]) is List
           ? List<PropertyImageModel>.from(
-          (json["propertyImage"] as List).where((x) => x != null).map((x) => PropertyImageModel.fromJson(x)))
+          ((imagesNode["main"] ?? json["propertyImage"] ?? propertyNode["propertyImage"]) as List).where((x) => x != null).map((x) => PropertyImageModel.fromJson(x)))
           : <PropertyImageModel>[],
-      propertyImageRoom: json["propertyImageRoom"] is List
+          
+      propertyImageRoom: (imagesNode["room"] ?? json["propertyImageRoom"] ?? propertyNode["propertyImageRoom"]) is List
           ? List<PropertyImageRoomModel>.from(
-          (json["propertyImageRoom"] as List).where((x) => x != null).map((x) => PropertyImageRoomModel.fromJson(x)))
+          ((imagesNode["room"] ?? json["propertyImageRoom"] ?? propertyNode["propertyImageRoom"]) as List).where((x) => x != null).map((x) => PropertyImageRoomModel.fromJson(x)))
           : <PropertyImageRoomModel>[],
-      propertyImageLivingRoom: json["propertyImageLivingRoom"] is List
+          
+      propertyImageLivingRoom: (imagesNode["living"] ?? json["propertyImageLivingRoom"] ?? propertyNode["propertyImageLivingRoom"]) is List
           ? List<PropertyImageLivingRoomModel>.from(
-          (json["propertyImageLivingRoom"] as List).where((x) => x != null).map((x) => PropertyImageLivingRoomModel.fromJson(x)))
+          ((imagesNode["living"] ?? json["propertyImageLivingRoom"] ?? propertyNode["propertyImageLivingRoom"]) as List).where((x) => x != null).map((x) => PropertyImageLivingRoomModel.fromJson(x)))
           : <PropertyImageLivingRoomModel>[],
-      propertyImageKitchen: json["propertyImageKitchen"] is List
+          
+      propertyImageKitchen: (imagesNode["kitchen"] ?? json["propertyImageKitchen"] ?? propertyNode["propertyImageKitchen"]) is List
           ? List<PropertyImageKitchenModel>.from(
-          (json["propertyImageKitchen"] as List).where((x) => x != null).map((x) => PropertyImageKitchenModel.fromJson(x)))
+          ((imagesNode["kitchen"] ?? json["propertyImageKitchen"] ?? propertyNode["propertyImageKitchen"]) as List).where((x) => x != null).map((x) => PropertyImageKitchenModel.fromJson(x)))
           : <PropertyImageKitchenModel>[],
     );
   }
