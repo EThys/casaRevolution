@@ -102,7 +102,7 @@ class AuthentificationCtrl with ChangeNotifier {
       print("URL de connexion: $url");
       print("Données envoyées: $data");
 
-      HttpResponse response = await postDataForAuth(url, data);
+      HttpResponse response = await postDataForAuth(url, data, token: "");
       print("Statut de la réponse: ${response.status}");
       print("Réponse API: ${response.data}");
 
@@ -117,29 +117,31 @@ class AuthentificationCtrl with ChangeNotifier {
       String message = response.data['message']?.toString() ?? '';
       bool isSuccess = message.toLowerCase().contains('réussie');
 
-      if (isSuccess) {
+        if (isSuccess) {
         print("✅ Message de succès détecté: $message");
 
-        String? newToken = response.data['token'];
-        String? refreshToken = response.data['refresh_token'];
-        var userJson = response.data['user'];
-        var profileJson = response.data['profile']; // Récupérer le profile
+        var token = response.data['token'];
+        var refreshToken = response.data['refresh_token'];
+        var member = response.data['member'];
 
-        // Vérification des données requises
-        if (newToken != null && userJson != null) {
-          print("Token reçu: ${newToken.substring(0, 20)}...");
-          if (refreshToken != null) {
-            print("Refresh token reçu: ${refreshToken.substring(0, 20)}...");
-          }
-          print("Données utilisateur reçues");
-          print("Données profile reçues: $profileJson");
+        if (token != null && member != null) {
+          var userJson = member['user'];
+          var profileJson = member['profile'];
+
+          print("Token reçu: ${token.toString().substring(0, 10)}...");
+          print("Données utilisateur reçues: ${userJson['email']}");
 
           // Stockage sécurisé des données
-          await _storeAuthData(newToken, refreshToken, userJson, profileJson);
+          await _storeAuthData(token, refreshToken, userJson, profileJson);
+          
+          // Sauvegarder aussi les comptes du user si besoin
+           if (member['accounts'] != null) {
+              await stockage?.write('user_accounts', member['accounts']);
+           }
 
           print("✅ Connexion et stockage réussis");
         } else {
-          print("❌ Token ou utilisateur manquant dans la réponse");
+          print("❌ Token ou données membre manquants dans la réponse");
           throw Exception("Données d'authentification incomplètes");
         }
       } else {
@@ -221,12 +223,13 @@ class AuthentificationCtrl with ChangeNotifier {
     }
   }
 
-  Future<HttpResponse> register(Map<String, dynamic> userData, {required String url}) async {
+    Future<HttpResponse> register(Map<String, dynamic> payload, {required String url}) async {
     try {
-      const url = Endpoints.register;
-      print("Payload d'inscription: ${(userData)}");
+      // Endpoint fixe selon la demande
+      const registerUrl = Endpoints.register; 
+      print("Payload d'inscription: $payload");
 
-      HttpResponse response = await postData(url, userData);
+      HttpResponse response = await postDataForAuth(registerUrl, payload, token: "");
 
       if (response.data == null) {
         return HttpResponse(
@@ -236,39 +239,45 @@ class AuthentificationCtrl with ChangeNotifier {
         );
       }
 
-      print("Réponse API: ${(response.data)}");
+      print("Réponse API (Inscription): ${response.data}");
 
-      // Vérifiez d'abord si la requête a réussi
-      if (response.data['success'] == true) {
-        final data = response.data['data'] ?? {};
-
-        String? token = data['token'];
-        var userJson = data['user'];
-
-        if (token != null && userJson != null) {
-          await stockage?.write(StockageKeys.tokenKey, token);
-          user = UserModel.fromJson(userJson);
-          this.user = user;
-          notifyListeners();
-        } else {
-          print("Token ou user manquant dans la réponse");
-          return HttpResponse(
-            status: false,
-            errorMsg: "Données utilisateur manquantes dans la réponse",
+      // Vérification du succès (similaire au login souvent, ou présence de token/member)
+      // La réponse exemple n'est pas explicite sur le succès, mais on suppose un 200 OK avec structure similaire
+       String message = response.data['message']?.toString() ?? '';
+       // Parfois inscription retourne direct le token, parfois demande confirmation.
+       // Ici on suppose que ça connecte direct comme avant si token présent.
+       
+       var token = response.data['token'];
+       var member = response.data['member'];
+       
+       if (token != null && member != null) {
+          var userJson = member['user'];
+           await stockage?.write(StockageKeys.tokenKey, token);
+           user = UserModel.fromJson(userJson);
+           this.user = user;
+           notifyListeners();
+           
+           return HttpResponse(
+            status: true,
             data: response.data,
-          );
-        }
-      } else {
-        // Gestion des erreurs API
+            errorMsg: message
+           );
+       } else if (response.status == true) {
+           // Succès sans login automatique (ex: "Compte créé")
+           return response;
+       } else {
+          print("Token ou membre manquant dans la réponse d'inscription");
+           // Gestion des erreurs API
         String errorMsg = response.data['message'] ??
             response.data['errors']?.toString() ??
-            "Erreur inconnue lors de l'inscription";
+            "Erreur lors de l'inscription";
         return HttpResponse(
           status: false,
           errorMsg: errorMsg,
           data: response.data,
         );
-      }
+       }
+
 
       return response;
     } catch (e, stackTrace) {
@@ -463,7 +472,7 @@ class AuthentificationCtrl with ChangeNotifier {
       print("URL forgot password: $url");
       print("Données envoyées: $data");
 
-      HttpResponse response = await postDataForAuth(url, data);
+      HttpResponse response = await postDataForAuth(url, data, token: "");
 
       print("Statut de la réponse: ${response.status}");
       print("Réponse API: ${response.data}");
@@ -498,7 +507,7 @@ class AuthentificationCtrl with ChangeNotifier {
       print("URL verify OTP: $url");
       print("Données envoyées: ${data.containsKey('otp') ? 'phone: ${data['phone']}, otp: ***' : data}");
 
-      HttpResponse response = await postDataForAuth(url, data);
+      HttpResponse response = await postDataForAuth(url, data, token: "");
 
       print("Statut de la réponse: ${response.status}");
       print("Réponse API: ${response.data}");
@@ -533,7 +542,7 @@ class AuthentificationCtrl with ChangeNotifier {
       print("URL reset password: $url");
       print("Données envoyées: ${data.containsKey('new_password') ? 'new_password: ***, confirm_password: ***' : data}");
 
-      HttpResponse response = await postDataForAuth(url, data);
+      HttpResponse response = await postDataForAuth(url, data, token: "");
 
       print("Statut de la réponse: ${response.status}");
       print("Réponse API: ${response.data}");
