@@ -122,7 +122,7 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
 
   final stockage = GetStorage();
   late final profile = stockage.read(StockageKeys.profileKey);
-  late var fullname = profile["fullname"];
+  late var fullname = (profile is Map) ? (profile["fullname"] ?? "Utilisateur") : "Utilisateur";
 
   // Images: Map pour stocker les nouvelles images (XFile) et les URLs existantes
   Map<String, List<XFile>> _newImages = {}; // Nouvelles images à uploader
@@ -1142,27 +1142,49 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
   }
 
   Future<Map<String, dynamic>> _prepareUpdateData() async {
+    final GetStorage storage = GetStorage();
+    final dynamic userData = storage.read(StockageKeys.userKey);
+    final dynamic profile = storage.read(StockageKeys.profileKey);
+    final String fullname = (profile is Map) ? (profile["fullname"] ?? "Utilisateur") : "Utilisateur";
+
     final propertyData = <String, dynamic>{
-      "title": _titleController.text.trim(),
-      "description": _descriptionController.text.trim(),
-      "price": double.tryParse(_priceController.text) ?? 0.0,
-      "surface": double.tryParse(_areaController.text) ?? 0.0,
-      "rooms": int.tryParse(_roomsController.text) ?? 0,
-      "bedrooms": int.tryParse(_bedroomsController.text) ?? 0,
-      "kitchen": int.tryParse(_kitchensController.text) ?? 0,
-      "livingRoom": int.tryParse(_livingRoomsController.text) ?? 0,
-      "bathroom": int.tryParse(_bathroomsController.text) ?? 0,
-      "floor": int.tryParse(_floorController.text) ?? 0,
-      "address": _addressController.text.trim(),
-      "guarantee": _guaranteeController.text.trim(),
-      "postalCode": _postalCodeController.text.trim(),
-      "transactionType": _isForRent ? "location" : "vente",
-      "propertyTypeId": _getPropertyTypeId(_selectedCategory),
-      "electric": int.tryParse(_selectedElectric ?? '0') ?? 0,
-      "water": int.tryParse(_selectedWater ?? '0') ?? 0,
-      "sold": widget.property.sold ?? false,
-      "latitude": _selectedLocation?.latitude ?? widget.property.latitude ?? 0.1,
-      "longitude": _selectedLocation?.longitude ?? widget.property.longitude ?? 0.1,
+      "property": {
+        "title": _titleController.text.trim(),
+        "description": _descriptionController.text.trim(),
+        "price": double.tryParse(_priceController.text) ?? 5000.0,
+        "surface": double.tryParse(_areaController.text) ?? 0.1,
+        "rooms": int.tryParse(_roomsController.text) ?? 1,
+        "bedrooms": int.tryParse(_bedroomsController.text) ?? 1,
+        "kitchen": int.tryParse(_kitchensController.text) ?? 1,
+        "livingRoom": int.tryParse(_livingRoomsController.text) ?? 1,
+        "bathroom": int.tryParse(_bathroomsController.text) ?? 1,
+        "floor": int.tryParse(_floorController.text) ?? 1,
+        "electric": int.tryParse(_selectedElectric ?? '0') ?? 0,
+        "water": int.tryParse(_selectedWater ?? '0') ?? 0,
+        "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",
+        "sold": widget.property.sold ?? false,
+        "transactionType": _isForRent ? "location" : "vente",
+        "available": true,
+      },
+      "postBy": fullname,
+      "address": {
+        "address": _addressController.text.trim(),
+        "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : (widget.property.cityId ?? 1),
+        "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : widget.property.communeId,
+        "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : widget.property.quartierId,
+        "cityValue": _isKinshasaSelected ? "Kinshasa" : _cityTextController.text.trim(),
+        "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
+        "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
+        "postalCode": _postalCodeController.text.trim(),
+        "countryValue": "RDC",
+      },
+      "geoZone": {
+        "lat": _selectedLocation?.latitude ?? widget.property.latitude ?? 0.1,
+        "lng": _selectedLocation?.longitude ?? widget.property.longitude ?? 0.1,
+      },
+      "typeProperty": {
+        "propertyTypeId": _getPropertyTypeId(_selectedCategory) ?? 2,
+      },
       "features": _selectedAmenities.map((amenity) {
         return {
           "featureId": _getFeatureId(amenity),
@@ -1171,27 +1193,8 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
       }).toList(),
     };
 
-    // Location
-    if (_isKinshasaSelected && _selectedCity != null) {
-      propertyData["cityId"] = _selectedCity!.cityId;
-      propertyData["communeValue"] = _selectedCommune?.name;
-      propertyData["quartierValue"] = _selectedQuartier?.name;
-      propertyData["communeId"] = _selectedCommune?.communeId;
-      propertyData["quartierId"] = _selectedQuartier?.quartierId;
-      propertyData["quartier"] = _selectedQuartier?.name ?? '';
-      propertyData["cityValue"] = "Kinshasa";
-      propertyData["countryValue"] = "RDC";
-    } else {
-      propertyData["cityValue"] = _cityTextController.text.trim();
-      propertyData["communeValue"] = _communeTextController.text.trim();
-      propertyData["quartierValue"] = _quartierTextController.text.trim();
-      propertyData["quartier"] = _quartierTextController.text.trim();
-      propertyData["cityId"] = widget.property.cityId ?? 1;
-      propertyData["communeId"] = widget.property.communeId;
-      propertyData["quartierId"] = widget.property.quartierId;
-    }
-
-    // Images: combiner URLs existantes et nouvelles images
+    // Images
+    Map<String, dynamic> imagesPayload = {};
     for (var category in _imageCategories) {
       final categoryId = category.id;
       final List<Map<String, String>> imageList = [];
@@ -1219,21 +1222,38 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
         }
       }
 
-      propertyData[categoryId] = imageList;
-    }
-
-    // S'assurer que tous les champs d'images existent
-    for (var category in _imageCategories) {
-      if (!propertyData.containsKey(category.id)) {
-        propertyData[category.id] = [];
+      // Mapper les catégories Flutter aux clés API
+      switch (categoryId) {
+        case 'propertyImage':
+          imagesPayload['main'] = imageList;
+          break;
+        case 'propertyImageRoom':
+          imagesPayload['room'] = imageList;
+          break;
+        case 'propertyImageLivingRoom':
+          imagesPayload['living'] = imageList;
+          break;
+        case 'propertyImageKitchen':
+          imagesPayload['kitchen'] = imageList;
+          break;
       }
     }
 
-    // userId
-    final GetStorage storage = GetStorage();
-    final dynamic userData = storage.read(StockageKeys.userKey);
-    final userId = userData?['userId'] ?? userData?['user']?['userId'];
-    propertyData["userId"] = userId ?? widget.property.userId ?? 0;
+    // S'assurer que tous les champs d'images existent
+    const requiredImageKeys = ['main', 'room', 'living', 'kitchen'];
+    for (var key in requiredImageKeys) {
+      if (!imagesPayload.containsKey(key)) {
+        imagesPayload[key] = [];
+      }
+    }
+    
+    propertyData["images"] = imagesPayload;
+
+    // Ajout userId si disponible
+    final userId = userData?['userId'] ?? userData?['user']?['userId'] ?? widget.property.userId;
+    if (userId != null) {
+      (propertyData["property"] as Map<String, dynamic>)["userId"] = userId;
+    }
 
     return propertyData;
   }
