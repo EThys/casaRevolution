@@ -9,9 +9,13 @@ class TypeAccountController with ChangeNotifier {
     loading = true;
     notifyListeners();
     try {
-      final response = await getData("account"); // https://server.casanayo.com/api/account
+      final response = await getData("accounts/type", token: "");
       if (response != null && response is Map<String, dynamic>) {
-        typeAccounts = response['type_accounts'] ?? [];
+        if (response['data'] != null) {
+          typeAccounts = response['data'];
+        } else {
+           typeAccounts = [];
+        }
       }
     } catch (e) {
       print("Erreur chargement type accounts: $e");
