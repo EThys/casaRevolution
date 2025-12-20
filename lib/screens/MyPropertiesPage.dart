@@ -196,12 +196,6 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
 
   void _handleCreateProperty() {
     var token = _stockage.read(StockageKeys.tokenKey);
-    var userData = _stockage.read(StockageKeys.userKey);
-    var typeAccountObj = userData?['typeAccount'];
-    var typeAccountId = typeAccountObj is Map 
-        ? (typeAccountObj['typeAccountId'] ?? typeAccountObj['TypeAccountId'])
-        : (userData?['typeAccountId'] ?? userData?['TypeAccountId']);
-
     if (token == null) {
       FancyNotification.show(
         context,
@@ -211,30 +205,40 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
       return;
     }
 
-    if (typeAccountId == 4) {
-      FancyNotification.show(
-        context,
-        "La création d'annonces est réservée aux bailleurs, commissionnaires et prestataires de services",
-        type: NotificationType.info,
-      );
+    // Lire les comptes depuis 'user_accounts'
+    List<dynamic>? userAccounts = _stockage.read('user_accounts');
+    
+    if (userAccounts == null || userAccounts.isEmpty) {
+      FancyNotification.show(context, "Aucun compte associé trouvé.");
       return;
     }
 
-    if (typeAccountId != null && typeAccountId >= 5 && typeAccountId <= 20) {
+    // Extraire les IDs de types de comptes
+    Set<int> typeIds = userAccounts.map<int>((acc) {
+      var typeAcc = acc['typeAccount'];
+      return typeAcc is Map 
+          ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'] ?? 0)
+          : (acc['typeAccountId'] ?? acc['TypeAccountId'] ?? 0);
+    }).toSet();
+
+    if (typeIds.contains(3) && !typeIds.contains(2)) {
       Navigator.pushNamed(
         context,
         Routes.createServicePostRoute,
       ).then((_) => _loadMyProperties());
-      return;
-    }
-
-    if (typeAccountId == 2 || typeAccountId == 3) {
+    } else if (typeIds.contains(2)) {
       Navigator.pushNamed(context, Routes.createPropertyRoute)
           .then((_) => _loadMyProperties());
+    } else if (typeIds.contains(1)) {
+      FancyNotification.show(
+        context,
+        "Les comptes clients ne peuvent pas publier d'annonces.",
+        type: NotificationType.info,
+      );
     } else {
       FancyNotification.show(
         context,
-        "Type de compte non reconnu. Veuillez contacter le support.",
+        "Type de compte non reconnu.",
         type: NotificationType.info,
       );
     }
