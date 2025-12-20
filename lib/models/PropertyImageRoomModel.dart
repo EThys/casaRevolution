@@ -22,11 +22,11 @@ class PropertyImageRoomModel {
     this.path,
   });
 
-  factory PropertyImageRoomModel.fromJson(Map<String, dynamic> json) => PropertyImageRoomModel(
+    factory PropertyImageRoomModel.fromJson(Map<String, dynamic> json) => PropertyImageRoomModel(
     propertyImageId: json["propertyImageId"],
     property: json["property"] == null ? null : PropertyModel.fromJson(json["property"]),
     name: json["name"],
-    path: json["path"],
+    path: json["path"] ?? json["publicPath"],
   );
 
   Map<String, dynamic> toJson() => {
