@@ -137,7 +137,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   ];
   final stockage = GetStorage();
   late final profile = stockage.read(StockageKeys.profileKey);
-  late var fullname=profile["fullname"];
+  late var fullname = (profile is Map) ? (profile["fullname"] ?? "Utilisateur") : "Utilisateur";
   Map<String, List<XFile>> _selectedImages = {};
   Map<String, String> _otherRoomDescriptions = {};
 
