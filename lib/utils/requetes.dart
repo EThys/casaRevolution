@@ -15,10 +15,13 @@ Future<dynamic> getData(String url_api, {String? token}) async {
   try {
     var url = Uri.parse('${Constantes.BASE_URL}$url_api');
     var tkn = token ?? Constantes.DefaultToken;
-    var reponse = await http.get(url, headers: {
+    var headers = {
       "Content-Type": "application/json",
-      "Authorization": "Bearer $tkn"
-    }).timeout(Duration(seconds: 10));
+    };
+    if (tkn.isNotEmpty) {
+      headers["Authorization"] = "Bearer $tkn";
+    }
+    var reponse = await http.get(url, headers: headers).timeout(Duration(seconds: 10));
 
     if (reponse.statusCode == 200) {
       return jsonDecode(reponse.body);
@@ -37,10 +40,13 @@ Future<HttpResponse> postDataOtp(String api_url, Map data, {String? token}) asyn
     var url = Uri.parse("${Constantes.URL_BASE}$api_url");
     String dataStr = json.encode(data);
     var tkn = token ?? Constantes.DefaultToken;
-    var response = await http.post(url, body: dataStr, headers: {
+    var headers = {
       "Content-Type": "application/json",
-      "Authorization": "Bearer $tkn"
-    }).timeout(Duration(seconds: 30));
+    };
+    if (tkn.isNotEmpty) {
+      headers["Authorization"] = "Bearer $tkn";
+    }
+    var response = await http.post(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
     /* if(!kReleaseMode){
         alice.onHttpResponse(response);
       }*/
@@ -63,10 +69,13 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
     var url = Uri.parse("${Constantes.BASE_URL}$api_url");
     String dataStr = json.encode(data);
     var tkn = token ?? Constantes.DefaultToken;
-    var response = await http.put(url, body: dataStr, headers: {
+    var headers = {
       "Content-Type": "application/json",
-      "Authorization": "Bearer $tkn"
-    }).timeout(Duration(seconds: 30));
+    };
+    if (tkn.isNotEmpty) {
+      headers["Authorization"] = "Bearer $tkn";
+    }
+    var response = await http.put(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
     /* if(!kReleaseMode){
         alice.onHttpResponse(response);
       }*/
@@ -92,13 +101,18 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
       String dataStr = json.encode(data);
       print("🌐 [postData] Taille des données JSON: ${dataStr.length} caractères");
       var tkn = token ?? Constantes.DefaultToken;
-      print("🌐 [postData] Token utilisé: ${tkn.isNotEmpty ? 'Oui (${tkn.length} caractères)' : 'Non (DefaultToken)'}");
+      print("🌐 [postData] Token utilisé: ${tkn.isNotEmpty ? 'Oui (${tkn.length} caractères)' : 'Non (Désactivé)'}");
       
-      print("🌐 [postData] Envoi de la requête POST...");
-      var response = await http.post(url, body: dataStr, headers: {
+      var headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer $tkn"
-      }).timeout(Duration(seconds: 30));
+      };
+      
+      if (tkn.isNotEmpty) {
+        headers["Authorization"] = "Bearer $tkn";
+      }
+
+      print("🌐 [postData] Envoi de la requête POST...");
+      var response = await http.post(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
       
       print("🌐 [postData] Réponse reçue - Status Code: ${response.statusCode}");
       print("🌐 [postData] Headers: ${response.headers}");
@@ -193,8 +207,11 @@ Future<HttpResponse> deleteData(String api_url, {Map<String, dynamic>? data, Str
 
     var headers = {
       "Content-Type": "application/json",
-      "Authorization": "Bearer $tkn"
     };
+    
+    if (tkn.isNotEmpty) {
+      headers["Authorization"] = "Bearer $tkn";
+    }
 
     http.Response response;
 
@@ -236,10 +253,13 @@ Future<HttpResponse> postDataForAuth(String api_url, Map data, {String? token}) 
     var url = Uri.parse("${Constantes.URL_AUTH}$api_url");
     String dataStr = json.encode(data);
     var tkn = token ?? Constantes.DefaultToken;
-    var response = await http.post(url, body: dataStr, headers: {
+    var headers = {
       "Content-Type": "application/json",
-      "Authorization": "Bearer $tkn"
-    }).timeout(Duration(seconds: 30));
+    };
+    if (tkn.isNotEmpty) {
+      headers["Authorization"] = "Bearer $tkn";
+    }
+    var response = await http.post(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
     /* if(!kReleaseMode){
         alice.onHttpResponse(response);
       }*/
@@ -261,10 +281,14 @@ Future<HttpResponse> postDataList(String api_url, Map<String, dynamic> data, {St
     String dataStr = json.encode(data);
     var tkn = token ?? Constantes.DefaultToken;
 
-    var response = await http.post(url, body: dataStr, headers: {
+    var headers = {
       "Content-Type": "application/json",
-      "Authorization": "Bearer $tkn"
-    }).timeout(Duration(seconds: 5));
+    };
+    if (tkn.isNotEmpty) {
+      headers["Authorization"] = "Bearer $tkn";
+    }
+
+    var response = await http.post(url, body: dataStr, headers: headers).timeout(Duration(seconds: 5));
 
     // Vérifiez le statut de la réponse
     if (response.statusCode == 200 || response.statusCode == 201) {
@@ -307,10 +331,13 @@ Future<HttpResponse> patchData(String api_url, Map data, {String? token}) async 
     var url = Uri.parse("${Constantes.BASE_URL}$api_url");
     String dataStr = json.encode(data);
     var tkn = token ?? Constantes.DefaultToken;
-    var response = await http.patch(url, body: dataStr, headers: {
+    var headers = {
       "Content-Type": "application/json",
-      "Authorization": "Bearer $tkn"
-    }).timeout(Duration(seconds: 5));
+    };
+    if (tkn.isNotEmpty) {
+      headers["Authorization"] = "Bearer $tkn";
+    }
+    var response = await http.patch(url, body: dataStr, headers: headers).timeout(Duration(seconds: 5));
     var successList = [200, 201];
     var msg = json.decode(response.body);
     var st = successList.contains(response.statusCode);
