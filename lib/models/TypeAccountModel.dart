@@ -13,8 +13,8 @@ class TypeAccountModel {
   });
 
   factory TypeAccountModel.fromJson(Map<String, dynamic> json) => TypeAccountModel(
-    typeAccountId: json["typeAccountId"] ?? json["id"],
-    name: json["name"] ?? json["typeName"],
+    typeAccountId: json["typeAccountId"],
+    name: json["name"],
   );
 
   Map<String, dynamic> toJson() => {
