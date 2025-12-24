@@ -17,12 +17,12 @@ class DraftHelper {
           final now = DateTime.now();
           final difference = now.difference(draftDate);
 
-          // Si le brouillon a plus d'un jour, le supprimer
-          if (difference.inDays >= 1) {
-            print('🗑️ Suppression du brouillon expiré (${difference.inDays} jours)');
+          // Si le brouillon a plus de 30 minutes, le supprimer
+          if (difference.inMinutes >= 30) {
+            print('🗑️ Suppression du brouillon expiré (${difference.inMinutes} minutes)');
             await prefs.remove('property_draft');
           } else {
-            print('✅ Brouillon valide (${difference.inHours} heures)');
+            print('✅ Brouillon valide (${difference.inMinutes} minutes)');
           }
         } else {
           // Si pas de timestamp, supprimer le brouillon (ancien format)
@@ -50,8 +50,8 @@ class DraftHelper {
           final now = DateTime.now();
           final difference = now.difference(draftDate);
 
-          // Le brouillon est valide s'il a moins d'un jour
-          return difference.inDays < 1;
+          // Le brouillon est valide s'il a moins de 30 minutes
+          return difference.inMinutes < 30;
         }
       }
       return false;
