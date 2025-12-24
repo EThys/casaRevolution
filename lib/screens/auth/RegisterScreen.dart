@@ -56,7 +56,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
   bool _isLoading = false;
   bool _showPassword = false;
-  String? _selectedAccountType;
+  List<String> _selectedAccountTypes = []; // Changed to List for multi-select
   ServiceType? _selectedServiceType;
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
   bool _isServicesDropdownOpen = false;
@@ -1087,7 +1087,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
            });
         }).toList(),
 
-        if (_autoValidateMode == AutovalidateMode.always && _selectedAccountType == null)
+        if (_autoValidateMode == AutovalidateMode.always && _selectedAccountTypes.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 8),
             child: Row(
@@ -1095,7 +1095,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
                 Icon(Icons.error_outline_rounded, color: errorColor, size: 16),
                 SizedBox(width: 6),
                 Text(
-                  'Veuillez sélectionner un type de compte',
+                  'Veuillez sélectionner au moins un type de compte',
                   style: TextStyle(
                     color: errorColor,
                     fontSize: 13,
@@ -1211,7 +1211,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   Widget _buildAccountTypeOption(String type, Map<String, dynamic> config) {
-    final isSelected = _selectedAccountType == type;
+    final isSelected = _selectedAccountTypes.contains(type);
     final Color color = config['color'] as Color;
 
     return AnimatedContainer(
@@ -1246,7 +1246,28 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           borderRadius: BorderRadius.circular(16),
           onTap: () {
             setState(() {
-              _selectedAccountType = type;
+              final lowerType = type.toLowerCase();
+              final isClient = lowerType.contains('client');
+              
+              if (isClient) {
+                 // Si on sélectionne Client, on vide tout et on met client
+                  if (_selectedAccountTypes.contains(type)) {
+                     _selectedAccountTypes.remove(type);
+                  } else {
+                     _selectedAccountTypes.clear();
+                     _selectedAccountTypes.add(type);
+                  }
+              } else {
+                 // Si c'est autre chose (Proprio/Presta)
+                 // Si la liste contient client, on l'enlève
+                 _selectedAccountTypes.removeWhere((t) => t.toLowerCase().contains('client'));
+                 
+                 if (_selectedAccountTypes.contains(type)) {
+                   _selectedAccountTypes.remove(type);
+                 } else {
+                   _selectedAccountTypes.add(type);
+                 }
+              }
             });
           },
           child: Container(
@@ -1428,7 +1449,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         _phoneController.text.isNotEmpty &&
         _cityController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty &&
-        _selectedAccountType != null;
+        _selectedAccountTypes.isNotEmpty;
 
     final isFirstNameValid = _validateName(_firstNameController.text, 'prénom') == null;
     final isLastNameValid = _validateName(_lastNameController.text, 'nom') == null;
@@ -1793,7 +1814,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         _phoneController.text.isNotEmpty &&
         _cityController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty &&
-        _selectedAccountType != null;
+        _selectedAccountTypes.isNotEmpty;
 
 
     final shouldValidate = _autoValidateMode == AutovalidateMode.always ||
@@ -2031,7 +2052,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       return;
     }
 
-    if (_selectedAccountType == null) {
+    if (_selectedAccountTypes.isEmpty) {
       SnackbarForCasa.error(context, "Veuillez sélectionner un type de compte");
       return;
     }
@@ -2051,19 +2072,27 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     }
 
     try {
-      // Trouver l'objet accountType complet depuis la liste dynamique
-      final selectedTypeObj = _typeAccounts.firstWhere(
-        (t) => t['name'] == _selectedAccountType,
-        orElse: () => null
-      );
+      // Trouver les IDs des comptes sélectionnés
+      List<Map<String, int>> accountsPayload = [];
       
-      if (selectedTypeObj == null) {
-         SnackbarForCasa.error(context, "Type de compte invalide");
-         setState(() => _isLoading = false);
-         return;
+      for (var typeName in _selectedAccountTypes) {
+         final selectedTypeObj = _typeAccounts.firstWhere(
+           (t) => t['name'] == typeName,
+           orElse: () => null
+         );
+         
+         if (selectedTypeObj != null) {
+            accountsPayload.add({
+               "typeAccount": selectedTypeObj['typeAccountId']
+            });
+         }
       }
       
-      int typeAccountId = selectedTypeObj['typeAccountId'];
+      if (accountsPayload.isEmpty) {
+          SnackbarForCasa.error(context, "Type de compte invalide");
+          setState(() => _isLoading = false);
+          return;
+      }
 
       String phoneNumber = _phoneController.text.trim();
       final cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
@@ -2095,11 +2124,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       // Payload unifié
       final Map<String, dynamic> payload = {
         "user": userData,
-        "account": [
-          {
-            "typeAccount": typeAccountId
-          }
-        ],
+        "account": accountsPayload,
         "actor": actorData
       };
 
@@ -2109,7 +2134,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       if (response.status == true) {
          SnackbarForCasa.success(context, "Inscription réussie !");
          await Future.delayed(Duration(milliseconds: 500));
-         Navigator.of(context).pushReplacementNamed(Routes.bottomPageRoute);
+         Navigator.of(context).pushReplacementNamed(Routes.loginRoute);
       } else {
          SnackbarForCasa.error(context, response.errorMsg ?? "Erreur lors de l'inscription");
       }
