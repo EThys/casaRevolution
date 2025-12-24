@@ -46,6 +46,7 @@ class PropertyModel {
   int? propertyId;
   String? title;
   String? username;
+  String? postBy; // Publisher name from API
   String? description;
   double? price;
   double? surface;
@@ -96,6 +97,7 @@ class PropertyModel {
   bool? isActive;
   bool? isVerified;
   bool? isFeatured;
+  bool? available;
   String? status;
   String? rejectionReason;
 
@@ -110,6 +112,7 @@ class PropertyModel {
     this.title,
     this.description,
     this.username,
+    this.postBy,
     this.price,
     this.surface,
     this.rooms,
@@ -159,6 +162,7 @@ class PropertyModel {
     this.isActive,
     this.isVerified,
     this.isFeatured,
+    this.available,
     this.status,
     this.rejectionReason,
 
@@ -184,6 +188,7 @@ class PropertyModel {
       propertyId: _parseInt(propertyNode["propertyId"]) ?? _parseInt(propertyNode["id"]),
       title: _parseString(propertyNode["title"]),
       description: _parseString(propertyNode["description"]),
+      postBy: _parseString(json["postBy"]), // Extract postBy from root
       username: _parseString(json["postBy"]) ?? _parseString(propertyNode["username"]) ?? _parseString(json["username"]),
       price: _parseDouble(propertyNode["price"]) ?? 0.0,
       surface: _parseDouble(propertyNode["surface"]) ?? 0.0,
@@ -245,6 +250,7 @@ class PropertyModel {
       isActive: _parseBool(propertyNode["isActive"]) ?? true,
       isVerified: _parseBool(propertyNode["isVerified"]) ?? false,
       isFeatured: _parseBool(propertyNode["isFeatured"]) ?? false,
+      available: _parseBool(propertyNode["available"]) ?? _parseBool(json["available"]) ?? true,
       status: _parseString(propertyNode["status"]) ?? "active",
       rejectionReason: _parseString(propertyNode["rejectionReason"]),
 
@@ -280,6 +286,7 @@ class PropertyModel {
     "title": title,
     "description": description,
     "username": username,
+    "postBy": postBy,
     "price": price,
     "surface": surface,
     "rooms": rooms,
@@ -329,6 +336,7 @@ class PropertyModel {
     "isActive": isActive,
     "isVerified": isVerified,
     "isFeatured": isFeatured,
+    "available": available,
     "status": status,
     "rejectionReason": rejectionReason,
 
@@ -502,6 +510,7 @@ class PropertyModel {
     bool? isActive,
     bool? isVerified,
     bool? isFeatured,
+    bool? available,
     String? status,
     String? rejectionReason,
     List<PropertyFeatureModel>? features,
@@ -557,6 +566,7 @@ class PropertyModel {
       isActive: isActive ?? this.isActive,
       isVerified: isVerified ?? this.isVerified,
       isFeatured: isFeatured ?? this.isFeatured,
+      available: available ?? this.available,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
       features: features ?? this.features,

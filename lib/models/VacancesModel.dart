@@ -37,6 +37,19 @@ bool _parseBool(dynamic value) {
 class VacancesModel {
   int? vacancesId;
   int? propertyId;
+  int? userId;
+  int? agenceId;
+  String? title;
+  String? description;
+  String? note;
+  String? dateVacance;
+  String? heureVacance;
+  double? price;
+  String? priceCombo;
+  String? offre;
+  String? address;
+  String? cityValue;
+  String? countryValue;
   
   // Capacité et hébergement
   int? capacity;
@@ -169,6 +182,19 @@ class VacancesModel {
   VacancesModel({
     this.vacancesId,
     this.propertyId,
+    this.userId,
+    this.agenceId,
+    this.title,
+    this.description,
+    this.note,
+    this.dateVacance,
+    this.heureVacance,
+    this.price,
+    this.priceCombo,
+    this.offre,
+    this.address,
+    this.cityValue,
+    this.countryValue,
     this.capacity,
     this.numberOfBedrooms,
     this.numberOfBeds,
@@ -282,6 +308,19 @@ class VacancesModel {
   factory VacancesModel.fromJson(Map<String, dynamic> json) => VacancesModel(
     vacancesId: _parseInt(json["vacancesId"]) ?? _parseInt(json["id"]),
     propertyId: _parseInt(json["propertyId"]),
+    userId: _parseInt(json["userId"]),
+    agenceId: _parseInt(json["agenceId"]),
+    title: _parseString(json["title"]),
+    description: _parseString(json["description"]),
+    note: _parseString(json["note"]),
+    dateVacance: _parseString(json["dateVacance"]),
+    heureVacance: _parseString(json["heureVacance"]),
+    price: _parseDouble(json["price"]),
+    priceCombo: _parseString(json["priceCombo"]),
+    offre: _parseString(json["offre"]),
+    address: _parseString(json["address"]),
+    cityValue: _parseString(json["cityValue"]),
+    countryValue: _parseString(json["countryValue"]),
     capacity: _parseInt(json["capacity"]),
     numberOfBedrooms: _parseInt(json["numberOfBedrooms"]),
     numberOfBeds: _parseInt(json["numberOfBeds"]),
@@ -393,8 +432,8 @@ class VacancesModel {
     emergencyContact: _parseString(json["emergencyContact"]),
     createdAt: _parseString(json["createdAt"]),
     updatedAt: _parseString(json["updatedAt"]),
-    isActive: _parseBool(json["isActive"]) ?? true,
-    isVerified: _parseBool(json["isVerified"]) ?? false,
+    isActive: json["isActive"] == null ? true : _parseBool(json["isActive"]),
+    isVerified: _parseBool(json["isVerified"]),
     rating: _parseDouble(json["rating"]),
     reviewCount: _parseInt(json["reviewCount"]),
     notes: _parseString(json["notes"]),
@@ -403,6 +442,19 @@ class VacancesModel {
   Map<String, dynamic> toJson() => {
     "vacancesId": vacancesId,
     "propertyId": propertyId,
+    "userId": userId,
+    "agenceId": agenceId,
+    "title": title,
+    "description": description,
+    "note": note,
+    "dateVacance": dateVacance,
+    "heureVacance": heureVacance,
+    "price": price,
+    "priceCombo": priceCombo,
+    "offre": offre,
+    "address": address,
+    "cityValue": cityValue,
+    "countryValue": countryValue,
     "capacity": capacity,
     "numberOfBedrooms": numberOfBedrooms,
     "numberOfBeds": numberOfBeds,

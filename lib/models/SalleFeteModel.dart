@@ -37,6 +37,27 @@ bool _parseBool(dynamic value) {
 class SalleFeteModel {
   int? salleFeteId;
   int? propertyId;
+  int? userId;
+  int? deviseId;
+  String? title;
+  String? description;
+  String? usage;
+  int? capacityPeople;
+  int? electric;
+  double? price;
+  String? address;
+  String? communeValue;
+  String? quartierValue;
+  String? cityValue;
+  String? countryValue;
+  int? cityId;
+  String? postalCode;
+  int? communeId;
+  int? quartierId;
+  double? latitude;
+  double? longitude;
+  bool? isDecore;
+  bool? pisteDanse;
   
   // Capacité et dimensions
   int? eventCapacity;
@@ -96,6 +117,27 @@ class SalleFeteModel {
   SalleFeteModel({
     this.salleFeteId,
     this.propertyId,
+    this.userId,
+    this.deviseId,
+    this.title,
+    this.description,
+    this.usage,
+    this.capacityPeople,
+    this.electric,
+    this.price,
+    this.address,
+    this.communeValue,
+    this.quartierValue,
+    this.cityValue,
+    this.countryValue,
+    this.cityId,
+    this.postalCode,
+    this.communeId,
+    this.quartierId,
+    this.latitude,
+    this.longitude,
+    this.isDecore,
+    this.pisteDanse,
     this.eventCapacity,
     this.surfaceArea,
     this.eventEquipment,
@@ -142,6 +184,27 @@ class SalleFeteModel {
   factory SalleFeteModel.fromJson(Map<String, dynamic> json) => SalleFeteModel(
     salleFeteId: _parseInt(json["salleFeteId"]) ?? _parseInt(json["id"]),
     propertyId: _parseInt(json["propertyId"]),
+    userId: _parseInt(json["userId"]),
+    deviseId: _parseInt(json["deviseId"]),
+    title: _parseString(json["title"]),
+    description: _parseString(json["description"]),
+    usage: _parseString(json["usage"]) ?? "conference, mariage, etc",
+    capacityPeople: _parseInt(json["capacityPeople"]),
+    electric: _parseInt(json["electric"]) ?? 0,
+    price: _parseDouble(json["price"]),
+    address: _parseString(json["address"]),
+    communeValue: _parseString(json["communeValue"]),
+    quartierValue: _parseString(json["quartierValue"]),
+    cityValue: _parseString(json["cityValue"]),
+    countryValue: _parseString(json["countryValue"]),
+    cityId: _parseInt(json["cityId"]),
+    postalCode: _parseString(json["postalCode"]),
+    communeId: _parseInt(json["communeId"]),
+    quartierId: _parseInt(json["quartierId"]),
+    latitude: _parseDouble(json["latitude"]),
+    longitude: _parseDouble(json["longitude"]),
+    isDecore: _parseBool(json["isDecore"]),
+    pisteDanse: _parseBool(json["pisteDanse"]),
     eventCapacity: _parseInt(json["eventCapacity"]),
     surfaceArea: _parseDouble(json["surfaceArea"]),
     eventEquipment: json["eventEquipment"] is List
@@ -237,13 +300,34 @@ class SalleFeteModel {
     numberOfChairs: _parseInt(json["numberOfChairs"]),
     createdAt: _parseString(json["createdAt"]),
     updatedAt: _parseString(json["updatedAt"]),
-    isActive: _parseBool(json["isActive"]) ?? true,
-    isVerified: _parseBool(json["isVerified"]) ?? false,
+    isActive: json["isActive"] == null ? true : _parseBool(json["isActive"]),
+    isVerified: _parseBool(json["isVerified"]),
   );
 
   Map<String, dynamic> toJson() => {
     "salleFeteId": salleFeteId,
     "propertyId": propertyId,
+    "userId": userId,
+    "deviseId": deviseId,
+    "title": title,
+    "description": description,
+    "usage": usage,
+    "capacityPeople": capacityPeople,
+    "electric": electric,
+    "price": price,
+    "address": address,
+    "communeValue": communeValue,
+    "quartierValue": quartierValue,
+    "cityValue": cityValue,
+    "countryValue": countryValue,
+    "cityId": cityId,
+    "postalCode": postalCode,
+    "communeId": communeId,
+    "quartierId": quartierId,
+    "latitude": latitude,
+    "longitude": longitude,
+    "isDecore": isDecore,
+    "pisteDanse": pisteDanse,
     "eventCapacity": eventCapacity,
     "surfaceArea": surfaceArea,
     "eventEquipment": eventEquipment,

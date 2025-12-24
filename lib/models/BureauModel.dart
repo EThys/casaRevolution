@@ -37,6 +37,15 @@ bool _parseBool(dynamic value) {
 class BureauModel {
   int? bureauId;
   int? propertyId;
+  int? userId;
+  int? deviseId;
+  String? title;
+  String? description;
+  double? price;
+  int? roomMeet;
+  int? numberPiece;
+  bool? isEquip;
+  String? address;
   
   // Dimensions et superficie
   double? surfaceArea;
@@ -218,6 +227,15 @@ class BureauModel {
   BureauModel({
     this.bureauId,
     this.propertyId,
+    this.userId,
+    this.deviseId,
+    this.title,
+    this.description,
+    this.price,
+    this.roomMeet,
+    this.numberPiece,
+    this.isEquip,
+    this.address,
     this.surfaceArea,
     this.usableArea,
     this.floor,
@@ -374,6 +392,15 @@ class BureauModel {
   factory BureauModel.fromJson(Map<String, dynamic> json) => BureauModel(
     bureauId: _parseInt(json["bureauId"]) ?? _parseInt(json["id"]),
     propertyId: _parseInt(json["propertyId"]),
+    userId: _parseInt(json["userId"]),
+    deviseId: _parseInt(json["deviseId"]),
+    title: _parseString(json["title"]),
+    description: _parseString(json["description"]),
+    price: _parseDouble(json["price"]),
+    roomMeet: _parseInt(json["roomMeet"]),
+    numberPiece: _parseInt(json["numberPiece"]),
+    isEquip: _parseBool(json["isEquip"]),
+    address: _parseString(json["address"]),
     surfaceArea: _parseDouble(json["surfaceArea"]),
     usableArea: _parseDouble(json["usableArea"]),
     floor: _parseInt(json["floor"]),
@@ -524,8 +551,8 @@ class BureauModel {
     nearbyFacilities: _parseString(json["nearbyFacilities"]),
     createdAt: _parseString(json["createdAt"]),
     updatedAt: _parseString(json["updatedAt"]),
-    isActive: _parseBool(json["isActive"]) ?? true,
-    isVerified: _parseBool(json["isVerified"]) ?? false,
+    isActive: json["isActive"] == null ? true : _parseBool(json["isActive"]),
+    isVerified: _parseBool(json["isVerified"]),
     rating: _parseDouble(json["rating"]),
     reviewCount: _parseInt(json["reviewCount"]),
     notes: _parseString(json["notes"]),
@@ -534,6 +561,15 @@ class BureauModel {
   Map<String, dynamic> toJson() => {
     "bureauId": bureauId,
     "propertyId": propertyId,
+    "userId": userId,
+    "deviseId": deviseId,
+    "title": title,
+    "description": description,
+    "price": price,
+    "roomMeet": roomMeet,
+    "numberPiece": numberPiece,
+    "isEquip": isEquip,
+    "address": address,
     "surfaceArea": surfaceArea,
     "usableArea": usableArea,
     "floor": floor,

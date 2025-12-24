@@ -37,6 +37,20 @@ bool _parseBool(dynamic value) {
 class HotelModel {
   int? hotelId;
   int? propertyId;
+  int? userId;
+  String? title;
+  String? address;
+  String? image;
+  String? communeValue;
+  String? quartierValue;
+  String? cityValue;
+  String? countryValue;
+  int? cityId;
+  String? postalCode;
+  int? communeId;
+  int? quartierId;
+  double? latitude;
+  double? longitude;
   
   // Capacité et chambres
   int? numberOfRooms;
@@ -264,6 +278,20 @@ class HotelModel {
   HotelModel({
     this.hotelId,
     this.propertyId,
+    this.userId,
+    this.title,
+    this.address,
+    this.image,
+    this.communeValue,
+    this.quartierValue,
+    this.cityValue,
+    this.countryValue,
+    this.cityId,
+    this.postalCode,
+    this.communeId,
+    this.quartierId,
+    this.latitude,
+    this.longitude,
     this.numberOfRooms,
     this.numberOfSuites,
     this.totalCapacity,
@@ -466,6 +494,20 @@ class HotelModel {
   factory HotelModel.fromJson(Map<String, dynamic> json) => HotelModel(
     hotelId: _parseInt(json["hotelId"]) ?? _parseInt(json["id"]),
     propertyId: _parseInt(json["propertyId"]),
+    userId: _parseInt(json["userId"]),
+    title: _parseString(json["title"]),
+    address: _parseString(json["address"]),
+    image: _parseString(json["image"]),
+    communeValue: _parseString(json["communeValue"]),
+    quartierValue: _parseString(json["quartierValue"]),
+    cityValue: _parseString(json["cityValue"]),
+    countryValue: _parseString(json["countryValue"]),
+    cityId: _parseInt(json["cityId"]),
+    postalCode: _parseString(json["postalCode"]),
+    communeId: _parseInt(json["communeId"]),
+    quartierId: _parseInt(json["quartierId"]),
+    latitude: _parseDouble(json["latitude"]),
+    longitude: _parseDouble(json["longitude"]),
     numberOfRooms: _parseInt(json["numberOfRooms"]),
     numberOfSuites: _parseInt(json["numberOfSuites"]),
     totalCapacity: _parseInt(json["totalCapacity"]),
@@ -667,8 +709,8 @@ class HotelModel {
     hasPrayerRoom: _parseBool(json["hasPrayerRoom"]),
     createdAt: _parseString(json["createdAt"]),
     updatedAt: _parseString(json["updatedAt"]),
-    isActive: _parseBool(json["isActive"]) ?? true,
-    isVerified: _parseBool(json["isVerified"]) ?? false,
+    isActive: json["isActive"] == null ? true : _parseBool(json["isActive"]),
+    isVerified: _parseBool(json["isVerified"]),
     notes: _parseString(json["notes"]),
     description: _parseString(json["description"]),
     languages: json["languages"] is List
@@ -680,6 +722,20 @@ class HotelModel {
   Map<String, dynamic> toJson() => {
     "hotelId": hotelId,
     "propertyId": propertyId,
+    "userId": userId,
+    "title": title,
+    "address": address,
+    "image": image,
+    "communeValue": communeValue,
+    "quartierValue": quartierValue,
+    "cityValue": cityValue,
+    "countryValue": countryValue,
+    "cityId": cityId,
+    "postalCode": postalCode,
+    "communeId": communeId,
+    "quartierId": quartierId,
+    "latitude": latitude,
+    "longitude": longitude,
     "numberOfRooms": numberOfRooms,
     "numberOfSuites": numberOfSuites,
     "totalCapacity": totalCapacity,
