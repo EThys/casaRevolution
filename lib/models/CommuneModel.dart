@@ -19,7 +19,9 @@ class CommuneModel {
     communeId: json["communeId"] ?? json["id"],
     district: json["district"] == null
         ? null
-        : DistrictModel.fromJson(json["district"]),
+        : json["district"] is int
+            ? DistrictModel(districtId: json["district"])
+            : DistrictModel.fromJson(json["district"]),
     name: json["name"] ?? json["communeName"],
   );
 

@@ -19,7 +19,9 @@ class DistrictModel {
     districtId: json["districtId"] ?? json["id"],
     city: json["city"] == null
         ? null
-        : CityModel.fromJson(json["city"]),
+        : json["city"] is int
+            ? CityModel(cityId: json["city"])
+            : CityModel.fromJson(json["city"]),
     name: json["name"] ?? json["districtName"],
   );
 
