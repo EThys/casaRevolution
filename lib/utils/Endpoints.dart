@@ -1,6 +1,6 @@
 class Endpoints {
   // Authentication Endpoints
-  static const String register = "register";
+  static const String register = "members";
   static const String login = "login";
   static const String forgotPassword = "forgot-password";
   static const String verifyOTP = "verify-otp";
@@ -49,6 +49,9 @@ class Endpoints {
   static const String updateProperty = "properties/";
   static const String deleteProperty = "properties/";
   static const String propertiesByOwner = "property/owner/";
+  static const String propertyBureaux = "property/bureaux";
+  static const String propertyFestives = "property/festives";
+  static const String propertyFuneraires = "property/funeraires";
 
   // Property Feature Endpoints
   static const String features = "features";
