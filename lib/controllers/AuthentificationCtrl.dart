@@ -221,6 +221,82 @@ class AuthentificationCtrl with ChangeNotifier {
       await _cleanupStorage();
       throw Exception("Erreur de stockage des données: $e");
     }
+    }
+
+  // Vérification d'identité
+    Future<HttpResponse> verifyIdentity(String userId, Map<String, dynamic> payload) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      // Récupérer le profile ID depuis le stockage si possible
+      String targetId = userId;
+      try {
+        final profileData = stockage?.read(StockageKeys.profileKey);
+        if (profileData != null && profileData is Map) {
+             final profileId = profileData['id'];
+             if (profileId != null) {
+               targetId = profileId.toString();
+               print("🆔 Utilisation de l'ID du profil: $targetId au lieu de $userId");
+             }
+        }
+      } catch (e) {
+        print("⚠️ Erreur récupération profile ID: $e");
+      }
+
+      // Utilisation de l'endpoint PUT /api/members/{id} (ici profileId)
+      final url = "members/$targetId";
+      print("📤 Envoi vérification d'identité vers $url");
+      
+      final response = await putData(url, payload, token: token);
+      
+      print("📥 Réponse vérification: ${response.data}");
+
+      if (response.status == true) {
+        // La réponse contient "person"
+        final personData = response.data['person'];
+        
+        if (personData != null) {
+            print("✅ Identité mise à jour pour: ${personData['fullName']}");
+            
+            // Mettre à jour le profil local s'il existe
+            try {
+              Map<String, dynamic>? currentProfile = stockage?.read(StockageKeys.profileKey);
+              if (currentProfile != null) {
+                // On fusionne ou remplace avec les nouvelles données
+                currentProfile['cardFront'] = personData['cardFront'];
+                currentProfile['cardBack'] = personData['cardBack'];
+                currentProfile['numberCard'] = personData['numberCard'];
+                // Et d'autres champs si nécessaire
+                
+                await stockage?.write(StockageKeys.profileKey, currentProfile);
+                print("💾 Profil local mis à jour avec les infos d'identité");
+              }
+            } catch (e) {
+              print("⚠️ Erreur mise à jour profil local: $e");
+            }
+
+             // Optimistic update status user
+             _user.isCertified = true; 
+             await stockage?.write(StockageKeys.userKey, _user.toJson());
+        } else {
+             print("⚠️ Structure de réponse inattendue (pas de 'person')");
+             // Fallback
+             _user.isCertified = true; 
+             await stockage?.write(StockageKeys.userKey, _user.toJson());
+        }
+        notifyListeners();
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      print("❌ Erreur verifyIdentity: $e");
+      return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
+    }
   }
 
     Future<HttpResponse> register(Map<String, dynamic> payload, {required String url}) async {
@@ -229,7 +305,7 @@ class AuthentificationCtrl with ChangeNotifier {
       const registerUrl = Endpoints.register; 
       print("Payload d'inscription: $payload");
 
-      HttpResponse response = await postDataForAuth(registerUrl, payload, token: "");
+      HttpResponse response = await postData(registerUrl, payload, token: "");
 
       if (response.data == null) {
         return HttpResponse(
