@@ -114,7 +114,55 @@ class ReservationController with ChangeNotifier {
     }
 
     print("🔍 Récupération des réservations pour user: $userId");
-    return await getAllReservations();
+    
+    loading = true;
+    notifyListeners();
+
+    try {
+      // Construction de l'URL spécifique: reservations/user/{userId}
+      // Utilisation de Endpoints.reservations (reservations) et Endpoints.reservationsByUser (user)
+      final url = "${Endpoints.reservations}/${Endpoints.reservationsByUser}/$userId";
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      
+      print("🌐 Requête mes réservations: $url");
+      var response = await getData(url, token: tkn);
+
+      if (response != null && (response['reservation'] != null || response['data'] != null)) {
+        List<dynamic> reservationsData = response['reservation'] ?? response['data'];
+
+        if (reservationsData is List && reservationsData.isNotEmpty) {
+          List<ReservationModel> userReservations = reservationsData
+              .map<ReservationModel>((e) => ReservationModel.fromJson(e))
+              .toList();
+
+          print("👤 Mes réservations récupérées: ${userReservations.length}");
+
+          // Sauvegarder en local
+          final db = ReservationDatabaseHelper.instance;
+          for (var reservation in userReservations) {
+            await db.insertOrUpdateReservation(reservation, userId);
+          }
+
+          this.reservations = userReservations;
+          loading = false;
+          notifyListeners();
+          return userReservations;
+        }
+      } else {
+         print("⚠️ Aucune réservation trouvée ou format réponse invalide");
+      }
+    } catch (e) {
+      print("❌ Erreur réseau mes réservations: $e");
+    }
+
+    // Fallback vers le cache local
+    final db = ReservationDatabaseHelper.instance;
+    final cachedReservations = await db.getReservationsByUser(userId);
+
+    this.reservations = cachedReservations;
+    loading = false;
+    notifyListeners();
+    return cachedReservations;
   }
 
   // Récupérer les réservations par statut pour l'utilisateur connecté
@@ -128,7 +176,7 @@ class ReservationController with ChangeNotifier {
     notifyListeners();
 
     try {
-      final url = "${Endpoints.reservationsByUser}/$userId?status=$status";
+      final url = "${Endpoints.reservations}/${Endpoints.reservationsByUser}/$userId?status=$status";
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
       var response = await getData(url, token: tkn);
 

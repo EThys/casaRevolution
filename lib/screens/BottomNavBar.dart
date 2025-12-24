@@ -11,6 +11,7 @@ import '../utils/FancyNotification.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/Routes.dart';
 import '../utils/AppColors.dart';
+import 'package:casa/screens/auth/IdentityVerificationPage.dart';
 
 class BottomNavBar extends StatefulWidget {
   const BottomNavBar({Key? key}) : super(key: key);
@@ -223,13 +224,40 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           : (acc['typeAccountId'] ?? acc['TypeAccountId'] ?? 0);
     }).toSet();
 
-    // Priorité de routage si l'utilisateur a plusieurs types de comptes
-    if (typeIds.contains(3) && !typeIds.contains(2)) {
+    // Verify certification status for owners (ID: 2)
+    if (typeIds.contains(2)) {
+      final authCtrl = context.read<AuthentificationCtrl>();
+      // Check if user is certified
+      if (authCtrl.user.isCertified != true) {
+        
+        FancyNotification.show(
+           context, 
+           "Vérification requise : Vous devez vérifier votre identité avant de pouvoir publier une annonce.",
+           type: NotificationType.warning,
+           duration: 4
+        );
+        
+        // Navigate to verification page
+        Navigator.push(
+          context, 
+          MaterialPageRoute(builder: (context) => IdentityVerificationPage())
+        ).then((result) {
+          if (result == true) {
+             // If verification submitted successfully, maybe redirect to create property or show success
+             // Here we let them retry clicking or auto navigate? 
+             // Let's just pop back and let them click again or auto-navigate if status updated
+             SnackbarForCasa.success(context, "Vérification soumise. Vous pouvez maintenant publier.");
+             Navigator.pushNamed(context, Routes.createPropertyRoute);
+          }
+        });
+        return;
+      }
+      
+      // Propriétaire (ID: 2) - Certified
+      Navigator.pushNamed(context, Routes.createPropertyRoute);
+    } else if (typeIds.contains(3)) {
       // Uniquement Prestataire (ID: 3)
       Navigator.pushNamed(context, Routes.createServicePostRoute);
-    } else if (typeIds.contains(2)) {
-      // Propriétaire (ID: 2) - On privilégie la création de propriété par défaut
-      Navigator.pushNamed(context, Routes.createPropertyRoute);
     } else if (typeIds.contains(1)) {
       // Uniquement Client (ID: 1)
       SnackbarForCasa.info(context, "Les comptes clients ne peuvent pas publier d'annonces.");
