@@ -139,7 +139,17 @@ class PropertyFavoriteCtrl with ChangeNotifier {
 
       if (response.status == true && response.data['favorite'] != null) {
         // Ajout local si l'API réussit
-        final newFavorite = PropertyFavoriteModel.fromJson(response.data['favorite']);
+        dynamic favoriteData = response.data['favorite'];
+        PropertyFavoriteModel newFavorite;
+
+        if (favoriteData is List) {
+           if (favoriteData.isEmpty) {
+             throw Exception("Liste de favoris vide retournée par l'API");
+           }
+           newFavorite = PropertyFavoriteModel.fromJson(favoriteData.first);
+        } else {
+           newFavorite = PropertyFavoriteModel.fromJson(favoriteData);
+        }
         await _dbHelper.insertOrUpdateFavorite(newFavorite, userId);
         print("💾 [PropertyFavoriteCtrl] Favori ajouté en base locale");
         

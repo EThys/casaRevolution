@@ -139,6 +139,11 @@ class _FavoritesPageState extends State<FavoritesPage>
       if (userId != null) {
         final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
         await propertyCtrl.getFavoritesByUser(userId);
+        
+        // SYNC: Mettre à jour le provider d'état global pour que les icônes (coeurs) soient à jour
+        final favoriteProvider = Provider.of<FavoriteProvider>(context, listen: false);
+        favoriteProvider.syncFavorites(userId); // Pas besoin d'await ici pour ne pas bloquer l'UI
+        
         print("📊 Favoris chargés: ${propertyCtrl.propertyFavorites.length}");
       }
 

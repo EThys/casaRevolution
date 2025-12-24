@@ -18,6 +18,8 @@ import '../utils/FancyNotification.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
 import '../controllers/PropertyCtrl.dart';
+import '../controllers/AuthentificationCtrl.dart';
+import '../controllers/provider/FavoriteProvider.dart';
 
 class PropertyDetailPage extends StatefulWidget {
   final PropertyModel property;
@@ -38,6 +40,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
   bool _showMoreFeatures = false;
   bool _showAllImages = false;
+  bool _isDescriptionExpanded = false;
   final _favoriteController = ValueNotifier<bool>(false);
   late final PageController _imageController;
   int _currentImageIndex = 0;
@@ -92,6 +95,12 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       final ctrl = context.read<PropertyController>();
       if (widget.property.propertyId != null) {
         ctrl.getPropertyById(widget.property.propertyId!);
+        
+        // SYNC: Vérifier l'état du favori pour cette propriété
+        final authCtrl = context.read<AuthentificationCtrl>();
+        if (authCtrl.token.isNotEmpty && authCtrl.user.userId != null) {
+          context.read<FavoriteProvider>().syncFavorites(authCtrl.user.userId.toString());
+        }
       }
     });
   }
@@ -210,23 +219,25 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               delegate: SliverChildListDelegate([
                 SizedBox(height: 20),
                 _buildHeaderSection(),
-                SizedBox(height: 20),
-                _buildPriceSection(),
-                SizedBox(height: 20),
+                SizedBox(height: 16),
+                _buildAnimatedStatsSection(),
+                SizedBox(height: 16),
+                _buildHighlightsSection(),
+                SizedBox(height: 16),
+                _buildDetailedCharacteristicsSection(),
+                SizedBox(height: 16),
                 _buildPublicationInfoSection(),
-                SizedBox(height: 20),
-                _buildFeaturesSection(),
-                SizedBox(height: 20),
-                _buildEssentialServicesSection(),
-                SizedBox(height: 20),
+                SizedBox(height: 16),
                 _buildDescriptionSection(),
-                SizedBox(height: 20),
-                if (groupedImages.isNotEmpty) _buildGroupedImagesSection(groupedImages),
-                SizedBox(height: 20),
+                SizedBox(height: 16),
                 _buildAdditionalFeaturesSection(),
-                // SizedBox(height: 20),
-                // _buildLocationSection(),
-                SizedBox(height: 20),
+                SizedBox(height: 16),
+                _buildEssentialServicesSection(),
+                SizedBox(height: 16),
+                _buildLocationPreview(),
+                SizedBox(height: 16),
+                if (groupedImages.isNotEmpty) _buildGroupedImagesSection(groupedImages),
+                SizedBox(height: 16),
                 _buildSimilarProperties(similar),
                 SizedBox(height: 100),
               ].where((widget) => widget != null).toList()),
@@ -716,12 +727,14 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
   Widget _buildHeaderSection() {
     final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
+    final isAvailable = widget.property.available ?? true;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Wrap(
           spacing: 8,
+          runSpacing: 8,
           children: [
             Chip(
               backgroundColor: _primaryColor.withOpacity(0.1),
@@ -750,6 +763,33 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 shape: StadiumBorder(),
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               ),
+            // Availability badge
+            Chip(
+              backgroundColor: isAvailable 
+                  ? Colors.green.withOpacity(0.1) 
+                  : Colors.red.withOpacity(0.1),
+              label: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isAvailable ? Icons.check_circle : Icons.cancel,
+                    size: 14,
+                    color: isAvailable ? Colors.green : Colors.red,
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    isAvailable ? 'DISPONIBLE' : 'OCCUPÉ',
+                    style: TextStyle(
+                      color: isAvailable ? Colors.green : Colors.red,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              shape: StadiumBorder(),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            ),
           ],
         ),
         SizedBox(height: 16),
@@ -808,77 +848,156 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
 
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [
+            _primaryColor.withOpacity(0.05),
+            _secondaryColor.withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _primaryColor.withOpacity(0.1),
+          width: 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 4),
+            color: _primaryColor.withOpacity(0.1),
+            blurRadius: 15,
+            offset: Offset(0, 5),
           ),
         ],
       ),
       child: Row(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'PRIX',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: _greyColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              SizedBox(height: 4),
-              Row(
-                children: [
-                  Text(
-                    '${widget.property.price?.toInt() ?? 0}\$',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.attach_money,
+                      size: 16,
                       color: _primaryColor,
                     ),
-                  ),
-                  if (isForRent)
+                    SizedBox(width: 4),
                     Text(
-                      ' /mois',
+                      'PRIX',
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 12,
                         color: _greyColor,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
                       ),
                     ),
-                ],
-              ),
-            ],
-          ),
-          Spacer(),
-          if (_showSurface)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  'SURFACE',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _greyColor,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  ],
                 ),
-                SizedBox(height: 4),
-                Text(
-                  '${widget.property.surface?.toInt() ?? 0} m²',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: _darkColor,
-                  ),
+                SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${widget.property.price?.toInt() ?? 0}',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: _primaryColor,
+                        height: 1,
+                      ),
+                    ),
+                    Text(
+                      '\$',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: _primaryColor,
+                      ),
+                    ),
+                    if (isForRent)
+                      Padding(
+                        padding: EdgeInsets.only(left: 4, bottom: 2),
+                        child: Text(
+                          '/mois',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: _greyColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ],
+            ),
+          ),
+          if (_showSurface)
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.square_foot,
+                        size: 16,
+                        color: _darkColor,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'SURFACE',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _greyColor,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '${widget.property.surface?.toInt() ?? 0}',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: _darkColor,
+                          height: 1,
+                        ),
+                      ),
+                      Padding(
+                        padding: EdgeInsets.only(left: 2, bottom: 2),
+                        child: Text(
+                          'm²',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: _greyColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
         ],
       ),
@@ -1020,47 +1139,397 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  Widget _buildDescriptionSection() {
-    final description = widget.property.description;
-    if (description == null || description.isEmpty) {
-      return SizedBox();
+  // NEW: Main Price Section
+  // NEW: Main Price Section
+  Widget _buildAnimatedStatsSection() {
+    final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
+    final price = widget.property.price?.toInt() ?? 0;
+    
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: _primaryColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: _primaryColor.withOpacity(0.3),
+            blurRadius: 15,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'PRIX',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5,
+            ),
+          ),
+          SizedBox(height: 6),
+          Row(
+            textBaseline: TextBaseline.alphabetic,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            children: [
+              Text(
+                '$price',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -1,
+                ),
+              ),
+              SizedBox(width: 4),
+              Text(
+                isForRent ? '\$/mois' : '\$',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.9),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // NEW: Detailed Characteristics Section
+  Widget _buildDetailedCharacteristicsSection() {
+    final stats = <Map<String, dynamic>>[];
+    
+    // Bedrooms (chambres)
+    if (widget.property.bedrooms != null && widget.property.bedrooms! > 0) {
+      stats.add({
+        'icon': Icons.bed_outlined,
+        'label': 'Chambres',
+        'value': '${widget.property.bedrooms}',
+        'unit': widget.property.bedrooms! > 1 ? 'chambres' : 'chambre',
+        'color': Color(0xFF1976D2),
+      });
     }
+    
+    // Living Room (salon)
+    if (widget.property.livingRoom != null && widget.property.livingRoom! > 0) {
+      stats.add({
+        'icon': Icons.weekend_outlined,
+        'label': 'Salon',
+        'value': '${widget.property.livingRoom}',
+        'unit': widget.property.livingRoom! > 1 ? 'salons' : 'salon',
+        'color': Color(0xFF42A5F5),
+      });
+    }
+    
+    // Kitchen (cuisine)
+    if (widget.property.kitchen != null && widget.property.kitchen! > 0) {
+      stats.add({
+        'icon': Icons.kitchen_outlined,
+        'label': 'Cuisine',
+        'value': '${widget.property.kitchen}',
+        'unit': widget.property.kitchen! > 1 ? 'cuisines' : 'cuisine',
+        'color': Color(0xFF64B5F6),
+      });
+    }
+    
+    // Bathroom (salles de bain)
+    if (widget.property.bathroom != null && widget.property.bathroom! > 0) {
+      stats.add({
+        'icon': Icons.bathroom_outlined,
+        'label': 'Salle de bain',
+        'value': '${widget.property.bathroom}',
+        'unit': widget.property.bathroom! > 1 ? 'SDB' : 'SDB',
+        'color': Color(0xFF90CAF9),
+      });
+    }
+
+    if (stats.isEmpty) return SizedBox();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Description',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: _darkColor,
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            children: [
+              Icon(
+                Icons.grid_view,
+                size: 18,
+                color: _primaryColor,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'CARACTÉRISTIQUES DÉTAILLÉES',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _greyColor,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
           ),
         ),
-        SizedBox(height: 12),
-        Text(
-          description,
-          style: TextStyle(
-            color: _darkColor.withOpacity(0.8),
-            fontSize: 15,
-            height: 1.6,
-          ),
+        SizedBox(height: 14),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final double cardWidth = (constraints.maxWidth - 12) / 2;
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: stats.map((stat) {
+                return SizedBox(
+                  width: cardWidth,
+                  child: _buildModernStatCard(
+                    icon: stat['icon'] as IconData,
+                    label: stat['label'] as String,
+                    value: stat['value'] as String,
+                    unit: stat['unit'] as String,
+                    color: stat['color'] as Color,
+                  ),
+                );
+              }).toList(),
+            );
+          },
         ),
       ],
     );
   }
 
-  Widget _buildPublicationInfoSection() {
-    final user = widget.property.user;
-    if (user?.email == null) {
+  Widget _buildModernStatCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String unit,
+    required Color color,
+  }) {
+    return Container(
+      padding: EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white,
+            color.withOpacity(0.03),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: color.withOpacity(0.2),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.08),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: color,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: _greyColor,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Flexible(
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                    height: 1,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  unit,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _greyColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // NEW: Highlights Section
+  Widget _buildHighlightsSection() {
+    final highlights = <Map<String, dynamic>>[];
+    
+    // Add highlights based on property features
+    if (widget.property.isVerified ?? false) {
+      highlights.add({
+        'icon': Icons.verified_outlined,
+        'label': 'Vérifié',
+        'color': _primaryColor,
+      });
+    }
+    
+    if ((widget.property.viewCount ?? 0) > 50) {
+      highlights.add({
+        'icon': Icons.trending_up,
+        'label': 'Populaire',
+        'color': Color(0xFF1565C0),
+      });
+    }
+    
+    final hasPool = widget.property.features?.any((f) => f.name?.toLowerCase().contains('piscine') ?? false) ?? false;
+    if (hasPool) {
+      highlights.add({
+        'icon': Icons.pool_outlined,
+        'label': 'Avec piscine',
+        'color': _secondaryColor,
+      });
+    }
+    
+    final hasParking = widget.property.features?.any((f) => f.name?.toLowerCase().contains('parking') ?? false) ?? false;
+    if (hasParking) {
+      highlights.add({
+        'icon': Icons.local_parking_outlined,
+        'label': 'Parking',
+        'color': Color(0xFF0288D1),
+      });
+    }
+    
+    final hasGarden = widget.property.features?.any((f) => f.name?.toLowerCase().contains('jardin') ?? false) ?? false;
+    if (hasGarden) {
+      highlights.add({
+        'icon': Icons.yard_outlined,
+        'label': 'Jardin',
+        'color': Color(0xFF42A5F5),
+      });
+    }
+    
+    if (highlights.isEmpty) {
       return SizedBox();
     }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            children: [
+              Icon(
+                Icons.star_outline,
+                size: 18,
+                color: _primaryColor,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'POINTS FORTS',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _greyColor,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: highlights.map((highlight) {
+              return Container(
+                padding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                decoration: BoxDecoration(
+                  color: (highlight['color'] as Color).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: (highlight['color'] as Color).withOpacity(0.25),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      highlight['icon'] as IconData,
+                      size: 18,
+                      color: highlight['color'] as Color,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      highlight['label'] as String,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: highlight['color'] as Color,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
 
+      ],
+    );
+  }
+
+  // NEW: Location Preview Section
+  Widget _buildLocationPreview() {
+    if (widget.property.address == null || widget.property.address!.isEmpty) {
+      return SizedBox();
+    }
+    
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _greyColor.withOpacity(0.15),
+          width: 1,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -1072,26 +1541,281 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
+              Container(
+                padding: EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.location_on,
+                  size: 22,
+                  color: _primaryColor,
+                ),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'LOCALISATION',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: _greyColor,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      widget.property.address ?? '',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _darkColor,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (widget.property.quartierValue != null || widget.property.communeValue != null || widget.property.cityValue != null) ...[
+            SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (widget.property.quartierValue != null)
+                  _buildLocationChip(Icons.home_work_outlined, widget.property.quartierValue!),
+                if (widget.property.communeValue != null)
+                  _buildLocationChip(Icons.location_city_outlined, widget.property.communeValue!),
+                if (widget.property.cityValue != null)
+                  _buildLocationChip(Icons.place_outlined, widget.property.cityValue!),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationChip(IconData icon, String label) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _primaryColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: _primaryColor.withOpacity(0.15),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: _primaryColor,
+          ),
+          SizedBox(width: 6),
           Text(
-            'Publié par',
+            label,
             style: TextStyle(
-              fontSize: 14,
-              color: _greyColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: _darkColor,
             ),
           ),
-          SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDescriptionSection() {
+    final description = widget.property.description;
+    if (description == null || description.isEmpty) {
+      return SizedBox();
+    }
+
+    final bool isLongDescription = description.length > 200;
+    final String displayText = (!_isDescriptionExpanded && isLongDescription)
+        ? '${description.substring(0, 200)}...'
+        : description;
+
+    return Container(
+      padding: EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _greyColor.withOpacity(0.15),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.description_outlined,
+                size: 18,
+                color: _primaryColor,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'DESCRIPTION',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _greyColor,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 14),
+          Text(
+            displayText,
+            style: TextStyle(
+              color: _darkColor.withOpacity(0.85),
+              fontSize: 15,
+              height: 1.7,
+              letterSpacing: 0.2,
+            ),
+          ),
+          if (isLongDescription) ...[
+            SizedBox(height: 12),
+            InkWell(
+              onTap: () {
+                setState(() {
+                  _isDescriptionExpanded = !_isDescriptionExpanded;
+                });
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _isDescriptionExpanded ? 'Lire moins' : 'Lire plus',
+                    style: TextStyle(
+                      color: _primaryColor,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  SizedBox(width: 4),
+                  Icon(
+                    _isDescriptionExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    color: _primaryColor,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPublicationInfoSection() {
+    final user = widget.property.user;
+    // Show section if we have postBy or user info
+    if (widget.property.postBy == null && user?.email == null) {
+      return SizedBox();
+    }
+
+    // Get publisher name from postBy or fallback to username
+    String publisherName = widget.property.postBy ?? user?.username ?? widget.property.username ?? '';
+    // Remove @ symbol if present
+    publisherName = publisherName.replaceAll('@', '').trim();
+    
+    if (publisherName.isEmpty) {
+      return SizedBox();
+    }
+
+    return Container(
+      padding: EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white,
+            _primaryColor.withOpacity(0.02),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _primaryColor.withOpacity(0.1),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.person_outline,
+                size: 16,
+                color: _primaryColor,
+              ),
+              SizedBox(width: 6),
+              Text(
+                'PUBLIÉ PAR',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _greyColor,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
           Row(
             children: [
               // Photo de profil
               Container(
-                width: 40,
-                height: 40,
+                width: 50,
+                height: 50,
                 decoration: BoxDecoration(
-                  color: _primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
+                  gradient: LinearGradient(
+                    colors: [
+                      _primaryColor.withOpacity(0.2),
+                      _secondaryColor.withOpacity(0.2),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(25),
+                  border: Border.all(
+                    color: _primaryColor.withOpacity(0.3),
+                    width: 2,
+                  ),
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(23),
                   child: CachedNetworkImage(
                     imageUrl: "dedde", // Remplacez par l'URL réelle
                     fit: BoxFit.cover,
@@ -1104,31 +1828,60 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                     errorWidget: (context, url, error) => Icon(
                       Icons.person,
                       color: _primaryColor,
-                      size: 20,
+                      size: 24,
                     ),
                   ),
                 ),
               ),
-              SizedBox(width: 12),
+              SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      "${user?.username ?? widget.property.username ?? ''}".trim(),
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                        color: _darkColor,
-                      ),
-                    ),
-                    if (widget.property.createdStart != null)
-                      Text(
-                        'Publié ${_formatDate(widget.property.createdStart!)}',
-                        style: TextStyle(
-                          color: _greyColor,
-                          fontSize: 12,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            publisherName,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 17,
+                              color: _darkColor,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
+                        SizedBox(width: 6),
+                        if (widget.property.isVerified ?? false)
+                          Icon(
+                            Icons.verified,
+                            size: 16,
+                            color: Colors.blue,
+                          ),
+                      ],
+                    ),
+                    SizedBox(height: 6),
+                    if (widget.property.createdAt != null || widget.property.createdStart != null)
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time,
+                            size: 13,
+                            color: _greyColor,
+                          ),
+                          SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              _formatFrenchDateTime(widget.property.createdAt ?? widget.property.createdStart!),
+                              style: TextStyle(
+                                color: _greyColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                   ],
                 ),
@@ -1160,6 +1913,37 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       }
     } catch (e) {
       return dateString;
+    }
+  }
+  
+  // Format date and time in French: "Publié le 24 décembre 2024 à 09:15"
+  String _formatFrenchDateTime(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      final now = DateTime.now();
+      final difference = now.difference(date);
+      
+      // For recent dates, show relative time
+      if (difference.inHours < 1) {
+        final minutes = difference.inMinutes;
+        return 'Publié il y a ${minutes} minute${minutes > 1 ? 's' : ''}';
+      } else if (difference.inHours < 24) {
+        final hours = difference.inHours;
+        return 'Publié il y a ${hours} heure${hours > 1 ? 's' : ''}';
+      } else if (difference.inDays == 1) {
+        final timeFormat = DateFormat('HH:mm', 'fr_FR');
+        return 'Publié hier à ${timeFormat.format(date)}';
+      } else if (difference.inDays < 7) {
+        final timeFormat = DateFormat('HH:mm', 'fr_FR');
+        return 'Publié il y a ${difference.inDays} jours à ${timeFormat.format(date)}';
+      } else {
+        // For older dates, show full date with time
+        final dateFormat = DateFormat('d MMMM yyyy', 'fr_FR');
+        final timeFormat = DateFormat('HH:mm', 'fr_FR');
+        return 'Publié le ${dateFormat.format(date)} à ${timeFormat.format(date)}';
+      }
+    } catch (e) {
+      return 'Publié récemment';
     }
   }
 
@@ -1741,6 +2525,17 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   void _navigateToBookingPage() {
+    final isAvailable = widget.property.available ?? true;
+    
+    // Check if property is available
+    if (!isAvailable) {
+      SnackbarForCasa.error(
+        context,
+        "Cette propriété est déjà occupée et n'est plus disponible",
+      );
+      return;
+    }
+    
     final token = storage.read(StockageKeys.tokenKey);
     if (token == null) {
       SnackbarForCasa.info(
@@ -1757,6 +2552,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   Widget _buildBottomActionBar() {
+    final isAvailable = widget.property.available ?? true;
+    
     return Container(
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1772,21 +2569,24 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       child: ElevatedButton(
         onPressed: _navigateToBookingPage,
         style: ElevatedButton.styleFrom(
-          backgroundColor: _primaryColor,
+          backgroundColor: isAvailable ? _primaryColor : _greyColor,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
           padding: EdgeInsets.symmetric(vertical: 16),
-          elevation: 0,
+          elevation: isAvailable ? 2 : 0,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.calendar_today, size: 20),
+            Icon(
+              isAvailable ? Icons.calendar_today : Icons.block,
+              size: 20,
+            ),
             SizedBox(width: 8),
             Text(
-              'PLANIFIER UNE VISITE',
+              isAvailable ? 'PLANIFIER UNE VISITE' : 'NON DISPONIBLE',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
