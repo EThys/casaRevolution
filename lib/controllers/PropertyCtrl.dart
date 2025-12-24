@@ -17,6 +17,12 @@ class PropertyController with ChangeNotifier {
   List<PropertyModel> properties = [];
   List<PropertyModel> similarProperties = [];
   PropertyModel? currentProperty;
+  
+  // Property Types and Features
+  List<Map<String, dynamic>> propertyTypes = [];
+  List<Map<String, dynamic>> propertyFeatures = [];
+  bool loadingTypes = false;
+  bool loadingFeatures = false;
 
   Future<void> syncProperties() async {
     syncing = true;
@@ -542,6 +548,116 @@ class PropertyController with ChangeNotifier {
             'error': e.toString(),
             'timestamp': DateTime.now().toIso8601String()
           }
+      );
+    }
+  }
+
+  Future<HttpResponse> createBureau(Map<String, dynamic> bureauData) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      print("🚀 Envoi de la requête createBureau...");
+      print("📊 Données envoyées: ${bureauData.keys.toList()}");
+
+      final url = Endpoints.propertyBureaux;
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      HttpResponse response = await postData(url, bureauData, token: tkn);
+
+      print("📊 Réponse reçue - Status: ${response.status}, Data: ${response.data != null ? 'présent' : 'null'}, Error: ${response.errorMsg}");
+
+      if (response.status == true) {
+        if (response.data != null && response.data is Map) {
+           print("✅ Bureau créé avec succès");
+        }
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+
+    } catch (e) {
+      print("❌ Erreur critique dans createBureau: $e");
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+          status: false,
+          errorMsg: "Erreur lors de la création du bureau: ${e.toString()}",
+          isException: true,
+          data: {'error': e.toString()}
+      );
+    }
+  }
+
+  Future<HttpResponse> createFestive(Map<String, dynamic> festiveData) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      print("🚀 Envoi de la requête createFestive...");
+      print("📊 Données envoyées: ${festiveData.keys.toList()}");
+
+      final url = Endpoints.propertyFestives;
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      HttpResponse response = await postData(url, festiveData, token: tkn);
+
+      print("📊 Réponse reçue - Status: ${response.status}, Data: ${response.data != null ? 'présent' : 'null'}, Error: ${response.errorMsg}");
+
+      if (response.status == true) {
+         print("✅ Salle festive créée avec succès");
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+
+    } catch (e) {
+      print("❌ Erreur critique dans createFestive: $e");
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+          status: false,
+          errorMsg: "Erreur lors de la création festive: ${e.toString()}",
+          isException: true,
+          data: {'error': e.toString()}
+      );
+    }
+  }
+
+  Future<HttpResponse> createFuneraire(Map<String, dynamic> funeraireData) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      print("🚀 Envoi de la requête createFuneraire...");
+      print("📊 Données envoyées: ${funeraireData.keys.toList()}");
+
+      final url = Endpoints.propertyFuneraires;
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      HttpResponse response = await postData(url, funeraireData, token: tkn);
+
+      print("📊 Réponse reçue - Status: ${response.status}, Data: ${response.data != null ? 'présent' : 'null'}, Error: ${response.errorMsg}");
+
+      if (response.status == true) {
+         print("✅ Salle funéraire créée avec succès");
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+
+    } catch (e) {
+      print("❌ Erreur critique dans createFuneraire: $e");
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+          status: false,
+          errorMsg: "Erreur lors de la création funéraire: ${e.toString()}",
+          isException: true,
+          data: {'error': e.toString()}
       );
     }
   }
@@ -1087,6 +1203,201 @@ class PropertyController with ChangeNotifier {
   }
 
 
+
+  // ========== Property Types Methods ==========
+  
+  /// Sync property types from API and cache locally
+  Future<void> syncPropertyTypes() async {
+    loadingTypes = true;
+    notifyListeners();
+
+    try {
+      final url = "${Endpoints.properties}/types"; // Correct endpoint
+      var response = await getData(url);
+
+      if (response != null && response is Map<String, dynamic>) {
+        dynamic typesData;
+        
+        if (response.containsKey('data')) {
+          typesData = response['data'];
+        } else if (response.containsKey('propertyTypes')) {
+          typesData = response['propertyTypes'];
+        } else {
+          typesData = response;
+        }
+
+        if (typesData is List && typesData.isNotEmpty) {
+          final List<Map<String, dynamic>> types = typesData
+              .where((e) => e != null)
+              .map<Map<String, dynamic>>((e) => {
+                    'propertyTypeId': e['propertyTypeId'],
+                    'name': e['name'],
+                    'description': e['description'],
+                  })
+              .toList();
+
+          // Save to local database
+          final db = DatabaseHelper.instance;
+          await db.insertPropertyTypes(types);
+
+          // Update in-memory list
+          propertyTypes = types;
+          
+          // Store sync timestamp
+          stockage?.write('property_types_last_sync', DateTime.now().millisecondsSinceEpoch);
+          
+          print("✅ ${types.length} types de propriété synchronisés");
+        } else {
+          print("⚠️ Aucune donnée de type trouvée");
+          await _loadPropertyTypesFromCache();
+        }
+      } else {
+        print("⚠️ Réponse invalide pour les types");
+        await _loadPropertyTypesFromCache();
+      }
+    } catch (e) {
+      print("❌ Erreur sync types: $e");
+      await _loadPropertyTypesFromCache();
+    } finally {
+      loadingTypes = false;
+      notifyListeners();
+    }
+  }
+
+  /// Get property types (from memory, cache, or API)
+  Future<List<Map<String, dynamic>>> getPropertyTypes() async {
+    // If already loaded in memory, return immediately
+    if (propertyTypes.isNotEmpty) {
+      return propertyTypes;
+    }
+
+    // Try to load from cache
+    await _loadPropertyTypesFromCache();
+    
+    if (propertyTypes.isNotEmpty) {
+      // Check if cache is stale (older than 24 hours)
+      final lastSync = stockage?.read<int>('property_types_last_sync');
+      if (lastSync != null) {
+        final age = DateTime.now().millisecondsSinceEpoch - lastSync;
+        if (age < 86400000) { // 24 hours in milliseconds
+          return propertyTypes;
+        }
+      }
+    }
+
+    // Cache is empty or stale, sync from API
+    await syncPropertyTypes();
+    return propertyTypes;
+  }
+
+  /// Load property types from local cache
+  Future<void> _loadPropertyTypesFromCache() async {
+    try {
+      final db = DatabaseHelper.instance;
+      propertyTypes = await db.getAllPropertyTypes();
+      print("📦 ${propertyTypes.length} types chargés depuis le cache");
+    } catch (e) {
+      print("❌ Erreur chargement cache types: $e");
+      propertyTypes = [];
+    }
+  }
+
+  // ========== Features Methods ==========
+  
+  /// Sync features from API and cache locally
+  Future<void> syncFeatures() async {
+    loadingFeatures = true;
+    notifyListeners();
+
+    try {
+      final url = "${Endpoints.properties}/features"; // Correct endpoint
+      var response = await getData(url);
+
+      if (response != null && response is Map<String, dynamic>) {
+        dynamic featuresData;
+        
+        if (response.containsKey('data')) {
+          featuresData = response['data'];
+        } else if (response.containsKey('features')) {
+          featuresData = response['features'];
+        } else {
+          featuresData = response;
+        }
+
+        if (featuresData is List && featuresData.isNotEmpty) {
+          final List<Map<String, dynamic>> features = featuresData
+              .where((e) => e != null)
+              .map<Map<String, dynamic>>((e) => {
+                    'featureId': e['featureId'],
+                    'name': e['name'],
+                  })
+              .toList();
+
+          // Save to local database
+          final db = DatabaseHelper.instance;
+          await db.insertFeatures(features);
+
+          // Update in-memory list
+          propertyFeatures = features;
+          
+          // Store sync timestamp
+          stockage?.write('features_last_sync', DateTime.now().millisecondsSinceEpoch);
+          
+          print("✅ ${features.length} caractéristiques synchronisées");
+        } else {
+          print("⚠️ Aucune donnée de caractéristique trouvée");
+          await _loadFeaturesFromCache();
+        }
+      } else {
+        print("⚠️ Réponse invalide pour les caractéristiques");
+        await _loadFeaturesFromCache();
+      }
+    } catch (e) {
+      print("❌ Erreur sync caractéristiques: $e");
+      await _loadFeaturesFromCache();
+    } finally {
+      loadingFeatures = false;
+      notifyListeners();
+    }
+  }
+
+  /// Get features (from memory, cache, or API)
+  Future<List<Map<String, dynamic>>> getFeatures() async {
+    // If already loaded in memory, return immediately
+    if (propertyFeatures.isNotEmpty) {
+      return propertyFeatures;
+    }
+
+    // Try to load from cache
+    await _loadFeaturesFromCache();
+    
+    if (propertyFeatures.isNotEmpty) {
+      // Check if cache is stale (older than 24 hours)
+      final lastSync = stockage?.read<int>('features_last_sync');
+      if (lastSync != null) {
+        final age = DateTime.now().millisecondsSinceEpoch - lastSync;
+        if (age < 86400000) { // 24 hours in milliseconds
+          return propertyFeatures;
+        }
+      }
+    }
+
+    // Cache is empty or stale, sync from API
+    await syncFeatures();
+    return propertyFeatures;
+  }
+
+  /// Load features from local cache
+  Future<void> _loadFeaturesFromCache() async {
+    try {
+      final db = DatabaseHelper.instance;
+      propertyFeatures = await db.getAllFeatures();
+      print("📦 ${propertyFeatures.length} caractéristiques chargées depuis le cache");
+    } catch (e) {
+      print("❌ Erreur chargement cache caractéristiques: $e");
+      propertyFeatures = [];
+    }
+  }
 
 }
 
