@@ -62,6 +62,7 @@ class Endpoints {
   static const String deleteFeature = "features/";
 
   // Property Type Endpoints
+  static const String propertyTypesList = "property/types";
   static const String propertyTypes = "property";
   static const String propertyTypeDetail = "property/";
   static const String propertiesByType = "propertyType/";
