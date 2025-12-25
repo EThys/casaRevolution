@@ -259,6 +259,42 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
     }
   }
 
+  Widget _buildStatusBadge(PropertyModel property, {bool isGrid = false}) {
+    Color bgColor;
+    String text;
+
+    if (property.rejectionReason != null && property.rejectionReason!.isNotEmpty) {
+      bgColor = _errorColor;
+      text = 'Rejeté';
+    } else if (property.isVerified != true) {
+      bgColor = _warningColor;
+      text = 'En attente';
+    } else if (property.isActive == true) {
+      bgColor = _successColor;
+      text = 'Active';
+    } else {
+      bgColor = _mediumGrey;
+      text = 'Inactive';
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: isGrid ? 8 : 12, vertical: isGrid ? 4 : 6),
+      decoration: BoxDecoration(
+        color: bgColor.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(isGrid ? 12 : 20),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: isGrid ? 10 : 12,
+        ),
+      ),
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -703,25 +739,11 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                                 child: Icon(Icons.home, size: 30, color: _mediumGrey),
                               ),
                       ),
-                      Positioned(
-                        bottom: 8,
-                        left: 8,
-                        child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isAvailable ? _successColor.withOpacity(0.9) : _errorColor.withOpacity(0.9),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            isAvailable ? 'Active' : 'Inactive',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 10,
-                            ),
-                          ),
+                        Positioned(
+                          bottom: 8,
+                          left: 8,
+                          child: _buildStatusBadge(property, isGrid: true),
                         ),
-                      ),
                       Positioned(
                         top: 8,
                         right: 8,
@@ -932,21 +954,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                     Positioned(
                       bottom: 15,
                       left: 15,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: isAvailable ? _successColor.withOpacity(0.9) : _errorColor.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          isAvailable ? 'Active' : 'Inactive',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
+                      child: _buildStatusBadge(property, isGrid: false),
                     ),
                     Positioned(
                       top: 15,
@@ -1040,6 +1048,38 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                         children: _buildFeatureChips(property),
                       ),
                       SizedBox(height: 15),
+                      if (property.rejectionReason != null && property.rejectionReason!.isNotEmpty)
+                        Container(
+                          margin: EdgeInsets.only(bottom: 15),
+                          padding: EdgeInsets.all(10),
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: _errorColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: _errorColor.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "⚠️ Refusé pour le motif suivant :",
+                                style: TextStyle(
+                                  color: _errorColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                property.rejectionReason!,
+                                style: TextStyle(
+                                  color: _darkColor,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       Divider(height: 1, color: _lightGrey),
                       SizedBox(height: 12),
                       Row(

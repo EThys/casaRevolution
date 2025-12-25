@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'dart:convert';
 
 import '../utils/Routes.dart';
+import '../controllers/AuthentificationCtrl.dart';
+import 'camera/SelfieCameraScreen.dart';
+import 'auth/IdentityVerificationPage.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/database/FavoriteDatabaseHelper.dart';
 import '../utils/database/ReservationDatabaseHelper.dart';
@@ -69,20 +73,78 @@ class _ProfilePageState extends State<ProfilePage> {
 
   void _calculateProfileCompletion() {
     int completedFields = 0;
-    int totalFields = 6; // Nombre total de champs du profil
+    int totalFields = 6; // Photo, Address, Card Type, Card Number, Card Front, Card Back
 
-    final userData = storage.read('user_data') ?? {};
+    final profileData = storage.read(StockageKeys.profileKey) ?? {};
+    final userData = storage.read(StockageKeys.userKey) ?? {};
 
-    if (userData['username']?.toString().isNotEmpty == true) completedFields++;
-    if (userData['email']?.toString().isNotEmpty == true) completedFields++;
-    if (userData['phone']?.toString().isNotEmpty == true) completedFields++;
-    if (userData['address']?.toString().isNotEmpty == true) completedFields++;
-    if (userData['bio']?.toString().isNotEmpty == true) completedFields++;
-    if (_imageFile != null) completedFields++;
+    // 1. Profile Photo (check file or profile data)
+    bool hasPhoto = _imageFile != null || (profileData['image'] != null && profileData['image'].toString().isNotEmpty);
+    if (hasPhoto) completedFields++;
+
+    // 2. Address
+    if (profileData['address']?.toString().isNotEmpty == true || 
+        userData['address']?.toString().isNotEmpty == true) completedFields++;
+
+    // 3. Card Type
+    if (profileData['cardType']?.toString().isNotEmpty == true || 
+        profileData['typeCardId'] != null) completedFields++;
+
+    // 4. Card Number
+    if (profileData['numberCard']?.toString().isNotEmpty == true) completedFields++;
+
+    // 5. Card Front
+    if (profileData['cardFront']?.toString().isNotEmpty == true) completedFields++;
+
+    // 6. Card Back
+    if (profileData['cardBack']?.toString().isNotEmpty == true) completedFields++;
+    
+    // Si l'utilisateur est certifié, on considère que c'est 100%
+    if (userData['isCertified'] == true || userData['isVerified'] == true) {
+      completedFields = totalFields;
+    }
 
     setState(() {
       _profileCompletion = completedFields / totalFields;
     });
+  }
+
+  // ... (keep getters)
+
+  void _navigateToEditProfile() async {
+     // Si le profil n'est pas "complet" (vérifié), on dirige vers la vérification d'identité
+     // qui fait office de "Complétion de profil"
+     final userData = storage.read(StockageKeys.userKey);
+     final isCertified = userData?['isCertified'] == true;
+     
+     if (!isCertified) {
+       final result = await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => IdentityVerificationPage()),
+      );
+      
+      if (result == true) {
+        _loadSavedData();
+        _calculateProfileCompletion();
+      }
+     } else {
+       // Si déjà certifié, on ouvre l'édition standard (Bio, etc.)
+       Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => EditProfilePage(
+            accountType: accountType,
+            profileId: profileId,
+            onProfileUpdated: () {
+              setState(() {
+                _loadSavedData();
+                _calculateProfileCompletion();
+              });
+            },
+          ),
+        ),
+      );
+     }
   }
 
   bool get isLoggedIn {
@@ -144,6 +206,23 @@ class _ProfilePageState extends State<ProfilePage> {
     return 'Non spécifié';
   }
 
+  String get displayAccountTypes {
+    final accounts = storage.read('user_accounts');
+    if (accounts != null && accounts is List && accounts.isNotEmpty) {
+       final Set<String> types = {};
+       for (var acc in accounts) {
+         if (acc is Map && acc['typeAccount'] != null) {
+            String? name = acc['typeAccount']['name']?.toString();
+            if (name != null && name.isNotEmpty) types.add(name);
+         }
+       }
+       if (types.isNotEmpty) {
+         return types.join(' & ');
+       }
+    }
+    return accountType;
+  }
+
   Map<String, dynamic>? get profileData {
     return storage.read(StockageKeys.profileKey);
   }
@@ -180,14 +259,38 @@ class _ProfilePageState extends State<ProfilePage> {
 
 
   Future<void> _pickImage() async {
-    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      setState(() {
-        _imageFile = File(pickedFile.path);
-      });
-      await storage.write('user_image_path', pickedFile.path);
-      _calculateProfileCompletion();
-    }
+    // Navigate to custom Selfie Camera
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SelfieCameraScreen(
+          onImageCaptured: (path) async {
+            setState(() {
+              _imageFile = File(path);
+            });
+            await storage.write('user_image_path', path);
+            _calculateProfileCompletion();
+
+            // S'il y a un profileId (ou userId utilisé comme tel), maj via API
+            if (profileId != null) {
+              try {
+                final bytes = await File(path).readAsBytes();
+                final base64Image = base64Encode(bytes);
+                final authCtrl = context.read<AuthentificationCtrl>();
+                
+                // Appel à l'endpoint spécifique pour la photo
+                await authCtrl.updateProfilePicture(profileId!, base64Image);
+                
+                FancyNotification.show(context, "Photo de profil mise à jour !", isError: false);
+              } catch (e) {
+                print("Erreur upload photo: $e");
+                // On ne bloque pas l'UI pour ça, c'est une maj en background
+              }
+            }
+          },
+        ),
+      ),
+    );
   }
 
   Widget _buildProfileCompletionCard() {
@@ -383,7 +486,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   Icon(Icons.badge_outlined, size: 16, color: _cardColor),
                   SizedBox(width: 6),
                   Text(
-                    accountType,
+                    displayAccountTypes,
                     style: TextStyle(
                       color: _cardColor,
                       fontSize: 13,
@@ -527,7 +630,7 @@ class _ProfilePageState extends State<ProfilePage> {
             _buildInfoRow(
               icon: Icons.badge_outlined,
               label: 'Type de compte',
-              value: accountType,
+              value: displayAccountTypes,
               isComplete: true,
             ),
           ],
@@ -823,23 +926,7 @@ class _ProfilePageState extends State<ProfilePage> {
     Navigator.pushNamed(context, Routes.registerRoute);
   }
 
-  void _navigateToEditProfile() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => EditProfilePage(
-          accountType: accountType,
-          profileId: profileId,
-          onProfileUpdated: () {
-            setState(() {
-              _loadSavedData();
-              _calculateProfileCompletion();
-            });
-          },
-        ),
-      ),
-    );
-  }
+
 
   Future<void> _clearLocalAuthData() async {
     try {
