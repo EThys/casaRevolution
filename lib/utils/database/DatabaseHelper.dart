@@ -6,8 +6,11 @@ import 'dart:convert';
 
 class DatabaseHelper {
   static const _databaseName = "properties.db";
-  static const _databaseVersion = 2;
+  static const _databaseVersion = 3;
   static const table = 'properties';
+  static const tableBureaux = 'bureaux';
+  static const tableFestives = 'festives';
+  static const tableFuneraires = 'funeraires';
   static const propertyTypesTable = 'property_types';
   static const featuresTable = 'features';
 
@@ -66,11 +69,55 @@ class DatabaseHelper {
         )
       ''');
     }
+    
+    if (oldVersion < 3) {
+      await db.execute('''
+        CREATE TABLE $tableBureaux (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE $tableFestives (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE $tableFuneraires (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+    }
   }
 
   Future _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE $table (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableBureaux (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableFestives (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableFuneraires (
         $columnId INTEGER PRIMARY KEY,
         $columnData TEXT NOT NULL
       )
@@ -174,6 +221,36 @@ class DatabaseHelper {
       limit: 1,
     );
     return maps.isNotEmpty;
+  }
+
+  // Méthode générique pour insérer ou mettre à jour dans n'importe quelle table de propriétés
+  Future<int> insertOrUpdateInCategory(String tableName, PropertyModel property) async {
+    final db = await database;
+    return await db.insert(
+      tableName,
+      {
+        columnId: property.propertyId,
+        columnData: json.encode(property.toJson()),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  // Méthode générique pour récupérer les propriétés d'une table spécifique
+  Future<List<PropertyModel>> getFromCategory(String tableName) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(tableName);
+
+    return maps.map((map) {
+      final jsonData = json.decode(map[columnData]);
+      return PropertyModel.fromJson(jsonData);
+    }).toList();
+  }
+
+  // Méthode pour vider une catégorie spécifique
+  Future<int> clearCategory(String tableName) async {
+    final db = await database;
+    return await db.delete(tableName);
   }
 
   // Méthode pour compter le nombre de propriétés
