@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart';
 import '../models/PropertyModel.dart';
+import '../models/PropertyTypeModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/Constantes.dart';
@@ -23,6 +24,12 @@ class PropertyController with ChangeNotifier {
   List<Map<String, dynamic>> propertyFeatures = [];
   bool loadingTypes = false;
   bool loadingFeatures = false;
+
+  // Catégories Spécialisées
+  List<PropertyModel> bureaux = [];
+  List<PropertyModel> festives = [];
+  List<PropertyModel> funeraires = [];
+  bool loadingSpecial = false;
 
   Future<void> syncProperties() async {
     syncing = true;
@@ -89,6 +96,153 @@ class PropertyController with ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Sync property types with local DB (Local-first strategy)
+  Future<void> fetchAndSyncPropertyTypes() async {
+    loadingTypes = true;
+    notifyListeners();
+
+    final db = DatabaseHelper.instance;
+
+    try {
+      // 1. Load from Local DB first
+      final localTypes = await db.getAllPropertyTypes();
+      if (localTypes.isNotEmpty) {
+        propertyTypes = List<Map<String, dynamic>>.from(localTypes);
+        print("✅ ${propertyTypes.length} catégories chargées depuis le SQL local");
+        notifyListeners();
+      }
+
+      // 2. Fetch from Online API
+      final url = Endpoints.propertyTypesList;
+      var response = await getData(url);
+
+      if (response != null && response is Map<String, dynamic> && response['data'] != null) {
+        final List<dynamic> onlineData = response['data'];
+        final List<Map<String, dynamic>> onlineTypes = onlineData.map((e) => Map<String, dynamic>.from(e)).toList();
+
+        // 3. Compare and Update if needed
+        bool hasChanges = await _detectTypeChanges(propertyTypes, onlineTypes);
+
+        if (hasChanges || localTypes.isEmpty) {
+          print("🔄 Changements de catégories détectés ou local vide, mise à jour SQL...");
+          await db.clearPropertyTypes();
+          await db.insertPropertyTypes(onlineTypes);
+          propertyTypes = onlineTypes;
+          print("✅ SQL Catégories synchronisé avec l'API (${onlineTypes.length} types)");
+        } else {
+          print("✅ Pas de changement de catégories détecté en ligne");
+        }
+      }
+    } catch (e) {
+      print("⚠️ Erreur lors de la sync des types de propriété: $e");
+    } finally {
+      loadingTypes = false;
+      notifyListeners();
+    }
+  }
+
+  /// Charge toutes les catégories spéciales de manière séquencée pour optimiser la charge
+  Future<void> syncAllSpecialCategories() async {
+    loadingSpecial = true;
+    notifyListeners();
+
+    try {
+      // 1. Charger d'abord tout depuis le SQL local pour un affichage instantané
+      await _loadSpecialFromCache();
+
+      // 2. Synchronisation séquencée avec l'API (avec de légers délais pour ne pas saturer)
+      await _syncSpecialCategory(Endpoints.propertyBureaux, DatabaseHelper.tableBureaux, (list) => bureaux = list);
+      await Future.delayed(Duration(milliseconds: 300));
+      
+      await _syncSpecialCategory(Endpoints.propertyFestives, DatabaseHelper.tableFestives, (list) => festives = list);
+      await Future.delayed(Duration(milliseconds: 300));
+
+      await _syncSpecialCategory(Endpoints.propertyFuneraires, DatabaseHelper.tableFuneraires, (list) => funeraires = list);
+      
+      print("🎯 Synchronisation des catégories spéciales terminée");
+    } catch (e) {
+      print("⚠️ Erreur lors de la sync globale des catégories spéciales: $e");
+    } finally {
+      loadingSpecial = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _loadSpecialFromCache() async {
+    final db = DatabaseHelper.instance;
+    bureaux = await db.getFromCategory(DatabaseHelper.tableBureaux);
+    festives = await db.getFromCategory(DatabaseHelper.tableFestives);
+    funeraires = await db.getFromCategory(DatabaseHelper.tableFuneraires);
+    print("📦 Local: ${bureaux.length} bureaux, ${festives.length} fêtes, ${funeraires.length} funéraires");
+  }
+
+  Future<void> _syncSpecialCategory(String endpoint, String tableName, Function(List<PropertyModel>) updateList) async {
+    try {
+      final response = await getData(endpoint);
+      if (response != null && response is Map<String, dynamic>) {
+        // Déterminer la clé de données (bureaux, festives, funeraires ou data)
+        dynamic rawData;
+        if (response.containsKey('bureaux')) rawData = response['bureaux'];
+        else if (response.containsKey('festives')) rawData = response['festives'];
+        else if (response.containsKey('funeraires')) rawData = response['funeraires'];
+        else rawData = response['data'];
+
+        if (rawData != null && rawData is List) {
+          final List<PropertyModel> onlineList = rawData.map((e) {
+            final p = PropertyModel.fromJson(e);
+            
+            // Garantir que la catégorie est correctement settée pour le filtrage
+            if (tableName == DatabaseHelper.tableBureaux) {
+               p.propertyType = PropertyTypeModel(propertyTypeId: 4, name: 'Bureau');
+            } else if (tableName == DatabaseHelper.tableFestives) {
+               p.propertyType = PropertyTypeModel(propertyTypeId: 8, name: 'Salle de fête');
+            } else if (tableName == DatabaseHelper.tableFuneraires) {
+               p.propertyType = PropertyTypeModel(propertyTypeId: 7, name: 'Salle funéraires');
+            }
+            
+            return p;
+          }).toList();
+
+          // Mettre à jour la base locale
+          final db = DatabaseHelper.instance;
+          await db.clearCategory(tableName);
+          for (var p in onlineList) {
+            await db.insertOrUpdateInCategory(tableName, p);
+          }
+
+          updateList(onlineList);
+          
+          // Optionnel: Fusionner dans la liste principale si ce n'est pas déjà présent
+          _mergeIntoMainProperties(onlineList);
+        }
+      }
+    } catch (e) {
+      print("⚠️ Erreur sync $endpoint: $e");
+    }
+  }
+
+
+  void _mergeIntoMainProperties(List<PropertyModel> specialistList) {
+    for (var p in specialistList) {
+      if (!properties.any((existing) => existing.propertyId == p.propertyId)) {
+        properties.add(p);
+      }
+    }
+  }
+
+  Future<bool> _detectTypeChanges(List<Map<String, dynamic>> local, List<Map<String, dynamic>> online) async {
+    if (local.length != online.length) return true;
+    
+    // Simplistic check: compare IDs and names
+    for (int i = 0; i < online.length; i++) {
+      final o = online[i];
+      final exists = local.any((l) => l['propertyTypeId'] == o['propertyTypeId'] && l['name'] == o['name']);
+      if (!exists) return true;
+    }
+    return false;
+  }
+
 
   // Méthode pour synchroniser les données en ligne avec le cache local
   Future<void> _syncWithLocalDatabase(List<PropertyModel> onlineProperties) async {
@@ -808,16 +962,26 @@ class PropertyController with ChangeNotifier {
       // Récupérer le userId depuis GetStorage
       // Structure: {"user": {"userId": 57, ...}}
       final userData = stockage?.read(StockageKeys.userKey);
+      final profileData = stockage?.read(StockageKeys.profileKey);
       String? userId;
       
-      if (userData is Map) {
-        // Si userData est directement un Map avec userId
-        if (userData.containsKey('userId')) {
-          userId = userData['userId']?.toString();
-        } 
-        // Si userData a une clé "user" qui contient userId
-        else if (userData.containsKey('user') && userData['user'] is Map) {
-          userId = userData['user']?['userId']?.toString();
+      if (userData is Map || profileData is Map) {
+        // 1. Essayer d'abord le userId du compte (demandé: /api/property/owner/24)
+        if (userData is Map) {
+          if (userData.containsKey('userId')) {
+            userId = userData['userId']?.toString();
+          } else if (userData.containsKey('user') && userData['user'] is Map) {
+            userId = userData['user']?['userId']?.toString();
+          }
+        }
+        
+        // 2. Fallback sur l'ID du profil si userId est introuvable
+        if (userId == null || userId.isEmpty) {
+          if (profileData is Map && profileData.containsKey('id')) {
+            userId = profileData['id']?.toString();
+          } else if (userData is Map && userData.containsKey('profile') && userData['profile'] is Map) {
+            userId = userData['profile']?['id']?.toString();
+          }
         }
       }
       
@@ -865,17 +1029,19 @@ class PropertyController with ChangeNotifier {
               .where((p) => p.propertyId != null)
               .toList();
 
+
+
           print("📊 Avant filtrage: ${myProperties.length} propriétés");
-          // Filtrer par userId pour être sûr
+          // Filtrer intelligemment: autoriser si ça correspond OU si c'est 0 (fallback parsing imbriqué)
           myProperties = myProperties.where((p) {
-            final matches = p.userId?.toString() == userId;
+            final matches = (p.userId?.toString() == userId) || (p.userId == 0);
             if (!matches) {
               print("❌ Property ${p.propertyId} filtrée: userId=${p.userId} != $userId");
             }
             return matches;
           }).toList();
           print("✅ Après filtrage: ${myProperties.length} propriétés");
-
+          
           // Mettre en cache local
           final db = DatabaseHelper.instance;
           for (final p in myProperties) {
@@ -903,13 +1069,24 @@ class PropertyController with ChangeNotifier {
       // En cas d'erreur, retourner les propriétés filtrées localement
       try {
         final userData = stockage?.read(StockageKeys.userKey);
+        final profileData = stockage?.read(StockageKeys.profileKey);
         String? userId;
         
-        if (userData is Map) {
-          if (userData.containsKey('userId')) {
-            userId = userData['userId']?.toString();
-          } else if (userData.containsKey('user') && userData['user'] is Map) {
-            userId = userData['user']?['userId']?.toString();
+        if (userData is Map || profileData is Map) {
+          if (userData is Map) {
+            if (userData.containsKey('userId')) {
+              userId = userData['userId']?.toString();
+            } else if (userData.containsKey('user') && userData['user'] is Map) {
+              userId = userData['user']?['userId']?.toString();
+            }
+          }
+          
+          if (userId == null || userId.isEmpty) {
+            if (profileData is Map && profileData.containsKey('id')) {
+              userId = profileData['id']?.toString();
+            } else if (userData is Map && userData.containsKey('profile') && userData['profile'] is Map) {
+              userId = userData['profile']?['id']?.toString();
+            }
           }
         }
         
@@ -1089,7 +1266,8 @@ class PropertyController with ChangeNotifier {
       if (maxPrice != null && (property.price ?? double.maxFinite) > maxPrice) return false;
 
       // Filtre type de maison
-      if (typeMaison != null && property.propertyType != typeMaison) return false;
+      if (typeMaison != null && property.propertyTypeId != typeMaison) return false;
+
 
       // Filtre ville
       if (city != null && property.cityId != city) return false;
