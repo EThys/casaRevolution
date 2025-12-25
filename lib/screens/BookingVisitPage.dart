@@ -405,12 +405,12 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
           }
           
           if (profile != null) {
-            final firstname = profile['firstname']?.toString() ?? '';
-            final lastname = profile['lastname']?.toString() ?? '';
+            final firstname = profile['firstname']?.toString() ?? profile['firstName']?.toString() ?? '';
+            final lastname = profile['lastname']?.toString() ?? profile['lastName']?.toString() ?? '';
             print("📋 Profile trouvé - firstname: $firstname, lastname: $lastname");
             
             if (firstname.isNotEmpty || lastname.isNotEmpty) {
-              _userName = '${firstname} ${lastname}'.trim();
+              _userName = '${firstname} ${lastname}'.trim(); // Concatenation demandée
             } else {
               // Fallback sur fullname si disponible
               final fullname = profile['fullname']?.toString() ?? '';
@@ -425,12 +425,12 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
             final firstName = user['firstName']?.toString() ?? '';
             final lastname = user['lastname']?.toString() ?? user['lastName']?.toString() ?? '';
             
-            if (username.isNotEmpty) {
+            if (firstName.isNotEmpty || lastname.isNotEmpty) {
+              _userName = '${firstName} ${lastname}'.trim();
+            } else if (username.isNotEmpty) {
               _userName = username.replaceAll('@', '').trim();
             } else if (name.isNotEmpty) {
               _userName = name.trim();
-            } else if (firstName.isNotEmpty || lastname.isNotEmpty) {
-              _userName = '${firstName} ${lastname}'.trim();
             } else {
               _userName = '';
             }
@@ -1446,18 +1446,18 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         }
         
         if (profile != null) {
-          final firstname = profile['firstname']?.toString() ?? '';
-          final lastname = profile['lastname']?.toString() ?? '';
-          print("📋 Profile trouvé - firstname: $firstname, lastname: $lastname");
+          final firstname = profile['firstname']?.toString() ?? profile['firstName']?.toString() ?? '';
+          final lastname = profile['lastname']?.toString() ?? profile['lastName']?.toString() ?? '';
+          print("📋 Profile trouvé (fallback) - firstname: $firstname, lastname: $lastname");
           
           if (firstname.isNotEmpty || lastname.isNotEmpty) {
             displayName = '${firstname} ${lastname}'.trim();
           } else {
-            final fullname = profile['fullname']?.toString() ?? '';
+            final fullname = profile['fullname']?.toString() ?? profile['fullName']?.toString() ?? '';
             displayName = fullname.isNotEmpty ? fullname : 'Visiteur';
           }
         } else {
-          print("⚠️ Profile non trouvé dans profileKey ni dans userData");
+          print("⚠️ Profile non trouvé dans profileKey ni dans userData (fallback)");
           displayName = 'Visiteur';
         }
       } catch (e, stackTrace) {

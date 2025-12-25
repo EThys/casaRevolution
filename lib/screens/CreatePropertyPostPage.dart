@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:casa/controllers/PropertyCtrl.dart';
+import 'package:casa/controllers/AuthentificationCtrl.dart';
+import 'package:casa/screens/auth/IdentityVerificationPage.dart';
 import 'package:casa/controllers/LocationController.dart';
 import 'package:casa/models/CityModel.dart';
 import 'package:casa/models/CommuneModel.dart';
@@ -142,6 +144,124 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
   // Validation errors storage - PAR ÉTAPE ET PAR CHAMP
   Map<String, String> _fieldErrors = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _pageStartTime = DateTime.now();
+    _stepStartTime = DateTime.now();
+    _currentStepName = 'Category Selection';
+    _selectedElectric = null;
+    _selectedWater = null;
+
+    _bedroomsController.addListener(_updateTotalRooms);
+    _bathroomsController.addListener(_updateTotalRooms);
+    _livingRoomsController.addListener(_updateTotalRooms);
+    _kitchensController.addListener(_updateTotalRooms);
+
+    PaintingBinding.instance.imageCache.maximumSize = 100;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 50 << 20;
+
+    // Initialiser les images sélectionnées
+    for (var category in _imageCategories) {
+      _selectedImages[category.id] = [];
+    }
+
+    // Initialiser le code postal
+    _postalCodeController.text = '243';
+    _cityTextController.text = '';
+    _communeTextController.text = '';
+    _quartierTextController.text = '';
+
+    // Setup focus node listeners
+    _setupFocusNodes();
+
+    // Initialiser SharedPreferences et charger les données
+    _initSharedPreferences();
+    
+    // Charger les types de propriétés et les caractéristiques
+    _loadPropertyTypesAndFeatures();
+
+    // Démarrer le tracking Firebase
+    _startPageTracking();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkConnectivity();
+      _restoreDraft();
+      _loadLocationData(); // Was _loadCities
+      _checkUserVerification();
+    });
+  }
+
+  Future<void> _checkConnectivity() async {
+    try {
+        // Simple check or use a package if available
+        // For now logging it
+        print("Checking connectivity...");
+    } catch (e) {
+      print("Connectivity check failed: $e");
+    }
+  }
+
+  void _checkUserVerification() {
+    final authCtrl = context.read<AuthentificationCtrl>();
+    // Check if user is logged in first
+    if (!authCtrl.isLoggedIn) {
+       // Usually handled by route guard, but safety check
+       return; 
+    }
+    
+    // Check if user is certified
+    if (authCtrl.user.isCertified != true) {
+      print("🔒 User not certified, showing dialog");
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showVerificationRequiredDialog();
+      });
+    }
+  }
+
+  void _showVerificationRequiredDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // User must interact
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.verified_user_outlined, color: _warningColor),
+            SizedBox(width: 10),
+            Text('Vérification requise'),
+          ],
+        ),
+        content: Text(
+          'Pour créer une propriété, votre compte doit être vérifié. '
+          'Veuillez compléter la vérification de votre identité.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+               Navigator.pop(context); // Close dialog
+               Navigator.pop(context); // Close property creation page
+            },
+            child: Text('Plus tard', style: TextStyle(color: _greyColor)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+            onPressed: () {
+               Navigator.pop(context); // Close dialog
+               Navigator.pop(context); // Close create page
+               // Navigate to verification page
+               Navigator.push(
+                 context, 
+                 MaterialPageRoute(builder: (context) => IdentityVerificationPage())
+               );
+            },
+            child: Text('Vérifier mon compte', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Map<int, bool> _stepValidations = {0: false, 1: false, 2: false};
   Map<int, Map<String, String>> _stepFieldErrors = {
     0: {}, // Erreurs par champ pour l'étape 1
@@ -231,43 +351,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   // SharedPreferences instance
   late SharedPreferences _prefs;
 
-  @override
-  void initState() {
-    super.initState();
-    _selectedElectric = null;
-    _selectedWater = null;
 
-    _bedroomsController.addListener(_updateTotalRooms);
-    _bathroomsController.addListener(_updateTotalRooms);
-    _livingRoomsController.addListener(_updateTotalRooms);
-    _kitchensController.addListener(_updateTotalRooms);
-
-    PaintingBinding.instance.imageCache.maximumSize = 100;
-    PaintingBinding.instance.imageCache.maximumSizeBytes = 50 << 20;
-
-    // Initialiser les images sélectionnées
-    for (var category in _imageCategories) {
-      _selectedImages[category.id] = [];
-    }
-
-    // Initialiser le code postal
-    _postalCodeController.text = '243';
-    _cityTextController.text = '';
-    _communeTextController.text = '';
-    _quartierTextController.text = '';
-
-    // Setup focus node listeners
-    _setupFocusNodes();
-
-    // Initialiser SharedPreferences et charger les données
-    _initSharedPreferences();
-    
-    // Charger les types de propriétés et les caractéristiques
-    _loadPropertyTypesAndFeatures();
-
-    // Démarrer le tracking Firebase
-    _startPageTracking();
-  }
 
   // =============================================
   // FIREBASE ANALYTICS METHODS
@@ -601,7 +685,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   @override
-  @override
   void dispose() {
     // Annuler le timer de tracking
     _pageDurationTimer?.cancel();
@@ -648,11 +731,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'currentStep': _currentStep,
         'isForRent': _isForRent,
         'selectedCategory': _selectedCategory,
+        'selectedPropertyTypeId': _selectedPropertyTypeId,
         'title': _titleController.text,
         'price': _priceController.text,
         'guarantee': _guaranteeController.text,
         'description': _descriptionController.text,
         'address': _addressController.text,
+        'cityText': _cityTextController.text,
+        'communeText': _communeTextController.text,
+        'quartierText': _quartierTextController.text,
         'bedrooms': _bedroomsController.text,
         'selectedElectric': _selectedElectric,
         'selectedWater': _selectedWater,
@@ -665,7 +752,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'selectedCityId': _selectedCity?.cityId,
         'selectedDistrictId': _selectedDistrict?.districtId,
         'selectedCommuneId': _selectedCommune?.communeId,
-        'selectedQuartierId': _selectedQuartier?.quartierId,
         'selectedQuartierId': _selectedQuartier?.quartierId,
         'totalImagesCount': _totalImagesCount,
         'createdAt': DateTime.now().millisecondsSinceEpoch,
@@ -688,10 +774,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           _currentStep = draft['currentStep'] ?? 0;
           _isForRent = draft['isForRent'] ?? true;
           _selectedCategory = draft['selectedCategory'];
+          _selectedPropertyTypeId = draft['selectedPropertyTypeId'];
           _titleController.text = draft['title'] ?? '';
           _priceController.text = draft['price'] ?? '';
           _guaranteeController.text = draft['guarantee'] ?? '';
           _descriptionController.text = draft['description'] ?? '';
+          _cityTextController.text = draft['cityText'] ?? '';
+          _communeTextController.text = draft['communeText'] ?? '';
+          _quartierTextController.text = draft['quartierText'] ?? '';
           _selectedElectric = draft['selectedElectric'];
           _selectedWater = draft['selectedWater'];
           _addressController.text = draft['address'] ?? '';
@@ -915,23 +1005,18 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     _clearStepFieldErrors(2);
     final errors = <String>[];
 
-    // Validation des photos (Maintenant à l'étape 3 - index 2)
+    // Validation des photos (Seul élément requis pour cette étape)
     final mainImages = _selectedImages['propertyImage'] ?? [];
     if (mainImages.length < 3) {
       errors.add('Au moins 3 photos principales sont requises');
       _setFieldError(2, 'photos', 'Min. 3 photos');
     }
 
-    // Services essentiels
-    if (_selectedElectric == null) {
-      _setFieldError(2, 'electric', 'Courant requis');
-    }
-    if (_selectedWater == null) {
-      _setFieldError(2, 'water', 'Eau requise');
-    }
+    // Les services (eau/élec) sont désormais optionnels
+    // On ne bloque plus la progression si ils sont vides
 
     final isValid = !_hasFieldErrors(2);
-    final errorMessage = _hasFieldErrors(2) ? 'Veuillez compléter les champs obligatoires' : '';
+    final errorMessage = _hasFieldErrors(2) ? 'Veuillez ajouter au moins 3 photos' : '';
 
     setState(() {
       _stepValidations[2] = isValid;
@@ -1187,9 +1272,9 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildStepLabel(0, 'Type & Photos'),
+              _buildStepLabel(0, 'Type'),
               _buildStepLabel(1, 'Détails'),
-              _buildStepLabel(2, 'Équipements'),
+              _buildStepLabel(2, 'Photos'),
             ],
           ),
         ],
@@ -1205,7 +1290,35 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     return GestureDetector(
       onTap: () {
         if (mounted) {
-          setState(() => _currentStep = stepIndex);
+          // Validation avant de changer d'étape
+          bool canNavigate = true;
+          
+          // On ne valide que si on essaie d'avancer
+          if (stepIndex > _currentStep) {
+            // Si on veut aller vers une étape future, on valide toutes les étapes jusqu'à l'étape actuelle incluse
+            for (int i = 0; i <= _currentStep; i++) {
+              bool stepValid = false;
+              if (i == 0) stepValid = _validateStep0();
+              else if (i == 1) stepValid = _validateStep1();
+              else if (i == 2) stepValid = _validateStep2();
+
+              if (!stepValid) {
+                _showStepErrorNotification(i);
+                canNavigate = false;
+                // Si une étape est invalide, on reste sur cette étape
+                setState(() => _currentStep = i);
+                break;
+              }
+            }
+          }
+
+          if (canNavigate) {
+            setState(() => _currentStep = stepIndex);
+            _trackEvent('step_navigation_click', {
+              'target_step': stepIndex,
+              'from_step': _currentStep,
+            });
+          }
         }
       },
       child: Column(
@@ -1306,13 +1419,33 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Section Mode de Transaction
+          _buildModernSectionHeader(
+            title: 'Quel est votre projet ?',
+            icon: Icons.ads_click_rounded,
+          ),
+          SizedBox(height: _smallSpace),
+          Text(
+            'Choisissez le type d\'annonce que vous souhaitez publier.',
+            style: TextStyle(
+              color: _greyColor,
+              fontSize: _captionSize,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          SizedBox(height: _mediumSpace),
+          _buildTransactionTypeSelector(),
+          
+          SizedBox(height: _largeSpace),
+          
+          // Section Type de Propriété
           _buildModernSectionHeader(
             title: 'Type de propriété',
             icon: Icons.category_rounded,
           ),
           SizedBox(height: _smallSpace),
           Text(
-            'Sélectionnez la catégorie qui correspond le mieux à votre bien. Cette étape est cruciale pour la suite.',
+            'Sélectionnez la catégorie qui correspond le mieux à votre bien pour une expérience personnalisée.',
             style: TextStyle(
               color: _greyColor,
               fontSize: _captionSize,
@@ -2413,7 +2546,11 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                         label: 'Commune',
                         value: _selectedCommune,
                         items: _availableCommunes,
-                        displayText: (commune) => commune.name ?? '',
+                        displayText: (commune) {
+                          final name = commune.name ?? '';
+                          if (name.toLowerCase() == 'bandalungwa') return 'Bandal';
+                          return name;
+                        },
                         onChanged: (CommuneModel? newValue) {
                           if (mounted) {
                             _markFieldTouched('commune');
@@ -2721,7 +2858,24 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           _buildMainImagesCard(),
 
           SizedBox(height: _mediumSpace),
-          _buildAdditionalRoomsExpansion(),
+          SizedBox(height: _mediumSpace),
+          Builder(
+            builder: (context) {
+              final typeName = _selectedCategory?.toLowerCase() ?? '';
+              final isExcluded = typeName.contains('bureau') || 
+                               typeName.contains('fête') || 
+                               typeName.contains('festive') ||
+                               typeName.contains('funéra') || 
+                               typeName.contains('deuil') || 
+                               typeName.contains('terrain') || 
+                               typeName.contains('hotel') || 
+                               typeName.contains('vacances');
+              
+              if (isExcluded) return SizedBox.shrink();
+              
+              return _buildAdditionalRoomsExpansion();
+            }
+          ),
 
           SizedBox(height: _mediumSpace),
           _buildModernImageCounter(),
@@ -3434,6 +3588,169 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     );
   }
 
+  Widget _buildTransactionTypeSelector() {
+    return Row(
+      children: [
+        _buildAudaciousTypeCard(
+          title: 'LOCATION',
+          subtitle: 'Mettre en loyer',
+          icon: Icons.key_rounded,
+          isSelected: _isForRent,
+          onTap: () {
+            if (mounted) {
+              setState(() {
+                _isForRent = true;
+                _saveDraft();
+              });
+            }
+          },
+        ),
+        SizedBox(width: _mediumSpace),
+        _buildAudaciousTypeCard(
+          title: 'VENTE',
+          subtitle: 'Vendre le bien',
+          icon: Icons.auto_graph_rounded,
+          isSelected: !_isForRent,
+          onTap: () {
+            if (mounted) {
+              setState(() {
+                _isForRent = false;
+                _saveDraft();
+              });
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAudaciousTypeCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: Duration(milliseconds: 350),
+          curve: Curves.elasticOut,
+          height: 80, // Légèrement réduit pour éviter l'overflow
+          decoration: BoxDecoration(
+            gradient: isSelected
+                ? LinearGradient(
+                    colors: [_primaryColor, _primaryColor.withBlue(255)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : LinearGradient(
+                    colors: [Colors.white, _cardColor],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isSelected ? _primaryColor : _borderColor.withOpacity(0.5),
+              width: isSelected ? 2.5 : 1,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: _primaryColor.withOpacity(0.3),
+                      blurRadius: 15,
+                      offset: Offset(0, 8),
+                    )
+                  ]
+                : [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 8,
+                      offset: Offset(0, 4),
+                    )
+                  ],
+          ),
+          child: Stack(
+            children: [
+              // Background Decorative Icon (Plus petite pour éviter l'overflow)
+              Positioned(
+                right: -5,
+                bottom: -5,
+                child: Icon(
+                  icon,
+                  size: 45,
+                  color: isSelected ? Colors.white.withOpacity(0.12) : _greyColor.withOpacity(0.05),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    // Icon Container
+                    Container(
+                      padding: EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: isSelected ? Colors.white.withOpacity(0.2) : _primaryColor.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        icon,
+                        size: 20,
+                        color: isSelected ? Colors.white : _primaryColor,
+                      ),
+                    ),
+                    SizedBox(width: 10),
+                    // Text Column
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            title,
+                            style: TextStyle(
+                              color: isSelected ? Colors.white : _darkColor,
+                              fontWeight: FontWeight.w900,
+                              fontSize: _bodySize,
+                              letterSpacing: 0.5,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            subtitle,
+                            style: TextStyle(
+                              color: isSelected ? Colors.white.withOpacity(0.8) : _greyColor,
+                              fontSize: _captionSize * 0.9,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Icon(
+                    Icons.check_circle,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPremiumDropdown<T>({
     required String label,
     required T? value,
@@ -3617,184 +3934,114 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               ],
             ),
           ),
+          Autocomplete<QuartierModel>(
+            // Si on a déjà sélectionné un quartier, on l'affiche comme valeur initiale
+            initialValue: TextEditingValue(text: _selectedQuartier?.name ?? ''),
+            optionsBuilder: (TextEditingValue textEditingValue) {
+              if (textEditingValue.text.isEmpty) {
+                return _availableQuartiers;
+              }
+              return _availableQuartiers.where((QuartierModel option) {
+                return (option.name ?? '')
+                    .toLowerCase()
+                    .contains(textEditingValue.text.toLowerCase());
+              });
+            },
+            displayStringForOption: (QuartierModel option) => option.name ?? '',
+            onSelected: (QuartierModel selection) {
+              _markFieldTouched('quartier');
+              _clickCount++;
+              setState(() {
+                _selectedQuartier = selection;
+                _quartierTextController.text = selection.name ?? '';
+                _removeFieldError(1, 'quartier');
+                _validateStep1();
+                _saveDraft();
+              });
+              _trackSelection('quartier', selection.name ?? 'unknown');
+            },
+            fieldViewBuilder: (BuildContext context,
+                TextEditingController fieldTextEditingController,
+                FocusNode fieldFocusNode,
+                VoidCallback onFieldSubmitted) {
+              
+              // Synchroniser le controller interne avec notre controller global si besoin
+              // (Surtout utile si on change de step et revient)
+              if (_selectedQuartier != null && fieldTextEditingController.text.isEmpty) {
+                 fieldTextEditingController.text = _selectedQuartier!.name ?? '';
+              }
 
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: hasError ? _errorColor :
-                _selectedQuartier != null ? _primaryColor.withOpacity(0.3) : _borderColor,
-                width: hasError ? 1.5 : 1,
-              ),
-              color: Colors.white,
-              boxShadow: [
-                if (_selectedQuartier != null)
-                  BoxShadow(
-                    color: _primaryColor.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: Offset(0, 2),
-                  ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<QuartierModel>(
-                  value: _selectedQuartier,
-                  isExpanded: true,
-                  items: [
-                    DropdownMenuItem<QuartierModel>(
-                      value: QuartierModel(quartierId: -1, name: "Saisir manuellement..."),
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(
-                              color: _borderColor.withOpacity(0.3),
-                              width: 0.5,
-                            ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit_rounded, size: 18, color: _accentColor),
-                            SizedBox(width: 12),
-                            Text(
-                              "Saisir manuellement...",
-                              style: TextStyle(
-                                fontSize: _bodySize,
-                                color: _accentColor,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    DropdownMenuItem<QuartierModel>(
-                      value: null,
-                      enabled: false,
-                      child: Container(
-                        height: 1,
-                        margin: EdgeInsets.symmetric(horizontal: 8),
-                        color: _borderColor,
-                      ),
-                    ),
-                    ..._availableQuartiers.map((QuartierModel quartier) {
-                      return DropdownMenuItem<QuartierModel>(
-                        value: quartier,
-                        child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                color: _borderColor.withOpacity(0.3),
-                                width: 0.5,
-                              ),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  quartier.name ?? "Quartier non spécifié",
-                                  style: TextStyle(
-                                    fontSize: _bodySize,
-                                    color: _darkColor,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (_selectedQuartier?.quartierId == quartier.quartierId)
-                                Icon(
-                                  Icons.check_circle_rounded,
-                                  size: 16,
-                                  color: _successColor,
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ],
-                  onChanged: (QuartierModel? newValue) {
-                    if (mounted) {
-                      _markFieldTouched('quartier');
-                      _clickCount++;
-                      setState(() {
-                        if (newValue?.quartierId == -1) {
-                          _showPremiumQuartierDialog();
-                        } else {
-                          _selectedQuartier = newValue;
-                          _removeFieldError(1, 'quartier');
-                          _validateStep1();
-                          _saveDraft();
-                          _trackSelection('quartier', newValue?.name ?? 'unknown');
-                        }
-                      });
-                    }
-                  },
-                  style: TextStyle(
-                    fontSize: _bodySize,
-                    color: _darkColor,
-                  ),
-                  icon: Padding(
-                    padding: EdgeInsets.only(right: 16),
-                    child: Icon(
-                      Icons.arrow_drop_down_rounded,
-                      color: hasError ? _errorColor : _greyColor,
-                      size: 24,
-                    ),
-                  ),
-                  dropdownColor: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  elevation: 4,
-                  menuMaxHeight: 300,
+              return TextField(
+                controller: fieldTextEditingController,
+                focusNode: fieldFocusNode,
+                style: TextStyle(
+                  fontSize: _bodySize,
+                  color: _darkColor,
+                  fontWeight: FontWeight.w500,
                 ),
-              ),
-            ),
-          ),
-
-          if (_selectedQuartier != null && _selectedQuartier!.quartierId == null)
-            Container(
-              margin: EdgeInsets.only(top: 8),
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _accentColor.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: _accentColor.withOpacity(0.2)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.edit_rounded, size: 16, color: _accentColor),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Quartier saisi: ${_selectedQuartier!.name}',
-                      style: TextStyle(
-                        color: _accentColor,
-                        fontSize: _captionSize,
-                        fontWeight: FontWeight.w500,
-                      ),
+                decoration: InputDecoration(
+                  hintText: 'Saisir ou sélectionner un quartier',
+                  hintStyle: TextStyle(
+                    fontSize: _bodySize,
+                    color: Colors.grey.shade500,
+                  ),
+                  prefixIcon: Icon(
+                    Icons.map_outlined,
+                    color: hasError ? _errorColor : _primaryColor,
+                    size: 20,
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: hasError ? _errorColor : _borderColor,
+                      width: hasError ? 1.5 : 1,
                     ),
                   ),
-                  GestureDetector(
-                    onTap: () {
-                      if (mounted) {
-                        setState(() {
-                          _selectedQuartier = null;
-                          _validateStep1();
-                          _saveDraft();
-                        });
-                      }
-                    },
-                    child: Icon(Icons.close_rounded, size: 16, color: _accentColor),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: hasError ? _errorColor : _borderColor,
+                      width: hasError ? 1.5 : 1,
+                    ),
                   ),
-                ],
-              ),
-            ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: hasError ? _errorColor : _primaryColor,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                onChanged: (String value) {
+                   _markFieldTouched('quartier');
+                   setState(() {
+                     // Vérifier si la saisie correspond à un quartier existant
+                     try {
+                        final existing = _availableQuartiers.firstWhere(
+                          (q) => (q.name ?? '').toLowerCase() == value.trim().toLowerCase()
+                        );
+                        _selectedQuartier = existing;
+                     } catch (e) {
+                        // Pas trouvé, on crée un modèle temporaire avec ID null
+                        _selectedQuartier = QuartierModel(
+                          quartierId: null,
+                          name: value,
+                        );
+                     }
+                     _quartierTextController.text = value;
 
+                     if (value.isNotEmpty) {
+                       _removeFieldError(1, 'quartier');
+                     }
+                     _validateStep1();
+                   });
+                },
+              );
+            },
+          ),
           if (hasError)
             Padding(
               padding: EdgeInsets.only(top: 6, left: 4),
@@ -4077,6 +4324,13 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       return;
     }
 
+    // Double check verification before proceeding
+    final authCtrl = context.read<AuthentificationCtrl>();
+    if (authCtrl.user.isCertified != true) {
+      _showVerificationRequiredDialog();
+      return;
+    }
+
     setState(() {
       _autoValidateMode = AutovalidateMode.always;
     });
@@ -4155,7 +4409,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
       final GetStorage storage = GetStorage();
       final dynamic userData = storage.read(StockageKeys.userKey);
-      final userId = userData?['userId'] ?? userData?['user']?['userId'];
+      final dynamic profileData = storage.read(StockageKeys.profileKey);
+      final userId = profileData?['id'] ?? userData?['profile']?['id'] ?? userData?['userId'] ?? userData?['user']?['userId'];
       final uId = userId != null ? (userId is int ? userId : int.tryParse(userId.toString()) ?? 0) : 0;
       final ctrl = context.read<PropertyController>();
       
@@ -4169,11 +4424,32 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       final imagesData = await _prepareImagesData();
       List<String> allImagesBase64 = [];
       
-      // Collect all images for flat arrays
-      if (imagesData['propertyImage'] != null) allImagesBase64.addAll(imagesData['propertyImage']!.map((e) => e['base64']!).toList());
-      if (imagesData['propertyImageRoom'] != null) allImagesBase64.addAll(imagesData['propertyImageRoom']!.map((e) => e['base64']!).toList());
-      if (imagesData['propertyImageLivingRoom'] != null) allImagesBase64.addAll(imagesData['propertyImageLivingRoom']!.map((e) => e['base64']!).toList());
-      if (imagesData['propertyImageKitchen'] != null) allImagesBase64.addAll(imagesData['propertyImageKitchen']!.map((e) => e['base64']!).toList());
+      // Collect all images for flat arrays if it's a Map structure
+      if (imagesData is Map) {
+        if (imagesData['propertyImage'] != null) {
+          allImagesBase64.addAll(
+            (imagesData['propertyImage'] as List).map((e) => (e['image'] as String)).toList()
+          );
+        }
+        if (imagesData['propertyImageRoom'] != null) {
+          allImagesBase64.addAll(
+            (imagesData['propertyImageRoom'] as List).map((e) => (e['image'] as String)).toList()
+          );
+        }
+        if (imagesData['propertyImageLivingRoom'] != null) {
+          allImagesBase64.addAll(
+            (imagesData['propertyImageLivingRoom'] as List).map((e) => (e['image'] as String)).toList()
+          );
+        }
+        if (imagesData['propertyImageKitchen'] != null) {
+          allImagesBase64.addAll(
+            (imagesData['propertyImageKitchen'] as List).map((e) => (e['image'] as String)).toList()
+          );
+        }
+      } else if (imagesData is List) {
+         // For festive/funeraire types - already a List<String>
+         allImagesBase64 = (imagesData as List).map((e) => e.toString()).toList();
+      }
 
       HttpResponse res;
 
@@ -4187,122 +4463,180 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       if (isFestive) {
         print("🎉 Création de Salle de Fête");
         final festiveData = {
-          "userId": uId,
-          "deviseId": 1, 
-          "title": title,
-          "description": description,
-          "usage": _selectedUsage ?? "Autre",
-          "capacityPeople": int.tryParse(_capacityController.text) ?? 0,
-          "electric": electric,
-          "price": price,
-          "address": address,
-          "latitude": _selectedLocation?.latitude ?? 0.0,
-          "longitude": _selectedLocation?.longitude ?? 0.0,
-          "isAvailable": true,
-          "isDecore": _isDecore,
-          "pisteDanse": _pisteDanse,
-          "images": allImagesBase64
+          "festive": {
+            "userId": uId,
+            "deviseId": 1,
+            "title": title,
+            "description": description,
+            "usage": _selectedUsage ?? "Autre",
+            "capacityPeople": int.tryParse(_capacityController.text) ?? 0,
+            "electric": electric,
+            "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0,
+            "price": price,
+            "address": address,
+            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
+            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
+            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
+            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
+            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+            "quartierValue": quartierValue,
+            "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
+            "countryValue": "RDC",
+            "latitude": _selectedLocation?.latitude ?? 0.1,
+            "longitude": _selectedLocation?.longitude ?? 0.1,
+            "isAvailable": true,
+            "isDecore": _isDecore,
+            "pisteDanse": _pisteDanse,
+            "available": true,
+            "decore": _isDecore
+          },
+          "images": allImagesBase64.map((b64) => {"image": b64}).toList(),
+          "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList()
         };
         res = await ctrl.createFestive(festiveData);
 
       } else if (isFuneraire) {
         print("⚰️ Création de Salle Funéraire");
         final funeraireData = {
-          "userId": uId,
-          "deviseId": 1,
-          "title": title,
-          "description": description,
-          "capacityPeople": int.tryParse(_capacityController.text) ?? 0,
-          "price": price,
-          "address": address,
-          "latitude": _selectedLocation?.latitude ?? 0.0,
-          "longitude": _selectedLocation?.longitude ?? 0.0,
-          "isAvailable": true,
-          "images": allImagesBase64
+          "funeraire": {
+            "userId": uId,
+            "deviseId": 1,
+            "title": title,
+            "description": description,
+            "capacityPeople": int.tryParse(_capacityController.text) ?? 0,
+            "price": price,
+            "address": address,
+            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
+            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
+            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
+            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
+            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+            "quartierValue": quartierValue,
+            "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
+            "countryValue": "RDC",
+            "latitude": _selectedLocation?.latitude ?? 0.1,
+            "longitude": _selectedLocation?.longitude ?? 0.1,
+            "isAvailable": true,
+            "available": true,
+            "electric": electric,
+            "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0
+          },
+          "images": allImagesBase64.map((b64) => {"image": b64}).toList(),
+          "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList()
         };
         res = await ctrl.createFuneraire(funeraireData);
 
       } else if (isBureau) {
         print("💼 Création de Bureau");
-        // Re-construct Map list for Bureau
-        List<Map<String, String>> allImagesMaps = [];
-        if (imagesData['propertyImage'] != null) allImagesMaps.addAll(List<Map<String, String>>.from(imagesData['propertyImage']!));
-        if (imagesData['propertyImageRoom'] != null) allImagesMaps.addAll(List<Map<String, String>>.from(imagesData['propertyImageRoom']!));
+        // Convert all base64 to Map list for Bureau
+        List<Map<String, String>> imagesList = allImagesBase64.map((b64) => {"image": b64}).toList();
 
         final bureauData = {
           "bureau": {
             "userId": uId,
-            "deviseId": 0,
+            "deviseId": 1,
             "title": title,
             "description": description,
             "price": price,
             "roomMeet": int.tryParse(_roomMeetController.text) ?? 0,
+            "electric": electric,
+            "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0,
             "numberPiece": int.tryParse(_numberPieceController.text) ?? 0,
             "isEquip": _isEquip,
+            "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
+            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
+            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
+            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
+            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
+            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+            "quartierValue": quartierValue,
+            "countryValue": "RDC",
+            "latitude": _selectedLocation?.latitude ?? 0.1,
+            "longitude": _selectedLocation?.longitude ?? 0.1,
             "address": address
           },
-          "images": allImagesMaps
+          "images": imagesList,
+          "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList()
         };
         res = await ctrl.createBureau(bureauData);
 
       } else {
         print("🏠 Création Standard (Résidentiel/Autre)");
-        // Standard code...
+        
+        // Get user's full name from storage
+        final GetStorage storage = GetStorage();
+        final dynamic userData = storage.read(StockageKeys.userKey);
+        final dynamic profileData = storage.read(StockageKeys.profileKey);
+        final String fullname = profileData?['fullName'] ??
+                               profileData?['fullname'] ??
+                               userData?['profile']?['fullName'] ??
+                               userData?['profile']?['fullname'] ??
+                               userData?['fullname'] ?? 
+                               userData?['user']?['fullname'] ?? 
+                               userData?['name'] ?? 
+                               userData?['user']?['name'] ?? 
+                               "Utilisateur";
+        
+        print("👤 PostBy: $fullname");
+        
+        // Standard code - FLAT STRUCTURE to match API expectations
         final propertyData = {
-            "property": {
-              "title": title,
-              "description": description,
-              "price": price,
-              "surface": double.tryParse(_areaController.text) ?? 0.1,
-              "rooms": _calculateTotalRooms(),
-              "bedrooms": int.tryParse(_bedroomsController.text) ?? 1,
-              "kitchen": int.tryParse(_kitchensController.text) ?? 1,
-              "livingRoom": int.tryParse(_livingRoomsController.text) ?? 1,
-              "bathroom": int.tryParse(_bathroomsController.text) ?? 1,
-              "floor": int.tryParse(_floorController.text) ?? 1,
-              "electric": electric,
-              "water": _selectedWater != null ? int.tryParse(_selectedWater!) : 0,
-              "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",
-              "sold": false,
-              "transactionType": _isForRent ? "location" : "vente",
-              "available": true,
-            },
-            "postBy": fullname,
-            "address": {
-              "address": address,
-              "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : "",
-              "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : "",
-              "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : "",
-              "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
-              "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
-              "quartierValue": quartierValue,
-              "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
-              "countryValue": "RDC",
-            },
-            "geoZone": {
-              "lat": _selectedLocation?.latitude ?? 0.1,
-              "lng": _selectedLocation?.longitude ?? 0.1,
-            },
-            "typeProperty": {
-              "propertyTypeId": _selectedPropertyTypeId ?? 2,
-            },
+            "title": title,
+            "description": description,
+            "price": price,
+            "surface": double.tryParse(_areaController.text) ?? 0.1,
+            "rooms": _calculateTotalRooms(),
+            "bedrooms": int.tryParse(_bedroomsController.text) ?? 1,
+            "kitchen": int.tryParse(_kitchensController.text) ?? 1,
+            "livingRoom": int.tryParse(_livingRoomsController.text) ?? 1,
+            "bathroom": int.tryParse(_bathroomsController.text) ?? 1,
+            "floor": int.tryParse(_floorController.text) ?? 1,
+            "electric": electric,
+            "water": _selectedWater != null ? int.tryParse(_selectedWater!) : 0,
+            "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",
+            "sold": false,
+            "transactionType": _isForRent ? "location" : "vente",
+            "address": address,
+            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
+            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
+            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
+            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
+            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+            "quartierValue": quartierValue,
+            "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
+            "countryValue": "RDC",
+            "quartier": quartierValue,
+            "latitude": _selectedLocation?.latitude ?? 0.1,
+            "longitude": _selectedLocation?.longitude ?? 0.1,
+            "propertyTypeId": _selectedPropertyTypeId ?? 2,
+            "userId": uId,
             "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList(),
-            "images": {
-               "main": imagesData["propertyImage"] ?? [],
-               "room": imagesData["propertyImageRoom"] ?? [],
-               "living": imagesData["propertyImageLivingRoom"] ?? [],
-               "kitchen": imagesData["propertyImageKitchen"] ?? []
-            }
+            "propertyImage": (imagesData is Map) ? (imagesData["propertyImage"] ?? []) : [],
+            "propertyImageRoom": (imagesData is Map) ? (imagesData["propertyImageRoom"] ?? []) : [],
+            "propertyImageLivingRoom": (imagesData is Map) ? (imagesData["propertyImageLivingRoom"] ?? []) : [],
+            "propertyImageKitchen": (imagesData is Map) ? (imagesData["propertyImageKitchen"] ?? []) : []
         };
         
-        if (userId != null) {
-            (propertyData["property"] as Map<String, dynamic>)["userId"] = uId;
-        }
+        // Log payload structure before sending
+        print("📦 PAYLOAD STRUCTURE (FLAT):");
+        print("  - Title: $title");
+        print("  - Price: $price");
+        print("  - Address: $address");
+        print("  - CityId: ${propertyData['cityId']}");
+        print("  - PropertyTypeId: ${propertyData['propertyTypeId']}");
+        print("  - UserId: ${propertyData['userId']}");
+        print("  - Features count: ${(propertyData['features'] as List).length}");
+        print("  - Images propertyImage: ${(propertyData['propertyImage'] as List).length}");
+        print("  - Images propertyImageRoom: ${(propertyData['propertyImageRoom'] as List).length}");
+        print("  - Images propertyImageLivingRoom: ${(propertyData['propertyImageLivingRoom'] as List).length}");
+        print("  - Images propertyImageKitchen: ${(propertyData['propertyImageKitchen'] as List).length}");
 
         res = await ctrl.createProperty(propertyData);
       }
 
       print("📡 Réponse API: ${res.status} - ${res.errorMsg}");
+      print("📡 Réponse API data: ${res.data}");
+      print("📡 Réponse API data type: ${res.data.runtimeType}");
 
       if (!mounted) return;
 
@@ -4325,6 +4659,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         }
       } else {
         // Erreur API
+        print("❌ API Error - Status: ${res.status}");
+        print("❌ API Error - ErrorMsg: ${res.errorMsg}");
+        print("❌ API Error - Data: ${res.data}");
+        
         String errorMessage = "Une erreur est survenue lors de la publication";
         if (res.errorMsg != null && res.errorMsg!.isNotEmpty) {
           errorMessage = res.errorMsg!;
@@ -4332,12 +4670,17 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           errorMessage = res.data['detailMessage'] ?? res.data['message'] ?? res.data['error'] ?? "Erreur lors de la publication de l'annonce";
         }
         
+        print("📢 Message d'erreur final: $errorMessage");
         FancyNotification.show(context, errorMessage, isError: true);
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       _clearImageCache();
-      print("❌ Erreur lors de la publication: $e");
-      FancyNotification.show(context, "Une erreur est survenue. Veuillez réessayer.", isError: true);
+      print("❌ EXCEPTION lors de la publication: $e");
+      print("❌ STACK TRACE: $stackTrace");
+      print("❌ Exception Type: ${e.runtimeType}");
+      
+      String detailedError = "Erreur: $e";
+      FancyNotification.show(context, detailedError, isError: true);
     } finally {
       _clearImageCache();
       if (mounted) {

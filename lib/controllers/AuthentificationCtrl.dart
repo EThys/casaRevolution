@@ -259,30 +259,40 @@ class AuthentificationCtrl with ChangeNotifier {
         if (personData != null) {
             print("✅ Identité mise à jour pour: ${personData['fullName']}");
             
-            // Mettre à jour le profil local s'il existe
+            // Mettre à jour le profil local
             try {
+              // Structure attendue pour le profileKey basée sur les logs user
+              Map<String, dynamic> updatedProfile = {
+                 'id': personData['id'], // Important: garder l'ID du profil
+                 'firstname': personData['firstName'],
+                 'lastname': personData['lastName'],
+                 'fullname': personData['fullName'],
+                 'address': personData['address'],
+                 'images': personData['images'],
+                 'cardFront': personData['cardFront'],
+                 'cardBack': personData['cardBack'],
+                 'numberCard': personData['numberCard'],
+                 // Garder d'autres champs potentiels de l'ancien profil si nécessaire, mais ici on semble avoir tout
+              };
+              
+              // Fusionner avec l'existant pour ne rien perdre (ex: bio si elle n'est pas renvoyée ?)
               Map<String, dynamic>? currentProfile = stockage?.read(StockageKeys.profileKey);
               if (currentProfile != null) {
-                // On fusionne ou remplace avec les nouvelles données
-                currentProfile['cardFront'] = personData['cardFront'];
-                currentProfile['cardBack'] = personData['cardBack'];
-                currentProfile['numberCard'] = personData['numberCard'];
-                // Et d'autres champs si nécessaire
-                
-                await stockage?.write(StockageKeys.profileKey, currentProfile);
-                print("💾 Profil local mis à jour avec les infos d'identité");
+                  currentProfile.addAll(updatedProfile);
+                  await stockage?.write(StockageKeys.profileKey, currentProfile);
+              } else {
+                  await stockage?.write(StockageKeys.profileKey, updatedProfile);
               }
+              
+              print("💾 Profil local mis à jour avec les infos d'identité");
             } catch (e) {
               print("⚠️ Erreur mise à jour profil local: $e");
             }
 
              // Optimistic update status user
              _user.isCertified = true; 
-             await stockage?.write(StockageKeys.userKey, _user.toJson());
-        } else {
-             print("⚠️ Structure de réponse inattendue (pas de 'person')");
-             // Fallback
-             _user.isCertified = true; 
+             // On met à jour l'objet user s'il est retourné dans la réponse (non visible dans le log snippet "person")
+             // Mais on sait que le user est certifié maintenant.
              await stockage?.write(StockageKeys.userKey, _user.toJson());
         }
         notifyListeners();
@@ -605,6 +615,55 @@ class AuthentificationCtrl with ChangeNotifier {
         },
         status: false,
       );
+    }
+  }
+
+  // Mise à jour de la photo de profil uniquement
+  Future<HttpResponse> updateProfilePicture(int profileId, String base64Image) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      final url = "members/$profileId/profile";
+      final payload = {"image": base64Image};
+
+      print("📤 Mise à jour photo profil vers $url");
+
+      final response = await putData(url, payload, token: token);
+
+      if (response.status == true) {
+        print("✅ Photo de profil mise à jour avec succès");
+        
+        // Mettre à jour le profil local
+        try {
+          Map<String, dynamic>? currentProfile = stockage?.read(StockageKeys.profileKey);
+          if (currentProfile != null) {
+            currentProfile['image'] = base64Image; // ou l'URL retournée si l'API renvoie l'URL
+            
+            // Si l'API renvoie le profil mis à jour, on l'utilise
+            if (response.data != null && response.data['data'] != null) {
+                 final newData = response.data['data'];
+                 if (newData['image'] != null) {
+                   currentProfile['image'] = newData['image'];
+                 }
+            }
+            
+            await stockage?.write(StockageKeys.profileKey, currentProfile);
+            print("💾 Photo mise à jour dans le stockage local");
+          }
+        } catch (e) {
+          print("⚠️ Erreur mise à jour locale photo: $e");
+        }
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      print("❌ Erreur updateProfilePicture: $e");
+      return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
     }
   }
 

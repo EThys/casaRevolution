@@ -4,10 +4,12 @@ import 'dart:io';
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/utils/AppColors.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import '../camera/SelfieCameraScreen.dart';
 
 class IdentityVerificationPage extends StatefulWidget {
   const IdentityVerificationPage({Key? key}) : super(key: key);
@@ -53,20 +55,33 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
 
   Future<void> _pickImage(bool isProfile, {bool isFront = true}) async {
     try {
-      // Pour les cartes (pas Profil), on force la caméra
-      final source = isProfile ? ImageSource.gallery : ImageSource.camera;
-      
+      if (isProfile) {
+        // Enforce Selfie Camera only
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SelfieCameraScreen(
+              onImageCaptured: (path) {
+                setState(() {
+                  _imageProfile = File(path);
+                });
+              },
+            ),
+          ),
+        );
+        return;
+      }
+
+      // For ID cards, allow standard camera (usually rear)
       final XFile? photo = await _picker.pickImage(
-        source: source,
-        imageQuality: 70, // Optimisation
+        source: ImageSource.camera, // Always camera for ID
+        imageQuality: 70,
         maxWidth: 1024,
       );
       
       if (photo != null) {
         setState(() {
-          if (isProfile) {
-            _imageProfile = File(photo.path);
-          } else if (isFront) {
+          if (isFront) {
             _imageFront = File(photo.path);
           } else {
             _imageBack = File(photo.path);
@@ -75,7 +90,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       }
     } catch (e) {
       print("Erreur choix image: $e");
-      FancyNotification.show(context, "Impossible d'accéder à la caméra ou la galerie", isError: true);
+      FancyNotification.show(context, "Impossible d'accéder à la caméra", isError: true);
     }
   }
 
@@ -122,8 +137,21 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       
       // Récupération des noms depuis le profil existant (ou vide si manquant)
       // Le user a dit "ne demande pas le prenom et le nom", donc on utilise ce qu'on a déjà.
-      String firstName = authCtrl.user.username ?? "";
-      String lastName = ""; // Si on n'a pas le nom séparé, on laisse vide ou on gère autrement
+      String firstName = "";
+      String lastName = "";
+      
+      try {
+        final profileData = authCtrl.stockage?.read(StockageKeys.profileKey);
+        if (profileData != null && profileData is Map) {
+          firstName = profileData['firstname'] ?? "";
+          lastName = profileData['lastname'] ?? "";
+        }
+      } catch (e) {
+        print("Erreur lecture profile keys: $e");
+      }
+      
+      // Fallback if empty
+      if (firstName.isEmpty) firstName = authCtrl.user.username ?? "";
       
       // Essai de splitter le username si besoin, ou juste envoyer ce qu'on a
       // Comme c'est un PUT, l'idéal serait de ne pas écraser avec du vide si c'est déjà là,
@@ -141,6 +169,8 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         "numberCard": _cardNumberController.text,
       };
 
+      // L'appel au controller gère la logique de l'ID (userId ou profileId)
+      // On passe l'userId par défaut, le controller fera la substitution si un profileId existe.
       await authCtrl.verifyIdentity(authCtrl.user.userId.toString(), payload);
       
       FancyNotification.show(context, "Vérification envoyée avec succès !", isError: false);
