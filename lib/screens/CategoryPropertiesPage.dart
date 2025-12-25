@@ -36,7 +36,23 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   @override
   Widget build(BuildContext context) {
     final propertyCtrl = context.watch<PropertyController>();
-    final properties = propertyCtrl.properties.where((p) =>
+    
+    // Récupérer les propriétés de base + les spécialisées si nécessaire
+    List<PropertyModel> allRelevantProperties = List.from(propertyCtrl.properties);
+    
+    // Si on est dans une catégorie spécifique, s'assurer que sa liste dédiée est incluse
+    if (widget.category == 'Bureau') allRelevantProperties.addAll(propertyCtrl.bureaux);
+    if (widget.category == 'Salle de fête') allRelevantProperties.addAll(propertyCtrl.festives);
+    if (widget.category == 'Salle funéraires') allRelevantProperties.addAll(propertyCtrl.funeraires);
+
+    // Supprimer les doublons éventuels par ID
+    final seenIds = <int>{};
+    allRelevantProperties = allRelevantProperties.where((p) {
+      if (p.propertyId == null) return false;
+      return seenIds.add(p.propertyId!);
+    }).toList();
+
+    final properties = allRelevantProperties.where((p) =>
         _matchesCategory(p, widget.category)).toList();
 
     final filteredProperties = _applyFilter(properties, _selectedFilter);
@@ -152,15 +168,21 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
     // Récupérer l'ID du type de propriété
     final propertyTypeId = property.propertyType?.propertyTypeId?.toString();
-    if (propertyTypeId == null) return false;
+    // Ne pas retourner faux ici car les propriétés spéciales n'ont pas forcément de typeId dans le JSON
+    // if (propertyTypeId == null) return false; 
+
 
     final categoryMap = {
-      'Apparts': ['2'], // ID pour Apparts
-      'Maisons': ['3'], // ID pour Maisons
-      'Studio': ['1'], // ID pour Studios
-      'Bureau': ['4'], // ID pour Bureaux
-      'Hotels': ['5'], // ID pour Hotels
+      'Studio': ['1'],
+      'Apparts': ['2'],
+      'Maisons': ['3'],
+      'Bureau': ['4'],
+      'Hotels': ['5'],
       'Vacances': ['6'],
+      'Salle funéraires': ['7'],
+      'Salle de fête': ['8'],
+      'Terrain': ['9'],
+      'Entrepôt': ['10'],
     };
 
     // Vérifier aussi le nom du type de propriété pour plus de fiabilité
@@ -168,10 +190,17 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
     bool matchesById = categoryMap[category]?.contains(propertyTypeId) ?? false;
     bool matchesByName = _matchesCategoryByName(propertyTypeName, category);
+    
+    // Cas spécial: si la propriété est dans une liste spécialisée du controlleur
+    final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+    bool isInSpecialList = false;
+    if (category == 'Bureau') isInSpecialList = propertyCtrl.bureaux.any((b) => b.propertyId == property.propertyId);
+    if (category == 'Salle de fête') isInSpecialList = propertyCtrl.festives.any((f) => f.propertyId == property.propertyId);
+    if (category == 'Salle funéraires') isInSpecialList = propertyCtrl.funeraires.any((f) => f.propertyId == property.propertyId);
 
-    print("Property: ${property.title}, TypeID: $propertyTypeId, TypeName: $propertyTypeName, MatchesById: $matchesById, MatchesByName: $matchesByName");
+    print("Property: ${property.title}, TypeID: $propertyTypeId, TypeName: $propertyTypeName, MatchesById: $matchesById, MatchesByName: $matchesByName, Special: $isInSpecialList");
 
-    return matchesById || matchesByName;
+    return matchesById || matchesByName || isInSpecialList;
   }
 
   bool _matchesCategoryByName(String propertyTypeName, String category) {
@@ -200,6 +229,14 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         return propertyTypeName.contains('vacance') ||
             propertyTypeName.contains('holiday') ||
             propertyTypeName.contains('location saisonnière');
+      case 'Salle funéraires':
+        return propertyTypeName.contains('funérair') || propertyTypeName.contains('morgue');
+      case 'Salle de fête':
+        return propertyTypeName.contains('fête') || propertyTypeName.contains('salle de fête');
+      case 'Terrain':
+        return propertyTypeName.contains('terrain') || propertyTypeName.contains('parcelle');
+      case 'Entrepôt':
+        return propertyTypeName.contains('entrepôt') || propertyTypeName.contains('depot');
       default:
         return false;
     }
