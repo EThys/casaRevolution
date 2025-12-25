@@ -14,6 +14,7 @@ import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:casa/widgets/SnackbarHelper.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
@@ -35,16 +36,31 @@ class EditPropertyPage extends StatefulWidget {
 }
 
 class _EditPropertyPageState extends State<EditPropertyPage> {
-  // Couleurs modernes
+  // Couleurs Premium & Audacieuses
   final Color _primaryColor = Color(0xFF1976D2);
-  final Color _secondaryColor = Color(0xFF64B5F6);
-  final Color _darkColor = Color(0xFF1A1D26);
-  final Color _lightColor = Color(0xFFF8F9FA);
-  final Color _greyColor = Color(0xFF6C757D);
-  final Color _successColor = Color(0xFF38B000);
+  final Color _secondaryColor = Color(0xFF0D47A1);
+  final Color _accentColor = Color(0xFF2196F3);
+  final Color _darkColor = Color(0xFF0F172A);
+  final Color _lightColor = Color(0xFFF8FAFC);
+  final Color _greyColor = Color(0xFF64748B);
+  final Color _successColor = Color(0xFF10B981);
+  final Color _warningColor = Color(0xFFF59E0B);
+  final Color _errorColor = Color(0xFFEF4444);
   final Color _cardColor = Colors.white;
-  final Color _borderColor = Color(0xFFE9ECEF);
-  final Color _errorColor = Color(0xFFD32F2F);
+  final Color _borderColor = Color(0xFFE2E8F0);
+
+  // Styles de texte
+  late final TextStyle _titleStyle = GoogleFonts.outfit(
+    fontSize: 24,
+    fontWeight: FontWeight.bold,
+    color: _darkColor,
+  );
+
+  late final TextStyle _subtitleStyle = GoogleFonts.outfit(
+    fontSize: 16,
+    color: _greyColor,
+    fontWeight: FontWeight.w500,
+  );
 
   // Form controllers
   final _formKey = GlobalKey<FormState>();
@@ -84,6 +100,7 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
   CommuneModel? _selectedCommune;
   QuartierModel? _selectedQuartier;
   bool get _isKinshasaSelected =>
+      (_selectedCity?.cityId == 1) ||
       (_selectedCity?.name?.toLowerCase().trim() ?? '') == 'kinshasa' ||
       (_cityTextController.text.toLowerCase().trim() == 'kinshasa');
 
@@ -163,8 +180,10 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
   @override
   void initState() {
     super.initState();
-    _loadPropertyData();
-    _loadLocationData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadPropertyData();
+      _loadLocationData();
+    });
   }
 
   void _loadPropertyData() {
@@ -317,6 +336,7 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
 
   PropertyModel get property => widget.property;
 
+
   @override
   void dispose() {
     _titleController.dispose();
@@ -344,214 +364,110 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _lightColor,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: _primaryColor,
+      body: CustomScrollView(
+        slivers: [
+          _buildSliverAppBar(),
+          SliverToBoxAdapter(
+            child: _buildProgressIndicator(),
+          ),
+          SliverPadding(
+            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            sliver: SliverToBoxAdapter(
+              child: Form(
+                key: _formKey,
+                child: AnimatedSwitcher(
+                  duration: Duration(milliseconds: 400),
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: Offset(0.05, 0),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _buildCurrentStep(),
+                ),
+              ),
+            ),
+          ),
+          // Espace pour le bouton du bas
+          SliverToBoxAdapter(child: SizedBox(height: 120)),
+        ],
+      ),
+      bottomSheet: _buildBottomActionBar(),
+    );
+  }
+
+  Widget _buildSliverAppBar() {
+    return SliverAppBar(
+      expandedHeight: 120,
+      floating: false,
+      pinned: true,
+      elevation: 0,
+      backgroundColor: _primaryColor,
+      flexibleSpace: FlexibleSpaceBar(
+        titlePadding: EdgeInsets.only(left: _currentStep == 0 ? 56 : 20, bottom: 16),
         title: Text(
-          'Modifier la propriété',
-          style: GoogleFonts.roboto(
+          'Modifier l\'annonce',
+          style: GoogleFonts.outfit(
             fontWeight: FontWeight.w600,
             color: Colors.white,
+            fontSize: 20,
           ),
         ),
-        iconTheme: IconThemeData(color: Colors.white),
-      ),
-      body: Form(
-        key: _formKey,
-        child: PageView(
-          controller: _pageController,
-          physics: NeverScrollableScrollPhysics(),
-          children: [
-            _buildStep0(), // Images
-            _buildStep1(), // Détails
-            _buildStep2(), // Localisation
-          ],
-        ),
-      ),
-      bottomNavigationBar: _buildBottomNavigationBar(),
-    );
-  }
-
-  Widget _buildStep0() {
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader(
-            icon: Icons.photo_library_rounded,
-            title: 'Photos',
-            subtitle: 'Ajoutez des photos pour illustrer votre propriété',
-          ),
-          SizedBox(height: 24),
-          ..._imageCategories.map((category) => _buildImageCategorySection(category)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStep1() {
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader(
-            icon: Icons.info_outline_rounded,
-            title: 'Détails de la propriété',
-            subtitle: 'Remplissez les informations principales',
-          ),
-          SizedBox(height: 24),
-          _buildTextField(_titleController, 'Titre', Icons.title_rounded, isRequired: true),
-          SizedBox(height: 16),
-          _buildTextField(_descriptionController, 'Description', Icons.description_rounded,
-              maxLines: 4, isRequired: true),
-          SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildTextField(_priceController, 'Prix', Icons.attach_money_rounded,
-                    keyboardType: TextInputType.number, isRequired: true),
-              ),
-              SizedBox(width: 16),
-              Expanded(
-                child: _buildToggleButtons(),
-              ),
-            ],
-          ),
-          SizedBox(height: 16),
-          _buildPropertyTypeDropdown(),
-          SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: _buildTextField(_bedroomsController, 'Chambres', Icons.bed_rounded,
-                  keyboardType: TextInputType.number)),
-              SizedBox(width: 16),
-              Expanded(child: _buildTextField(_bathroomsController, 'Salles de bain',
-                  Icons.bathroom_rounded, keyboardType: TextInputType.number)),
-            ],
-          ),
-          SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: _buildTextField(_areaController, 'Surface (m²)', Icons.square_foot_rounded,
-                  keyboardType: TextInputType.number)),
-              SizedBox(width: 16),
-              Expanded(child: _buildTextField(_floorController, 'Étage', Icons.layers_rounded,
-                  keyboardType: TextInputType.number)),
-            ],
-          ),
-          SizedBox(height: 24),
-          _buildSectionHeader(
-            icon: Icons.checklist_rounded,
-            title: 'Services et équipements',
-            subtitle: 'Sélectionnez les services disponibles',
-          ),
-          SizedBox(height: 16),
-          _buildElectricWaterSection(),
-          SizedBox(height: 24),
-          _buildAmenitiesSection(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStep2() {
-    return SingleChildScrollView(
-      padding: EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSectionHeader(
-            icon: Icons.location_on_rounded,
-            title: 'Localisation',
-            subtitle: 'Indiquez l\'emplacement de la propriété',
-          ),
-          SizedBox(height: 24),
-          _buildTextField(_addressController, 'Adresse complète', Icons.home_rounded,
-              isRequired: true),
-          SizedBox(height: 16),
-          if (_isKinshasaSelected) ...[
-            _buildCityDropdown(),
-            if (_selectedCity != null) ...[
-              SizedBox(height: 16),
-              _buildDistrictDropdown(),
-            ],
-            if (_selectedDistrict != null) ...[
-              SizedBox(height: 16),
-              _buildCommuneDropdown(),
-            ],
-            if (_selectedCommune != null) ...[
-              SizedBox(height: 16),
-              _buildQuartierDropdown(),
-            ],
-          ] else ...[
-            _buildTextField(_cityTextController, 'Ville', Icons.location_city_rounded),
-            SizedBox(height: 16),
-            _buildTextField(_communeTextController, 'Commune', Icons.map_rounded),
-            SizedBox(height: 16),
-            _buildTextField(_quartierTextController, 'Quartier', Icons.place_rounded),
-          ],
-          SizedBox(height: 16),
-          _buildTextField(_postalCodeController, 'Code postal', Icons.markunread_mailbox_rounded),
-          SizedBox(height: 24),
-          _buildTextField(_guaranteeController, 'Garantie (optionnel)', Icons.shield_rounded),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader({required IconData icon, required String title, String? subtitle}) {
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [_primaryColor, _secondaryColor],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: _primaryColor.withOpacity(0.3),
-            blurRadius: 12,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
+        background: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [_primaryColor, _secondaryColor],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            child: Icon(icon, color: Colors.white, size: 24),
           ),
-          SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: Stack(
+            children: [
+              Positioned(
+                right: -50,
+                top: -50,
+                child: Icon(Icons.edit_note_rounded, size: 200, color: Colors.white10),
+              ),
+            ],
+          ),
+        ),
+      ),
+      leading: IconButton(
+        icon: Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+        onPressed: () => Navigator.pop(context),
+      ),
+    );
+  }
+
+  Widget _buildProgressIndicator() {
+    return Container(
+      padding: EdgeInsets.fromLTRB(25, 20, 25, 10),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _buildProgressStep(0, "Photos", Icons.photo_library_outlined),
+              _buildProgressLine(0),
+              _buildProgressStep(1, "Infos", Icons.info_outline_rounded),
+              _buildProgressLine(1),
+              _buildProgressStep(2, "Lieu", Icons.location_on_outlined),
+            ],
+          ),
+          SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  title,
-                  style: GoogleFonts.roboto(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.roboto(
-                      fontSize: 13,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                  ),
-                ],
+                _buildStepLabel(0, "Photos"),
+                _buildStepLabel(1, "Détails"),
+                _buildStepLabel(2, "Localisation"),
               ],
             ),
           ),
@@ -560,95 +476,134 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     );
   }
 
-  Widget _buildTextField(
-    TextEditingController controller,
-    String label,
-    IconData icon, {
-    int maxLines = 1,
-    TextInputType? keyboardType,
-    bool isRequired = false,
-  }) {
-    return TextFormField(
-      controller: controller,
-      maxLines: maxLines,
-      keyboardType: keyboardType,
-      decoration: InputDecoration(
-        labelText: label + (isRequired ? ' *' : ''),
-        prefixIcon: Icon(icon, color: _primaryColor),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: _borderColor),
+  Widget _buildProgressStep(int step, String title, IconData icon) {
+    bool isActive = _currentStep == step;
+    bool isCompleted = _currentStep > step;
+
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        color: isActive ? _primaryColor : (isCompleted ? _successColor : Colors.white),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: isActive || isCompleted ? Colors.transparent : _borderColor,
+          width: 2,
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: _borderColor),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: _primaryColor, width: 2),
-        ),
-        filled: true,
-        fillColor: _cardColor,
+        boxShadow: isActive ? [
+          BoxShadow(
+            color: _primaryColor.withOpacity(0.3),
+            blurRadius: 10,
+            spreadRadius: 2,
+          )
+        ] : null,
       ),
-      validator: isRequired
-          ? (value) {
-              if (value == null || value.isEmpty) {
-                return 'Ce champ est requis';
-              }
-              return null;
-            }
-          : null,
+      child: Center(
+        child: Icon(
+          isCompleted ? Icons.check_rounded : icon,
+          size: 18,
+          color: isActive || isCompleted ? Colors.white : _greyColor,
+        ),
+      ),
     );
   }
 
-  Widget _buildToggleButtons() {
+  Widget _buildProgressLine(int step) {
+    bool isCompleted = _currentStep > step;
+    return Expanded(
+      child: Container(
+        height: 3,
+        margin: EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: isCompleted ? _successColor : _borderColor,
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepLabel(int step, String label) {
+    bool isActive = _currentStep == step;
+    return Text(
+      label,
+      style: GoogleFonts.outfit(
+        fontSize: 11,
+        fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+        color: isActive ? _primaryColor : _greyColor,
+      ),
+    );
+  }
+
+  Widget _buildCurrentStep() {
+    switch (_currentStep) {
+      case 0: return _buildStep0();
+      case 1: return _buildStep1();
+      case 2: return _buildStep2();
+      default: return _buildStep0();
+    }
+  }
+
+  Widget _buildBottomActionBar() {
     return Container(
+      padding: EdgeInsets.fromLTRB(20, 15, 20, 30),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _borderColor),
-        color: _cardColor,
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 15, offset: Offset(0, -5))
+        ],
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Row(
         children: [
-          Expanded(
-            child: InkWell(
-              onTap: () => setState(() => _isForRent = true),
-              child: Container(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: _isForRent ? _primaryColor : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
-                  child: Text(
-                    'Location',
-                    style: GoogleFonts.roboto(
-                      color: _isForRent ? Colors.white : _greyColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+          if (_currentStep > 0)
+            Container(
+              margin: EdgeInsets.only(right: 12),
+              child: IconButton(
+                onPressed: () {
+                   setState(() {
+                    _currentStep--;
+                  });
+                },
+                icon: Icon(Icons.arrow_back_ios_new_rounded, color: _primaryColor),
+                style: IconButton.styleFrom(
+                  backgroundColor: _primaryColor.withOpacity(0.1),
+                  padding: EdgeInsets.all(16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
               ),
             ),
-          ),
           Expanded(
-            child: InkWell(
-              onTap: () => setState(() => _isForRent = false),
-              child: Container(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: !_isForRent ? _primaryColor : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
+            child: Container(
+              height: 58,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                gradient: _isLoading ? null : LinearGradient(
+                  colors: [_primaryColor, _secondaryColor],
                 ),
-                child: Center(
-                  child: Text(
-                    'Vente',
-                    style: GoogleFonts.roboto(
-                      color: !_isForRent ? Colors.white : _greyColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.3),
+                    blurRadius: 12,
+                    offset: Offset(0, 6)
+                  )
+                ],
+              ),
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : (_currentStep < 2 ? () => setState(() => _currentStep++) : _handleUpdate),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                 ),
+                child: _isLoading ? SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : Text(
+                        _currentStep < 2 ? "Continuer" : "Enregistrer",
+                        style: GoogleFonts.outfit(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
               ),
             ),
           ),
@@ -657,51 +612,426 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     );
   }
 
-  Widget _buildDropdown(String label, String? value, List<String> items, Function(String?) onChanged, IconData icon) {
+  Widget _buildStep0() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildModernSectionHeader(
+          icon: Icons.photo_camera_rounded,
+          title: 'Gestion des visuels',
+          subtitle: 'Les annonces avec photos sont 5x plus consultées',
+        ),
+        SizedBox(height: 25),
+        ..._imageCategories.map((category) => _buildModernImageCategorySection(category)),
+      ],
+    );
+  }
+
+  Widget _buildStep1() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildModernSectionHeader(
+          icon: Icons.info_outline_rounded,
+          title: 'Informations de base',
+          subtitle: 'Définissez le type de transaction et les détails',
+        ),
+        SizedBox(height: 25),
+        
+        Text(
+          "Type de transaction",
+          style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: _darkColor),
+        ),
+        SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildAudaciousTypeCard(
+                title: "À louer",
+                subtitle: "Location",
+                isSelected: _isForRent,
+                iconPath: Icons.key_rounded,
+                onTap: () => setState(() => _isForRent = true),
+              ),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: _buildAudaciousTypeCard(
+                title: "À vendre",
+                subtitle: "Vente directe",
+                isSelected: !_isForRent,
+                iconPath: Icons.sell_rounded,
+                onTap: () => setState(() => _isForRent = false),
+              ),
+            ),
+          ],
+        ),
+        
+        SizedBox(height: 25),
+        _buildSectionHeader(
+          icon: Icons.notes_rounded,
+          title: 'Description',
+        ),
+        SizedBox(height: 16),
+        _buildModernTextField(_titleController, 'Titre accrocheur', Icons.title_rounded, isRequired: true),
+        SizedBox(height: 16),
+        _buildModernTextField(_descriptionController, 'Description complète', Icons.description_rounded,
+            maxLines: 4, isRequired: true),
+            
+        SizedBox(height: 25),
+        _buildSectionHeader(
+          icon: Icons.payments_outlined,
+          title: 'Aspects financiers',
+        ),
+        SizedBox(height: 16),
+        _buildModernTextField(_priceController, 'Prix (${_isForRent ? "\$/mois" : "\$"})', Icons.attach_money_rounded,
+            keyboardType: TextInputType.number, isRequired: true),
+        if (_isForRent) ...[
+          SizedBox(height: 16),
+          _buildModernTextField(_guaranteeController, 'Mois de garantie', Icons.security_rounded,
+              keyboardType: TextInputType.number),
+        ],
+        
+        SizedBox(height: 25),
+        _buildSectionHeader(
+          icon: Icons.home_work_outlined,
+          title: 'Type de bien',
+        ),
+        SizedBox(height: 16),
+        _buildPropertyTypeSelector(),
+        
+        SizedBox(height: 25),
+        _buildSectionHeader(
+          icon: Icons.straighten_rounded,
+          title: 'Espaces & Dimensions',
+        ),
+        SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: _buildModernTextField(_areaController, 'Surface m²', Icons.square_foot_rounded,
+                keyboardType: TextInputType.number)),
+            SizedBox(width: 16),
+            Expanded(child: _buildModernTextField(_roomsController, 'Pièces', Icons.meeting_room_rounded,
+                keyboardType: TextInputType.number)),
+          ],
+        ),
+        SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: _buildModernTextField(_bedroomsController, 'Chambres', Icons.bed_rounded,
+                keyboardType: TextInputType.number)),
+            SizedBox(width: 16),
+            Expanded(child: _buildModernTextField(_bathroomsController, 'Salles de bain',
+                Icons.bathroom_rounded, keyboardType: TextInputType.number)),
+          ],
+        ),
+        
+        SizedBox(height: 30),
+        _buildModernSectionHeader(
+          icon: Icons.checklist_rounded,
+          title: 'Services & Équipements',
+          subtitle: 'Améliorez l\'attractivité de votre bien',
+        ),
+        SizedBox(height: 16),
+        _buildElectricWaterSelector(),
+        SizedBox(height: 20),
+        _buildAmenitiesSection(),
+      ],
+    );
+  }
+
+  Widget _buildStep2() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildModernSectionHeader(
+          icon: Icons.location_on_rounded,
+          title: 'Emplacement',
+          subtitle: 'La localisation exacte aide les clients à se projeter',
+        ),
+        SizedBox(height: 25),
+        _buildModernTextField(_addressController, 'Adresse physique exact', Icons.home_rounded,
+            isRequired: true),
+        SizedBox(height: 20),
+        
+        Container(
+          padding: EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _primaryColor.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _primaryColor.withOpacity(0.1)),
+          ),
+          child: Column(
+            children: [
+              if (_isKinshasaSelected) ...[
+                _buildModernLocationDropdown<CityModel>(
+                  'Ville',
+                  _selectedCity,
+                  _availableCities,
+                  (city) => city.name ?? '',
+                  (city) async {
+                    setState(() { _selectedCity = city; _selectedDistrict = null; _selectedCommune = null; _selectedQuartier = null; });
+                    if (city?.name?.toLowerCase() == 'kinshasa') _loadDistricts();
+                  },
+                  Icons.location_city_rounded,
+                ),
+                if (_selectedCity != null) ...[
+                  SizedBox(height: 12),
+                  _buildModernLocationDropdown<DistrictModel>(
+                    'District', _selectedDistrict, _availableDistricts, (d) => d.name ?? '',
+                    (d) async { setState(() { _selectedDistrict = d; _selectedCommune = null; _selectedQuartier = null; }); await _loadCommunes(); },
+                    Icons.map_rounded,
+                  ),
+                ],
+                if (_selectedDistrict != null) ...[
+                  SizedBox(height: 12),
+                  _buildModernLocationDropdown<CommuneModel>(
+                    'Commune', _selectedCommune, _availableCommunes, (c) => c.name ?? '',
+                    (c) async { setState(() { _selectedCommune = c; _selectedQuartier = null; }); await _loadQuartiers(); },
+                    Icons.location_on_rounded,
+                  ),
+                ],
+                if (_selectedCommune != null) ...[
+                  SizedBox(height: 12),
+                  _buildModernLocationDropdown<QuartierModel>(
+                    'Quartier', _selectedQuartier, _availableQuartiers, (q) => q.name ?? '',
+                    (q) => setState(() => _selectedQuartier = q),
+                    Icons.place_rounded,
+                  ),
+                ],
+              ] else ...[
+                _buildModernTextField(_cityTextController, 'Ville', Icons.location_city_rounded),
+                SizedBox(height: 12),
+                _buildModernTextField(_communeTextController, 'Commune', Icons.map_rounded),
+                SizedBox(height: 12),
+                _buildModernTextField(_quartierTextController, 'Quartier', Icons.place_rounded),
+              ],
+            ],
+          ),
+        ),
+        SizedBox(height: 20),
+        _buildModernTextField(_postalCodeController, 'Code postal', Icons.markunread_mailbox_rounded),
+      ],
+    );
+  }
+
+  Widget _buildModernSectionHeader({required IconData icon, required String title, required String subtitle}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: _primaryColor, size: 24),
+            ),
+            SizedBox(width: 12),
+            Text(title, style: _titleStyle.copyWith(fontSize: 20)),
+          ],
+        ),
+        SizedBox(height: 4),
+        Padding(
+          padding: const EdgeInsets.only(left: 48),
+          child: Text(subtitle, style: _subtitleStyle.copyWith(fontSize: 14)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader({required IconData icon, required String title}) {
+    return Row(
+      children: [
+        Icon(icon, color: _primaryColor, size: 20),
+        SizedBox(width: 10),
+        Text(
+          title, 
+          style: GoogleFonts.outfit(fontSize: 15, fontWeight: FontWeight.bold, color: _darkColor.withOpacity(0.8))
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModernTextField(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    int maxLines = 1,
+    TextInputType? keyboardType,
+    bool isRequired = false,
+  }) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _borderColor),
-        color: _cardColor,
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: Offset(0, 4))
+        ],
       ),
-      child: DropdownButtonFormField<String>(
-        value: value,
+      child: TextFormField(
+        controller: controller,
+        maxLines: maxLines,
+        keyboardType: keyboardType,
+        style: GoogleFonts.outfit(fontWeight: FontWeight.w500),
         decoration: InputDecoration(
-          labelText: label,
-          prefixIcon: Icon(icon, color: _primaryColor),
-          border: InputBorder.none,
+          labelText: label + (isRequired ? ' *' : ''),
+          labelStyle: GoogleFonts.outfit(color: _greyColor, fontSize: 14),
+          prefixIcon: Icon(icon, color: _primaryColor, size: 20),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: _borderColor),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: _borderColor),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: _primaryColor, width: 2),
+          ),
+          filled: true,
+          fillColor: Colors.white,
           contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         ),
-        items: items.map((item) {
-          return DropdownMenuItem(
-            value: item,
-            child: Text(item),
-          );
-        }).toList(),
-        onChanged: onChanged,
+        validator: isRequired ? (v) => v == null || v.isEmpty ? 'Champ requis' : null : null,
       ),
     );
   }
 
-  Widget _buildElectricWaterSection() {
+  Widget _buildAudaciousTypeCard({
+    required String title,
+    required String subtitle,
+    required bool isSelected,
+    required IconData iconPath,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 300),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        height: 80,
+        decoration: BoxDecoration(
+          color: isSelected ? _primaryColor : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? _primaryColor : _borderColor, width: 2),
+          boxShadow: isSelected ? [
+            BoxShadow(color: _primaryColor.withOpacity(0.3), blurRadius: 12, offset: Offset(0, 6))
+          ] : null,
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isSelected ? Colors.white24 : _primaryColor.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(iconPath, color: isSelected ? Colors.white : _primaryColor, size: 22),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.outfit(
+                      color: isSelected ? Colors.white : _darkColor,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.outfit(
+                      color: isSelected ? Colors.white70 : _greyColor,
+                      fontSize: 11,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPropertyTypeSelector() {
+    final types = [
+      {'val': 'Studio', 'lab': 'Studio', 'icon': Icons.home_outlined},
+      {'val': 'Apparts', 'lab': 'Appart', 'icon': Icons.apartment_rounded},
+      {'val': 'Maisons', 'lab': 'Maison', 'icon': Icons.cottage_outlined},
+      {'val': 'Bureau', 'lab': 'Bureau', 'icon': Icons.work_outline_rounded},
+    ];
+
+    return Container(
+      height: 90,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: types.length,
+        separatorBuilder: (_, __) => SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final t = types[index];
+          final sel = _selectedCategory == t['val'];
+          return GestureDetector(
+            onTap: () => setState(() => _selectedCategory = t['val'] as String),
+            child: AnimatedContainer(
+              duration: Duration(milliseconds: 200),
+              width: 85,
+              decoration: BoxDecoration(
+                color: sel ? _primaryColor : Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: sel ? _primaryColor : _borderColor),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(t['icon'] as IconData, color: sel ? Colors.white : _primaryColor, size: 24),
+                  SizedBox(height: 6),
+                  Text(
+                    t['lab'] as String,
+                    style: GoogleFonts.outfit(
+                      fontSize: 12, 
+                      fontWeight: sel ? FontWeight.bold : FontWeight.w500,
+                      color: sel ? Colors.white : _darkColor
+                    ),
+                  )
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildElectricWaterSelector() {
     return Row(
       children: [
         Expanded(
-          child: _buildDropdown(
-            'Électricité',
-            _selectedElectric,
-            _electricOptions.map((e) => e['value'] as String).toList(),
-            (value) => setState(() => _selectedElectric = value),
-            Icons.flash_on_rounded,
+          child: _buildModernLocationDropdown<String>(
+            'Électricité', _selectedElectric, _electricOptions.map((e) => e['value'] as String).toList(),
+            (v) => _electricOptions.firstWhere((e) => e['value'] == v)['label'],
+            (v) => setState(() => _selectedElectric = v),
+            Icons.bolt_rounded,
           ),
         ),
-        SizedBox(width: 16),
+        SizedBox(width: 12),
         Expanded(
-          child: _buildDropdown(
-            'Eau',
-            _selectedWater,
-            _waterOptions.map((e) => e['value'] as String).toList(),
-            (value) => setState(() => _selectedWater = value),
+          child: _buildModernLocationDropdown<String>(
+            'Eau', _selectedWater, _waterOptions.map((e) => e['value'] as String).toList(),
+            (v) => _waterOptions.firstWhere((e) => e['value'] == v)['label'],
+            (v) => setState(() => _selectedWater = v),
             Icons.water_drop_rounded,
           ),
         ),
@@ -734,134 +1064,106 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     );
   }
 
-  Widget _buildImageCategorySection(ImageCategory category) {
+  Widget _buildModernImageCategorySection(ImageCategory category) {
     final existingUrls = _existingImageUrls[category.id] ?? [];
     final newImages = _newImages[category.id] ?? [];
 
     return Container(
-      margin: EdgeInsets.only(bottom: 24),
+      margin: EdgeInsets.only(bottom: 20),
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _borderColor),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _borderColor.withOpacity(0.5)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: Offset(0, 4))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(category.icon, color: category.color, size: 20),
-              SizedBox(width: 8),
-              Text(
-                category.name,
-                style: GoogleFonts.roboto(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: _darkColor,
-                ),
+              Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(color: _primaryColor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+                child: Icon(category.icon, color: _primaryColor, size: 18),
               ),
+              SizedBox(width: 12),
+              Text(category.name, style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.bold, color: _darkColor)),
+              Spacer(),
+              Text("${existingUrls.length + newImages.length} photos", style: GoogleFonts.outfit(fontSize: 12, color: _greyColor)),
             ],
           ),
           SizedBox(height: 16),
-          // Images existantes
-          if (existingUrls.isNotEmpty) ...[
-            Text(
-              'Images existantes',
-              style: GoogleFonts.roboto(fontSize: 12, color: _greyColor),
-            ),
-            SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: existingUrls.map((url) {
-                  return Container(
-                    margin: EdgeInsets.only(right: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                // Bouton AJOUTER au début
+                GestureDetector(
+                  onTap: () => _pickImages(category.id),
+                  child: Container(
                     width: 100,
                     height: 100,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: _borderColor),
+                      color: _primaryColor.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: _primaryColor.withOpacity(0.2), style: BorderStyle.none),
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: CachedNetworkImage(
-                        imageUrl: url,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(
-                          color: _lightColor,
-                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                        ),
-                        errorWidget: (context, url, error) => Icon(Icons.error),
-                      ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add_photo_alternate_rounded, color: _primaryColor, size: 30),
+                        SizedBox(height: 4),
+                        Text("Ajouter", style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: _primaryColor)),
+                      ],
                     ),
-                  );
-                }).toList(),
-              ),
-            ),
-            SizedBox(height: 16),
-          ],
-          // Nouvelles images
-          if (newImages.isNotEmpty) ...[
-            Text(
-              'Nouvelles images',
-              style: GoogleFonts.roboto(fontSize: 12, color: _greyColor),
-            ),
-            SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: newImages.asMap().entries.map((entry) {
-                final index = entry.key;
-                final image = entry.value;
-                return Stack(
-                  children: [
-                    Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: _borderColor),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.file(
-                          File(image.path),
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: -8,
-                      right: -8,
-                      child: IconButton(
-                        icon: Icon(Icons.close_rounded, color: _errorColor),
-                        onPressed: () {
-                          setState(() {
-                            _newImages[category.id]!.removeAt(index);
-                          });
-                        },
-                      ),
-                    ),
-                  ],
-                );
-              }).toList(),
-            ),
-            SizedBox(height: 16),
-          ],
-          // Bouton ajouter
-          ElevatedButton.icon(
-            onPressed: () => _pickImages(category.id),
-            icon: Icon(Icons.add_photo_alternate_rounded),
-            label: Text('Ajouter des photos'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _primaryColor,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  ),
+                ),
+                SizedBox(width: 12),
+                // Nouvelles images
+                ...newImages.asMap().entries.map((e) => _buildImageThumbnail(File(e.value.path), isFile: true, onDelete: () {
+                  setState(() { _newImages[category.id]!.removeAt(e.key); });
+                })),
+                // Images existantes
+                ...existingUrls.map((url) => _buildImageThumbnail(url, isFile: false)),
+              ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImageThumbnail(dynamic source, {bool isFile = false, VoidCallback? onDelete}) {
+    return Container(
+      margin: EdgeInsets.only(right: 12),
+      width: 100,
+      height: 100,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 5)],
+      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: isFile ? Image.file(source as File, fit: BoxFit.cover, width: 100, height: 100)
+                : CachedNetworkImage(imageUrl: source as String, fit: BoxFit.cover, width: 100, height: 100),
+          ),
+          if (onDelete != null)
+            Positioned(
+              top: -8,
+              right: -8,
+              child: GestureDetector(
+                onTap: onDelete,
+                child: Container(
+                  padding: EdgeInsets.all(4),
+                  decoration: BoxDecoration(color: _errorColor, shape: BoxShape.circle),
+                  child: Icon(Icons.close_rounded, color: Colors.white, size: 14),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -880,215 +1182,37 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     }
   }
 
-  // Location dropdowns
-  Widget _buildCityDropdown() {
-    return _buildLocationDropdown<CityModel>(
-      'Ville',
-      _selectedCity,
-      _availableCities,
-      (city) => city.name ?? '',
-      (city) async {
-        setState(() {
-          _selectedCity = city;
-          _selectedDistrict = null;
-          _selectedCommune = null;
-          _selectedQuartier = null;
-        });
-        
-        // Charger districts si Kinshasa
-        if (city?.name?.toLowerCase() == 'kinshasa') {
-          _loadDistricts();
-        }
-      },
-      Icons.location_city_rounded,
-    );
-  }
-
-  Widget _buildDistrictDropdown() {
-    return _buildLocationDropdown<DistrictModel>(
-      'District',
-      _selectedDistrict,
-      _availableDistricts,
-      (district) => district.name ?? '',
-      (district) async {
-        setState(() {
-          _selectedDistrict = district;
-          _selectedCommune = null;
-          _selectedQuartier = null;
-        });
-        await _loadCommunes();
-      },
-      Icons.map_rounded,
-    );
-  }
-
-  Widget _buildCommuneDropdown() {
-    return _buildLocationDropdown<CommuneModel>(
-      'Commune',
-      _selectedCommune,
-      _availableCommunes,
-      (commune) => commune.name ?? '',
-      (commune) async {
-        setState(() {
-          _selectedCommune = commune;
-          _selectedQuartier = null;
-        });
-        await _loadQuartiers();
-      },
-      Icons.location_on_rounded,
-    );
-  }
-
-  Widget _buildQuartierDropdown() {
-    return _buildLocationDropdown<QuartierModel>(
-      'Quartier',
-      _selectedQuartier,
-      _availableQuartiers,
-      (quartier) => quartier.name ?? '',
-      (quartier) => setState(() => _selectedQuartier = quartier),
-      Icons.place_rounded,
-    );
-  }
-
-  Future<void> _loadDistricts() async {
-    final locationCtrl = Provider.of<LocationController>(context, listen: false);
-    await locationCtrl.getAllDistricts();
-    if (mounted) {
-      setState(() {
-        _availableDistricts = locationCtrl.getDistrictsForCity(_selectedCity?.cityId ?? 1);
-      });
-    }
-  }
-
-  Future<void> _loadCommunes() async {
-    if (_selectedDistrict?.districtId == null) return;
-    final locationCtrl = Provider.of<LocationController>(context, listen: false);
-    await locationCtrl.getAllCommunes();
-    if (mounted) {
-      setState(() {
-        _availableCommunes = locationCtrl.getCommunesForDistrict(_selectedDistrict!.districtId!);
-      });
-    }
-  }
-
-  Future<void> _loadQuartiers() async {
-    if (_selectedCommune?.communeId == null) return;
-    final locationCtrl = Provider.of<LocationController>(context, listen: false);
-    await locationCtrl.getAllQuartiers();
-    if (mounted) {
-      setState(() {
-        _availableQuartiers = locationCtrl.getQuartiersForCommune(_selectedCommune!.communeId!);
-      });
-    }
-  }
-
-  Widget _buildLocationDropdown<T>(
-    String label,
-    T? selected,
-    List<T> items,
-    String Function(T) getLabel,
-    Function(T?) onChanged,
-    IconData icon,
+  Widget _buildModernLocationDropdown<T>(
+    String label, T? val, List<T> items, String Function(T) getLab, Function(T?) onChanged, IconData icon
   ) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: _borderColor),
-        color: _cardColor,
       ),
       child: DropdownButtonFormField<T>(
-        value: selected,
+        value: val,
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: Icon(icon, color: _primaryColor),
+          labelStyle: GoogleFonts.outfit(color: _greyColor, fontSize: 13),
+          prefixIcon: Icon(icon, color: _primaryColor, size: 18),
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         ),
-        items: items.map((item) {
-          return DropdownMenuItem(
-            value: item,
-            child: Text(getLabel(item)),
-          );
-        }).toList(),
+        items: items.map((i) => DropdownMenuItem(value: i, child: Text(getLab(i), style: GoogleFonts.outfit(fontSize: 14)))).toList(),
         onChanged: onChanged,
+        icon: Icon(Icons.expand_more_rounded, color: _greyColor),
       ),
     );
   }
 
-  Widget _buildBottomNavigationBar() {
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: Offset(0, -2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          if (_currentStep > 0)
-            OutlinedButton(
-              onPressed: () {
-                _pageController.previousPage(
-                  duration: Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                );
-                setState(() => _currentStep--);
-              },
-              child: Text('Précédent'),
-              style: OutlinedButton.styleFrom(
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              ),
-            ),
-          SizedBox(width: 16),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: _currentStep < 2
-                  ? () {
-                      _pageController.nextPage(
-                        duration: Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      );
-                      setState(() => _currentStep++);
-                    }
-                  : _isLoading
-                      ? null
-                      : _handleUpdate,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _primaryColor,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: _isLoading
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : Text(
-                      _currentStep < 2 ? 'Suivant' : 'Enregistrer les modifications',
-                      style: GoogleFonts.roboto(fontWeight: FontWeight.w600),
-                    ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   Future<void> _handleUpdate() async {
     if (!_formKey.currentState!.validate()) {
-      return;
+       SnackBarHelper.show(context, "Veuillez remplir correctement tous les champs obligatoires", isError: true);
+       return;
     }
 
     setState(() => _isLoading = true);
@@ -1096,50 +1220,56 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     try {
       final GetStorage storage = GetStorage();
       final dynamic userData = storage.read(StockageKeys.userKey);
-      final userId = userData?['userId'] ?? userData?['user']?['userId'];
+      final dynamic profileData = storage.read(StockageKeys.profileKey);
+      
+      final userId = userData?['userId'] ?? userData?['user']?['userId'] ?? profileData?['id'] ?? userData?['profile']?['id'];
+      final uId = userId != null ? (userId is int ? userId : int.tryParse(userId.toString()) ?? 0) : 0;
+      
+      print("🛠️ DEBUG UPDATE - uId: $uId, propertyId: ${widget.property.propertyId}");
 
-      if (userId == null || widget.property.propertyId == null) {
-        FancyNotification.show(context, "Erreur: Données manquantes", type: NotificationType.error);
+      if (uId == 0 || widget.property.propertyId == null) {
+        SnackBarHelper.show(context, "Erreur Fatale: Impossible de déterminer votre identité ou ID propriété", isError: true);
+        setState(() => _isLoading = false);
         return;
       }
 
       // Préparer les données
       final propertyData = await _prepareUpdateData();
+      print("📤 PAYLOAD ENVOYÉ: ${jsonEncode(propertyData).substring(0, 200)}...");
 
-      // Appeler l'API de mise à jour
+      // Appeler l'API
       final ctrl = Provider.of<PropertyController>(context, listen: false);
       final res = await ctrl.updatePropertyByOwner(
-        int.parse(userId.toString()),
+        uId,
         widget.property.propertyId!,
         propertyData,
       );
 
+      print("📥 REPONSE API: ${res.status}, Error: ${res.errorMsg}");
+
       if (res.status == true) {
-        FancyNotification.show(
-          context,
-          "Propriété modifiée avec succès!",
-          type: NotificationType.success,
-        );
-        Navigator.pop(context, true); // Retourner avec succès
+        SnackBarHelper.show(context, "Succès ! Votre annonce a été mise à jour.");
+        Navigator.pop(context, true);
       } else {
-        FancyNotification.show(
-          context,
-          res.errorMsg ?? "Erreur lors de la modification",
-          type: NotificationType.error,
-        );
+        // Afficher plus de détails sur l'erreur
+        String errorDetail = res.errorMsg ?? "Erreur inconnue";
+        if (res.data != null && res.data is Map) {
+           errorDetail += " Details: ${res.data['message'] ?? res.data['error'] ?? ''}";
+        }
+        
+        SnackBarHelper.show(context, errorDetail, isError: true);
       }
-    } catch (e) {
-      FancyNotification.show(
-        context,
-        "Erreur: ${e.toString()}",
-        type: NotificationType.error,
-      );
+    } catch (e, stackTrace) {
+      print("❌ CRITICAL ERROR DURING UPDATE: $e");
+      print("🔍 STACKTRACE: $stackTrace");
+      SnackBarHelper.show(context, "Erreur Critique: ${e.toString()}", isError: true);
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  // Suppression de _showErrorDialog car on utilise SnackBarHelper désormais
+
 
   Future<Map<String, dynamic>> _prepareUpdateData() async {
     final GetStorage storage = GetStorage();
@@ -1250,7 +1380,8 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     propertyData["images"] = imagesPayload;
 
     // Ajout userId si disponible
-    final userId = userData?['userId'] ?? userData?['user']?['userId'] ?? widget.property.userId;
+    final dynamic profileData = storage.read(StockageKeys.profileKey);
+    final userId = userData?['userId'] ?? userData?['user']?['userId'] ?? profileData?['id'] ?? userData?['profile']?['id'] ?? widget.property.userId;
     if (userId != null) {
       (propertyData["property"] as Map<String, dynamic>)["userId"] = userId;
     }
@@ -1258,54 +1389,36 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     return propertyData;
   }
 
-  Widget _buildPropertyTypeDropdown() {
-    final propertyTypes = [
-      {'value': 'Studio', 'label': 'Studios', 'id': 1},
-      {'value': 'Apparts', 'label': 'Apparts', 'id': 2},
-      {'value': 'Maisons', 'label': 'Maisons', 'id': 3},
-      {'value': 'Bureau', 'label': 'Bureaux', 'id': 4},
-      {'value': 'Hotels', 'label': 'Hotels', 'id': 5},
-      {'value': 'Vacances', 'label': 'Vacances', 'id': 6},
-    ];
-
-    // Trouver le type actuel depuis propertyTypeId
-    String? currentValue = _selectedCategory;
-    if (currentValue == null && widget.property.propertyTypeId != null) {
-      try {
-        final currentType = propertyTypes.firstWhere(
-          (type) => type['id'] == widget.property.propertyTypeId,
-        );
-        currentValue = currentType['value'] as String;
-        _selectedCategory = currentValue;
-      } catch (e) {
-        currentValue = 'Apparts'; // Par défaut
-        _selectedCategory = currentValue;
-      }
+  Future<void> _loadDistricts() async {
+    final locationCtrl = Provider.of<LocationController>(context, listen: false);
+    await locationCtrl.getAllDistricts();
+    if (mounted) {
+      setState(() {
+        _availableDistricts = locationCtrl.getDistrictsForCity(_selectedCity?.cityId ?? 1);
+      });
     }
+  }
 
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _borderColor),
-        color: _cardColor,
-      ),
-      child: DropdownButtonFormField<String>(
-        value: currentValue,
-        decoration: InputDecoration(
-          labelText: 'Type de propriété *',
-          prefixIcon: Icon(Icons.category_rounded, color: _primaryColor),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        ),
-        items: propertyTypes.map((type) {
-          return DropdownMenuItem(
-            value: type['value'] as String,
-            child: Text(type['label'] as String),
-          );
-        }).toList(),
-        onChanged: (value) => setState(() => _selectedCategory = value),
-      ),
-    );
+  Future<void> _loadCommunes() async {
+    if (_selectedDistrict?.districtId == null) return;
+    final locationCtrl = Provider.of<LocationController>(context, listen: false);
+    await locationCtrl.getAllCommunes();
+    if (mounted) {
+      setState(() {
+        _availableCommunes = locationCtrl.getCommunesForDistrict(_selectedDistrict!.districtId!);
+      });
+    }
+  }
+
+  Future<void> _loadQuartiers() async {
+    if (_selectedCommune?.communeId == null) return;
+    final locationCtrl = Provider.of<LocationController>(context, listen: false);
+    await locationCtrl.getAllQuartiers();
+    if (mounted) {
+      setState(() {
+        _availableQuartiers = locationCtrl.getQuartiersForCommune(_selectedCommune!.communeId!);
+      });
+    }
   }
 
   int? _getPropertyTypeId(String? category) {
