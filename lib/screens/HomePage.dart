@@ -61,7 +61,12 @@ class _HomePageState extends State<HomePage> {
       
       propertyCtrl.getAllProperty().then((_) {
         _logHomePageLoaded(propertyCtrl.properties.length);
+        // Charger les catégories spéciales APRÈS les propriétés urgentes
+        propertyCtrl.syncAllSpecialCategories();
       });
+
+      // Charger les types de propriété dynamiquement
+      propertyCtrl.fetchAndSyncPropertyTypes();
       
       // Charger tous les services
       serviceCtrl.fetchServices();
@@ -1524,58 +1529,22 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildCategorySection() {
-    final categories = [
-      {
-        'image': 'assets/images/studio.png',
-        'label': 'Studios',
-        'value': 'Studio',
-      },
-      {
-        'image': 'assets/images/apart.png',
-        'label': 'Apparts',
-        'value': 'Apparts',
-      },
-      {
-        'image': 'assets/images/maison.png',
-        'label': 'Maisons',
-        'value': 'Maisons',
-      },
-      {
-        'image': 'assets/images/office.png',
-        'label': 'Bureaux',
-        'value': 'Bureau',
-      },
-      {
-        'image': 'assets/images/hotel.png',
-        'label': 'Hotels',
-        'value': 'Hotels',
-      },
-      {
-        'image': 'assets/images/plage.png',
-        'label': 'Vacances',
-        'value': 'Vacances',
-      },
-      {
-        'image': 'assets/images/Terrain.png',
-        'label': 'Terrain',
-        'value': 'Terrain',
-      },
-      {
-        'image': 'assets/images/fete.png',
-        'label': 'Salle de fête',
-        'value': 'Salle de fête',
-      },
-      {
-        'image': 'assets/images/funebre.png',
-        'label': 'Salle funéraires',
-        'value': 'Salle funéraires',
-      },
-      {
-        'image': 'assets/images/Entrepot.png',
-        'label': 'Entrepôt',
-        'value': 'Entrepôt',
-      },
-    ];
+    final propertyCtrl = Provider.of<PropertyController>(context);
+    
+    // Si la liste est vide, on utilise une liste de fallback pour éviter un écran vide au premier démarrage
+    final List<Map<String, dynamic>> categories = propertyCtrl.propertyTypes.isNotEmpty 
+      ? propertyCtrl.propertyTypes.map((type) => {
+          'propertyTypeId': type['propertyTypeId'],
+          'label': type['name'],
+          'image': _getCategoryImage(type['name'] ?? ''),
+          'value': _getCategoryValue(type['name'] ?? ''),
+        }).toList()
+      : [
+          {'label': 'Studios', 'image': 'assets/images/studio.png', 'value': 'Studio'},
+          {'label': 'Apparts', 'image': 'assets/images/apart.png', 'value': 'Apparts'},
+          {'label': 'Maisons', 'image': 'assets/images/maison.png', 'value': 'Maisons'},
+          {'label': 'Bureaux', 'image': 'assets/images/office.png', 'value': 'Bureau'},
+        ];
 
     return Container(
       margin: EdgeInsets.only(bottom: 8),
@@ -3048,5 +3017,31 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
+  }
+  String _getCategoryImage(String name) {
+    String n = name.toLowerCase();
+    if (n.contains('studio')) return 'assets/images/studio.png';
+    if (n.contains('appart')) return 'assets/images/apart.png';
+    if (n.contains('maison') || n.contains('villa')) return 'assets/images/maison.png';
+    if (n.contains('bureau') || n.contains('office')) return 'assets/images/office.png';
+    if (n.contains('hotel')) return 'assets/images/hotel.png';
+    if (n.contains('vacance')) return 'assets/images/plage.png';
+    if (n.contains('fête')) return 'assets/images/fete.png';
+    if (n.contains('funérair')) return 'assets/images/funebre.png';
+    if (n.contains('entrepôt')) return 'assets/images/Entrepot.png';
+    if (n.contains('terrain')) return 'assets/images/Terrain.png';
+    return 'assets/images/apart.png'; // Fallback
+  }
+
+  String _getCategoryValue(String name) {
+    if (name.contains('Studio')) return 'Studio';
+    if (name.contains('Apparts')) return 'Apparts';
+    if (name.contains('Maisons')) return 'Maisons';
+    if (name.contains('Bureau')) return 'Bureau';
+    if (name.contains('Hotels')) return 'Hotels';
+    if (name.contains('Vacances')) return 'Vacances';
+    if (name.contains('funéraire')) return 'Salle funéraires';
+    if (name.contains('fête')) return 'Salle de fête';
+    return name;
   }
 }
