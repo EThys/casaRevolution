@@ -8,6 +8,7 @@ import 'package:casa/models/CommuneModel.dart';
 import 'package:casa/models/DistrictModel.dart';
 import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
@@ -24,7 +25,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../utils/StockageKeys.dart';
-import '../utils/requetes.dart' show HttpResponse;
+import '../utils/requetes.dart' show HttpResponse, deleteData;
 
 class EditPropertyPage extends StatefulWidget {
   final PropertyModel property;
@@ -93,6 +94,7 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
   String? _selectedCategory;
   String? _selectedElectric;
   String? _selectedWater;
+  int _selectedDeviseId = 2; // Default to USD (2)
 
   // Location variables
   CityModel? _selectedCity;
@@ -246,6 +248,7 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     _cityTextController.text = property.cityValue ?? '';
     _communeTextController.text = property.communeValue ?? '';
     _quartierTextController.text = property.quartierValue ?? '';
+    _selectedDeviseId = property.deviseId ?? 2;
 
     // Images existantes (URLs)
     _existingImageUrls['propertyImage'] = property.propertyImage
@@ -686,6 +689,30 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
         SizedBox(height: 16),
         _buildModernTextField(_priceController, 'Prix (${_isForRent ? "\$/mois" : "\$"})', Icons.attach_money_rounded,
             keyboardType: TextInputType.number, isRequired: true),
+        
+        SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildDeviseOption(
+                label: 'FC (Franc Congolais)',
+                value: 1,
+                isSelected: _selectedDeviseId == 1,
+                onTap: () => setState(() => _selectedDeviseId = 1),
+              ),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: _buildDeviseOption(
+                label: '\$ (Dollar US)',
+                value: 2,
+                isSelected: _selectedDeviseId == 2,
+                onTap: () => setState(() => _selectedDeviseId = 2),
+              ),
+            ),
+          ],
+        ),
+
         if (_isForRent) ...[
           SizedBox(height: 16),
           _buildModernTextField(_guaranteeController, 'Mois de garantie', Icons.security_rounded,
@@ -1125,7 +1152,9 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
                   setState(() { _newImages[category.id]!.removeAt(e.key); });
                 })),
                 // Images existantes
-                ...existingUrls.map((url) => _buildImageThumbnail(url, isFile: false)),
+                ...existingUrls.asMap().entries.map((e) => _buildImageThumbnail(e.value, isFile: false, onDelete: () {
+                  _handleExistingImageDeletion(category.id, e.value, e.key);
+                })),
               ],
             ),
           ),
@@ -1153,14 +1182,24 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
           ),
           if (onDelete != null)
             Positioned(
-              top: -8,
-              right: -8,
+              top: 4,
+              right: 4,
               child: GestureDetector(
                 onTap: onDelete,
                 child: Container(
-                  padding: EdgeInsets.all(4),
-                  decoration: BoxDecoration(color: _errorColor, shape: BoxShape.circle),
-                  child: Icon(Icons.close_rounded, color: Colors.white, size: 14),
+                  padding: EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Icon(Icons.close_rounded, color: _errorColor, size: 18),
                 ),
               ),
             ),
@@ -1207,35 +1246,57 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     );
   }
 
-
+  Widget _buildDeviseOption({required String label, required int value, required bool isSelected, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? _primaryColor.withOpacity(0.05) : _lightColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? _primaryColor : _borderColor,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: GoogleFonts.outfit(
+              fontSize: 14,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              color: isSelected ? _primaryColor : _greyColor,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _handleUpdate() async {
     if (!_formKey.currentState!.validate()) {
-       SnackBarHelper.show(context, "Veuillez remplir correctement tous les champs obligatoires", isError: true);
+       SnackbarForCasa.error(context, "Veuillez remplir correctement tous les champs obligatoires");
        return;
     }
 
     setState(() => _isLoading = true);
 
     try {
-      final GetStorage storage = GetStorage();
-      final dynamic userData = storage.read(StockageKeys.userKey);
-      final dynamic profileData = storage.read(StockageKeys.profileKey);
-      
-      final userId = userData?['userId'] ?? userData?['user']?['userId'] ?? profileData?['id'] ?? userData?['profile']?['id'];
-      final uId = userId != null ? (userId is int ? userId : int.tryParse(userId.toString()) ?? 0) : 0;
+      final authCtrl = context.read<AuthentificationCtrl>();
+      final uId = authCtrl.user.userId ?? 0;
       
       print("🛠️ DEBUG UPDATE - uId: $uId, propertyId: ${widget.property.propertyId}");
 
       if (uId == 0 || widget.property.propertyId == null) {
-        SnackBarHelper.show(context, "Erreur Fatale: Impossible de déterminer votre identité ou ID propriété", isError: true);
+        SnackbarForCasa.error(context, "Erreur Fatale: Impossible de déterminer votre identité ou ID propriété");
         setState(() => _isLoading = false);
         return;
       }
 
       // Préparer les données
       final propertyData = await _prepareUpdateData();
-      print("📤 PAYLOAD ENVOYÉ: ${jsonEncode(propertyData).substring(0, 200)}...");
+      print("📤 PAYLOAD ENVOYÉ (FULL): ${jsonEncode(propertyData)}");
 
       // Appeler l'API
       final ctrl = Provider.of<PropertyController>(context, listen: false);
@@ -1245,24 +1306,31 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
         propertyData,
       );
 
-      print("📥 REPONSE API: ${res.status}, Error: ${res.errorMsg}");
+      print("📥 REPONSE API: Status=${res.status}, Error=${res.errorMsg}");
+      if (res.data != null) {
+        print("📥 DATA REPONSE: ${jsonEncode(res.data)}");
+      }
 
       if (res.status == true) {
-        SnackBarHelper.show(context, "Succès ! Votre annonce a été mise à jour.");
+        SnackbarForCasa.success(context, "Votre annonce a été mise à jour avec succès.");
         Navigator.pop(context, true);
       } else {
         // Afficher plus de détails sur l'erreur
-        String errorDetail = res.errorMsg ?? "Erreur inconnue";
+        String errorDetail = res.errorMsg ?? "Erreur lors de la mise à jour (Réponse API négative)";
         if (res.data != null && res.data is Map) {
-           errorDetail += " Details: ${res.data['message'] ?? res.data['error'] ?? ''}";
+           final Map dataMap = res.data as Map;
+           if (dataMap.containsKey('message')) errorDetail = dataMap['message'].toString();
+           else if (dataMap.containsKey('error')) errorDetail = dataMap['error'].toString();
+           else if (dataMap.containsKey('errors')) errorDetail = dataMap['errors'].toString();
         }
         
-        SnackBarHelper.show(context, errorDetail, isError: true);
+        print("❌ DETAIL ERREUR: $errorDetail");
+        SnackbarForCasa.error(context, errorDetail);
       }
     } catch (e, stackTrace) {
       print("❌ CRITICAL ERROR DURING UPDATE: $e");
       print("🔍 STACKTRACE: $stackTrace");
-      SnackBarHelper.show(context, "Erreur Critique: ${e.toString()}", isError: true);
+      SnackbarForCasa.error(context, "Erreur de connexion ou technique: ${e.toString()}");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -1273,63 +1341,55 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
 
   Future<Map<String, dynamic>> _prepareUpdateData() async {
     final GetStorage storage = GetStorage();
-    final dynamic userData = storage.read(StockageKeys.userKey);
     final dynamic profile = storage.read(StockageKeys.profileKey);
-    final String fullname = (profile is Map) ? (profile["fullname"] ?? "Utilisateur") : "Utilisateur";
+    final authCtrl = context.read<AuthentificationCtrl>();
+    final userId = authCtrl.user.userId;
 
-    final propertyData = <String, dynamic>{
-      "property": {
-        "title": _titleController.text.trim(),
-        "description": _descriptionController.text.trim(),
-        "price": double.tryParse(_priceController.text) ?? 5000.0,
-        "surface": double.tryParse(_areaController.text) ?? 0.1,
-        "rooms": int.tryParse(_roomsController.text) ?? 1,
-        "bedrooms": int.tryParse(_bedroomsController.text) ?? 1,
-        "kitchen": int.tryParse(_kitchensController.text) ?? 1,
-        "livingRoom": int.tryParse(_livingRoomsController.text) ?? 1,
-        "bathroom": int.tryParse(_bathroomsController.text) ?? 1,
-        "floor": int.tryParse(_floorController.text) ?? 1,
-        "electric": int.tryParse(_selectedElectric ?? '0') ?? 0,
-        "water": int.tryParse(_selectedWater ?? '0') ?? 0,
-        "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",
-        "sold": widget.property.sold ?? false,
-        "transactionType": _isForRent ? "location" : "vente",
-        "available": true,
-      },
-      "postBy": fullname,
-      "address": {
-        "address": _addressController.text.trim(),
-        "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : (widget.property.cityId ?? 1),
-        "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : widget.property.communeId,
-        "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : widget.property.quartierId,
-        "cityValue": _isKinshasaSelected ? "Kinshasa" : _cityTextController.text.trim(),
-        "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
-        "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
-        "postalCode": _postalCodeController.text.trim(),
-        "countryValue": "RDC",
-      },
-      "geoZone": {
-        "lat": _selectedLocation?.latitude ?? widget.property.latitude ?? 0.1,
-        "lng": _selectedLocation?.longitude ?? widget.property.longitude ?? 0.1,
-      },
-      "typeProperty": {
-        "propertyTypeId": _getPropertyTypeId(_selectedCategory) ?? 2,
-      },
+    // Flattened payload as requested by the API
+    final Map<String, dynamic> payload = {
+      "title": _titleController.text.trim(),
+      "description": _descriptionController.text.trim(),
+      "price": double.tryParse(_priceController.text) ?? 0.0,
+      "deviseId": _selectedDeviseId,
+      "surface": double.tryParse(_areaController.text) ?? 0.1,
+      "rooms": int.tryParse(_roomsController.text) ?? 1,
+      "bedrooms": int.tryParse(_bedroomsController.text) ?? 1,
+      "kitchen": int.tryParse(_kitchensController.text) ?? 1,
+      "livingRoom": int.tryParse(_livingRoomsController.text) ?? 1,
+      "bathroom": int.tryParse(_bathroomsController.text) ?? 1,
+      "floor": int.tryParse(_floorController.text) ?? 1,
+      "address": _addressController.text.trim(),
+      "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",
+      "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
+      "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
+      "quartier": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
+      "cityValue": _isKinshasaSelected ? "Kinshasa" : _cityTextController.text.trim(),
+      "countryValue": "RDC",
+      "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : (widget.property.cityId ?? 1),
+      "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : widget.property.communeId,
+      "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : widget.property.quartierId,
+      "electric": int.tryParse(_selectedElectric ?? '0') ?? 0,
+      "water": int.tryParse(_selectedWater ?? '0') ?? 0,
+      "postalCode": _postalCodeController.text.trim(),
+      "sold": widget.property.sold ?? false,
+      "transactionType": _isForRent ? "location" : "vente",
+      "propertyTypeId": _getPropertyTypeId(_selectedCategory) ?? 2,
+      "userId": userId,
+      "latitude": _selectedLocation?.latitude ?? widget.property.latitude ?? 0.1,
+      "longitude": _selectedLocation?.longitude ?? widget.property.longitude ?? 0.1,
       "features": _selectedAmenities.map((amenity) {
         return {
           "featureId": _getFeatureId(amenity),
-          "name": amenity,
         };
       }).toList(),
     };
 
     // Images
-    Map<String, dynamic> imagesPayload = {};
     for (var category in _imageCategories) {
       final categoryId = category.id;
       final List<Map<String, String>> imageList = [];
 
-      // Ajouter les URLs existantes (elles restent telles quelles)
+      // Ajouter les URLs existantes
       final existingUrls = _existingImageUrls[categoryId] ?? [];
       for (var url in existingUrls) {
         if (url.isNotEmpty) {
@@ -1337,56 +1397,118 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
         }
       }
 
-      // Ajouter les nouvelles images (converties en base64)
+      // Ajouter les nouvelles images (base64)
       final newImages = _newImages[categoryId] ?? [];
       for (var imageFile in newImages) {
         try {
           final file = File(imageFile.path);
           if (await file.exists()) {
             final bytes = await file.readAsBytes();
-            final base64String = base64Encode(bytes);
-            imageList.add({"image": base64String});
+            imageList.add({"image": base64Encode(bytes)});
           }
         } catch (e) {
-          print("❌ Erreur lors de la conversion de l'image ${imageFile.path}: $e");
+          print("❌ Erreur conversion image: $e");
         }
       }
 
-      // Mapper les catégories Flutter aux clés API
+      // Si aucune image, envoyer un tableau avec un objet vide comme demandé
+      if (imageList.isEmpty) {
+        imageList.add({"image": ""});
+      }
+
+      // Mapper aux clés API attendues
       switch (categoryId) {
         case 'propertyImage':
-          imagesPayload['main'] = imageList;
+          payload['propertyImage'] = imageList;
           break;
         case 'propertyImageRoom':
-          imagesPayload['room'] = imageList;
+          payload['propertyImageRoom'] = imageList;
           break;
         case 'propertyImageLivingRoom':
-          imagesPayload['living'] = imageList;
+          payload['propertyImageLivingRoom'] = imageList;
           break;
         case 'propertyImageKitchen':
-          imagesPayload['kitchen'] = imageList;
+          payload['propertyImageKitchen'] = imageList;
           break;
       }
     }
 
-    // S'assurer que tous les champs d'images existent
-    const requiredImageKeys = ['main', 'room', 'living', 'kitchen'];
-    for (var key in requiredImageKeys) {
-      if (!imagesPayload.containsKey(key)) {
-        imagesPayload[key] = [];
+    // Default placeholder for images if missing
+    payload['propertyImage'] ??= [{"image": ""}];
+    payload['propertyImageRoom'] ??= [{"image": ""}];
+    payload['propertyImageLivingRoom'] ??= [{"image": ""}];
+    payload['propertyImageKitchen'] ??= [{"image": ""}];
+
+    return payload;
+  }
+
+  Future<void> _handleExistingImageDeletion(String categoryId, String imageUrl, int index) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Supprimer l'image ?", style: GoogleFonts.outfit(fontWeight: FontWeight.bold)),
+        content: Text("Cette action est irréversible et supprimera l'image du serveur."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text("Annuler", style: GoogleFonts.outfit(color: _greyColor))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: _errorColor, foregroundColor: Colors.white),
+            child: Text("Supprimer"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final propertyId = widget.property.propertyId;
+      if (propertyId == null) throw "ID Propriété manquant";
+
+      // Préparer le payload selon le format demandé
+      final Map<String, dynamic> deletePayload = {
+        "propertyImage": [],
+        "propertyImageRoom": [],
+        "propertyImageLivingRoom": [],
+        "propertyImageKitchen": [],
+      };
+
+      // Mapper categoryId Flutter aux clés API attendues
+      String apiKey = "propertyImage";
+      if (categoryId == 'propertyImageRoom') apiKey = "propertyImageRoom";
+      else if (categoryId == 'propertyImageLivingRoom') apiKey = "propertyImageLivingRoom";
+      else if (categoryId == 'propertyImageKitchen') apiKey = "propertyImageKitchen";
+
+      deletePayload[apiKey] = [{"image": imageUrl}];
+
+      print("🗑️ SUPPRESSION IMAGE - URL: /api/property/image/$propertyId");
+      print("📤 PAYLOAD SUPPRESSION: ${jsonEncode(deletePayload)}");
+
+      // Appeler l'API de suppression
+      // Note: l'utilisateur a demandé cet endpoint spécifique. 
+      // Comme c'est une suppression avec payload, on utilise deleteData si implémenté ou postData.
+      // Dans requetes.dart, deleteData prend un body optionnel.
+      final tkn = GetStorage().read<String>(StockageKeys.tokenKey);
+      final res = await deleteData("property/image/$propertyId", data: deletePayload, token: tkn);
+
+      print("📥 RÉPONSE SUPPRESSION: ${res.status}");
+
+      if (res.status) {
+        setState(() {
+          _existingImageUrls[categoryId]!.removeAt(index);
+        });
+        SnackbarForCasa.success(context, "Image supprimée avec succès.");
+      } else {
+        SnackbarForCasa.error(context, res.errorMsg ?? "Erreur lors de la suppression sur le serveur.");
       }
+    } catch (e) {
+      print("❌ Erreur suppression image: $e");
+      SnackbarForCasa.error(context, "Erreur technique: $e");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    
-    propertyData["images"] = imagesPayload;
-
-    // Ajout userId si disponible
-    final dynamic profileData = storage.read(StockageKeys.profileKey);
-    final userId = userData?['userId'] ?? userData?['user']?['userId'] ?? profileData?['id'] ?? userData?['profile']?['id'] ?? widget.property.userId;
-    if (userId != null) {
-      (propertyData["property"] as Map<String, dynamic>)["userId"] = userId;
-    }
-
-    return propertyData;
   }
 
   Future<void> _loadDistricts() async {
