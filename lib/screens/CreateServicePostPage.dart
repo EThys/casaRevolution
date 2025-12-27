@@ -21,6 +21,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:casa/utils/requetes.dart';
+import 'package:casa/controllers/AuthentificationCtrl.dart';
+import 'package:casa/screens/auth/IdentityVerificationPage.dart';
 import '../utils/StockageKeys.dart';
 
 class CreateServicePostPage extends StatefulWidget {
@@ -62,6 +64,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   final TextEditingController _cityTextController = TextEditingController();
   final TextEditingController _communeTextController = TextEditingController();
   final TextEditingController _quartierTextController = TextEditingController();
+  //final TextEditingController _plageJourController = TextEditingController(); // Remplacé par sélecteur de jours
+  Set<String> _selectedDays = {}; // Jours sélectionnés
+  final TextEditingController _plageHeureController = TextEditingController();
   
   // Country code for phone
   String _selectedCountryCode = '+243'; // RDC par défaut
@@ -109,6 +114,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   String? _userServiceType;
   String? _userFullName;
   int? _userId;
+  int? _serviceId;
+  int? _deviseId = 1; // 1 for FC, 2 for USD
 
   final GetStorage _storage = GetStorage();
 
@@ -118,6 +125,24 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     _pageController = PageController();
     _loadUserData();
     _loadLocationData();
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkUserVerification();
+    });
+  }
+
+  void _checkUserVerification() {
+    final authCtrl = context.read<AuthentificationCtrl>();
+    if (authCtrl.user.isCertified != true) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => IdentityVerificationPage()),
+      ).then((result) {
+        if (result != true) {
+          Navigator.pop(context);
+        }
+      });
+    }
   }
 
   Future<void> _loadUserData() async {
@@ -125,17 +150,31 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       final userData = _storage.read<Map<String, dynamic>>(StockageKeys.userKey);
       final profileData = _storage.read<Map<String, dynamic>>(StockageKeys.profileKey);
       
-      _userId = userData?['userId'];
+      // Robust userId retrieval as requested
+      _userId = userData?['user']?['userId'] ;
+      
       _userFullName = profileData?['fullname'] ?? 
                      userData?['username'] ?? 
                      'Prestataire';
       
-      // Récupérer le type de service depuis le compte utilisateur
-      final typeAccount = userData?['typeAccount'];
-      if (typeAccount != null && typeAccount['name'] != null) {
-        final accountName = typeAccount['name'].toString().toLowerCase();
-        // Mapper les noms de comptes aux types de services
-        _userServiceType = _mapAccountTypeToServiceType(accountName);
+      // Get serviceId from user accounts
+      final userAccounts = _storage.read<List<dynamic>>('user_accounts');
+      if (userAccounts != null) {
+        for (var acc in userAccounts) {
+          var typeAcc = acc['typeAccount'];
+          int typeId = typeAcc is Map 
+              ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'] ?? 0)
+              : (acc['typeAccountId'] ?? acc['TypeAccountId'] ?? 0);
+          
+          if (typeId == 3) {
+            _serviceId = acc['id'] ?? acc['Id'];
+            final accountName = typeAcc is Map ? typeAcc['name']?.toString().toLowerCase() : null;
+            if (accountName != null) {
+              _userServiceType = _mapAccountTypeToServiceType(accountName);
+            }
+            break;
+          }
+        }
       }
     } catch (e) {
       print("Erreur lors du chargement des données utilisateur: $e");
@@ -163,22 +202,41 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   Future<void> _loadLocationData() async {
     try {
       final locationCtrl = LocationController();
+      print("📍 [CreateService] Début chargement des données de localisation...");
+      
+      // Charger TOUTES les données d'abord
+      await locationCtrl.loadAllData();
+      print("📍 [CreateService] loadAllData() terminé");
+      
       _availableCities = await locationCtrl.getAllCities();
+      print("📍 [CreateService] ${_availableCities.length} villes chargées");
+      
       if (_availableCities.isNotEmpty) {
         _selectedCity = _availableCities.firstWhere(
           (c) => c.name?.toLowerCase() == 'kinshasa',
           orElse: () => _availableCities.first,
         );
+        print("📍 [CreateService] Ville sélectionnée: ${_selectedCity?.name}");
+        
         if (_selectedCity != null) {
-          _availableDistricts = await locationCtrl.getDistrictsForCity(_selectedCity!.cityId!);
+          _availableDistricts = locationCtrl.getDistrictsForCity(_selectedCity!.cityId!);
+          print("📍 [CreateService] ${_availableDistricts.length} districts pour ${_selectedCity?.name}");
+          
           if (_availableDistricts.isNotEmpty) {
             _selectedDistrict = _availableDistricts.first;
-            _availableCommunes = await locationCtrl.getCommunesForDistrict(_selectedDistrict!.districtId!);
+            print("📍 [CreateService] District sélectionné: ${_selectedDistrict?.name}");
+            
+            _availableCommunes = locationCtrl.getCommunesForDistrict(_selectedDistrict!.districtId!);
+            print("📍 [CreateService] ${_availableCommunes.length} communes pour ${_selectedDistrict?.name}");
           }
         }
       }
-    } catch (e) {
-      print("Erreur chargement localisation: $e");
+      
+      if (mounted) setState(() {});
+      print("📍 [CreateService] Chargement de localisation terminé avec succès");
+    } catch (e, stackTrace) {
+      print("❌ [CreateService] Erreur chargement localisation: $e");
+      print("Stack trace: $stackTrace");
     }
   }
 
@@ -195,6 +253,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     _cityTextController.dispose();
     _communeTextController.dispose();
     _quartierTextController.dispose();
+    //_plageJourController.dispose(); // Plus utilisé
+    _plageHeureController.dispose();
     super.dispose();
   }
   
@@ -535,6 +595,32 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           SizedBox(height: _smallSpace),
           _buildPhoneField(),
           SizedBox(height: _smallSpace),
+          SizedBox(height: _mediumSpace),
+          
+          // Plage Jours et Heures
+          _buildSectionHeader(
+            'Disponibilité',
+            'Précisez vos jours et heures de disponibilité',
+            Icons.access_time_rounded,
+          ),
+          SizedBox(height: _mediumSpace),
+          
+          _buildDaySelector(),
+          
+          _buildModernTextField(
+            controller: _plageHeureController,
+            label: 'Heures de prestation',
+            hint: 'Ex: 08:00 - 17:00, ou 24h/24',
+            icon: Icons.timer_outlined,
+            fieldKey: 'plage_heure',
+            validator: (v) {
+              if (v == null || v.trim().isEmpty) return 'Champs requis';
+              return null;
+            },
+          ),
+          
+          SizedBox(height: _mediumSpace),
+          
           _buildSectionHeader(
             'Curriculum Vitae (optionnel)',
             'Ajoutez votre CV pour renforcer votre crédibilité (PDF ou DOC)',
@@ -588,7 +674,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                           }
                         },
                         icon: Icons.account_balance_rounded,
-                        errorText: _getFieldError(2, 'district'),
+                        fieldKey: 'district',
                         hintText: 'Sélectionnez un district',
                       ),
                     ),
@@ -609,7 +695,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                           }
                         },
                         icon: Icons.place_rounded,
-                        errorText: _getFieldError(2, 'commune'),
+                        fieldKey: 'commune',
                         hintText: 'Sélectionnez une commune',
                       ),
                     ),
@@ -661,155 +747,218 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Widget _buildProfileImageSelector() {
-    return Container(
-      height: 200,
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _borderColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: Offset(0, 2),
+    final hasError = _shouldShowError(0, 'profile_image') && _profileImage == null;
+    final errorMsg = _getFieldError(0, 'profile_image');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          height: 200,
+          decoration: BoxDecoration(
+            color: _cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: hasError ? _errorColor : _borderColor, width: hasError ? 2 : 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 8,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: _profileImage != null
-          ? Stack(
-              fit: StackFit.expand,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.file(
-                    File(_profileImage!.path),
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: IconButton(
-                    icon: Icon(Icons.edit, color: Colors.white),
-                    style: IconButton.styleFrom(
-                      backgroundColor: _primaryColor.withOpacity(0.8),
-                    ),
-                    onPressed: () => _pickProfileImage(),
-                  ),
-                ),
-                Positioned(
-                  bottom: 8,
-                  right: 8,
-                  child: IconButton(
-                    icon: Icon(Icons.delete, color: Colors.white),
-                    style: IconButton.styleFrom(
-                      backgroundColor: _errorColor.withOpacity(0.8),
-                    ),
-                    onPressed: () {
-                      setState(() => _profileImage = null);
-                    },
-                  ),
-                ),
-              ],
-            )
-          : GestureDetector(
-              onTap: () => _pickProfileImage(),
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _borderColor, style: BorderStyle.solid, width: 2),
-                  color: _lightColor,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+          child: _profileImage != null
+              ? Stack(
+                  fit: StackFit.expand,
                   children: [
-                    Icon(Icons.camera_alt_rounded, size: 48, color: _primaryColor),
-                    SizedBox(height: _mediumSpace),
-                    Text(
-                      'Ajouter votre photo',
-                      style: GoogleFonts.inter(
-                        fontSize: _bodySize,
-                        fontWeight: FontWeight.w600,
-                        color: _darkColor,
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.file(
+                        File(_profileImage!.path),
+                        fit: BoxFit.cover,
                       ),
                     ),
-                    SizedBox(height: _smallSpace),
-                    Text(
-                      'Votre visage sera l\'image principale',
-                      style: GoogleFonts.inter(
-                        fontSize: _captionSize,
-                        color: _greyColor,
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: IconButton(
+                        icon: Icon(Icons.edit, color: Colors.white),
+                        style: IconButton.styleFrom(
+                          backgroundColor: _primaryColor.withOpacity(0.8),
+                        ),
+                        onPressed: () => _pickProfileImage(),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 8,
+                      right: 8,
+                      child: IconButton(
+                        icon: Icon(Icons.delete, color: Colors.white),
+                        style: IconButton.styleFrom(
+                          backgroundColor: _errorColor.withOpacity(0.8),
+                        ),
+                        onPressed: () {
+                          if (mounted) {
+                            setState(() {
+                              _profileImage = null;
+                              _validateStep(0);
+                            });
+                          }
+                        },
                       ),
                     ),
                   ],
+                )
+              : GestureDetector(
+                  onTap: () => _pickProfileImage(),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: hasError ? _errorColor : _borderColor, style: BorderStyle.solid, width: 2),
+                      color: _lightColor,
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.camera_alt_rounded, size: 48, color: hasError ? _errorColor : _primaryColor),
+                        SizedBox(height: _mediumSpace),
+                        Text(
+                          'Ajouter votre photo',
+                          style: GoogleFonts.inter(
+                            fontSize: _bodySize,
+                            fontWeight: FontWeight.w600,
+                            color: hasError ? _errorColor : _darkColor,
+                          ),
+                        ),
+                        SizedBox(height: _smallSpace),
+                        Text(
+                          'Votre visage sera l\'image principale',
+                          style: GoogleFonts.inter(
+                            fontSize: _captionSize,
+                            color: hasError ? _errorColor.withOpacity(0.7) : _greyColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+        ),
+        if (hasError && errorMsg != null)
+          Padding(
+            padding: EdgeInsets.only(top: 8, left: 4),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline_rounded, size: 16, color: _errorColor),
+                SizedBox(width: 8),
+                Text(
+                  errorMsg,
+                  style: GoogleFonts.inter(
+                    fontSize: _captionSize,
+                    color: _errorColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
+          ),
+      ],
     );
   }
 
   Widget _buildPortfolioImagesGrid() {
-    return Container(
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _borderColor),
-      ),
-      padding: EdgeInsets.all(_mediumSpace),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: NeverScrollableScrollPhysics(),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          crossAxisSpacing: _smallSpace,
-          mainAxisSpacing: _smallSpace,
-        ),
-        itemCount: _portfolioImages.length + 1,
-        itemBuilder: (context, index) {
-          if (index == _portfolioImages.length) {
-            return GestureDetector(
-              onTap: () => _pickPortfolioImage(),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: _lightColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _borderColor, style: BorderStyle.solid),
-                ),
-                child: Icon(Icons.add_photo_alternate_rounded, color: _primaryColor, size: 32),
-              ),
-            );
-          }
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.file(
-                  File(_portfolioImages[index].path),
-                  fit: BoxFit.cover,
-                ),
-              ),
-              Positioned(
-                top: 4,
-                right: 4,
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() => _portfolioImages.removeAt(index));
-                  },
+    final hasError = _shouldShowError(0, 'portfolio_images') && _portfolioImages.isEmpty;
+    final errorMsg = _getFieldError(0, 'portfolio_images');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: _cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: hasError ? _errorColor : _borderColor, width: hasError ? 2 : 1),
+          ),
+          padding: EdgeInsets.all(_mediumSpace),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: _smallSpace,
+              mainAxisSpacing: _smallSpace,
+            ),
+            itemCount: _portfolioImages.length + 1,
+            itemBuilder: (context, index) {
+              if (index == _portfolioImages.length) {
+                return GestureDetector(
+                  onTap: () => _pickPortfolioImage(),
                   child: Container(
-                    padding: EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: _errorColor,
-                      shape: BoxShape.circle,
+                      color: _lightColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: hasError ? _errorColor : _borderColor, style: BorderStyle.solid, width: hasError ? 2 : 1),
                     ),
-                    child: Icon(Icons.close, color: Colors.white, size: 16),
+                    child: Icon(Icons.add_photo_alternate_rounded, color: hasError ? _errorColor : _primaryColor, size: 32),
+                  ),
+                );
+              }
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      File(_portfolioImages[index].path),
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: GestureDetector(
+                      onTap: () {
+                        if (mounted) {
+                          setState(() {
+                            _markFieldTouched('portfolio_images');
+                            _portfolioImages.removeAt(index);
+                            _validateStep(0);
+                          });
+                        }
+                      },
+                      child: Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: _errorColor,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.close, color: Colors.white, size: 16),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        if (hasError && errorMsg != null)
+          Padding(
+            padding: EdgeInsets.only(top: 8, left: 4),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline_rounded, size: 16, color: _errorColor),
+                SizedBox(width: 8),
+                Text(
+                  errorMsg,
+                  style: GoogleFonts.inter(
+                    fontSize: _captionSize,
+                    color: _errorColor,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-              ),
-            ],
-          );
-        },
-      ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
@@ -956,13 +1105,29 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             if (mounted) {
               setState(() {
                 _profileImage = image;
+                _validateStep(0);
               });
             }
           } else {
-            if (mounted) {
-              setState(() {
-                _portfolioImages.add(image);
-              });
+            // Pour le portfolio, si on est en galerie, on permet le multi-image
+            if (source == ImageSource.gallery) {
+              final List<XFile> images = await _picker.pickMultiImage(imageQuality: 85);
+              if (images.isNotEmpty && mounted) {
+                setState(() {
+                  _markFieldTouched('portfolio_images');
+                  _portfolioImages.addAll(images);
+                  _validateStep(0);
+                });
+              }
+            } else {
+              // Caméra: une seule image
+              if (mounted) {
+                setState(() {
+                  _markFieldTouched('portfolio_images');
+                  _portfolioImages.add(image);
+                  _validateStep(0);
+                });
+              }
             }
           }
         } else {
@@ -1067,17 +1232,24 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             maxLines: maxLines,
             validator: validator,
             onChanged: (value) {
-              if (fieldKey != null) {
-                _markFieldTouched(fieldKey);
-                _removeFieldError(_currentStep, fieldKey);
+              if (mounted) {
+                setState(() {
+                  if (fieldKey != null) {
+                    _markFieldTouched(fieldKey);
+                  }
+                  _validateStep(_currentStep);
+                });
               }
-              _validateStep(_currentStep);
             },
             onTap: () {
-              if (fieldKey != null) {
-                _markFieldTouched(fieldKey);
+              if (mounted) {
+                setState(() {
+                  if (fieldKey != null) {
+                    _markFieldTouched(fieldKey);
+                  }
+                  _validateStep(_currentStep);
+                });
               }
-              _validateStep(_currentStep);
             },
             decoration: InputDecoration(
               hintText: hint,
@@ -1182,16 +1354,16 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           if (_currentStep > 0)
             Expanded(
             child: OutlinedButton(
-              onPressed: () {
-                setState(() {
-                  _currentStep--;
+                onPressed: () {
+                  setState(() {
+                    _currentStep--;
+                  });
                   _pageController.animateToPage(
                     _currentStep,
                     duration: Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
                   );
-                });
-              },
+                },
                 style: OutlinedButton.styleFrom(
                   padding: EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
@@ -1213,6 +1385,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             flex: _currentStep == 0 ? 1 : 1,
             child: ElevatedButton(
               onPressed: _isLoading ? null : () async {
+                setState(() {
+                  _hasAttemptedSubmit = true;
+                });
                 if (_currentStep < 2) {
                   if (_validateStep(_currentStep)) {
                     setState(() {
@@ -1261,7 +1436,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   bool _validateStep(int step) {
-    _hasAttemptedSubmit = true;
+    // Note: _hasAttemptedSubmit is now set only during navigation/submission
     
     switch (step) {
       case 0:
@@ -1269,7 +1444,15 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         if (_profileImage == null) {
           _setFieldError(0, 'profile_image', 'Photo de profil requise');
         }
-        _stepValidations[0] = _profileImage != null;
+        
+        if (_portfolioImages.isEmpty) {
+          _setFieldError(0, 'portfolio_images', 'Au moins une photo de réalisation est requise');
+        } else if (_portfolioImages.length < 2) {
+          // Proposition : encourager plus de photos
+          // _setFieldError(0, 'portfolio_images', 'Idéalement, ajoutez au moins 2 photos');
+        }
+
+        _stepValidations[0] = _profileImage != null && _portfolioImages.isNotEmpty;
         return _stepValidations[0]!;
         
       case 1:
@@ -1282,39 +1465,49 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         
         if (title.isEmpty) {
           _setFieldError(1, 'title', 'Titre requis');
-        } else if (title.length < 10) {
-          _setFieldError(1, 'title', 'Titre trop court (min 10 caractères)');
+        } else if (title.length < 15) {
+          _setFieldError(1, 'title', 'Titre trop court (min 15 car.)');
         }
         
         if (description.isEmpty) {
           _setFieldError(1, 'description', 'Description requise');
+        } else if (description.length < 30) {
+          _setFieldError(1, 'description', 'Description trop courte (min 30 car.)');
         }
         
         if (priceMin.isEmpty) {
           _setFieldError(1, 'price_min', 'Prix minimum requis');
-        } else if (double.tryParse(priceMin) == null) {
+        } else if (double.tryParse(priceMin) == null || double.parse(priceMin) < 1) {
           _setFieldError(1, 'price_min', 'Prix minimum invalide');
         }
         
         if (priceMax.isEmpty) {
           _setFieldError(1, 'price_max', 'Prix maximum requis');
-        } else if (double.tryParse(priceMax) == null) {
+        } else if (double.tryParse(priceMax) == null || double.parse(priceMax) < 1) {
           _setFieldError(1, 'price_max', 'Prix maximum invalide');
         } else {
           final minPrice = double.tryParse(priceMin);
           final maxPrice = double.tryParse(priceMax);
           if (minPrice != null && maxPrice != null && maxPrice < minPrice) {
-            _setFieldError(1, 'price_max', 'Le prix max doit être >= au prix min');
+            _setFieldError(1, 'price_max', 'Prix maximum doit être supérieur au minimum');
           }
         }
         
         if (phone.isEmpty) {
           _setFieldError(1, 'phone', 'Téléphone requis');
         } else {
-          final digits = phone.replaceAll(RegExp(r'\\D'), '');
+          final digits = phone.replaceAll(RegExp(r'\D'), '');
           if (digits.length < 9) {
             _setFieldError(1, 'phone', 'Numéro invalide (min 9 chiffres)');
           }
+        }
+
+        if (_selectedDays.isEmpty) {
+          _setFieldError(1, 'plage_jour', 'Veuillez sélectionner au moins un jour');
+        }
+        
+        if (_plageHeureController.text.trim().isEmpty) {
+          _setFieldError(1, 'plage_heure', 'Heures de prestation requises');
         }
         
         _stepValidations[1] = !_hasFieldErrors(1);
@@ -1327,15 +1520,26 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         if (_isKinshasaSelected) {
           if (_selectedCity == null) _setFieldError(2, 'city', 'Ville requise');
           if (_selectedCommune == null) _setFieldError(2, 'commune', 'Commune requise');
-          if (_selectedQuartier == null) _setFieldError(2, 'quartier', 'Quartier requis');
+          if (_selectedQuartier == null && _quartierTextController.text.trim().isEmpty) {
+            _setFieldError(2, 'quartier', 'Quartier requis');
+          } else if (_quartierTextController.text.trim().length < 3) {
+            _setFieldError(2, 'quartier', 'Quartier trop court (min 3 car.)');
+          }
         } else {
           if (_cityTextController.text.trim().isEmpty) _setFieldError(2, 'city', 'Ville requise');
           if (_communeTextController.text.trim().isEmpty) _setFieldError(2, 'commune', 'Commune requise');
-          if (_quartierTextController.text.trim().isEmpty) _setFieldError(2, 'quartier', 'Quartier requis');
+          
+          if (_quartierTextController.text.trim().isEmpty) {
+            _setFieldError(2, 'quartier', 'Quartier requis');
+          } else if (_quartierTextController.text.trim().length < 3) {
+            _setFieldError(2, 'quartier', 'Quartier trop court (min 3 car.)');
+          }
         }
         
         if (address.isEmpty) {
           _setFieldError(2, 'address', 'Adresse requise');
+        } else if (address.length < 5) {
+          _setFieldError(2, 'address', 'Adresse trop courte');
         }
         
         _stepValidations[2] = !_hasFieldErrors(2);
@@ -1380,7 +1584,13 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Future<void> _handleSubmit() async {
+    print("🚀 [CreateService] ========== DÉBUT _handleSubmit ==========");
+    setState(() {
+      _hasAttemptedSubmit = true;
+    });
+    
     if (!_validateStep(2)) {
+      print("❌ [CreateService] Validation step 2 échouée");
       FancyNotification.show(
         context,
         "Veuillez corriger les erreurs avant de publier",
@@ -1389,63 +1599,91 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       return;
     }
 
+    // Double check verification
+    final authCtrl = context.read<AuthentificationCtrl>();
+    print("👤 [CreateService] User ID: ${authCtrl.user.userId}, Certified: ${authCtrl.user.isCertified}");
+    if (authCtrl.user.isCertified != true) {
+      print("❌ [CreateService] Utilisateur non certifié");
+      FancyNotification.show(context, "Vous devez être certifié pour publier un service.");
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
       // Préparer les images en base64
-      List<String> imagesBase64 = [];
+      List<Map<String, String>> imagesPayload = [];
       
+      print("📸 [CreateService] Préparation des images...");
       // Photo principale (visage)
       if (_profileImage != null) {
         final bytes = await File(_profileImage!.path).readAsBytes();
-        imagesBase64.add(base64Encode(bytes));
+        final base64Image = base64Encode(bytes);
+        imagesPayload.add({"image": base64Image});
+        print("📸 [CreateService] Photo principale ajoutée (${bytes.length} bytes, base64: ${base64Image.length} chars)");
+      } else {
+        print("⚠️ [CreateService] Aucune photo principale");
       }
       
       // Photos de réalisations
-      for (var img in _portfolioImages) {
+      for (var i = 0; i < _portfolioImages.length; i++) {
+        final img = _portfolioImages[i];
         final bytes = await File(img.path).readAsBytes();
-        imagesBase64.add(base64Encode(bytes));
+        final base64Image = base64Encode(bytes);
+        imagesPayload.add({"image": base64Image});
+        print("📸 [CreateService] Photo portfolio ${i+1} ajoutée (${bytes.length} bytes)");
       }
+      print("📸 [CreateService] Total images: ${imagesPayload.length}");
 
-      // Préparer le CV en base64 s'il existe
-      String? cvBase64;
-      if (_selectedCvFile != null && await _selectedCvFile!.exists()) {
-        final cvBytes = await _selectedCvFile!.readAsBytes();
-        cvBase64 = base64Encode(cvBytes);
-      }
+      // Convertir les jours sélectionnés en string
+      final selectedDaysString = _selectedDays.join(', ');
+      print("📅 [CreateService] Jours sélectionnés: $selectedDaysString");
 
-      // Construire le payload
-      final fullPhone = _selectedCountryCode + _phoneController.text.trim();
-      final serviceData = <String, dynamic>{
-        "title": _titleController.text.trim(),
-        "description": _descriptionController.text.trim(),
-        "priceMin": double.tryParse(_priceMinController.text) ?? 0.0,
-        "priceMax": double.tryParse(_priceMaxController.text) ?? 0.0,
-        "currency": _selectedCurrency ?? 'CDF',
-        "experienceYears": _experienceController.text.trim().isNotEmpty ? int.tryParse(_experienceController.text) : null,
-        "phone": fullPhone,
-        "address": _addressController.text.trim(),
-        "cityId": _isKinshasaSelected && _selectedCity != null ? _selectedCity!.cityId.toString() : "",
-        "communeId": _isKinshasaSelected && _selectedCommune != null ? _selectedCommune!.communeId.toString() : "",
-        "quartierId": _isKinshasaSelected && _selectedQuartier != null ? _selectedQuartier!.quartierId.toString() : "",
-        "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? "") : _cityTextController.text.trim(),
-        "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
-        "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
-        "images": imagesBase64.map((img) => {"image": img}).toList(),
-        "userId": _userId ?? 1,
-        "username": _userFullName ?? "Prestataire",
-        "serviceType": _userServiceType ?? "service",
-        // CV si disponible
-        if (cvBase64 != null) "cv": cvBase64,
-        if (_selectedCvFile != null) "cvFileName": _selectedCvFile!.path.split('/').last,
+      // Prepare payload following user request model
+      final payload = {
+        "prestation": {
+          "userId": authCtrl.user.userId ?? 0,
+          "serviceId": _serviceId ?? 0,
+          "deviseId": _selectedCurrency == 'USD' ? 2 : 1,
+          "title": _titleController.text.trim(),
+          "description": _descriptionController.text.trim(),
+          "experience": _experienceController.text.trim(),
+          "plageJourPrestation": selectedDaysString,
+          "plageHeurePrestation": _plageHeureController.text.trim(),
+          "minPrice": double.tryParse(_priceMinController.text) ?? 0.0,
+          "maxPrice": double.tryParse(_priceMaxController.text) ?? 0.0,
+          "address": _addressController.text.trim(),
+          "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
+          "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
+          "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? "") : _cityTextController.text.trim(),
+          "countryValue": "RDC",
+          "cityId": _isKinshasaSelected && _selectedCity != null ? (_selectedCity?.cityId ?? 0) : 0,
+          "communeId": _isKinshasaSelected && _selectedCommune != null ? (_selectedCommune?.communeId ?? 0) : 0,
+          "quartierId": _isKinshasaSelected && _selectedQuartier != null ? (_selectedQuartier?.quartierId ?? 0) : 0,
+          "districtId": _isKinshasaSelected && _selectedDistrict != null ? (_selectedDistrict?.districtId ?? 0) : 0
+        },
+        "images": imagesPayload
       };
 
+      print("📦 [CreateService] Payload prestation (sans images base64):");
+      final payloadSummary = Map<String, dynamic>.from(payload);
+      if (payloadSummary.containsKey('images')) {
+        payloadSummary['images'] = '[${(payloadSummary['images'] as List).length} images]';
+      }
+      print("📦 $payloadSummary");
+
       final ctrl = context.read<ServiceController>();
-      final res = await ctrl.createService(serviceData);
+      print("📡 [CreateService] Appel à createPrestation...");
+      final res = await ctrl.createPrestation(payload);
+      print("📥 [CreateService] Réponse reçue - status: ${res.status}, errorMsg: ${res.errorMsg}");
 
-      if (!mounted) return;
+      if (!mounted) {
+        print("⚠️ [CreateService] Widget non monté après réponse");
+        return;
+      }
 
-      if (res.status == true || res.data?['success'] == true || res.data?['service'] != null) {
+      if (res.status == true) {
+        print("✅ [CreateService] Service publié avec succès!");
         SnackbarForCasa.success(context, "Service publié avec succès!");
         await Future.delayed(Duration(milliseconds: 1500));
         if (mounted) {
@@ -1456,22 +1694,28 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           );
         }
       } else {
-        String errorMessage = res.data?['message'] ?? res.errorMsg ?? "Erreur lors de la publication";
-        FancyNotification.show(context, "Une erreur est survenue lors de la publication. Veuillez réessayer.", type: NotificationType.error);
+        String errorMessage = res.errorMsg ?? "Erreur lors de la publication";
+        print("❌ [CreateService] Échec: $errorMessage");
+        if (res.data != null) {
+          print("❌ [CreateService] Response data: ${res.data}");
+        }
+        FancyNotification.show(context, errorMessage, type: NotificationType.error);
       }
-    } catch (e) {
-      print("Erreur création service: $e");
-      FancyNotification.show(context, "Une erreur est survenue lors de la publication. Veuillez réessayer.", isError: true);
+    } catch (e, stackTrace) {
+      print("❌ [CreateService] EXCEPTION: $e");
+      print("📚 [CreateService] Stack trace: $stackTrace");
+      FancyNotification.show(context, "Une erreur est survenue lors de la publication.", isError: true);
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
+      print("🏁 [CreateService] ========== FIN _handleSubmit ==========");
     }
   }
   
-  Widget _buildCitySuggestionField() {
-    final errorText = _getFieldError(2, 'city');
-    final hasError = errorText != null && errorText.isNotEmpty;
+   Widget _buildCitySuggestionField() {
+    final hasError = _shouldShowError(2, 'city') && _getFieldError(2, 'city') != null;
+    final errorText = hasError ? _getFieldError(2, 'city') : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1514,7 +1758,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 _selectedCommune = null;
                 _selectedQuartier = null;
               }
-              _removeFieldError(2, 'city');
+              _validateStep(2);
             });
           },
           fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
@@ -1523,8 +1767,13 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               controller: controller,
               focusNode: focusNode,
               onChanged: (value) {
-                _markFieldTouched('city');
-                _removeFieldError(2, 'city');
+                if (mounted) {
+                  setState(() {
+                    _markFieldTouched('city');
+                    _cityTextController.text = value;
+                    _validateStep(2);
+                  });
+                }
               },
               decoration: InputDecoration(
                 hintText: 'Ex: Kinshasa, Lubumbashi...',
@@ -1577,8 +1826,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     required String fieldKey,
     required List<String> suggestions,
   }) {
-    final errorText = _getFieldError(2, fieldKey);
-    final hasError = errorText != null && errorText.isNotEmpty;
+    final hasError = _shouldShowError(2, fieldKey) && _getFieldError(2, fieldKey) != null;
+    final errorText = hasError ? _getFieldError(2, fieldKey) : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1605,11 +1854,13 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             return _filterSuggestions(textEditingValue.text, suggestions);
           },
           onSelected: (String selection) {
-            _markFieldTouched(fieldKey);
-            setState(() {
-              controller.text = selection;
-              _removeFieldError(2, fieldKey);
-            });
+            if (mounted) {
+              setState(() {
+                _markFieldTouched(fieldKey);
+                controller.text = selection;
+                _validateStep(2);
+              });
+            }
           },
           fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) {
             controller.value = textController.value;
@@ -1617,8 +1868,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               controller: textController,
               focusNode: focusNode,
               onChanged: (value) {
-                _markFieldTouched(fieldKey);
-                _removeFieldError(2, fieldKey);
+                if (mounted) {
+                  setState(() {
+                    _markFieldTouched(fieldKey);
+                    _validateStep(2);
+                  });
+                }
               },
               style: TextStyle(
                 fontSize: _bodySize,
@@ -1681,11 +1936,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     required String Function(T) displayText,
     required void Function(T?) onChanged,
     required IconData icon,
-    String? errorText,
+    String? fieldKey,
     String? hintText,
     bool isRequired = true,
   }) {
-    final hasError = errorText != null && errorText.isNotEmpty;
+    final hasError = fieldKey != null && _shouldShowError(2, fieldKey) && _getFieldError(2, fieldKey) != null;
+    final errorText = hasError ? _getFieldError(2, fieldKey) : null;
 
     return Container(
       margin: EdgeInsets.only(bottom: _smallSpace),
@@ -1771,7 +2027,15 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                   }).toList(),
                 ],
                 onChanged: (T? newValue) {
-                  onChanged(newValue);
+                  if (mounted) {
+                    setState(() {
+                      if (newValue != null) {
+                         _markFieldTouched(fieldKey ?? label.toLowerCase());
+                      }
+                      onChanged(newValue);
+                      _validateStep(_currentStep);
+                    });
+                  }
                 },
                 icon: Icon(Icons.arrow_drop_down_rounded, color: _primaryColor),
               ),
@@ -1850,9 +2114,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                   ),
                 ],
                 onChanged: (value) {
-                  if (value != null) {
+                  if (value != null && mounted) {
                     setState(() {
+                      _markFieldTouched('currency');
                       _selectedCurrency = value;
+                      _validateStep(1);
                     });
                   }
                 },
@@ -1959,7 +2225,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         }
 
         setState(() {
+          _markFieldTouched('cv_file');
           _selectedCvFile = file;
+          _validateStep(1);
         });
 
         SnackbarForCasa.success(context, "CV importé avec succès");
@@ -1976,7 +2244,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
   void _removeCvFile() {
     setState(() {
+      _markFieldTouched('cv_file');
       _selectedCvFile = null;
+      _validateStep(1);
     });
   }
 
@@ -2009,18 +2279,20 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             controller: _phoneController,
             keyboardType: TextInputType.phone,
             onChanged: (value) {
-              _markFieldTouched('phone');
-              final digits = value.replaceAll(RegExp(r'\\D'), '');
-              if (digits.length < 9) {
-                _setFieldError(1, 'phone', 'Numéro invalide (min 9 chiffres)');
-              } else {
-                _removeFieldError(1, 'phone');
+              if (mounted) {
+                setState(() {
+                  _markFieldTouched('phone');
+                  _validateStep(1);
+                });
               }
-              _validateStep(1);
             },
             onTap: () {
-              _markFieldTouched('phone');
-              _validateStep(1);
+              if (mounted) {
+                setState(() {
+                  _markFieldTouched('phone');
+                  _validateStep(1);
+                });
+              }
             },
             style: TextStyle(
               fontSize: _bodySize,
@@ -2109,11 +2381,121 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           onChanged: (String? newValue) {
             if (newValue != null) {
               setState(() {
+                _markFieldTouched('phone');
                 _selectedCountryCode = newValue;
+                _validateStep(1);
               });
             }
           },
         ),
+      ),
+    );
+  }
+
+  // Widget pour sélectionner les jours de la semaine
+  Widget _buildDaySelector() {
+    final days = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+    final hasError = _shouldShowError(1, 'plage_jour') && _selectedDays.isEmpty;
+    
+    return Container(
+      margin: EdgeInsets.only(bottom: _mediumSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.calendar_today_rounded, color: _primaryColor, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Jours de prestation',
+                style: GoogleFonts.inter(
+                  fontSize: _bodySize,
+                  fontWeight: FontWeight.w600,
+                  color: _darkColor,
+                ),
+              ),
+              Text(
+                ' *',
+                style: TextStyle(color: _errorColor, fontSize: _bodySize),
+              ),
+            ],
+          ),
+          SizedBox(height: _smallSpace),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: days.map((day) {
+              final isSelected = _selectedDays.contains(day);
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selectedDays.remove(day);
+                    } else {
+                      _selectedDays.add(day);
+                    }
+                    _markFieldTouched('plage_jour');
+                    _validateStep(1);
+                  });
+                },
+                child: AnimatedContainer(
+                  duration: Duration(milliseconds: 200),
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isSelected ? _primaryColor : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: isSelected ? _primaryColor : (hasError ? _errorColor : _borderColor),
+                      width: isSelected ? 2 : 1,
+                    ),
+                    boxShadow: isSelected ? [
+                      BoxShadow(
+                        color: _primaryColor.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      )
+                    ] : [],
+                  ),
+                  child: Text(
+                    day.substring(0, 3), // Lun, Mar, Mer, etc.
+                    style: GoogleFonts.inter(
+                      fontSize: _captionSize + 1,
+                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                      color: isSelected ? Colors.white : _darkColor,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          if (hasError)
+            Padding(
+              padding: EdgeInsets.only(top: 8, left: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                  SizedBox(width: 6),
+                  Text(
+                    'Veuillez sélectionner au moins un jour',
+                    style: GoogleFonts.inter(
+                      fontSize: _captionSize,
+                      color: _errorColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          SizedBox(height: 4),
+          Text(
+            'Sélectionnez les jours où vous proposez vos services',
+            style: GoogleFonts.inter(
+              fontSize: _captionSize - 1,
+              color: _greyColor,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
       ),
     );
   }
