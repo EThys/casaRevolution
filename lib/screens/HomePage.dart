@@ -20,6 +20,7 @@ import 'package:shimmer/shimmer.dart';
 
 import '../models/PropertyModel.dart';
 import '../models/ServiceModel.dart';
+import '../utils/requetes.dart' show HttpResponse, deleteData;
 import '../utils/Routes.dart';
 import '../utils/database/FavoriteDatabaseHelper.dart';
 import '../utils/database/ReservationDatabaseHelper.dart';
@@ -47,6 +48,7 @@ class _HomePageState extends State<HomePage> {
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
   final GetStorage storage = GetStorage();
+  String _selectedSpecialCategory = 'Bureaux';
 
   @override
   void initState() {
@@ -96,8 +98,18 @@ class _HomePageState extends State<HomePage> {
     var properties = propertyCtrl.properties;
     var services = serviceCtrl.services;
 
-    final rentalProperties = properties.where((p) => p.transactionType == 'location').toList();
-    final saleProperties = properties.where((p) => p.transactionType == 'vente').toList();
+    // Types "Maison" standards (exclure Bureaux, Salles)
+    final maisonTypeIds = [1, 2, 5, 6]; // Appartement, Maison, Villa, Studio
+    
+    final rentalProperties = properties.where((p) => 
+      p.transactionType == 'location' && 
+      maisonTypeIds.contains(p.propertyTypeId)
+    ).toList();
+    
+    final saleProperties = properties.where((p) => 
+      p.transactionType == 'vente' && 
+      maisonTypeIds.contains(p.propertyTypeId)
+    ).toList();
     
     // Utiliser les données statiques pour majordome et demenagement
     final staticServices = StaticServicesData.getStaticServices();
@@ -206,6 +218,7 @@ class _HomePageState extends State<HomePage> {
                 isForRent: true,
                 properties: rentalProperties,
                 isLoading: propertyCtrl.loading,
+                heroPrefix: 'rental',
               ),
               SizedBox(height: 32),
               
@@ -231,8 +244,14 @@ class _HomePageState extends State<HomePage> {
                 isForRent: false,
                 properties: saleProperties,
                 isLoading: propertyCtrl.loading,
+                heroPrefix: 'sale',
               ),
               SizedBox(height: 32),
+              
+              // ============================================
+              // NOUVELLES SECTIONS SPÉCIALISÉES (Consolidées pour réduire la longueur)
+              // ============================================
+              _buildSpecializedPropertiesSection(propertyCtrl),
               
               // ============================================
               // ZONE 3 : SERVICES PRINCIPAUX
@@ -321,20 +340,20 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: "home_page_fab", // Tag unique pour éviter les conflits Hero
-        onPressed: () {
-          _showQuickServiceRequest();
-        },
-        backgroundColor: primaryColor,
-        elevation: 4,
-        child: Icon(
-          Icons.add_task_rounded,
-          color: Colors.white,
-          size: 28,
-        ),
-        tooltip: 'Demander un service',
-      ),
+      // floatingActionButton: FloatingActionButton(
+      //   heroTag: "home_page_fab", // Tag unique pour éviter les conflits Hero
+      //   onPressed: () {
+      //     _showQuickServiceRequest();
+      //   },
+      //   backgroundColor: primaryColor,
+      //   elevation: 4,
+      //   child: Icon(
+      //     Icons.add_task_rounded,
+      //     color: Colors.white,
+      //     size: 28,
+      //   ),
+      //   tooltip: 'Demander un service',
+      // ),
     );
   }
 
@@ -1667,6 +1686,142 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildSpecializedPropertiesSection(PropertyController propertyCtrl) {
+    if (!propertyCtrl.loadingSpecial && 
+        propertyCtrl.bureaux.isEmpty && 
+        propertyCtrl.festives.isEmpty && 
+        propertyCtrl.funeraires.isEmpty) {
+      return SizedBox.shrink();
+    }
+
+    List<PropertyModel> currentList = [];
+    String title = "";
+    String subtitle = "";
+    String heroPrefix = "";
+
+    switch (_selectedSpecialCategory) {
+      case 'Bureaux':
+        currentList = propertyCtrl.bureaux;
+        title = "Espaces Bureaux";
+        subtitle = "Lieu de travail idéal";
+        heroPrefix = 'bureau';
+        break;
+      case 'Fêtes':
+        currentList = propertyCtrl.festives;
+        title = "Salles de Fête";
+        subtitle = "Célébrez vos moments";
+        heroPrefix = 'festive';
+        break;
+      case 'Funéraires':
+        currentList = propertyCtrl.funeraires;
+        title = "Salles Funéraires";
+        subtitle = "Hommages dignes";
+        heroPrefix = 'funeraire';
+        break;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Row(
+            children: [
+              _buildCategoryChip('Bureaux', Icons.business_center_rounded, propertyCtrl.bureaux.isNotEmpty),
+              SizedBox(width: 8),
+              _buildCategoryChip('Fêtes', Icons.celebration_rounded, propertyCtrl.festives.isNotEmpty),
+              SizedBox(width: 8),
+              _buildCategoryChip('Funéraires', Icons.church_rounded, propertyCtrl.funeraires.isNotEmpty),
+            ],
+          ),
+        ),
+        SizedBox(height: 16),
+        if (currentList.isNotEmpty || propertyCtrl.loadingSpecial) ...[
+          _buildSectionHeader(
+            title: title,
+            subtitle: subtitle,
+            onSeeAll: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AllPropertiesPage(
+                    initialProperties: currentList,
+                    title: title,
+                    isForRent: true,
+                  ),
+                ),
+              );
+            },
+          ),
+          SizedBox(height: 16),
+          _buildPropertyCarousel(
+            isForRent: true,
+            properties: currentList,
+            isLoading: propertyCtrl.loadingSpecial,
+            heroPrefix: heroPrefix,
+          ),
+          SizedBox(height: 32),
+        ] else
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            child: Text(
+              "Aucun(e) $_selectedSpecialCategory disponible pour le moment.",
+              style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
+            ),
+          ),
+          SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Widget _buildCategoryChip(String label, IconData icon, bool hasData) {
+    bool isSelected = _selectedSpecialCategory == label;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedSpecialCategory = label;
+        });
+      },
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 300),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? primaryColor : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? primaryColor : Colors.grey[300]!,
+            width: 1,
+          ),
+          boxShadow: isSelected ? [
+            BoxShadow(
+              color: primaryColor.withOpacity(0.3),
+              blurRadius: 8,
+              offset: Offset(0, 4),
+            )
+          ] : [],
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected ? Colors.white : Colors.grey[600],
+            ),
+            SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.grey[600],
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionHeader({
     required String title,
     required String subtitle,
@@ -2597,6 +2752,7 @@ class _HomePageState extends State<HomePage> {
     required List<PropertyModel> properties,
     required bool isForRent,
     required bool isLoading,
+    String? heroPrefix,
   }) {
     if (isLoading) {
       return _buildShimmerLoading();
@@ -2709,10 +2865,14 @@ class _HomePageState extends State<HomePage> {
                   borderRadius: BorderRadius.circular(24),
                   onTap: () {
                     _logPropertyView(property, isForRent);
+                    final tag = heroPrefix != null ? '${heroPrefix}-${property.propertyId}' : 'property-image-${property.propertyId}';
                     Navigator.pushNamed(
                       context,
                       Routes.detailPageRoute,
-                      arguments: property,
+                      arguments: {
+                        'property': property,
+                        'heroTag': tag,
+                      },
                     );
                   },
                   child: AnimatedContainer(
@@ -2734,7 +2894,7 @@ class _HomePageState extends State<HomePage> {
                       children: [
                         Positioned.fill(
                           child: Hero(
-                            tag: 'property-image-${property.propertyId}',
+                            tag: heroPrefix != null ? '${heroPrefix}-${property.propertyId}' : 'property-image-${property.propertyId}',
                             child: AnimatedSwitcher(
                               duration: Duration(milliseconds: 500),
                               child: imageUrl != null
@@ -2910,14 +3070,35 @@ class _HomePageState extends State<HomePage> {
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                                   children: [
-                                    _buildModernFeatureItem(
-                                      icon: FontAwesomeIcons.bed,
-                                      value: '${property.bedrooms ?? 0}',
-                                    ),
-                                    _buildModernFeatureItem(
-                                      icon: FontAwesomeIcons.bath,
-                                      value: '${property.bathroom ?? 0}',
-                                    ),
+                                    if (property.propertyTypeId != 4 && property.propertyTypeId != 7 && property.propertyTypeId != 8) ...[
+                                      _buildModernFeatureItem(
+                                        icon: FontAwesomeIcons.bed,
+                                        value: '${property.bedrooms ?? 0}',
+                                      ),
+                                      _buildModernFeatureItem(
+                                        icon: FontAwesomeIcons.bath,
+                                        value: '${property.bathroom ?? 0}',
+                                      ),
+                                    ] else ...[
+                                      if (property.propertyTypeId == 4) ...[
+                                        // Bureau special fields
+                                        _buildModernFeatureItem(
+                                          icon: Icons.meeting_room_outlined,
+                                          value: '${property.roomMeet ?? 0}',
+                                        ),
+                                        _buildModernFeatureItem(
+                                          icon: property.isEquip == true ? Icons.chair : Icons.chair_outlined,
+                                          value: property.isEquip == true ? 'Oui' : 'Non',
+                                        ),
+                                      ],
+                                      if (property.propertyTypeId == 7 || property.propertyTypeId == 8) ...[
+                                        // Festive/Funeraire special fields
+                                        _buildModernFeatureItem(
+                                          icon: Icons.people_outline,
+                                          value: '${property.capacityPeople ?? 0}',
+                                        ),
+                                      ],
+                                    ],
                                     _buildModernFeatureItem(
                                       icon: FontAwesomeIcons.rulerCombined,
                                       value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
