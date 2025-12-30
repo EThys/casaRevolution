@@ -33,6 +33,7 @@ class PrestationModel {
   int? serviceId;
   int? deviseId;
   String? title;
+  String? profile; // Photo de profil du prestataire (base64)
   String? description;
   String? experience;
   String? plageJourPrestation;
@@ -50,6 +51,7 @@ class PrestationModel {
   bool? isCertified;
   bool? isActive;
   DateTime? dateCreated;
+  List<String>? images; // Pour stocker les images
 
   PrestationModel({
     this.id,
@@ -57,6 +59,7 @@ class PrestationModel {
     this.serviceId,
     this.deviseId,
     this.title,
+    this.profile,
     this.description,
     this.experience,
     this.plageJourPrestation,
@@ -74,6 +77,7 @@ class PrestationModel {
     this.isCertified,
     this.isActive,
     this.dateCreated,
+    this.images,
   });
 
   factory PrestationModel.fromJson(Map<String, dynamic> json) => PrestationModel(
@@ -82,6 +86,7 @@ class PrestationModel {
     serviceId: _parseInt(json["serviceId"]),
     deviseId: _parseInt(json["deviseId"]),
     title: json["title"] ?? "",
+    profile: json["profile"],
     description: json["description"] ?? "",
     experience: json["experience"] ?? "",
     plageJourPrestation: json["plageJourPrestation"] ?? "",
@@ -96,9 +101,14 @@ class PrestationModel {
     cityId: _parseInt(json["cityId"]),
     communeId: _parseInt(json["communeId"]),
     quartierId: _parseInt(json["quartierId"]),
-    isCertified: json["isCertified"] == null ? true : _parseBool(json["isCertified"]),
-    isActive: json["isActive"] == null ? true : _parseBool(json["isActive"]),
+    isCertified: json["certified"] == null ? (json["isCertified"] == null ? true : _parseBool(json["isCertified"])) : _parseBool(json["certified"]),
+    isActive: json["active"] == null ? (json["isActive"] == null ? true : _parseBool(json["isActive"])) : _parseBool(json["active"]),
     dateCreated: json["dateCreated"] != null ? DateTime.tryParse(json["dateCreated"]) : DateTime.now(),
+    images: json["images"] != null 
+        ? (json["images"] is List 
+            ? List<String>.from(json["images"].map((img) => img is String ? img : (img["path"] ?? img["url"] ?? "")))
+            : [])
+        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -107,6 +117,7 @@ class PrestationModel {
     "serviceId": serviceId,
     "deviseId": deviseId,
     "title": title,
+    "profile": profile,
     "description": description,
     "experience": experience,
     "plageJourPrestation": plageJourPrestation,
@@ -124,5 +135,6 @@ class PrestationModel {
     "isCertified": isCertified,
     "isActive": isActive,
     "dateCreated": dateCreated?.toIso8601String(),
+    "images": images,
   };
 }

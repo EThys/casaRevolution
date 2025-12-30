@@ -10,6 +10,7 @@ import 'package:casa/screens/EditPropertyPage.dart';
 import 'package:casa/screens/HomePage.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/screens/MyPropertiesPage.dart';
+import 'package:casa/screens/MyServicesPage.dart';
 import 'package:casa/screens/Splashcreen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -44,8 +45,17 @@ class RoutesManager {
       case Routes.registerRoute:
         return MaterialPageRoute(builder: (_)=>UserRegistrationPage());
       case Routes.detailPageRoute:
+        if (r.arguments is Map<String, dynamic>) {
+          final Map<String, dynamic> args = r.arguments as Map<String, dynamic>;
+          return MaterialPageRoute(
+            builder: (_) => PropertyDetailPage(
+              property: args['property'] as PropertyModel,
+              heroTag: args['heroTag'] as String?,
+            ),
+          );
+        }
         final PropertyModel property = r.arguments as PropertyModel;
-        return MaterialPageRoute(builder: (_)=>PropertyDetailPage(property: property));
+        return MaterialPageRoute(builder: (_) => PropertyDetailPage(property: property));
       case Routes.homeRoute:
         return MaterialPageRoute(builder: (_)=>HomePage());
       case Routes.splashRoute:
@@ -65,6 +75,8 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>FavoritesPage());
       case Routes.myPropertiesRoute:
         return MaterialPageRoute(builder: (_)=>MyPropertiesPage());
+      case Routes.myServicesRoute:
+        return MaterialPageRoute(builder: (_)=>MyServicesPage());
       case Routes.createPropertyRoute:
         return MaterialPageRoute(builder: (_)=>CreatePropertyPostPage());
       case Routes.editPropertyRoute:

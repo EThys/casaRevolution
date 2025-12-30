@@ -18,6 +18,7 @@ class Routes {
   static const String BailleurRoute = "bailleur";
   static const String favoriteRoute = "favorite";
   static const String myPropertiesRoute = "myProperties";
+  static const String myServicesRoute = "myServices";
 
   static const String createPropertyRoute = "createProperty";
   static const String editPropertyRoute = "editProperty";
