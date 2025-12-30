@@ -33,7 +33,7 @@ android {
         applicationId = "com.casa.casa.casa"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdkVersion = flutter.minSdkVersion  // Android 5.0 (Lollipop)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -41,24 +41,28 @@ android {
 
     signingConfigs {
         release {
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
-            storePassword keystoreProperties['storePassword']
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+                storePassword keystoreProperties['storePassword']
+            }
         }
     }
 
     buildTypes {
         release {
-            // Signature
-            signingConfig signingConfigs.release
+            // Signature (seulement si key.properties existe)
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
 
             // Optimisation
             minifyEnabled true
             shrinkResources true
 
             // Configuration ProGuard
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
 
             // Désactiver le debug
             debuggable false
@@ -67,11 +71,59 @@ android {
         }
     }
 
-    dependencies {
-        implementation 'com.google.android.play:feature-delivery:2.1.0'
-        implementation 'com.google.android.play:review:2.0.2'
-        implementation 'com.google.android.play:app-update:2.1.0'
+    // Split APK par architecture (ABI) pour réduire la taille
+    // Note: Les splits sont désactivés car ils causent des conflits avec App Bundle
+    // Pour générer des APK séparés, utilisez: flutter build apk --split-per-abi --release
+    // Pour App Bundle, Google Play génère automatiquement les APK optimisés
+    splits {
+        abi {
+            enable false // Désactivé pour éviter les conflits avec App Bundle
+            reset()
+            include 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+            universalApk false
+        }
     }
+
+    // Configuration pour réduire la taille
+    packagingOptions {
+        resources {
+            excludes += [
+                'META-INF/DEPENDENCIES',
+                'META-INF/LICENSE',
+                'META-INF/LICENSE.txt',
+                'META-INF/license.txt',
+                'META-INF/NOTICE',
+                'META-INF/NOTICE.txt',
+                'META-INF/notice.txt',
+                'META-INF/ASL2.0',
+                'META-INF/*.kotlin_module',
+                'kotlin/**',
+                'kotlinx/**',
+                'META-INF/services/**',
+                '**/libc++_shared.so',
+                '**/libjsc.so'
+            ]
+        }
+    }
+
+    // Générer des noms d'APK avec version et ABI
+    applicationVariants.all { variant ->
+        variant.outputs.each { output ->
+            def versionName = variant.versionName
+            def versionCode = variant.versionCode
+            def abiName = output.getFilter(com.android.build.OutputFile.ABI)
+            if (abiName == null) {
+                abiName = "universal"
+            }
+            output.outputFileName = "app-${versionName}-${versionCode}-${abiName}.apk"
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.google.android.play:feature-delivery:2.1.0'
+    implementation 'com.google.android.play:review:2.0.2'
+    implementation 'com.google.android.play:app-update:2.1.0'
 }
 
 flutter {
