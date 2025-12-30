@@ -51,6 +51,7 @@ class _ProfilePageState extends State<ProfilePage> {
   final Color _warningColor = Color(0xFFED8936);
 
   File? _imageFile;
+  String? _profileImageUrl; // URL de l'image de profil depuis l'API
   final ImagePicker _picker = ImagePicker();
   bool _isLoading = false;
   double _profileCompletion = 0.0;
@@ -63,11 +64,30 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _loadSavedData() async {
-    final imagePath = storage.read('user_image_path');
-    if (imagePath != null) {
+    // D'abord, essayer de charger depuis l'URL stockée dans le profil (priorité)
+    final profileData = storage.read(StockageKeys.profileKey);
+    String? imageUrl;
+    
+    if (profileData != null && profileData is Map) {
+      imageUrl = profileData['image']?.toString() ?? profileData['images']?.toString();
+    }
+    
+    // Si on a une URL, la stocker pour l'affichage
+    if (imageUrl != null && imageUrl.isNotEmpty && !imageUrl.startsWith('/')) {
+      // C'est une URL, on l'utilisera avec CachedNetworkImage
       setState(() {
-        _imageFile = File(imagePath);
+        _profileImageUrl = imageUrl;
+        _imageFile = null; // Pas de fichier local si on a une URL
       });
+    } else {
+      // Fallback: charger depuis le chemin local
+      final imagePath = storage.read('user_image_path');
+      if (imagePath != null) {
+        setState(() {
+          _imageFile = File(imagePath);
+          _profileImageUrl = null;
+        });
+      }
     }
   }
 
@@ -78,8 +98,10 @@ class _ProfilePageState extends State<ProfilePage> {
     final profileData = storage.read(StockageKeys.profileKey) ?? {};
     final userData = storage.read(StockageKeys.userKey) ?? {};
 
-    // 1. Profile Photo (check file or profile data)
-    bool hasPhoto = _imageFile != null || (profileData['image'] != null && profileData['image'].toString().isNotEmpty);
+    // 1. Profile Photo (check file, URL, or profile data)
+    bool hasPhoto = _imageFile != null || 
+                    (_profileImageUrl != null && _profileImageUrl!.isNotEmpty) ||
+                    (profileData['image'] != null && profileData['image'].toString().isNotEmpty);
     if (hasPhoto) completedFields++;
 
     // 2. Address
@@ -209,15 +231,22 @@ class _ProfilePageState extends State<ProfilePage> {
   String get displayAccountTypes {
     final accounts = storage.read('user_accounts');
     if (accounts != null && accounts is List && accounts.isNotEmpty) {
-       final Set<String> types = {};
+       final List<String> roleNames = [];
        for (var acc in accounts) {
-         if (acc is Map && acc['typeAccount'] != null) {
-            String? name = acc['typeAccount']['name']?.toString();
-            if (name != null && name.isNotEmpty) types.add(name);
+         if (acc is Map) {
+            String? specName = acc['name']?.toString();
+            // Si on a un nom spécifique (ex: bailleur), on l'utilise directement
+            // Sinon on utilise le nom du type (ex: Propriétaire)
+            if (specName != null && specName.isNotEmpty) {
+               roleNames.add(specName[0].toUpperCase() + specName.substring(1).toLowerCase());
+            } else if (acc['typeAccount']?['name'] != null) {
+               roleNames.add(acc['typeAccount']['name']);
+            }
          }
        }
-       if (types.isNotEmpty) {
-         return types.join(' & ');
+       if (roleNames.isNotEmpty) {
+         // Suppression des doublons potentiels et jointure
+         return roleNames.toSet().join(' & ');
        }
     }
     return accountType;
@@ -228,20 +257,18 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   int? get profileId {
-    final userData = storage.read(StockageKeys.userKey);
-    
-    // L'ID du profil est le userId pour tous les types de comptes
-    // Les endpoints PUT utilisent le userId (ex: /api/bailleurs/{userId})
-    if (userData != null && userData['userId'] != null) {
-      final userId = userData['userId'];
-      if (userId is int) return userId;
-      if (userId is String) return int.tryParse(userId);
+    // Utiliser l'ID du profil (profile.id) depuis le stockage (priorité)
+    final profileData = storage.read(StockageKeys.profileKey);
+    if (profileData != null && profileData is Map) {
+      final id = profileData['id'];
+      if (id is int) return id;
+      if (id is String) return int.tryParse(id);
     }
     
-    // Fallback: chercher dans le profile si userId n'est pas disponible
-    final profile = profileData;
-    if (profile != null && profile['userId'] != null) {
-      final userId = profile['userId'];
+    // Fallback: utiliser userId si profile.id n'est pas disponible
+    final userData = storage.read(StockageKeys.userKey);
+    if (userData != null) {
+      final userId = userData['user']?['userId'] ?? userData['userId'];
       if (userId is int) return userId;
       if (userId is String) return int.tryParse(userId);
     }
@@ -271,20 +298,39 @@ class _ProfilePageState extends State<ProfilePage> {
             await storage.write('user_image_path', path);
             _calculateProfileCompletion();
 
-            // S'il y a un profileId (ou userId utilisé comme tel), maj via API
-            if (profileId != null) {
+            // S'il y a un profileId, uploader l'image via l'endpoint séparé
+            final currentProfileId = profileId;
+            if (currentProfileId != null) {
               try {
                 final bytes = await File(path).readAsBytes();
                 final base64Image = base64Encode(bytes);
                 final authCtrl = context.read<AuthentificationCtrl>();
                 
-                // Appel à l'endpoint spécifique pour la photo
-                await authCtrl.updateProfilePicture(profileId!, base64Image);
+                // Appel à l'endpoint spécifique pour la photo /api/members/{id}/profile
+                final response = await authCtrl.updateProfilePicture(currentProfileId.toString(), base64Image);
                 
-                FancyNotification.show(context, "Photo de profil mise à jour !", isError: false);
+                if (response.status) {
+                  // Récupérer l'URL de l'image depuis la réponse
+                  final imageUrl = response.data['image'] ?? response.data['images'] ?? response.data['profile']?['image'] ?? response.data['profile']?['images'];
+                  
+                  if (imageUrl != null && imageUrl.toString().isNotEmpty) {
+                    setState(() {
+                      _profileImageUrl = imageUrl.toString();
+                      _imageFile = null; // Plus besoin du fichier local, on a l'URL
+                    });
+                  }
+                  
+                  FancyNotification.show(context, "Photo de profil mise à jour !", isError: false);
+                } else {
+                  FancyNotification.show(
+                    context,
+                    response.errorMsg ?? "Erreur lors de la mise à jour de la photo",
+                    isError: true,
+                  );
+                }
               } catch (e) {
                 print("Erreur upload photo: $e");
-                // On ne bloque pas l'UI pour ça, c'est une maj en background
+                FancyNotification.show(context, "Erreur: ${e.toString()}", isError: true);
               }
             }
           },
@@ -417,16 +463,40 @@ class _ProfilePageState extends State<ProfilePage> {
                     border: Border.all(color: _cardColor, width: 3),
                   ),
                   child: ClipOval(
-                    child: _imageFile != null
-                        ? Image.file(_imageFile!, fit: BoxFit.cover)
-                        : Container(
-                      color: Colors.white.withOpacity(0.2),
-                      child: Icon(
-                        Icons.person,
-                        size: 50,
-                        color: _cardColor,
-                      ),
-                    ),
+                    child: _profileImageUrl != null && _profileImageUrl!.isNotEmpty
+                        ? Image.network(
+                            _profileImageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: Colors.white.withOpacity(0.2),
+                                child: Icon(Icons.person, size: 50, color: _cardColor),
+                              );
+                            },
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Container(
+                                color: Colors.white.withOpacity(0.2),
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    value: loadingProgress.expectedTotalBytes != null
+                                        ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                        : null,
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        : _imageFile != null
+                            ? Image.file(_imageFile!, fit: BoxFit.cover)
+                            : Container(
+                                color: Colors.white.withOpacity(0.2),
+                                child: Icon(
+                                  Icons.person,
+                                  size: 50,
+                                  color: _cardColor,
+                                ),
+                              ),
                   ),
                 ),
                 Positioned(
@@ -2193,8 +2263,16 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> with Sing
   }
 
   Widget _buildNavigationButtons() {
+    // Obtenir la hauteur de la barre de navigation système
+    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+    
     return Container(
-      margin: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      margin: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 16,
+        bottom: 16 + bottomPadding, // Ajouter le padding pour la barre de navigation
+      ),
       child: Row(
         children: [
           if (_currentStep > 0)
@@ -2465,6 +2543,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
     super.dispose();
   }
 
+  bool get _isUserCertified {
+    final userData = storage.read(StockageKeys.userKey);
+    return userData?['isCertified'] == true || userData?['certified'] == true;
+  }
+
   void _loadProfileData() {
     final profileData = storage.read(StockageKeys.profileKey);
     final userData = storage.read(StockageKeys.userKey);
@@ -2474,7 +2557,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
         _firstNameController.text = profileData['firstname']?.toString() ?? '';
         _lastNameController.text = profileData['lastname']?.toString() ?? '';
         _addressController.text = profileData['address']?.toString() ?? '';
-        _numberCardController.text = profileData['numberCard']?.toString() ?? '';
+        // Si l'utilisateur est certifié, on ne charge pas numberCard dans l'UI mais on le garde pour le payload
+        if (!_isUserCertified) {
+          _numberCardController.text = profileData['numberCard']?.toString() ?? '';
+        }
       });
     }
     
@@ -2534,33 +2620,36 @@ class _EditProfilePageState extends State<EditProfilePage> {
       int? existingProfileId = profileData[profileIdKey] ?? widget.profileId;
       
       // Construire le payload complet selon la structure de l'API
+      // Même structure pour vérification et modification
+      // Si l'utilisateur est certifié, on utilise les valeurs existantes pour les cartes
+      final isCertified = _isUserCertified;
+      
+      // Récupérer les valeurs existantes des cartes depuis le profil
+      final existingCardFront = profileData['cardFront']?.toString() ?? "";
+      final existingCardBack = profileData['cardBack']?.toString() ?? "";
+      final existingTypeCardId = profileData['typeCardId'] ?? profileData['typeCard']?['typeCardId'] ?? 1;
+      final existingNumberCard = isCertified 
+          ? (profileData['numberCard']?.toString() ?? "")
+          : _numberCardController.text.trim();
+      
+      // Structure du payload identique pour vérification et modification
       Map<String, dynamic> payload = {
-        profileIdKey: existingProfileId ?? widget.profileId ?? 0, // ID du profil (non modifié)
-        "firstName": _firstNameController.text.trim(),
         "lastName": _lastNameController.text.trim(),
-        "fullName": "${_firstNameController.text.trim()} ${_lastNameController.text.trim()}",
+        "firstName": _firstNameController.text.trim(),
         "address": _addressController.text.trim(),
-        "images": profileData['images']?.toString() ?? "",
-        "cardFront": profileData['cardFront']?.toString() ?? "",
-        "cardBack": profileData['cardBack']?.toString() ?? "",
-        "numberCard": _numberCardController.text.trim().isNotEmpty ? _numberCardController.text.trim() : "",
+        "images": profileData['images']?.toString() ?? "", // Photo de profil en base64
+        "cardFront": existingCardFront, // Valeur existante si certifié, sinon vide
+        "cardBack": existingCardBack, // Valeur existante si certifié, sinon vide
+        "typeCardId": existingTypeCardId, // Valeur existante si certifié
+        "parrainId": 0,
+        "numberCard": existingNumberCard, // Valeur existante si certifié, sinon depuis le controller
+        // La clé "user" doit toujours être présente avec toutes ses propriétés (même vides)
+        // Si l'email est vide, envoyer "string" pour éviter l'erreur API
         "user": {
-          "userId": userData['userId'] ?? widget.profileId ?? 0,
-          "typeAccount": userData['typeAccount'] ?? {
-            "typeAccountId": 0,
-            "name": widget.accountType
-          },
-          "email": userData['email']?.toString() ?? "",
-          "username": userData['username']?.toString() ?? "",
+          "email": (userData['email']?.toString() ?? "").isEmpty ? "string" : userData['email']?.toString() ?? "",
           "phone": userData['phone']?.toString() ?? "",
           "city": userData['city']?.toString() ?? "",
           "country": userData['country']?.toString() ?? "",
-          "isPremium": userData['isPremium'] ?? false,
-          "isCertified": userData['isCertified'] ?? false,
-        },
-        "typeCard": {
-          "typeCardId": profileData['typeCard']?['typeCardId'] ?? 1,
-          "name": profileData['typeCard']?['name']?.toString() ?? "Carte d'identité"
         },
       };
 
@@ -2815,13 +2904,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       hint: 'Entrez votre adresse',
                       maxLines: 2,
                     ),
-                    _buildTextField(
-                      controller: _numberCardController,
-                      label: 'Numéro de carte',
-                      icon: Icons.credit_card_outlined,
-                      hint: 'Entrez le numéro de votre pièce d\'identité',
-                      keyboardType: TextInputType.text,
-                    ),
+                    // Afficher les champs de carte uniquement si l'utilisateur n'est pas certifié
+                    if (!_isUserCertified)
+                      _buildTextField(
+                        controller: _numberCardController,
+                        label: 'Numéro de carte',
+                        icon: Icons.credit_card_outlined,
+                        hint: 'Entrez le numéro de votre pièce d\'identité',
+                        keyboardType: TextInputType.text,
+                      ),
 
                     SizedBox(height: 32),
 

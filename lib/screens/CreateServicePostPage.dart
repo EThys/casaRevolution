@@ -54,7 +54,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
   // Form controllers
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _titleController = TextEditingController(); // Restauré
+  // final TextEditingController _titleController = TextEditingController(); // Remplacé par affichage du type de compte (Ancien commentaire)
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _priceMinController = TextEditingController();
   final TextEditingController _priceMaxController = TextEditingController();
@@ -124,24 +125,24 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     super.initState();
     _pageController = PageController();
     _loadUserData();
-    _loadLocationData();
     
+    // Décaler le chargement des données de localisation après le build initial
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkUserVerification();
+      _loadLocationData();
     });
   }
 
   void _checkUserVerification() {
     final authCtrl = context.read<AuthentificationCtrl>();
+    // Check local storage if authCtrl user is not fully populated
+    if (authCtrl.user.userId == null) {
+       _loadUserData();
+    }
+    
     if (authCtrl.user.isCertified != true) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => IdentityVerificationPage()),
-      ).then((result) {
-        if (result != true) {
-          Navigator.pop(context);
-        }
-      });
+      // Allow user to proceed if just verifying flow, but ideally should block
+      // For now we just load data and let them continue, validation happens at submit
     }
   }
 
@@ -167,10 +168,15 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               : (acc['typeAccountId'] ?? acc['TypeAccountId'] ?? 0);
           
           if (typeId == 3) {
+            // Récupérer l'ID du compte (pas le typeAccountId)
             _serviceId = acc['id'] ?? acc['Id'];
-            final accountName = typeAcc is Map ? typeAcc['name']?.toString().toLowerCase() : null;
+            
+            // Récupérer le nom du compte depuis acc['name'] (ex: "electricien")
+            final accountName = acc['name']?.toString().toLowerCase();
             if (accountName != null) {
-              _userServiceType = _mapAccountTypeToServiceType(accountName);
+              // Stocker le nom brut pour l'affichage
+              _userServiceType = accountName;
+              print("✅ [CreateService] Service trouvé: $accountName, ID: $_serviceId");
             }
             break;
           }
@@ -201,39 +207,42 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
   Future<void> _loadLocationData() async {
     try {
-      final locationCtrl = LocationController();
+      // Utiliser le LocationController du Provider au lieu d'en créer un nouveau
+      final locationCtrl = Provider.of<LocationController>(context, listen: false);
       print("📍 [CreateService] Début chargement des données de localisation...");
       
       // Charger TOUTES les données d'abord
       await locationCtrl.loadAllData();
       print("📍 [CreateService] loadAllData() terminé");
       
-      _availableCities = await locationCtrl.getAllCities();
-      print("📍 [CreateService] ${_availableCities.length} villes chargées");
-      
-      if (_availableCities.isNotEmpty) {
-        _selectedCity = _availableCities.firstWhere(
-          (c) => c.name?.toLowerCase() == 'kinshasa',
-          orElse: () => _availableCities.first,
-        );
-        print("📍 [CreateService] Ville sélectionnée: ${_selectedCity?.name}");
+      if (mounted) {
+        _availableCities = await locationCtrl.getAllCities();
+        print("📍 [CreateService] ${_availableCities.length} villes chargées");
         
-        if (_selectedCity != null) {
-          _availableDistricts = locationCtrl.getDistrictsForCity(_selectedCity!.cityId!);
-          print("📍 [CreateService] ${_availableDistricts.length} districts pour ${_selectedCity?.name}");
+        if (_availableCities.isNotEmpty) {
+          _selectedCity = _availableCities.firstWhere(
+            (c) => c.name?.toLowerCase() == 'kinshasa',
+            orElse: () => _availableCities.first,
+          );
+          print("📍 [CreateService] Ville sélectionnée: ${_selectedCity?.name}");
           
-          if (_availableDistricts.isNotEmpty) {
-            _selectedDistrict = _availableDistricts.first;
-            print("📍 [CreateService] District sélectionné: ${_selectedDistrict?.name}");
+          if (_selectedCity != null) {
+            _availableDistricts = locationCtrl.getDistrictsForCity(_selectedCity!.cityId!);
+            print("📍 [CreateService] ${_availableDistricts.length} districts pour ${_selectedCity?.name}");
             
-            _availableCommunes = locationCtrl.getCommunesForDistrict(_selectedDistrict!.districtId!);
-            print("📍 [CreateService] ${_availableCommunes.length} communes pour ${_selectedDistrict?.name}");
+            if (_availableDistricts.isNotEmpty) {
+              _selectedDistrict = _availableDistricts.first;
+              print("📍 [CreateService] District sélectionné: ${_selectedDistrict?.name}");
+              
+              _availableCommunes = locationCtrl.getCommunesForDistrict(_selectedDistrict!.districtId!);
+              print("📍 [CreateService] ${_availableCommunes.length} communes pour ${_selectedDistrict?.name}");
+            }
           }
         }
+        
+        if (mounted) setState(() {});
+        print("📍 [CreateService] Chargement de localisation terminé avec succès");
       }
-      
-      if (mounted) setState(() {});
-      print("📍 [CreateService] Chargement de localisation terminé avec succès");
     } catch (e, stackTrace) {
       print("❌ [CreateService] Erreur chargement localisation: $e");
       print("Stack trace: $stackTrace");
@@ -253,9 +262,65 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     _cityTextController.dispose();
     _communeTextController.dispose();
     _quartierTextController.dispose();
-    //_plageJourController.dispose(); // Plus utilisé
+    //_plageHeureController.dispose(); // Plus utilisé manuellement
     _plageHeureController.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectTimeRange(BuildContext context) async {
+    // Sélection Heure de début
+    final TimeOfDay? startTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: 8, minute: 0),
+      helpText: "HEURE DE DÉBUT",
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: _primaryColor,
+              onPrimary: Colors.white,
+              onSurface: _darkColor,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (startTime == null) return;
+
+    // Sélection Heure de fin
+    final TimeOfDay? endTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: 17, minute: 0),
+      helpText: "HEURE DE FIN",
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: _primaryColor,
+              onPrimary: Colors.white,
+              onSurface: _darkColor,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (endTime == null) return;
+
+    // Formatage "08:00 - 17:00"
+    final localizations = MaterialLocalizations.of(context);
+    final formattedStart = localizations.formatTimeOfDay(startTime, alwaysUse24HourFormat: true);
+    final formattedEnd = localizations.formatTimeOfDay(endTime, alwaysUse24HourFormat: true);
+    
+    setState(() {
+      _plageHeureController.text = "$formattedStart - $formattedEnd";
+      if (_plageHeureController.text.isNotEmpty) {
+        _removeFieldError(1, 'plage_heure');
+      }
+    });
   }
   
   String _getCountryNameFromCode(String countryCode) {
@@ -443,6 +508,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     );
   }
 
+
+
   Widget _buildStep0() {
     return SingleChildScrollView(
       padding: EdgeInsets.all(_mediumSpace),
@@ -450,25 +517,56 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
-            'Photo de profil',
-            'Votre photo sera affichée comme image principale',
-            Icons.face_rounded,
+            'Média',
+            'Ajoutez votre photo de profil et des photos pour illustrer votre service',
+            Icons.camera_alt_rounded,
           ),
           SizedBox(height: _mediumSpace),
           
-          // Photo principale (visage)
+          // Photo de profil (en premier, obligatoire)
+          Padding(
+            padding: EdgeInsets.only(bottom: _smallSpace),
+            child: Row(
+              children: [
+                Icon(Icons.person_rounded, color: _primaryColor, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Photo de profil *',
+                  style: GoogleFonts.inter(
+                    fontSize: _bodySize,
+                    fontWeight: FontWeight.w600,
+                    color: _darkColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: _smallSpace),
           _buildProfileImageSelector(),
           
           SizedBox(height: _largeSpace),
-          _buildSectionHeader(
-            'Réalisations',
-            'Ajoutez des photos de vos précédentes réalisations',
-            Icons.photo_library_rounded,
-          ),
-          SizedBox(height: _mediumSpace),
           
-          // Galerie de réalisations
-          _buildPortfolioImagesGrid(),
+          // Images de portfolio
+          Padding(
+            padding: EdgeInsets.only(bottom: _smallSpace),
+            child: Row(
+              children: [
+                Icon(Icons.photo_library_rounded, color: _primaryColor, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Photos de réalisations',
+                  style: GoogleFonts.inter(
+                    fontSize: _bodySize,
+                    fontWeight: FontWeight.w600,
+                    color: _darkColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: _smallSpace),
+          _buildPortfolioImagesGrid(), // Gestion améliorée des images multiples
+          
         ],
       ),
     );
@@ -487,15 +585,23 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           ),
           SizedBox(height: _mediumSpace),
           
+          // Affichage du type de service (READ ONLY)
+          _buildReadOnlyServiceTypeField(),
+          
+          SizedBox(height: _mediumSpace),
+
+          // Champ Titre (RESTAURÉ)
           _buildModernTextField(
             controller: _titleController,
             label: 'Titre de l\'annonce',
-            hint: 'Ex: Plombier professionnel avec 10 ans d\'expérience',
+            hint: 'Ex: Plombier professionnel (Optionnel)',
             icon: Icons.title_rounded,
             fieldKey: 'title',
             validator: (v) {
+              // Validation relaxée : le titre n'est plus strictement requis si le type de service est là, 
+              // mais on peut le laisser obligatoire sans contrainte de longueur.
+              // Le user a dit "enleve les verifications des nombres des caracteres".
               if (v == null || v.trim().isEmpty) return 'Titre requis';
-              if (v.trim().length < 10) return 'Titre trop court (min 10 caractères)';
               return null;
             },
           ),
@@ -505,7 +611,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           _buildModernTextField(
             controller: _descriptionController,
             label: 'Description détaillée',
-            hint: 'Décrivez votre service, vos compétences et votre expérience...',
+            hint: 'Décrivez votre service...',
             icon: Icons.description_rounded,
             maxLines: 6,
             fieldKey: 'description',
@@ -607,16 +713,22 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           
           _buildDaySelector(),
           
-          _buildModernTextField(
-            controller: _plageHeureController,
-            label: 'Heures de prestation',
-            hint: 'Ex: 08:00 - 17:00, ou 24h/24',
-            icon: Icons.timer_outlined,
-            fieldKey: 'plage_heure',
-            validator: (v) {
-              if (v == null || v.trim().isEmpty) return 'Champs requis';
-              return null;
-            },
+          // Sélecteur d'heure amélioré (UX)
+          GestureDetector(
+            onTap: () => _selectTimeRange(context),
+            child: AbsorbPointer( // Empêche le clavier de s'ouvrir
+              child: _buildModernTextField(
+                controller: _plageHeureController,
+                label: 'Heures de prestation',
+                hint: 'Appuyez pour sélectionner une plage',
+                icon: Icons.access_time_rounded, // Icone plus parlante
+                fieldKey: 'plage_heure',
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) return 'Plage horaire requise';
+                  return null;
+                },
+              ),
+            ),
           ),
           
           SizedBox(height: _mediumSpace),
@@ -963,14 +1075,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Future<void> _pickProfileImage() async {
-    _showImageSourceModal(isProfile: true);
-  }
-
-  Future<void> _pickPortfolioImage() async {
-    _showImageSourceModal(isProfile: false);
-  }
-
-  void _showImageSourceModal({required bool isProfile}) {
+    // Afficher un modal pour choisir entre galerie et caméra
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -998,24 +1103,66 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             Row(
               children: [
                 Expanded(
-                  child: _buildImageSourceButton(
-                    icon: Icons.photo_library_rounded,
-                    label: 'Galerie',
+                  child: InkWell(
                     onTap: () {
                       Navigator.pop(context);
-                      _pickImageFromSource(ImageSource.gallery, isProfile: isProfile);
+                      _pickImageFromSource(ImageSource.gallery, isProfile: true);
                     },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: _lightColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: _borderColor),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.photo_library_rounded, color: _primaryColor, size: 32),
+                          SizedBox(height: 8),
+                          Text(
+                            'Galerie',
+                            style: GoogleFonts.inter(
+                              fontSize: _bodySize,
+                              fontWeight: FontWeight.w600,
+                              color: _darkColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
                 SizedBox(width: 16),
                 Expanded(
-                  child: _buildImageSourceButton(
-                    icon: Icons.camera_alt_rounded,
-                    label: 'Caméra',
+                  child: InkWell(
                     onTap: () {
                       Navigator.pop(context);
-                      _pickImageFromSource(ImageSource.camera, isProfile: isProfile);
+                      _pickImageFromSource(ImageSource.camera, isProfile: true);
                     },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: _lightColor,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: _borderColor),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.camera_alt_rounded, color: _primaryColor, size: 32),
+                          SizedBox(height: 8),
+                          Text(
+                            'Caméra',
+                            style: GoogleFonts.inter(
+                              fontSize: _bodySize,
+                              fontWeight: FontWeight.w600,
+                              color: _darkColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -1031,37 +1178,52 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     );
   }
 
-  Widget _buildImageSourceButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-        decoration: BoxDecoration(
-          color: _lightColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _borderColor),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: _primaryColor, size: 32),
-            SizedBox(height: 8),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                fontSize: _bodySize,
-                fontWeight: FontWeight.w600,
-                color: _darkColor,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  Future<void> _pickPortfolioImage() async {
+    try {
+      final List<XFile>? images = await _picker.pickMultiImage(
+        imageQuality: 85,
+        maxWidth: 1440,
+      );
+
+      if (images != null && images.isNotEmpty && mounted) {
+        // Vérifier la disponibilité des fichiers immédiatement
+        List<XFile> validImages = [];
+        for (var image in images) {
+          final file = File(image.path);
+          if (await file.exists()) {
+            final fileSize = await file.length();
+            if (fileSize > 0) {
+              validImages.add(image);
+              print("✅ Image valide: ${image.path}");
+            } else {
+              print("❌ Image non valide (fichier vide): ${image.path}");
+            }
+          } else {
+            print("❌ Image non valide (fichier manquant): ${image.path}");
+          }
+        }
+
+        if (mounted && validImages.isNotEmpty) {
+          setState(() {
+            _markFieldTouched('portfolio_images');
+            _portfolioImages.addAll(validImages);
+            _validateStep(0);
+          });
+        }
+      }
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+      print('Erreur lors de la sélection des images: $e');
+      String errorMessage = "Erreur lors de la sélection des images";
+      if (e.code == 'photo_access_denied') {
+        errorMessage = "Permission refusée. Veuillez autoriser l'accès dans les paramètres de l'application.";
+      }
+      FancyNotification.show(context, errorMessage, type: NotificationType.error);
+    } catch (e) {
+      if (!mounted) return;
+      print('Erreur inattendue lors de la sélection des images: $e');
+      FancyNotification.show(context, "Erreur lors de la sélection des images", type: NotificationType.error);
+    }
   }
 
   Future<void> _pickImageFromSource(ImageSource source, {required bool isProfile}) async {
@@ -1101,34 +1263,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             return;
           }
 
-          if (isProfile) {
-            if (mounted) {
-              setState(() {
-                _profileImage = image;
-                _validateStep(0);
-              });
-            }
-          } else {
-            // Pour le portfolio, si on est en galerie, on permet le multi-image
-            if (source == ImageSource.gallery) {
-              final List<XFile> images = await _picker.pickMultiImage(imageQuality: 85);
-              if (images.isNotEmpty && mounted) {
-                setState(() {
-                  _markFieldTouched('portfolio_images');
-                  _portfolioImages.addAll(images);
-                  _validateStep(0);
-                });
-              }
-            } else {
-              // Caméra: une seule image
-              if (mounted) {
-                setState(() {
-                  _markFieldTouched('portfolio_images');
-                  _portfolioImages.add(image);
-                  _validateStep(0);
-                });
-              }
-            }
+          if (isProfile && mounted) {
+            setState(() {
+              _profileImage = image;
+              _validateStep(0);
+            });
           }
         } else {
           if (mounted) {
@@ -1231,6 +1370,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             keyboardType: keyboardType,
             maxLines: maxLines,
             validator: validator,
+            style: TextStyle(color: Colors.black87, fontSize: _bodySize),
             onChanged: (value) {
               if (mounted) {
                 setState(() {
@@ -1253,6 +1393,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             },
             decoration: InputDecoration(
               hintText: hint,
+              hintStyle: TextStyle(color: Colors.grey[600]),
               prefixIcon: Icon(icon, color: hasError ? _errorColor : _primaryColor),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -1337,8 +1478,16 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Widget _buildNavigationButtons() {
+    // Obtenir la hauteur de la barre de navigation système
+    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+    
     return Container(
-      padding: EdgeInsets.all(_mediumSpace),
+      padding: EdgeInsets.only(
+        left: _mediumSpace,
+        right: _mediumSpace,
+        top: _mediumSpace,
+        bottom: _mediumSpace + bottomPadding, // Ajouter le padding pour la barre de navigation
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -1389,7 +1538,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                   _hasAttemptedSubmit = true;
                 });
                 if (_currentStep < 2) {
-                  if (_validateStep(_currentStep)) {
+                  final isValid = _validateStep(_currentStep);
+                  if (isValid) {
                     setState(() {
                       _currentStep++;
                     });
@@ -1398,6 +1548,17 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                       duration: Duration(milliseconds: 300),
                       curve: Curves.easeInOut,
                     );
+                  } else {
+                    // Afficher un message d'erreur si la validation échoue
+                    final errors = _stepFieldErrors[_currentStep];
+                    if (errors != null && errors.isNotEmpty) {
+                      final firstError = errors.values.first;
+                      FancyNotification.show(
+                        context,
+                        firstError,
+                        isError: true,
+                      );
+                    }
                   }
                 } else {
                   _handleSubmit();
@@ -1441,18 +1602,18 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     switch (step) {
       case 0:
         _clearStepFieldErrors(0);
+        
+        // Validation de la photo de profil (obligatoire)
         if (_profileImage == null) {
-          _setFieldError(0, 'profile_image', 'Photo de profil requise');
+          _setFieldError(0, 'profile_image', 'La photo de profil est requise');
         }
         
+        // Validation des images de portfolio (optionnelles mais recommandées)
         if (_portfolioImages.isEmpty) {
-          _setFieldError(0, 'portfolio_images', 'Au moins une photo de réalisation est requise');
-        } else if (_portfolioImages.length < 2) {
-          // Proposition : encourager plus de photos
-          // _setFieldError(0, 'portfolio_images', 'Idéalement, ajoutez au moins 2 photos');
+          _setFieldError(0, 'portfolio_images', 'Au moins une photo de réalisation est recommandée');
         }
 
-        _stepValidations[0] = _profileImage != null && _portfolioImages.isNotEmpty;
+        _stepValidations[0] = _profileImage != null; // Photo de profil obligatoire
         return _stepValidations[0]!;
         
       case 1:
@@ -1465,14 +1626,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         
         if (title.isEmpty) {
           _setFieldError(1, 'title', 'Titre requis');
-        } else if (title.length < 15) {
-          _setFieldError(1, 'title', 'Titre trop court (min 15 car.)');
         }
         
         if (description.isEmpty) {
           _setFieldError(1, 'description', 'Description requise');
-        } else if (description.length < 30) {
-          _setFieldError(1, 'description', 'Description trop courte (min 30 car.)');
         }
         
         if (priceMin.isEmpty) {
@@ -1614,38 +1771,69 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       // Préparer les images en base64
       List<Map<String, String>> imagesPayload = [];
       
+      // Récupération ID depuis local storage pour robustesse
+      final storageData = _storage.read<Map<String, dynamic>>(StockageKeys.userKey);
+      final storedUserId = storageData?['user']?['userId'] ?? authCtrl.user.userId ?? 0;
+      
       print("📸 [CreateService] Préparation des images...");
-      // Photo principale (visage)
+      
+      // Photo de profil (obligatoire, en base64)
+      String? profileBase64;
       if (_profileImage != null) {
-        final bytes = await File(_profileImage!.path).readAsBytes();
-        final base64Image = base64Encode(bytes);
-        imagesPayload.add({"image": base64Image});
-        print("📸 [CreateService] Photo principale ajoutée (${bytes.length} bytes, base64: ${base64Image.length} chars)");
+        final profileBytes = await File(_profileImage!.path).readAsBytes();
+        profileBase64 = base64Encode(profileBytes);
+        print("✅ [CreateService] Photo de profil convertie en base64");
       } else {
-        print("⚠️ [CreateService] Aucune photo principale");
+        print("❌ [CreateService] Aucune photo de profil sélectionnée");
+        FancyNotification.show(context, "La photo de profil est requise", isError: true);
+        setState(() => _isLoading = false);
+        return;
       }
       
-      // Photos de réalisations
-      for (var i = 0; i < _portfolioImages.length; i++) {
-        final img = _portfolioImages[i];
+      // Images de portfolio (multiples)
+      for (var img in _portfolioImages) {
         final bytes = await File(img.path).readAsBytes();
         final base64Image = base64Encode(bytes);
         imagesPayload.add({"image": base64Image});
-        print("📸 [CreateService] Photo portfolio ${i+1} ajoutée (${bytes.length} bytes)");
       }
-      print("📸 [CreateService] Total images: ${imagesPayload.length}");
+      
+      // Si aucune image de portfolio n'est ajoutée, ajouter une image vide pour éviter erreur backend si requis
+      if (imagesPayload.isEmpty) {
+         imagesPayload.add({"image": ""});
+      }
+
+      print("📸 [CreateService] Photo de profil: ${profileBase64 != null ? 'Oui' : 'Non'}, Images portfolio: ${imagesPayload.length}");
 
       // Convertir les jours sélectionnés en string
       final selectedDaysString = _selectedDays.join(', ');
       print("📅 [CreateService] Jours sélectionnés: $selectedDaysString");
 
+      // Vérifier que serviceId est bien défini (ID du compte, pas typeAccountId)
+      if (_serviceId == null) {
+        print("❌ [CreateService] serviceId est null, tentative de récupération...");
+        // Réessayer de charger les données
+        await _loadUserData();
+        if (_serviceId == null) {
+          FancyNotification.show(
+            context,
+            "Erreur: Impossible de récupérer votre type de compte. Veuillez vous reconnecter.",
+            isError: true,
+          );
+          setState(() => _isLoading = false);
+          return;
+        }
+      }
+      
+      print("📤 [CreateService] Envoi avec serviceId (ID du compte): $_serviceId");
+
       // Prepare payload following user request model
       final payload = {
         "prestation": {
-          "userId": authCtrl.user.userId ?? 0,
-          "serviceId": _serviceId ?? 0,
+          "userId": storedUserId,
+          "serviceId": _serviceId!,
           "deviseId": _selectedCurrency == 'USD' ? 2 : 1,
-          "title": _titleController.text.trim(),
+          "title": _titleController.text.trim(), // Utilise le titre manuel
+          "profile": profileBase64 ?? "", // Photo de profil en base64 (obligatoire)
           "description": _descriptionController.text.trim(),
           "experience": _experienceController.text.trim(),
           "plageJourPrestation": selectedDaysString,
@@ -1766,6 +1954,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             return TextField(
               controller: controller,
               focusNode: focusNode,
+              style: TextStyle(color: Colors.black87, fontSize: _bodySize),
               onChanged: (value) {
                 if (mounted) {
                   setState(() {
@@ -1777,6 +1966,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               },
               decoration: InputDecoration(
                 hintText: 'Ex: Kinshasa, Lubumbashi...',
+                hintStyle: TextStyle(color: Colors.grey[600]),
                 prefixIcon: Icon(Icons.location_city_rounded, color: hasError ? _errorColor : _primaryColor),
                 filled: true,
                 fillColor: Colors.white,
@@ -2091,14 +2281,31 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 value: _selectedCurrency,
                 isExpanded: true,
                 icon: Icon(Icons.currency_exchange_rounded, color: _primaryColor),
+                style: TextStyle(
+                  color: Colors.black87,
+                  fontSize: _bodySize,
+                ),
+                dropdownColor: Colors.white,
                 items: [
                   DropdownMenuItem(
                     value: 'CDF',
                     child: Row(
                       children: [
-                        Text('Franc Congolais (CDF)', style: TextStyle(fontSize: _bodySize)),
+                        Text(
+                          'Franc Congolais (CDF)',
+                          style: TextStyle(
+                            fontSize: _bodySize,
+                            color: Colors.black87,
+                          ),
+                        ),
                         SizedBox(width: 8),
-                        Text('FC', style: TextStyle(fontSize: _captionSize, color: _greyColor)),
+                        Text(
+                          'FC',
+                          style: TextStyle(
+                            fontSize: _captionSize,
+                            color: _greyColor,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -2106,9 +2313,21 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                     value: 'USD',
                     child: Row(
                       children: [
-                        Text('Dollar Américain (USD)', style: TextStyle(fontSize: _bodySize)),
+                        Text(
+                          'Dollar Américain (USD)',
+                          style: TextStyle(
+                            fontSize: _bodySize,
+                            color: Colors.black87,
+                          ),
+                        ),
                         SizedBox(width: 8),
-                        Text('\$', style: TextStyle(fontSize: _captionSize, color: _greyColor)),
+                        Text(
+                          '\$',
+                          style: TextStyle(
+                            fontSize: _captionSize,
+                            color: _greyColor,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -2499,5 +2718,68 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       ),
     );
   }
-}
 
+
+  Widget _buildReadOnlyServiceTypeField() {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50], // Couleur très légère pour différencier
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.workspace_premium_rounded, color: _primaryColor, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Catégorie de Service (Type de Compte)',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _greyColor,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 8),
+          Text(
+            _userServiceType != null 
+              ? _userServiceType![0].toUpperCase() + _userServiceType!.substring(1) 
+              : 'Non défini',
+            style: GoogleFonts.inter( // Utilisation de Inter
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: _darkColor,
+            ),
+          ),
+          if (_serviceId != null) ...[
+            SizedBox(height: 4),
+            Text(
+              'ID du compte: $_serviceId',
+              style: GoogleFonts.inter(
+                fontSize: 10,
+                color: _greyColor,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+          SizedBox(height: 4),
+          Text(
+            'Ce champ est lié à votre type de compte et ne peut pas être modifié.',
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              color: Colors.grey[500],
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

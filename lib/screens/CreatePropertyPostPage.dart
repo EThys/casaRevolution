@@ -91,7 +91,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   final TextEditingController _livingRoomsController = TextEditingController();
   final TextEditingController _kitchensController = TextEditingController();
   final TextEditingController _areaController = TextEditingController();
-  final TextEditingController _floorController = TextEditingController();
   final TextEditingController _roomsController = TextEditingController();
   final TextEditingController _postalCodeController = TextEditingController();
   // Champs texte pour mode hors Kinshasa
@@ -106,6 +105,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   bool _isDecore = false;
   bool _pisteDanse = false;
   bool _isEquip = false; // Meublé ou non
+  bool _hasFloor = false; // Pour le champ Étage (0/1)
 
   // State variables
   bool _isForRent = true;
@@ -127,6 +127,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   List<Map<String, dynamic>> _features = [];
   bool _loadingTypes = false;
   bool _loadingFeatures = false;
+  int _selectedDeviseId = 2; // Par défaut USD (2), FC (1)
 
   // Location variables
   CityModel? _selectedCity;
@@ -211,55 +212,21 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
        return; 
     }
     
-    // Check if user is certified
+    // Check if user is certified - rediriger directement vers la vérification
     if (authCtrl.user.isCertified != true) {
-      print("🔒 User not certified, showing dialog");
+      print("🔒 User not certified, redirecting to verification");
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showVerificationRequiredDialog();
+        Navigator.push(
+          context, 
+          MaterialPageRoute(builder: (context) => IdentityVerificationPage())
+        ).then((result) {
+          // Si la vérification réussit, on peut revenir à la création de propriété
+          if (result == true && mounted) {
+            // L'utilisateur peut maintenant créer une propriété
+          }
+        });
       });
     }
-  }
-
-  void _showVerificationRequiredDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false, // User must interact
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.verified_user_outlined, color: _warningColor),
-            SizedBox(width: 10),
-            Text('Vérification requise'),
-          ],
-        ),
-        content: Text(
-          'Pour créer une propriété, votre compte doit être vérifié. '
-          'Veuillez compléter la vérification de votre identité.'
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-               Navigator.pop(context); // Close dialog
-               Navigator.pop(context); // Close property creation page
-            },
-            child: Text('Plus tard', style: TextStyle(color: _greyColor)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
-            onPressed: () {
-               Navigator.pop(context); // Close dialog
-               Navigator.pop(context); // Close create page
-               // Navigate to verification page
-               Navigator.push(
-                 context, 
-                 MaterialPageRoute(builder: (context) => IdentityVerificationPage())
-               );
-            },
-            child: Text('Vérifier mon compte', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
   }
 
   Map<int, bool> _stepValidations = {0: false, 1: false, 2: false};
@@ -703,7 +670,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     _livingRoomsController.dispose();
     _kitchensController.dispose();
     _areaController.dispose();
-    _floorController.dispose();
     _roomsController.dispose();
     _postalCodeController.dispose();
     _cityTextController.dispose();
@@ -747,7 +713,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'livingRooms': _livingRoomsController.text,
         'kitchens': _kitchensController.text,
         'area': _areaController.text,
-        'floor': _floorController.text,
+        'hasFloor': _hasFloor,
         'selectedAmenities': _selectedAmenities.toList(),
         'selectedCityId': _selectedCity?.cityId,
         'selectedDistrictId': _selectedDistrict?.districtId,
@@ -790,7 +756,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           _livingRoomsController.text = draft['livingRooms'] ?? '';
           _kitchensController.text = draft['kitchens'] ?? '';
           _areaController.text = draft['area'] ?? '';
-          _floorController.text = draft['floor'] ?? '';
+          _hasFloor = draft['hasFloor'] ?? false;
           _selectedAmenities = Set<String>.from(draft['selectedAmenities'] ?? []);
         });
 
@@ -2454,6 +2420,61 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           ),
           SizedBox(height: _smallSpace),
 
+          // SÉLECTEUR DE DEVISE (FC / $)
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _borderColor),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 8,
+                  offset: Offset(0, 4),
+                )
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(left: 4, bottom: 8),
+                  child: Text(
+                    'Devise',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: _darkColor,
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildDeviseOption(
+                        label: 'FC (Franc Congolais)',
+                        value: 1,
+                        isSelected: _selectedDeviseId == 1,
+                        onTap: () => setState(() => _selectedDeviseId = 1),
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: _buildDeviseOption(
+                        label: '\$ (Dollar US)',
+                        value: 2,
+                        isSelected: _selectedDeviseId == 2,
+                        onTap: () => setState(() => _selectedDeviseId = 2),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: _smallSpace),
+
           if (_isForRent) ...[
             _buildModernTextField(
               controller: _guaranteeController,
@@ -2725,12 +2746,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                           color: Color(0xFF0891B2).withOpacity(0.1),
                           iconColor: Color(0xFF0891B2),
                         ),
-                        _buildModernFeatureInput(
-                          controller: _floorController,
-                          label: 'Étage',
-                          icon: FontAwesomeIcons.building,
-                          color: Color(0xFF7C3AED).withOpacity(0.1),
-                          iconColor: Color(0xFF7C3AED),
+                        _buildSwitchTile(
+                          'Étage ?', 
+                          _hasFloor, 
+                          (v) => setState(() => _hasFloor = v)
                         ),
                         _buildModernFeatureInput(
                           controller: _roomMeetController,
@@ -2815,12 +2834,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                       color: Color(0xFF0891B2).withOpacity(0.1),
                       iconColor: Color(0xFF0891B2),
                     ),
-                    _buildModernFeatureInput(
-                      controller: _floorController,
-                      label: 'Étage',
-                      icon: FontAwesomeIcons.building,
-                      color: Color(0xFF7C3AED).withOpacity(0.1),
-                      iconColor: Color(0xFF7C3AED),
+                    _buildSwitchTile(
+                      'Étage ?', 
+                      _hasFloor, 
+                      (v) => setState(() => _hasFloor = v)
                     ),
                   ],
                 );
@@ -2987,6 +3004,34 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     );
   }
 
+  Widget _buildDeviseOption({required String label, required int value, required bool isSelected, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? _primaryColor.withOpacity(0.05) : _lightColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? _primaryColor : _borderColor,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              color: isSelected ? _primaryColor : _greyColor,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSwitchTile(String title, bool value, Function(bool) onChanged) {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -3013,9 +3058,17 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     final isLastStep = _currentStep == 2;
     final canProceed = !_isLoading;
     final canPublish = _stepValidations[0]! && _stepValidations[1]! && _stepValidations[2]! && !_isLoading;
+    
+    // Obtenir la hauteur de la barre de navigation système
+    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
 
     return Container(
-      padding: EdgeInsets.all(_mediumSpace),
+      padding: EdgeInsets.only(
+        left: _mediumSpace,
+        right: _mediumSpace,
+        top: _mediumSpace,
+        bottom: _mediumSpace + bottomPadding, // Ajouter le padding pour la barre de navigation
+      ),
       decoration: BoxDecoration(
         color: _cardColor,
         boxShadow: [
@@ -3200,12 +3253,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             return TextField(
               controller: controller,
               focusNode: focusNode,
+              style: TextStyle(color: Colors.black87, fontSize: _bodySize),
               onChanged: (value) {
                 _markFieldTouched('city');
                 _removeFieldError(1, 'city');
               },
               decoration: InputDecoration(
                 hintText: 'Ex: Kinshasa, Lubumbashi...',
+                hintStyle: TextStyle(color: Colors.grey[600]),
                 prefixIcon: Icon(Icons.location_city_rounded, color: hasError ? _errorColor : _primaryColor),
                 filled: true,
                 fillColor: Colors.white,
@@ -3308,13 +3363,13 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               },
               style: TextStyle(
                 fontSize: _bodySize,
-                color: _darkColor,
+                color: Colors.black87, // Force black text on white background
               ),
               decoration: InputDecoration(
                 hintText: 'Saisir $label',
                 hintStyle: TextStyle(
                   fontSize: _bodySize,
-                  color: Colors.grey.shade500,
+                  color: Colors.grey[600],
                 ),
                 prefixIcon: Icon(Icons.place_rounded, color: hasError ? _errorColor : _primaryColor),
                 filled: true,
@@ -3416,36 +3471,22 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             focusNode: focusNode,
             validator: validator,
             onChanged: (value) {
-              // Marquer le champ comme touché
-              if (fieldKey != null) {
-                _markFieldTouched(fieldKey);
+              if (mounted) {
+                setState(() {
+                  if (fieldKey != null) {
+                    _markFieldTouched(fieldKey);
+                  }
+                  _validateCurrentStepFields();
+                });
               }
-              
-              if (value.isNotEmpty) {
-                switch (label) {
-                  case 'Titre de l\'annonce':
-                    _removeFieldError(1, 'title');
-                    break;
-                  case 'Prix mensuel':
-                  case 'Prix de vente':
-                    _removeFieldError(1, 'price');
-                    break;
-                  case 'Description détaillée':
-                    _removeFieldError(1, 'description');
-                    break;
-                  case 'Adresse complète':
-                    _removeFieldError(1, 'address');
-                    break;
-                }
-              }
-              _validateStep1();
-              _saveDraft();
             },
             onTap: () {
-              // Track click/interaction
-              if (fieldKey != null) {
-                _clickCount++;
-                _markFieldTouched(fieldKey);
+              if (fieldKey != null && mounted) {
+                setState(() {
+                  _clickCount++;
+                  _markFieldTouched(fieldKey);
+                  _validateCurrentStepFields();
+                });
               }
             },
             onFieldSubmitted: (value) {
@@ -3583,7 +3624,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       style: TextStyle(
         fontSize: _bodySize,
         fontWeight: FontWeight.w500,
-        color: _darkColor,
+        color: Colors.black87, // Force black text on white background
       ),
     );
   }
@@ -4327,7 +4368,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     // Double check verification before proceeding
     final authCtrl = context.read<AuthentificationCtrl>();
     if (authCtrl.user.isCertified != true) {
-      _showVerificationRequiredDialog();
+      Navigator.push(
+        context, 
+        MaterialPageRoute(builder: (context) => IdentityVerificationPage())
+      ).then((result) {
+        // Si la vérification réussit, on peut revenir à la création de propriété
+        if (result == true && mounted) {
+          // L'utilisateur peut maintenant créer une propriété
+        }
+      });
       return;
     }
 
@@ -4407,11 +4456,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         quartierValue = quartier;
       }
 
-      final GetStorage storage = GetStorage();
-      final dynamic userData = storage.read(StockageKeys.userKey);
-      final dynamic profileData = storage.read(StockageKeys.profileKey);
-      final userId = profileData?['id'] ?? userData?['profile']?['id'] ?? userData?['userId'] ?? userData?['user']?['userId'];
-      final uId = userId != null ? (userId is int ? userId : int.tryParse(userId.toString()) ?? 0) : 0;
+      final authCtrl = context.read<AuthentificationCtrl>();
+      final uId = authCtrl.user.userId ?? 0;
       final ctrl = context.read<PropertyController>();
       
       // Determine Type
@@ -4465,7 +4511,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         final festiveData = {
           "festive": {
             "userId": uId,
-            "deviseId": 1,
+            "deviseId": _selectedDeviseId,
             "title": title,
             "description": description,
             "usage": _selectedUsage ?? "Autre",
@@ -4500,7 +4546,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         final funeraireData = {
           "funeraire": {
             "userId": uId,
-            "deviseId": 1,
+            "deviseId": _selectedDeviseId,
             "title": title,
             "description": description,
             "capacityPeople": int.tryParse(_capacityController.text) ?? 0,
@@ -4534,15 +4580,18 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         final bureauData = {
           "bureau": {
             "userId": uId,
-            "deviseId": 1,
+            "deviseId": _selectedDeviseId,
             "title": title,
             "description": description,
             "price": price,
+            "transactionType": _isForRent ? "location" : "vente",
+            "propertyTypeId": 4,
             "roomMeet": int.tryParse(_roomMeetController.text) ?? 0,
             "electric": electric,
             "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0,
             "numberPiece": int.tryParse(_numberPieceController.text) ?? 0,
             "isEquip": _isEquip,
+            "floor": _hasFloor ? 1 : 0,
             "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
             "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
             "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
@@ -4584,13 +4633,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             "title": title,
             "description": description,
             "price": price,
+            "deviseId": _selectedDeviseId,
             "surface": double.tryParse(_areaController.text) ?? 0.1,
             "rooms": _calculateTotalRooms(),
             "bedrooms": int.tryParse(_bedroomsController.text) ?? 1,
             "kitchen": int.tryParse(_kitchensController.text) ?? 1,
             "livingRoom": int.tryParse(_livingRoomsController.text) ?? 1,
             "bathroom": int.tryParse(_bathroomsController.text) ?? 1,
-            "floor": int.tryParse(_floorController.text) ?? 1,
+            "floor": _hasFloor ? 1 : 0,
             "electric": electric,
             "water": _selectedWater != null ? int.tryParse(_selectedWater!) : 0,
             "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",

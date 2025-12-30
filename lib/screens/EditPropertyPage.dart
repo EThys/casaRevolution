@@ -547,8 +547,11 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
   }
 
   Widget _buildBottomActionBar() {
+    // Obtenir la hauteur de la barre de navigation système
+    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+    
     return Container(
-      padding: EdgeInsets.fromLTRB(20, 15, 20, 30),
+      padding: EdgeInsets.fromLTRB(20, 15, 20, 30 + bottomPadding), // Ajouter le padding pour la barre de navigation
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -902,7 +905,10 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
         controller: controller,
         maxLines: maxLines,
         keyboardType: keyboardType,
-        style: GoogleFonts.outfit(fontWeight: FontWeight.w500),
+        style: GoogleFonts.outfit(
+          fontWeight: FontWeight.w500,
+          color: Colors.black87, // Force black text on white background
+        ),
         decoration: InputDecoration(
           labelText: label + (isRequired ? ' *' : ''),
           labelStyle: GoogleFonts.outfit(color: _greyColor, fontSize: 14),

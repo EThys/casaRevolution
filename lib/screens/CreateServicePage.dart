@@ -1918,6 +1918,7 @@ class _CreateServicePageState extends State<CreateServicePage> {
             return TextField(
               controller: controller,
               focusNode: focusNode,
+              style: TextStyle(color: Colors.black87, fontSize: _bodySize),
               onChanged: (value) {
                 _markFieldTouched('city');
                 _removeFieldError(2, 'city');
@@ -1938,6 +1939,7 @@ class _CreateServicePageState extends State<CreateServicePage> {
               },
               decoration: InputDecoration(
                 hintText: 'Ex: Kinshasa, Lubumbashi...',
+                hintStyle: TextStyle(color: Colors.grey[600]),
                 prefixIcon: Icon(Icons.location_city_rounded, color: hasError ? _errorColor : _primaryColor),
                 filled: true,
                 fillColor: Colors.white,
@@ -2035,13 +2037,13 @@ class _CreateServicePageState extends State<CreateServicePage> {
               },
               style: TextStyle(
                 fontSize: _bodySize,
-                color: _darkColor,
+                color: Colors.black87, // Force black text on white background
               ),
               decoration: InputDecoration(
                 hintText: 'Saisir $label',
                 hintStyle: TextStyle(
                   fontSize: _bodySize,
-                  color: Colors.grey.shade500,
+                  color: Colors.grey[600],
                 ),
                 prefixIcon: Icon(Icons.place_rounded, color: hasError ? _errorColor : _primaryColor),
                 filled: true,
@@ -2318,8 +2320,16 @@ class _CreateServicePageState extends State<CreateServicePage> {
   }
 
   Widget _buildBottomNavigation() {
+    // Obtenir la hauteur de la barre de navigation système
+    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
+    
     return Container(
-      padding: EdgeInsets.all(_mediumSpace),
+      padding: EdgeInsets.only(
+        left: _mediumSpace,
+        right: _mediumSpace,
+        top: _mediumSpace,
+        bottom: _mediumSpace + bottomPadding, // Ajouter le padding pour la barre de navigation
+      ),
       decoration: BoxDecoration(
         color: _cardColor,
         boxShadow: [

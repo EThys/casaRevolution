@@ -376,9 +376,10 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         final Map<String, dynamic> user = _convertToStringMap(userData);
 
         setState(() {
-          _userId = user['userId'] is int
-              ? user['userId']
-              : int.tryParse(user['userId']?.toString() ?? '');
+          final rawId = user['user']?['userId'] ?? user['userId'];
+          _userId = rawId is int
+              ? rawId
+              : int.tryParse(rawId?.toString() ?? '');
           
           // Récupérer le nom depuis profile stocké séparément dans StockageKeys.profileKey
           final profileData = storage.read(StockageKeys.profileKey);
@@ -996,6 +997,9 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                   const SizedBox(height: 36),
 
                   _buildSubmitButton(),
+                  
+                  // Ajouter un espace pour la barre de navigation système
+                  SizedBox(height: MediaQuery.of(context).viewPadding.bottom),
                 ],
               ),
             ),
@@ -1260,7 +1264,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            "L'adresse complète est accessible après prise de contact avec notre agence",
+                            "L'adresse exacte vous sera communiquée après réservation et sera disponible dans votre document de confirmation à télécharger.",
                             style: TextStyle(
                               color: _textPrimary.withOpacity(0.8),
                               fontSize: 13,
@@ -1272,87 +1276,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 28),
-
-                  // Actions
-                  Row(
-                    children: [
-                      // Bouton Retour
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            side: BorderSide(
-                              color: _primaryColor.withOpacity(0.3),
-                            ),
-                          ),
-                          child: Text(
-                            "Retour",
-                            style: TextStyle(
-                              color: _textPrimary.withOpacity(0.8),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-
-                      // Bouton Partager PDF
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () async => await _sharePdf(),
-                          icon: Icon(Icons.ios_share_rounded),
-                          label: Text(
-                            "Partager",
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            backgroundColor: _primaryColor,
-                            foregroundColor: Colors.white,
-                            elevation: 2,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 16),
-
-                  // Bouton Télécharger (désormais sous forme pleine largeur pour ce modal)
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () async => await _downloadPdf(),
-                      icon: Icon(Icons.download_rounded, color: _primaryColor),
-                      label: Text(
-                        "Télécharger le PDF",
-                        style: TextStyle(
-                          color: _textPrimary.withOpacity(0.9),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        side: BorderSide(
-                          color: _primaryColor.withOpacity(0.3),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
                   // Bouton Principal
                   SizedBox(
                     width: double.infinity,

@@ -102,8 +102,23 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
        return;
     }
 
-    if (_imageFront == null || _imageBack == null) {
-      FancyNotification.show(context, "Veuillez ajouter les photos recto et verso de votre pièce d'identité", isError: true);
+    // Vérifier le type de carte pour déterminer si le verso est requis
+    int typeCardId = 0;
+    switch (_selectedCardType) {
+      case 'Passeport': typeCardId = 1; break;
+      case 'Permis de conduire': typeCardId = 2; break;
+      case "Carte d'électeur": typeCardId = 3; break;
+      default: typeCardId = 1;
+    }
+    
+    if (_imageFront == null) {
+      FancyNotification.show(context, "Veuillez ajouter la photo recto de votre pièce d'identité", isError: true);
+      return;
+    }
+    
+    // Pour le passeport (typeCardId = 1), le verso n'est pas requis
+    if (typeCardId != 1 && _imageBack == null) {
+      FancyNotification.show(context, "Veuillez ajouter la photo verso de votre pièce d'identité", isError: true);
       return;
     }
     
@@ -121,27 +136,49 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         throw Exception("Utilisateur non identifié");
       }
 
-      // Conversion des images en Base64
-      String profileBase64 = base64Encode(await _imageProfile!.readAsBytes());
-      String frontBase64 = base64Encode(await _imageFront!.readAsBytes());
-      String backBase64 = base64Encode(await _imageBack!.readAsBytes());
+      // Utiliser l'ID du profil (profile.id) et non userId pour l'URL /api/members/{profileId}
+      final profileData = authCtrl.stockage?.read(StockageKeys.profileKey);
+      int? profileId;
       
-      // Mapping du type de carte vers un ID
-      int typeCardId = 0;
-      switch (_selectedCardType) {
-        case 'Passeport': typeCardId = 1; break;
-        case 'Permis de conduire': typeCardId = 2; break;
-        case "Carte d'électeur": typeCardId = 3; break;
-        default: typeCardId = 1;
+      if (profileData != null && profileData is Map) {
+        profileId = profileData['id'];
       }
       
+      // Si pas de profileId, utiliser userId comme fallback
+      final targetId = profileId?.toString() ?? authCtrl.user.userId?.toString();
+      
+      if (targetId == null) {
+        throw Exception("Impossible de déterminer l'ID du profil");
+      }
+
+      // 1. D'abord, uploader l'image de profil via l'endpoint séparé /api/members/{id}/profile
+      String profileBase64 = base64Encode(await _imageProfile!.readAsBytes());
+      final profileImageResponse = await authCtrl.updateProfilePicture(targetId, profileBase64);
+      
+      if (!profileImageResponse.status) {
+        FancyNotification.show(
+          context,
+          profileImageResponse.errorMsg ?? "Erreur lors de l'upload de la photo de profil",
+          type: NotificationType.error,
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+      
+      print("✅ Image de profil uploadée avec succès");
+
+      // 2. Ensuite, envoyer la vérification d'identité (sans l'image de profil dans le payload)
+      String frontBase64 = base64Encode(await _imageFront!.readAsBytes());
+      // Pour le passeport, le verso peut être vide
+      String backBase64 = _imageBack != null 
+          ? base64Encode(await _imageBack!.readAsBytes())
+          : "";
+      
       // Récupération des noms depuis le profil existant (ou vide si manquant)
-      // Le user a dit "ne demande pas le prenom et le nom", donc on utilise ce qu'on a déjà.
       String firstName = "";
       String lastName = "";
       
       try {
-        final profileData = authCtrl.stockage?.read(StockageKeys.profileKey);
         if (profileData != null && profileData is Map) {
           firstName = profileData['firstname'] ?? "";
           lastName = profileData['lastname'] ?? "";
@@ -152,29 +189,48 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       
       // Fallback if empty
       if (firstName.isEmpty) firstName = authCtrl.user.username ?? "";
-      
-      // Essai de splitter le username si besoin, ou juste envoyer ce qu'on a
-      // Comme c'est un PUT, l'idéal serait de ne pas écraser avec du vide si c'est déjà là,
-      // mais le payload demande ces champs string.
 
+      // Récupérer les données utilisateur depuis le stockage
+      final userData = authCtrl.stockage?.read(StockageKeys.userKey) ?? {};
+      
+      // Structure du payload pour la vérification (sans l'image de profil qui est déjà uploadée)
       final payload = {
-        "lastName": lastName, // Revoir si on peut récupérer ça du user model mieux
+        "lastName": lastName,
         "firstName": firstName,
         "address": _addressController.text,
-        "images": profileBase64, 
+        // "images" n'est plus dans le payload car l'image de profil est uploadée séparément
         "cardFront": frontBase64,
         "cardBack": backBase64,
         "typeCardId": typeCardId,
         "parrainId": 0,
         "numberCard": _cardNumberController.text,
+        // La clé "user" doit toujours être présente avec toutes ses propriétés (même vides)
+        "user": {
+          "email": (userData['email']?.toString() ?? "").isEmpty ? "string" : userData['email']?.toString() ?? "",
+          "phone": userData['phone']?.toString() ?? "",
+          "city": userData['city']?.toString() ?? "",
+          "country": userData['country']?.toString() ?? "",
+        },
       };
-
-      // L'appel au controller gère la logique de l'ID (userId ou profileId)
-      // On passe l'userId par défaut, le controller fera la substitution si un profileId existe.
-      await authCtrl.verifyIdentity(authCtrl.user.userId.toString(), payload);
       
-      FancyNotification.show(context, "Vérification envoyée avec succès !", isError: false);
-      Navigator.pop(context, true); 
+      final response = await authCtrl.verifyIdentity(targetId, payload);
+      
+      if (response.status == true) {
+        FancyNotification.show(
+          context,
+          "Vérification envoyée avec succès !",
+          type: NotificationType.success,
+        );
+        Navigator.pop(context, true);
+      } else {
+        // L'erreur est déjà gérée dans le controller, mais on affiche un message ici aussi
+        final errorMsg = response.errorMsg ?? "Erreur lors de la vérification";
+        FancyNotification.show(
+          context,
+          errorMsg,
+          type: NotificationType.error,
+        );
+      } 
       
     } catch (e) {
       print("Erreur vérification: $e");
@@ -201,6 +257,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         padding: EdgeInsets.all(20),
         child: Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction, // Les erreurs disparaissent dès que le champ est valide
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -267,8 +324,21 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
               DropdownButtonFormField<String>(
                 value: _selectedCardType,
                 decoration: _inputDecoration("Type de pièce", Icons.credit_card),
+                style: TextStyle(
+                  color: Colors.black87,
+                  fontSize: 16,
+                ),
+                dropdownColor: Colors.white,
                 items: ["Passeport", "Permis de conduire", "Carte d'électeur"]
-                    .map((type) => DropdownMenuItem(value: type, child: Text(type)))
+                    .map((type) => DropdownMenuItem(
+                          value: type,
+                          child: Text(
+                            type,
+                            style: TextStyle(
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ))
                     .toList(),
                 onChanged: (val) => setState(() => _selectedCardType = val),
                  validator: (val) => val == null ? "Veuillez sélectionner le type de pièce" : null,
@@ -285,11 +355,15 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
               Text("Photos du document (Caméra obligatoire)", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
               SizedBox(height: 8),
               
+              // Pour le passeport, seul le recto est requis
+              // Pour les autres types, recto et verso sont requis
               Row(
                 children: [
-                  Expanded(child: _buildImagePicker(true)), // Recto
-                  SizedBox(width: 16),
-                  Expanded(child: _buildImagePicker(false)), // Verso
+                  Expanded(child: _buildImagePicker(true)), // Recto (toujours requis)
+                  if (_selectedCardType != 'Passeport') ...[
+                    SizedBox(width: 16),
+                    Expanded(child: _buildImagePicker(false)), // Verso (pas requis pour passeport)
+                  ],
                 ],
               ),
               
@@ -309,6 +383,9 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                       : Text("Soumettre la vérification", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
               ),
+              
+              // Ajouter un espace pour la barre de navigation système
+              SizedBox(height: MediaQuery.of(context).viewPadding.bottom),
             ],
           ),
         ),
@@ -335,6 +412,10 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   }) {
     return TextFormField(
       controller: controller,
+      style: TextStyle(
+        color: Colors.black87,
+        fontSize: 16,
+      ),
       decoration: _inputDecoration(label, icon),
       validator: validator ?? (value) => value == null || value.isEmpty ? "Ce champ est requis" : null,
     );
@@ -343,6 +424,8 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   InputDecoration _inputDecoration(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
+      labelStyle: TextStyle(color: Colors.black87),
+      hintStyle: TextStyle(color: Colors.grey[600]),
       prefixIcon: Icon(icon, color: Colors.grey),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
       enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
