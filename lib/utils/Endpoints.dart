@@ -5,6 +5,7 @@ class Endpoints {
   static const String forgotPassword = "forgot-password";
   static const String verifyOTP = "verify-otp";
   static const String resetPassword = "reset-password";
+  static const String updateProfilePicture = "members/"; // {id}/profile
   
   // OTP Endpoints
   static const String otpGenerate = "otp/generate";
@@ -19,6 +20,7 @@ class Endpoints {
   static const String logout = "logout";
   static const String changePassword = "change-password";
   static const String deleteAccount = "delete-account";
+  static const String accounts = "accounts";
 
   static const String bailleur = "bailleurs";
   static const String commissionnaire = "commissionnaires";
@@ -92,6 +94,12 @@ class Endpoints {
   static const String deleteService = "services/";
   static const String servicesByType = "services/type/";
   static const String myServices = "services/my";
+  
+  // Prestation Endpoints
+  static const String prestations = "prestations";
+  static const String prestationsByServiceId = "prestations/service/";
+  static const String prestationsByOwner = "prestations/owner/";
+  static const String deletePrestation = "prestations/";
 
   // Service Requests Endpoints
   static const String serviceRequests = "service-requests";

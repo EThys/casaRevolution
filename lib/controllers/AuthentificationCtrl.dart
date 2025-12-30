@@ -187,7 +187,17 @@ class AuthentificationCtrl with ChangeNotifier {
 
       // Conversion et stockage de l'utilisateur
       UserModel user = UserModel.fromJson(userJson);
-      await stockage?.write(StockageKeys.userKey, user.toJson());
+      Map<String, dynamic> userData = user.toJson();
+      
+      // Vérifier et mettre à jour isCertified depuis la réponse API
+      // Si le cache a été effacé, on récupère isCertified depuis l'API lors de la connexion
+      final isCertifiedValue = userJson['isCertified'] ?? userJson['certified'] ?? false;
+      userData['isCertified'] = isCertifiedValue == true;
+      userData['certified'] = isCertifiedValue == true;
+      user.isCertified = isCertifiedValue == true;
+      print("✅ Statut isCertified mis à jour depuis l'API lors de la connexion: $isCertifiedValue");
+      
+      await stockage?.write(StockageKeys.userKey, userData);
       print("✅ Données utilisateur stockées");
 
       // Stockage du profile si disponible - CORRECTION ICI
@@ -224,37 +234,29 @@ class AuthentificationCtrl with ChangeNotifier {
     }
 
   // Vérification d'identité
-    Future<HttpResponse> verifyIdentity(String userId, Map<String, dynamic> payload) async {
+  // Le paramètre userId est en fait le profileId (profile.id) pour l'URL /api/members/{profileId}
+  Future<HttpResponse> verifyIdentity(String profileId, Map<String, dynamic> payload) async {
     try {
       loading = true;
       notifyListeners();
 
-      // Récupérer le profile ID depuis le stockage si possible
-      String targetId = userId;
-      try {
-        final profileData = stockage?.read(StockageKeys.profileKey);
-        if (profileData != null && profileData is Map) {
-             final profileId = profileData['id'];
-             if (profileId != null) {
-               targetId = profileId.toString();
-               print("🆔 Utilisation de l'ID du profil: $targetId au lieu de $userId");
-             }
-        }
-      } catch (e) {
-        print("⚠️ Erreur récupération profile ID: $e");
-      }
-
-      // Utilisation de l'endpoint PUT /api/members/{id} (ici profileId)
-      final url = "members/$targetId";
-      print("📤 Envoi vérification d'identité vers $url");
+      // Utilisation de l'endpoint PUT /api/members/{profileId}
+      // Le profileId est passé depuis IdentityVerificationPage (profile.id depuis le stockage)
+      final url = "members/$profileId";
+      print("📤 Envoi vérification d'identité vers $url (profileId: $profileId)");
       
       final response = await putData(url, payload, token: token);
       
       print("📥 Réponse vérification: ${response.data}");
 
-      if (response.status == true) {
-        // La réponse contient "person"
+      // Vérifier le message de succès : doit contenir "updated" ET "successfully"
+      final message = response.data['message']?.toString().toLowerCase() ?? "";
+      final isSuccess = message.contains('updated') && message.contains('successfully');
+      
+      if (response.status == true && isSuccess) {
+        // La réponse contient "person" et "user"
         final personData = response.data['person'];
+        final userData = response.data['user'];
         
         if (personData != null) {
             print("✅ Identité mise à jour pour: ${personData['fullName']}");
@@ -288,14 +290,49 @@ class AuthentificationCtrl with ChangeNotifier {
             } catch (e) {
               print("⚠️ Erreur mise à jour profil local: $e");
             }
-
-             // Optimistic update status user
-             _user.isCertified = true; 
-             // On met à jour l'objet user s'il est retourné dans la réponse (non visible dans le log snippet "person")
-             // Mais on sait que le user est certifié maintenant.
-             await stockage?.write(StockageKeys.userKey, _user.toJson());
         }
+        
+        // Mettre à jour le statut certified depuis la réponse user
+        if (userData != null && userData['certified'] == true) {
+          print("✅ Utilisateur certifié: ${userData['certified']}");
+          _user.isCertified = true;
+          
+          // Mettre à jour le stockage local avec les données user complètes
+          try {
+            Map<String, dynamic>? currentUser = stockage?.read(StockageKeys.userKey);
+            if (currentUser != null && currentUser is Map<String, dynamic>) {
+              // Fusionner avec les nouvelles données user
+              // Mettre à jour isCertified explicitement
+              currentUser['isCertified'] = true;
+              currentUser['certified'] = true;
+              // Fusionner avec les autres données user de la réponse
+              currentUser.addAll(userData);
+              await stockage?.write(StockageKeys.userKey, currentUser);
+            } else {
+              // Créer un nouveau user avec certified = true
+              final newUser = Map<String, dynamic>.from(userData);
+              newUser['isCertified'] = true;
+              newUser['certified'] = true;
+              await stockage?.write(StockageKeys.userKey, newUser);
+            }
+            
+            // Mettre à jour aussi l'objet user en mémoire
+            _user.isCertified = true;
+            
+            print("💾 Statut certified mis à jour dans le stockage local (isCertified = true)");
+          } catch (e) {
+            print("⚠️ Erreur mise à jour user local: $e");
+          }
+        }
+        
         notifyListeners();
+      } else {
+        // Si le message ne contient pas "updated" et "successfully", c'est une erreur
+        final errorMsg = response.data['detailMessage'] ?? response.data['message'] ?? "Erreur lors de la vérification";
+        print("❌ Vérification échouée: $errorMsg");
+        loading = false;
+        notifyListeners();
+        return HttpResponse(status: false, errorMsg: errorMsg.toString(), isException: false);
       }
 
       loading = false;
@@ -618,42 +655,112 @@ class AuthentificationCtrl with ChangeNotifier {
     }
   }
 
-  // Mise à jour de la photo de profil uniquement
-  Future<HttpResponse> updateProfilePicture(int profileId, String base64Image) async {
+  // Mise à jour du profil (pour modification de profil, avec user, sans cartes)
+  // La clé "user" doit toujours être présente avec toutes ses propriétés (même vides)
+  Future<HttpResponse> updateProfile(String userId, Map<String, dynamic> payload) async {
     try {
       loading = true;
       notifyListeners();
 
-      final url = "members/$profileId/profile";
-      final payload = {"image": base64Image};
-
-      print("📤 Mise à jour photo profil vers $url");
+      final url = "members/$userId";
+      print("📤 Mise à jour profil vers $url");
+      
+      // S'assurer que la clé "user" est toujours présente avec toutes ses propriétés
+      if (!payload.containsKey('user')) {
+        // Récupérer les données utilisateur depuis le stockage
+        final userData = stockage?.read(StockageKeys.userKey) ?? {};
+        final emailValue = userData['email']?.toString() ?? "";
+        payload['user'] = {
+          "email": emailValue.isEmpty ? "string" : emailValue,
+          "phone": userData['phone']?.toString() ?? "",
+          "city": userData['city']?.toString() ?? "",
+          "country": userData['country']?.toString() ?? "",
+        };
+      }
+      
+      // S'assurer que toutes les propriétés de "user" sont présentes (même vides)
+      if (payload['user'] is Map) {
+        final userMap = payload['user'] as Map<String, dynamic>;
+        // Ajouter les propriétés manquantes avec des valeurs par défaut
+        // Si l'email est vide, envoyer "string" pour éviter l'erreur API
+        if (!userMap.containsKey('email') || (userMap['email']?.toString() ?? "").isEmpty) {
+          userMap['email'] = "string";
+        }
+        if (!userMap.containsKey('phone')) userMap['phone'] = "";
+        if (!userMap.containsKey('city')) userMap['city'] = "";
+        if (!userMap.containsKey('country')) userMap['country'] = "";
+      }
+      
+      // S'assurer que tous les champs requis sont présents dans le payload
+      // Même structure pour vérification et modification
+      if (!payload.containsKey('cardFront')) payload['cardFront'] = "";
+      if (!payload.containsKey('cardBack')) payload['cardBack'] = "";
+      if (!payload.containsKey('typeCardId')) payload['typeCardId'] = 1;
+      if (!payload.containsKey('parrainId')) payload['parrainId'] = 0;
+      if (!payload.containsKey('numberCard')) payload['numberCard'] = "";
+      
+      print("📤 Payload (avec user, sans cartes): ${payload.keys.toList()}");
 
       final response = await putData(url, payload, token: token);
+      
+      print("📥 Réponse mise à jour profil: ${response.data}");
 
-      if (response.status == true) {
-        print("✅ Photo de profil mise à jour avec succès");
+      // Vérifier le message de succès : doit contenir "updated" ET "successfully"
+      final message = response.data['message']?.toString().toLowerCase() ?? "";
+      final isSuccess = message.contains('updated') && message.contains('successfully');
+
+      if (response.status == true && isSuccess) {
+        print("✅ Profil mis à jour avec succès");
         
-        // Mettre à jour le profil local
-        try {
-          Map<String, dynamic>? currentProfile = stockage?.read(StockageKeys.profileKey);
-          if (currentProfile != null) {
-            currentProfile['image'] = base64Image; // ou l'URL retournée si l'API renvoie l'URL
-            
-            // Si l'API renvoie le profil mis à jour, on l'utilise
-            if (response.data != null && response.data['data'] != null) {
-                 final newData = response.data['data'];
-                 if (newData['image'] != null) {
-                   currentProfile['image'] = newData['image'];
-                 }
+        // Mettre à jour le profil et user local
+        final personData = response.data['person'];
+        final userData = response.data['user'];
+        
+        if (personData != null) {
+          try {
+            Map<String, dynamic>? currentProfile = stockage?.read(StockageKeys.profileKey);
+            if (currentProfile != null) {
+              currentProfile.addAll({
+                'id': personData['id'],
+                'firstname': personData['firstName'],
+                'lastname': personData['lastName'],
+                'fullname': personData['fullName'],
+                'address': personData['address'],
+                'images': personData['images'],
+              });
+              await stockage?.write(StockageKeys.profileKey, currentProfile);
+            }
+          } catch (e) {
+            print("⚠️ Erreur mise à jour profil local: $e");
+          }
+        }
+        
+        if (userData != null) {
+          try {
+            Map<String, dynamic>? currentUser = stockage?.read(StockageKeys.userKey);
+            if (currentUser != null && currentUser is Map) {
+              currentUser.addAll(userData);
+              await stockage?.write(StockageKeys.userKey, currentUser);
+            } else {
+              await stockage?.write(StockageKeys.userKey, userData);
             }
             
-            await stockage?.write(StockageKeys.profileKey, currentProfile);
-            print("💾 Photo mise à jour dans le stockage local");
+            // Mettre à jour l'objet user
+            _user = UserModel.fromJson(userData);
+            print("💾 User local mis à jour");
+          } catch (e) {
+            print("⚠️ Erreur mise à jour user local: $e");
           }
-        } catch (e) {
-          print("⚠️ Erreur mise à jour locale photo: $e");
         }
+        
+        notifyListeners();
+      } else {
+        // Si le message ne contient pas "updated" et "successfully", c'est une erreur
+        final errorMsg = response.data['detailMessage'] ?? response.data['message'] ?? "Erreur lors de la mise à jour du profil";
+        print("❌ Mise à jour profil échouée: $errorMsg");
+        loading = false;
+        notifyListeners();
+        return HttpResponse(status: false, errorMsg: errorMsg.toString(), isException: false);
       }
 
       loading = false;
@@ -662,7 +769,7 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur updateProfilePicture: $e");
+      print("❌ Erreur updateProfile: $e");
       return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
     }
   }
@@ -697,6 +804,64 @@ class AuthentificationCtrl with ChangeNotifier {
         },
         status: false,
       );
+    }
+  }
+
+  // Mise à jour de l'image de profil via l'endpoint /api/members/{id}/profile
+  Future<HttpResponse> updateProfilePicture(String profileId, String base64Image) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      final url = "${Endpoints.updateProfilePicture}$profileId/profile";
+      print("📤 Upload image de profil vers $url");
+      
+      final payload = {
+        "image": base64Image,
+      };
+
+      final response = await putData(url, payload, token: token);
+      
+      print("📥 Réponse upload image de profil: ${response.data}");
+
+      // Vérifier le message de succès
+      final message = response.data['message']?.toString().toLowerCase() ?? "";
+      final isSuccess = message.contains('updated') || message.contains('success') || response.status == true;
+
+      if (isSuccess) {
+        // Récupérer l'URL de l'image depuis la réponse
+        final imageUrl = response.data['image'] ?? response.data['images'] ?? response.data['profile']?['image'] ?? response.data['profile']?['images'];
+        
+        if (imageUrl != null && imageUrl.toString().isNotEmpty) {
+          // Mettre à jour le profil local avec l'URL de l'image (pas le base64)
+          try {
+            Map<String, dynamic>? currentProfile = stockage?.read(StockageKeys.profileKey);
+            if (currentProfile != null && currentProfile is Map<String, dynamic>) {
+              currentProfile['image'] = imageUrl.toString();
+              currentProfile['images'] = imageUrl.toString();
+              await stockage?.write(StockageKeys.profileKey, currentProfile);
+              print("💾 Image de profil mise à jour dans le stockage local: $imageUrl");
+            }
+          } catch (e) {
+            print("⚠️ Erreur mise à jour profil local: $e");
+          }
+        }
+        
+        loading = false;
+        notifyListeners();
+        return response;
+      } else {
+        final errorMsg = response.data['detailMessage'] ?? response.data['message'] ?? "Erreur lors de l'upload de l'image de profil";
+        print("❌ Upload image de profil échoué: $errorMsg");
+        loading = false;
+        notifyListeners();
+        return HttpResponse(status: false, errorMsg: errorMsg.toString(), isException: false);
+      }
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      print("❌ Erreur updateProfilePicture: $e");
+      return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
     }
   }
 }
