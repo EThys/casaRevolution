@@ -14,10 +14,11 @@ class ReservationController with ChangeNotifier {
   List<ReservationModel> reservations = [];
   ReservationModel? currentReservation;
 
-  // Récupérer l'ID de l'utilisateur connecté
+  // Récupérer l'ID de l'utilisateur connecté (userId)
   String? _getCurrentUserId() {
     final dynamic userData = stockage?.read(StockageKeys.userKey);
-    return userData?['userId']?.toString();
+    final userId = userData?['user']?['userId'] ?? userData?['userId'];
+    return userId?.toString();
   }
 
   String _normalize(String input) {
@@ -66,7 +67,7 @@ class ReservationController with ChangeNotifier {
         List<dynamic> reservationsData = response['reservation'] ?? response['data'];
 
         // Vérifier que la liste n'est pas vide
-        if (reservationsData is List && reservationsData.isNotEmpty) {
+        if (reservationsData is List) {
           List<ReservationModel> allReservations = reservationsData
               .map<ReservationModel>((e) => ReservationModel.fromJson(e))
               .toList();
@@ -80,6 +81,7 @@ class ReservationController with ChangeNotifier {
 
           // Sauvegarder en local
           final db = ReservationDatabaseHelper.instance;
+          await db.clearUserReservations(userId); // Vider avant de remplir
           for (var reservation in userReservations) {
             await db.insertOrUpdateReservation(reservation, userId);
           }
@@ -129,16 +131,49 @@ class ReservationController with ChangeNotifier {
 
       if (response != null && (response['reservation'] != null || response['data'] != null)) {
         List<dynamic> reservationsData = response['reservation'] ?? response['data'];
+        
+        print("📋 [ReservationController] Nombre d'éléments dans reservation: ${reservationsData.length}");
 
         if (reservationsData is List && reservationsData.isNotEmpty) {
-          List<ReservationModel> userReservations = reservationsData
-              .map<ReservationModel>((e) => ReservationModel.fromJson(e))
-              .toList();
+          List<ReservationModel> userReservations = [];
+          
+          for (var item in reservationsData) {
+            try {
+              // Vérifier la structure de l'élément et caster en Map<String, dynamic>
+              if (item is Map) {
+                final itemMap = Map<String, dynamic>.from(item);
+                print("📋 [ReservationController] Structure item: ${itemMap.keys.toList()}");
+                
+                // Extraire userId depuis reservation.userId pour vérifier
+                final reservationData = itemMap['reservation'] as Map<String, dynamic>?;
+                if (reservationData != null) {
+                  final itemUserId = reservationData['userId']?.toString();
+                  print("📋 [ReservationController] userId dans réservation: $itemUserId, userId recherché: $userId");
+                  
+                  // Filtrer par userId si nécessaire (mais normalement l'API devrait déjà filtrer)
+                  if (itemUserId == userId) {
+                    final reservation = ReservationModel.fromJson(itemMap);
+                    userReservations.add(reservation);
+                  } else {
+                    print("⚠️ [ReservationController] Réservation ignorée: userId $itemUserId != $userId");
+                  }
+                } else {
+                  // Structure plate, pas de filtre nécessaire
+                  final reservation = ReservationModel.fromJson(itemMap);
+                  userReservations.add(reservation);
+                }
+              }
+            } catch (e, stack) {
+              print("❌ [ReservationController] Erreur parsing réservation: $e");
+              print("🔍 Stack: $stack");
+            }
+          }
 
           print("👤 Mes réservations récupérées: ${userReservations.length}");
 
           // Sauvegarder en local
           final db = ReservationDatabaseHelper.instance;
+          await db.clearUserReservations(userId); // Vider avant de remplir
           for (var reservation in userReservations) {
             await db.insertOrUpdateReservation(reservation, userId);
           }
@@ -183,13 +218,14 @@ class ReservationController with ChangeNotifier {
       if (response != null && (response['reservation'] != null || response['data'] != null)) {
         List<dynamic> reservationsData = response['reservation'] ?? response['data'];
 
-        if (reservationsData is List && reservationsData.isNotEmpty) {
+        if (reservationsData is List) {
           List<ReservationModel> filteredReservations = reservationsData
               .map<ReservationModel>((e) => ReservationModel.fromJson(e))
               .where((reservation) => reservation.status == status)
               .toList();
 
-          // Sauvegarder en local
+          // Sauvegarder en local (ne pas vider tout car c'est filtré par statut, 
+          // mais on pourrait vider par statut si nécessaire. Pour l'instant on garde la logique d'insertOrUpdate)
           final db = ReservationDatabaseHelper.instance;
           for (var reservation in filteredReservations) {
             await db.insertOrUpdateReservation(reservation, userId);
