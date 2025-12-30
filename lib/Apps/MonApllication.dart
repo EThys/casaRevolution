@@ -96,8 +96,8 @@ class MonApplication extends StatelessWidget {
             debugShowCheckedModeBanner: false,
             useInheritedMediaQuery: true,
 
-            // Utiliser le themeMode du controller
-            themeMode: themeController.themeMode,
+            // Forcer le mode clair pour le MVP (mode sombre sera géré dans la v2)
+            themeMode: ThemeMode.light,
 
         // AJOUT: Firebase Analytics Observer
         navigatorObservers: [observer],
@@ -108,6 +108,12 @@ class MonApplication extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(
             seedColor: const Color(0xFF2A5C99),
             brightness: Brightness.light,
+          ).copyWith(
+            // Force les couleurs pour éviter les problèmes en mode sombre
+            surface: Colors.white,
+            onSurface: Colors.black87,
+            onPrimary: Colors.white,
+            onSecondary: Colors.white,
           ),
           fontFamily: GoogleFonts.inter().fontFamily,
           textTheme: TextTheme(
@@ -115,70 +121,85 @@ class MonApplication extends StatelessWidget {
               fontSize: 57,
               fontWeight: FontWeight.w400,
               letterSpacing: -0.25,
+              color: Colors.black87, // Force black text
             ),
             displayMedium: TextStyle(
               fontSize: 45, 
               fontWeight: FontWeight.w400,
+              color: Colors.black87,
             ),
             displaySmall: TextStyle(
               fontSize: 36, 
               fontWeight: FontWeight.w400,
+              color: Colors.black87,
             ),
             headlineLarge: TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.w400,
+              color: Colors.black87,
             ),
             headlineMedium: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w400,
+              color: Colors.black87,
             ),
             headlineSmall: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w400,
+              color: Colors.black87,
             ),
             titleLarge: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w500,
+              color: Colors.black87,
             ),
             titleMedium: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w500,
               letterSpacing: 0.15,
+              color: Colors.black87,
             ),
             titleSmall: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w500,
               letterSpacing: 0.1,
+              color: Colors.black87,
             ),
             bodyLarge: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w400,
               letterSpacing: 0.5,
+              color: Colors.black87,
             ),
             bodyMedium: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w400,
               letterSpacing: 0.25,
+              color: Colors.black87,
             ),
             bodySmall: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w400,
               letterSpacing: 0.4,
+              color: Colors.black87,
             ),
             labelLarge: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w500,
               letterSpacing: 0.1,
+              color: Colors.black87,
             ),
             labelMedium: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
               letterSpacing: 0.5,
+              color: Colors.black87,
             ),
             labelSmall: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
               letterSpacing: 0.5,
+              color: Colors.black87,
             ),
           ),
           appBarTheme: AppBarTheme(
@@ -208,12 +229,32 @@ class MonApplication extends StatelessWidget {
             ),
           ),
           inputDecorationTheme: InputDecorationTheme(
-            labelStyle: TextStyle(),
-            hintStyle: TextStyle(),
-            errorStyle: TextStyle(),
-            floatingLabelStyle: TextStyle(),
+            labelStyle: TextStyle(color: Colors.black87),
+            hintStyle: TextStyle(color: Colors.grey[600]),
+            errorStyle: TextStyle(color: Colors.red[700]),
+            floatingLabelStyle: TextStyle(color: const Color(0xFF2A5C99)),
             fillColor: Colors.white,
             filled: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: const Color(0xFF2A5C99), width: 2),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.red[700]!),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: Colors.red[700]!, width: 2),
+            ),
           ),
         ),
 
@@ -457,9 +498,9 @@ class MonApplication extends StatelessWidget {
           Locale('en', 'US'),
         ],
         onGenerateRoute: RoutesManager.route,
-        initialRoute: Routes.bottomPageRoute,
+        initialRoute: Routes.splashRoute,
           );
-        },
+        }, 
       ),
     );
   }
