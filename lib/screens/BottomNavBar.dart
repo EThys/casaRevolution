@@ -201,22 +201,17 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
       SnackbarForCasa.info(
         context,
         "Vous devez avoir un compte et être connecté pour publier une annonce",
-        onTap: () {
-          Navigator.pushNamed(context, Routes.loginRoute);
-        },
+        onTap: () => Navigator.pushNamed(context, Routes.loginRoute),
       );
       return;
     }
 
-    // Lire les comptes depuis 'user_accounts'
     List<dynamic>? userAccounts = _stockage.read('user_accounts');
-    
     if (userAccounts == null || userAccounts.isEmpty) {
       SnackbarForCasa.info(context, "Aucun compte associé trouvé.");
       return;
     }
 
-    // Extraire les IDs de types de comptes
     Set<int> typeIds = userAccounts.map<int>((acc) {
       var typeAcc = acc['typeAccount'];
       return typeAcc is Map 
@@ -224,46 +219,154 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           : (acc['typeAccountId'] ?? acc['TypeAccountId'] ?? 0);
     }).toSet();
 
-    // Verify certification status for owners (ID: 2)
-    if (typeIds.contains(2)) {
-      final authCtrl = context.read<AuthentificationCtrl>();
-      // Check if user is certified
-      if (authCtrl.user.isCertified != true) {
-        
-        FancyNotification.show(
-           context, 
-           "Vérification requise : Vous devez vérifier votre identité avant de pouvoir publier une annonce.",
-           type: NotificationType.warning,
-           duration: 4
-        );
-        
-        // Navigate to verification page
-        Navigator.push(
-          context, 
-          MaterialPageRoute(builder: (context) => IdentityVerificationPage())
-        ).then((result) {
-          if (result == true) {
-             // If verification submitted successfully, maybe redirect to create property or show success
-             // Here we let them retry clicking or auto navigate? 
-             // Let's just pop back and let them click again or auto-navigate if status updated
-             SnackbarForCasa.success(context, "Vérification soumise. Vous pouvez maintenant publier.");
-             Navigator.pushNamed(context, Routes.createPropertyRoute);
-          }
-        });
-        return;
-      }
-      
-      // Propriétaire (ID: 2) - Certified
-      Navigator.pushNamed(context, Routes.createPropertyRoute);
-    } else if (typeIds.contains(3)) {
-      // Uniquement Prestataire (ID: 3)
-      Navigator.pushNamed(context, Routes.createServicePostRoute);
-    } else if (typeIds.contains(1)) {
-      // Uniquement Client (ID: 1)
-      SnackbarForCasa.info(context, "Les comptes clients ne peuvent pas publier d'annonces.");
+    bool isOwner = typeIds.contains(2);
+    bool isProvider = typeIds.contains(3);
+    bool isClient = typeIds.contains(1);
+
+    if (isOwner && isProvider) {
+      _showCreationChoice();
+    } else if (isClient && isProvider) {
+      _checkCertificationAndNavigate(Routes.createServicePostRoute);
+    } else if (isOwner) {
+      _checkCertificationAndNavigate(Routes.createPropertyRoute);
+    } else if (isProvider) {
+      _checkCertificationAndNavigate(Routes.createServicePostRoute);
+    } else if (isClient) {
+      SnackbarForCasa.info(context, "Les comptes locataires ne peuvent pas publier d'annonces.");
     } else {
       SnackbarForCasa.info(context, "Type de compte non reconnu.");
     }
+  }
+
+  void _checkCertificationAndNavigate(String route) {
+    final authCtrl = context.read<AuthentificationCtrl>();
+    if (authCtrl.user.isCertified != true) {
+      Navigator.push(
+        context, 
+        MaterialPageRoute(builder: (context) => IdentityVerificationPage())
+      ).then((result) {
+        if (result == true) {
+           Navigator.pushNamed(context, route);
+        }
+      });
+      return;
+    }
+    Navigator.pushNamed(context, route);
+  }
+
+  void _showCreationChoice() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceColor(context),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            SizedBox(height: 24),
+            Text(
+              "Que souhaitez-vous publier ?",
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textColor(context),
+              ),
+            ),
+            SizedBox(height: 24),
+            _buildChoiceItem(
+              icon: Icons.home_work_rounded,
+              title: "Une propriété",
+              subtitle: "Louer ou vendre un bien immobilier",
+              color: AppColors.primaryBlue,
+              onTap: () {
+                Navigator.pop(context);
+                _checkCertificationAndNavigate(Routes.createPropertyRoute);
+              },
+            ),
+            SizedBox(height: 16),
+            _buildChoiceItem(
+              icon: Icons.handyman_rounded,
+              title: "Un service",
+              subtitle: "Proposer vos compétences professionnelles",
+              color: Color(0xFF2E7D32),
+              onTap: () {
+                Navigator.pop(context);
+                _checkCertificationAndNavigate(Routes.createServicePostRoute);
+              },
+            ),
+            SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChoiceItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.withOpacity(0.2)),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textColor(context),
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildNavItem({
