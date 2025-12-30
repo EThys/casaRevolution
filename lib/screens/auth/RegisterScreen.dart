@@ -56,7 +56,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
   bool _isLoading = false;
   bool _showPassword = false;
-  List<String> _selectedAccountTypes = []; // Changed to List for multi-select
+  bool _isLocataireSelected = false;
+  int? _selectedOwnerAccountId;
+  int? _selectedPrestataireAccountId;
   ServiceType? _selectedServiceType;
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
   bool _isServicesDropdownOpen = false;
@@ -86,7 +88,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   final Map<String, String> _countryNames = Map<String, String>.from(countryNames);
 
   // Types de compte dynamiques
-  List<dynamic> _typeAccounts = [];
 
   final Color primaryColor = Color(0xFF1976D2);
   final Color accentColor = Color(0xFF64B5F6);
@@ -118,11 +119,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final typeCtrl = context.read<TypeAccountController>();
       await typeCtrl.fetchTypeAccounts();
-      if (mounted) {
-        setState(() {
-          _typeAccounts = typeCtrl.typeAccounts;
-        });
-      }
     });
 
     _passwordController.addListener(_updatePasswordStrength);
@@ -578,7 +574,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         controller: controller,
         focusNode: focusNode,
         autovalidateMode: AutovalidateMode.disabled,
-        style: TextStyle(color: textColor, fontSize: 16),
+        style: TextStyle(color: Colors.black87, fontSize: 16), // Force black text on light background
         textInputAction: nextFocus != null ? TextInputAction.next : TextInputAction.done,
         onFieldSubmitted: nextFocus != null ? (_) => _goToNextField(focusNode, nextFocus!) : null,
         onChanged: (_) {
@@ -598,7 +594,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         },
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: TextStyle(color: secondaryTextColor),
+          labelStyle: TextStyle(color: Colors.black87), // Force black label on light background
           prefixIcon: Container(
             padding: EdgeInsets.all(12),
             child: Icon(Icons.person_rounded, color: primaryColor),
@@ -652,7 +648,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         controller: _phoneController,
         focusNode: _phoneFocus,
         autovalidateMode: AutovalidateMode.disabled,
-        style: TextStyle(color: textColor, fontSize: 16),
+        style: TextStyle(color: Colors.black87, fontSize: 16), // Force black text on light background
         keyboardType: TextInputType.phone,
         textInputAction: TextInputAction.next, // Garder la navigation clavier
         onFieldSubmitted: (_) => _goToNextField(_phoneFocus, _emailFocus),
@@ -676,7 +672,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         },
         decoration: InputDecoration(
           labelText: 'Téléphone*',
-          labelStyle: TextStyle(color: secondaryTextColor),
+          labelStyle: TextStyle(color: Colors.black87), // Force black label on light background
           prefixIcon: _buildCountryCodeDropdown(),
           // SUPPRIMER le suffixIcon pour avoir plus d'espace
           enabledBorder: OutlineInputBorder(
@@ -762,7 +758,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         controller: _emailController,
         focusNode: _emailFocus,
         autovalidateMode: AutovalidateMode.disabled,
-        style: TextStyle(color: textColor, fontSize: 16),
+        style: TextStyle(color: Colors.black87, fontSize: 16), // Force black text on light background
         keyboardType: TextInputType.emailAddress,
         textInputAction: TextInputAction.next,
         onFieldSubmitted: (_) => _goToNextField(_emailFocus, _cityFocus),
@@ -776,7 +772,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         },
         decoration: InputDecoration(
           labelText: 'Email (optionnel)',
-          labelStyle: TextStyle(color: secondaryTextColor),
+          labelStyle: TextStyle(color: Colors.black87), // Force black label on light background
           prefixIcon: Container(
             padding: EdgeInsets.all(12),
             child: Icon(Icons.email_rounded, color: primaryColor),
@@ -863,6 +859,10 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             controller: textEditingController,
             focusNode: focusNode,
             textInputAction: TextInputAction.next,
+            style: TextStyle(
+              color: Colors.black87,
+              fontSize: 16,
+            ),
             onFieldSubmitted: (String value) {
               onFieldSubmitted();
               _goToNextField(focusNode, _emailFocus);
@@ -875,7 +875,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             },
             decoration: InputDecoration(
               labelText: 'Ville*',
-              labelStyle: TextStyle(color: secondaryTextColor),
+              labelStyle: TextStyle(
+                color: Colors.black87,
+              ),
               prefixIcon: Container(
                 padding: EdgeInsets.all(12),
                 child: Icon(Icons.search_rounded, color: primaryColor),
@@ -910,7 +912,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
               filled: true,
               fillColor: lightBlue.withOpacity(0.3),
               hintText: 'Rechercher une ville...',
-              hintStyle: TextStyle(color: Colors.grey.shade500),
+              hintStyle: TextStyle(
+                color: Colors.grey.shade500,
+              ),
               errorText: _cityTouched ? _validateCity(_cityController.text) : null,
             ),
             validator: null,
@@ -968,7 +972,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
                                   Text(
                                     cityName,
                                     style: TextStyle(
-                                      color: textColor,
+                                      color: Colors.black87,
                                       fontSize: 16,
                                       fontWeight: FontWeight.w500,
                                     ),
@@ -1029,13 +1033,14 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   Widget _buildAccountTypeField() {
-    if (_typeAccounts.isEmpty) {
-       return Center(
-         child: Padding(
-           padding: const EdgeInsets.all(8.0),
-           child: CircularProgressIndicator(strokeWidth: 2),
-         )
-       );
+    final typeCtrl = context.watch<TypeAccountController>();
+    if (typeCtrl.loading && typeCtrl.allAccounts.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(primaryColor)),
+        ),
+      );
     }
 
     return Column(
@@ -1046,292 +1051,198 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           style: TextStyle(
             color: secondaryTextColor,
             fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        SizedBox(height: 12),
-        ..._typeAccounts.map((type) {
-           String name = type['name'] ?? 'Inconnu';
-           IconData icon;
-           String desc;
-           Color color;
-           String category;
-           
-           final lowerName = name.toLowerCase();
-           
-           if (lowerName.contains('client')) {
-             category = 'immobilier';
-             icon = Icons.person_outline_rounded;
-             desc = "Je cherche un logement ou un service";
-             color = Color(0xFF1976D2);
-           } else if (lowerName.contains('proprietaire') || 
-                      lowerName.contains('bailleur') || 
-                      lowerName.contains('gerant')) {
-             category = 'immobilier';
-             icon = Icons.home_work_outlined;
-             desc = "Je possède ou gère un bien immobilier";
-             color = Color(0xFF2E7D32);
-           } else {
-             category = 'services';
-             icon = Icons.handyman_outlined;
-             desc = "Je propose mes services";
-             color = Color(0xFFE64A19);
-           }
-           
-           return _buildAccountTypeOption(name, {
-             'icon': icon,
-             'description': desc,
-             'color': color,
-             'category': category,
-             'value': type['typeAccountId']
-           });
-        }).toList(),
-
-        if (_autoValidateMode == AutovalidateMode.always && _selectedAccountTypes.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 8, left: 8),
-            child: Row(
-              children: [
-                Icon(Icons.error_outline_rounded, color: errorColor, size: 16),
-                SizedBox(width: 6),
-                Text(
-                  'Veuillez sélectionner au moins un type de compte',
-                  style: TextStyle(
-                    color: errorColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    ).animate().slideY(
-      begin: 0.2,
-      duration: 500.ms,
-      delay: 1600.ms,
-      curve: Curves.easeOut,
-    );
-  }
-
-
-
-
-
-  Widget _buildServiceTypeSelection() {
-    final allServiceTypes = [
-      ServiceType.majordhomme,
-      ServiceType.demenagement,
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Color(0xFFE91E63).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Color(0xFFE91E63).withOpacity(0.3),
-              width: 1,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.info_outline_rounded, size: 20, color: Color(0xFFE91E63)),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Sélectionnez le type de service que vous proposez',
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
+            fontWeight: FontWeight.bold,
           ),
         ),
         SizedBox(height: 16),
-        Row(
-          children: allServiceTypes.map((serviceType) {
-            final isSelected = _selectedServiceType == serviceType;
-            return Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(right: allServiceTypes.indexOf(serviceType) == 0 ? 8 : 0),
-                child: InkWell(
-                  onTap: () {
-                    setState(() {
-                      _selectedServiceType = serviceType;
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: isSelected ? Color(0xFFE91E63) : Colors.grey.shade300,
-                        width: isSelected ? 2 : 1.5,
-                      ),
-                      color: isSelected ? Color(0xFFE91E63).withOpacity(0.1) : Colors.transparent,
-                    ),
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          serviceType.icon,
-                          size: 24,
-                          color: isSelected ? Color(0xFFE91E63) : Colors.grey.shade600,
-                        ),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            serviceType.displayName,
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                              color: isSelected ? Color(0xFFE91E63) : textColor,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildAccountTypeOption(String type, Map<String, dynamic> config) {
-    final isSelected = _selectedAccountTypes.contains(type);
-    final Color color = config['color'] as Color;
-
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 300),
-      margin: EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: isSelected
-            ? LinearGradient(
-          colors: [color.withOpacity(0.15), color.withOpacity(0.05)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        )
-            : null,
-        border: Border.all(
-          color: isSelected ? color : Colors.grey.shade300,
-          width: isSelected ? 2 : 1.5,
-        ),
-        boxShadow: [
-          if (isSelected)
-            BoxShadow(
-              color: color.withOpacity(0.2),
-              blurRadius: 8,
-              offset: Offset(0, 4),
-            ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+        // SECTION 1: LOCATAIRE (CLIENT)
+        _buildCategoryHeader(
+          title: "Vous êtes Locataire ?",
+          icon: Icons.person_pin_rounded,
+          isSelected: _isLocataireSelected,
           onTap: () {
             setState(() {
-              final lowerType = type.toLowerCase();
-              final isClient = lowerType.contains('client');
-              
-              if (isClient) {
-                 // Si on sélectionne Client, on vide tout et on met client
-                  if (_selectedAccountTypes.contains(type)) {
-                     _selectedAccountTypes.remove(type);
-                  } else {
-                     _selectedAccountTypes.clear();
-                     _selectedAccountTypes.add(type);
-                  }
-              } else {
-                 // Si c'est autre chose (Proprio/Presta)
-                 // Si la liste contient client, on l'enlève
-                 _selectedAccountTypes.removeWhere((t) => t.toLowerCase().contains('client'));
-                 
-                 if (_selectedAccountTypes.contains(type)) {
-                   _selectedAccountTypes.remove(type);
-                 } else {
-                   _selectedAccountTypes.add(type);
-                 }
+              _isLocataireSelected = !_isLocataireSelected;
+              if (_isLocataireSelected) {
+                _selectedOwnerAccountId = null; // Exclusivité
               }
             });
           },
-          child: Container(
-            padding: EdgeInsets.all(16),
+        ),
+        if (_isLocataireSelected)
+          Padding(
+            padding: const EdgeInsets.only(left: 12, top: 4, bottom: 8),
+            child: Text(
+              "Compte client activé (Locataire)",
+              style: TextStyle(color: primaryColor, fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ),
+        
+        SizedBox(height: 12),
+
+        // SECTION 2: PROPRIÉTAIRE (IMMOBILIER)
+        _buildCategoryHeader(
+          title: "Vous proposez de l'immobilier ?",
+          icon: Icons.home_work_rounded,
+          isSelected: _selectedOwnerAccountId != null,
+          showBadge: true,
+          onTap: () {
+            setState(() {
+              if (_selectedOwnerAccountId != null) {
+                _selectedOwnerAccountId = null;
+              } else {
+                _isLocataireSelected = false; // Exclusivité
+                _selectedOwnerAccountId = typeCtrl.ownerTypes.isNotEmpty ? typeCtrl.ownerTypes[0]['id'] : null;
+              }
+            });
+          },
+        ),
+        if (_selectedOwnerAccountId != null)
+          _buildSubOptionsGrid(
+            options: typeCtrl.ownerTypes,
+            selectedId: _selectedOwnerAccountId,
+            onSelected: (id) => setState(() => _selectedOwnerAccountId = id),
+          ),
+
+        SizedBox(height: 12),
+
+        // SECTION 3: PRESTATAIRE DE SERVICE
+        _buildCategoryHeader(
+          title: "Vous proposez des services ?",
+          icon: Icons.handyman_rounded,
+          isSelected: _selectedPrestataireAccountId != null,
+          onTap: () {
+            setState(() {
+              if (_selectedPrestataireAccountId != null) {
+                _selectedPrestataireAccountId = null;
+              } else {
+                _selectedPrestataireAccountId = typeCtrl.serviceTypes.isNotEmpty ? typeCtrl.serviceTypes[0]['id'] : null;
+              }
+            });
+          },
+        ),
+        if (_selectedPrestataireAccountId != null)
+          _buildSubOptionsGrid(
+            options: typeCtrl.serviceTypes,
+            selectedId: _selectedPrestataireAccountId,
+            onSelected: (id) => setState(() => _selectedPrestataireAccountId = id),
+          ),
+
+        if (_autoValidateMode == AutovalidateMode.always &&
+            !_isLocataireSelected &&
+            _selectedOwnerAccountId == null &&
+            _selectedPrestataireAccountId == null)
+          Padding(
+            padding: const EdgeInsets.only(top: 12, left: 8),
             child: Row(
               children: [
-                AnimatedContainer(
-                  duration: Duration(milliseconds: 300),
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: isSelected ? color : lightBlue.withOpacity(0.5),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    config['icon'] as IconData,
-                    color: isSelected ? Colors.white : color,
-                    size: 20,
-                  ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        type,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: isSelected ? color : textColor,
-                          fontSize: 15,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        config['description'] as String,
-                        style: TextStyle(
-                          color: isSelected ? color.withOpacity(0.8) : secondaryTextColor,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                AnimatedContainer(
-                  duration: Duration(milliseconds: 300),
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isSelected ? color : Colors.grey.shade400,
-                      width: 2,
-                    ),
-                    color: isSelected ? color : Colors.transparent,
-                  ),
-                  child: isSelected
-                      ? Icon(Icons.check_rounded, color: Colors.white, size: 12)
-                      : null,
+                Icon(Icons.error_outline_rounded, color: errorColor, size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'Sélectionnez au moins une catégorie',
+                  style: TextStyle(color: errorColor, fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ],
             ),
           ),
+      ],
+    );
+  }
+
+  Widget _buildCategoryHeader({
+    required String title,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+    bool showBadge = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 300),
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: isSelected ? primaryColor.withOpacity(0.08) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? primaryColor : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
         ),
+        child: Row(
+          children: [
+            Icon(icon, color: isSelected ? primaryColor : secondaryTextColor, size: 24),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  color: isSelected ? primaryColor : textColor,
+                ),
+              ),
+            ),
+            Icon(
+              isSelected ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
+              color: isSelected ? primaryColor : Colors.grey.shade400,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubOptionsGrid({
+    required List<dynamic> options,
+    required int? selectedId,
+    required Function(int) onSelected,
+  }) {
+    return Container(
+      margin: EdgeInsets.only(top: 8, left: 8, right: 8),
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: lightBlue.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: options.map((opt) {
+          final id = opt['id'] as int;
+          final name = opt['name'] as String;
+          final isSelected = selectedId == id;
+          
+          return InkWell(
+            onTap: () => onSelected(id),
+            borderRadius: BorderRadius.circular(20),
+            child: AnimatedContainer(
+              duration: Duration(milliseconds: 200),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? primaryColor : Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: isSelected ? primaryColor : Colors.grey.shade300,
+                ),
+                boxShadow: isSelected ? [
+                  BoxShadow(color: primaryColor.withOpacity(0.3), blurRadius: 4, offset: Offset(0, 2))
+                ] : [],
+              ),
+              child: Text(
+                name.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? Colors.white : secondaryTextColor,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -1351,7 +1262,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       child: TextFormField(
         controller: _passwordController,
         focusNode: _passwordFocus,
-        style: TextStyle(color: textColor, fontSize: 16),
+        style: TextStyle(color: Colors.black87, fontSize: 16), // Force black text on light background
         obscureText: !_showPassword,
         autovalidateMode: AutovalidateMode.disabled,
         textInputAction: TextInputAction.go, // ← CHANGER EN "go"
@@ -1367,7 +1278,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         },
         decoration: InputDecoration(
           labelText: 'Mot de passe*',
-          labelStyle: TextStyle(color: secondaryTextColor),
+          labelStyle: TextStyle(color: Colors.black87), // Force black label on light background
           prefixIcon: Container(
             padding: EdgeInsets.all(12),
             child: Icon(Icons.lock_rounded, color: primaryColor),
@@ -1444,12 +1355,16 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     });
 
     // Vérifier si le formulaire est valide
+    final hasSelectedAccount = _isLocataireSelected || 
+                               _selectedOwnerAccountId != null || 
+                               _selectedPrestataireAccountId != null;
+
     final hasRequiredFields = _firstNameController.text.isNotEmpty &&
         _lastNameController.text.isNotEmpty &&
         _phoneController.text.isNotEmpty &&
         _cityController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty &&
-        _selectedAccountTypes.isNotEmpty;
+        hasSelectedAccount;
 
     final isFirstNameValid = _validateName(_firstNameController.text, 'prénom') == null;
     final isLastNameValid = _validateName(_lastNameController.text, 'nom') == null;
@@ -1471,7 +1386,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       _handleRegister();
     } else {
       // Afficher un message d'erreur si le formulaire n'est pas valide
-      SnackbarForCasa.error(context, "Veuillez remplir tous les champs obligatoires correctement");
+      String message = "Veuillez remplir tous les champs obligatoires";
+      if (!hasSelectedAccount) message = "Veuillez sélectionner au moins un type de compte";
+      else if (!_acceptConditions) message = "Veuillez accepter les conditions d'utilisation";
+      
+      SnackbarForCasa.error(context, message);
     }
   }
 
@@ -1516,8 +1435,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
               Color color;
               if (index < _passwordStrength) {
                 if (_passwordStrength <= 2) color = errorColor;
-                else if (_passwordStrength <= 4) color = Colors.orange;
-                else color = successColor;
+                else if (_passwordStrength <= 4) color = accentColor;
+                else color = darkBlue;
               } else {
                 color = Colors.grey.shade300;
               }
@@ -1580,7 +1499,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         children: [
           Icon(
             isMet ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-            color: isMet ? successColor : Colors.grey.shade400,
+            color: isMet ? darkBlue : Colors.grey.shade400,
             size: 12,
           ),
           SizedBox(width: 4),
@@ -1588,7 +1507,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             criterion['text'] as String,
             style: TextStyle(
               fontSize: 10,
-              color: isMet ? successColor : Colors.grey.shade600,
+              color: isMet ? darkBlue : Colors.grey.shade600,
               fontWeight: isMet ? FontWeight.bold : FontWeight.normal,
             ),
           ),
@@ -1607,8 +1526,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   Color _getPasswordStrengthColor(int strength) {
     if (strength == 0) return secondaryTextColor;
     if (strength <= 2) return errorColor;
-    if (strength <= 4) return Colors.orange;
-    return successColor;
+    if (strength <= 4) return accentColor;
+    return darkBlue;
   }
 
   Widget _buildPrivacyText() {
@@ -1809,12 +1728,15 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   Widget _buildAuthButton() {
+    final hasSelectedAccount = _isLocataireSelected || 
+                               _selectedOwnerAccountId != null || 
+                               _selectedPrestataireAccountId != null;
     final hasRequiredFields = _firstNameController.text.isNotEmpty &&
         _lastNameController.text.isNotEmpty &&
         _phoneController.text.isNotEmpty &&
         _cityController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty &&
-        _selectedAccountTypes.isNotEmpty;
+        hasSelectedAccount;
 
 
     final shouldValidate = _autoValidateMode == AutovalidateMode.always ||
@@ -2052,7 +1974,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       return;
     }
 
-    if (_selectedAccountTypes.isEmpty) {
+    if (!_isLocataireSelected && _selectedOwnerAccountId == null && _selectedPrestataireAccountId == null) {
       SnackbarForCasa.error(context, "Veuillez sélectionner un type de compte");
       return;
     }
@@ -2072,21 +1994,37 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     }
 
     try {
-      // Trouver les IDs des comptes sélectionnés
-      List<Map<String, int>> accountsPayload = [];
-      
-      for (var typeName in _selectedAccountTypes) {
-         final selectedTypeObj = _typeAccounts.firstWhere(
-           (t) => t['name'] == typeName,
-           orElse: () => null
-         );
-         
-         if (selectedTypeObj != null) {
-            accountsPayload.add({
-               "typeAccount": selectedTypeObj['typeAccountId']
-            });
-         }
-      }
+    // Trouver les IDs des comptes sélectionnés
+    List<Map<String, int>> accountsPayload = [];
+    final typeCtrl = context.read<TypeAccountController>();
+
+    if (_isLocataireSelected) {
+      accountsPayload.add({"typeAccount": 1}); // ID du typeClient
+    }
+    if (_selectedOwnerAccountId != null) {
+      accountsPayload.add({"typeAccount": 2}); // ID du typeProprietaire
+    }
+    if (_selectedPrestataireAccountId != null) {
+      accountsPayload.add({"typeAccount": 3}); // ID du typePrestataire
+    }
+    
+    // NOTE: Si l'API attend l'ID du ROLE (l'id à la racine du JSON) 
+    // et non l'ID de CATEGORIE (typeAccountId), il faudra ajuster ici.
+    // D'après le code précédent, il envoyait typeAccountId.
+    // Mais le JSON suggère que l'id à la racine est l'ID du compte spécifique.
+    // L'utilisateur dit: "si une personne choisi proprietaire il peut ensuite choisir Bailleur..."
+    // Donc on va envoyer l'ID du rôle spécifique.
+    
+    accountsPayload.clear();
+    if (_isLocataireSelected) {
+      accountsPayload.add({"typeAccount": 4}); // Locataire
+    }
+    if (_selectedOwnerAccountId != null) {
+      accountsPayload.add({"typeAccount": _selectedOwnerAccountId!}); 
+    }
+    if (_selectedPrestataireAccountId != null) {
+      accountsPayload.add({"typeAccount": _selectedPrestataireAccountId!});
+    }
       
       if (accountsPayload.isEmpty) {
           SnackbarForCasa.error(context, "Type de compte invalide");
