@@ -36,18 +36,23 @@ class UserModel {
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     try {
+      // Détection de la structure imbriquée (comme vu dans GetStorage)
+      final source = (json.containsKey('user') && json['user'] is Map) 
+          ? json['user'] as Map<String, dynamic> 
+          : json;
+
       return UserModel(
-        userId: _safeParseInt(json["userId"] ?? json["id"]),
-        password: _safeParseString(json["password"]),
-        typeAccount: _safeParseTypeAccount(json["typeAccount"]),
-        email: _safeParseString(json["email"]),
-        username: _safeParseString(json["username"]),
-        phone: _safeParseString(json["phone"] ?? json["telephone"]),
-        city: _safeParseString(json["city"]),
-        country: _safeParseString(json["country"]),
-        isPremium: _safeParseBool(json["isPremium"]),
-        isCertified: _safeParseBool(json["isCertified"]),
-        cityModel: _safeParseCityModel(json["cityModel"]),
+        userId: _safeParseInt(source["userId"] ?? source["id"] ?? json["userId"] ?? json["id"]),
+        password: _safeParseString(source["password"] ?? json["password"]),
+        typeAccount: _safeParseTypeAccount(source["typeAccount"] ?? json["typeAccount"]),
+        email: _safeParseString(source["email"] ?? json["email"]),
+        username: _safeParseString(source["username"] ?? json["username"]),
+        phone: _safeParseString(source["phone"] ?? source["telephone"] ?? json["phone"] ?? json["telephone"]),
+        city: _safeParseString(source["city"] ?? json["city"]),
+        country: _safeParseString(source["country"] ?? json["country"]),
+        isPremium: _safeParseBool(source["isPremium"] ?? json["isPremium"]),
+        isCertified: _safeParseBool(source["isCertified"] ?? source["certified"] ?? json["isCertified"] ?? json["certified"]),
+        cityModel: _safeParseCityModel(source["cityModel"] ?? json["cityModel"]),
         createdStart: _safeParseString(json["createdStart"] ?? json["createdAt"]),
       );
     } catch (e, stack) {
