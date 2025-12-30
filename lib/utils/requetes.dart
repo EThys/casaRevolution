@@ -82,7 +82,13 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
     var successList = [200, 201];
     var msg = json.decode(response.body);
     var st = successList.contains(response.statusCode);
-    return HttpResponse(status: st, data: msg);
+    
+    String? errorMsg;
+    if (!st && msg is Map) {
+      errorMsg = msg['message'] ?? msg['error'] ?? msg['errors']?.toString();
+    }
+
+    return HttpResponse(status: st, data: msg, errorMsg: errorMsg);
   } catch (e, trace) {
     print(e.toString());
     print(trace.toString());
@@ -342,7 +348,12 @@ Future<HttpResponse> patchData(String api_url, Map data, {String? token}) async 
     var msg = json.decode(response.body);
     var st = successList.contains(response.statusCode);
 
-    return HttpResponse(status: st, data: msg);
+    String? errorMsg;
+    if (!st && msg is Map) {
+      errorMsg = msg['message'] ?? msg['error'] ?? msg['errors']?.toString();
+    }
+
+    return HttpResponse(status: st, data: msg, errorMsg: errorMsg);
   } catch (e, trace) {
     print(e.toString());
     print(trace.toString());

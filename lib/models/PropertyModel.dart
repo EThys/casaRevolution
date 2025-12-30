@@ -66,6 +66,14 @@ class PropertyModel {
   String? districtValue;
   String? quartierValue;
 
+  // CHAMPS SPÉCIFIQUES (Bureau, Festive, Funéraire)
+  int? roomMeet;
+  int? numberPiece;
+  bool? isEquip;
+  int? capacityPeople;
+  bool? isDecore;
+  bool? pisteDanse;
+  
   int? cityId;
   int? communeId;
   int? quartierId;
@@ -100,6 +108,7 @@ class PropertyModel {
   bool? available;
   String? status;
   String? rejectionReason;
+  int? deviseId; // 1 for FC, 2 for USD
 
   List<PropertyFeatureModel>? features;
   List<PropertyImageModel>? propertyImage;
@@ -145,6 +154,15 @@ class PropertyModel {
     this.user,
     this.latitude,
     this.longitude,
+    
+    // CHAMPS SPÉCIFIQUES
+    this.roomMeet,
+    this.numberPiece,
+    this.isEquip,
+    this.capacityPeople,
+    this.isDecore,
+    this.pisteDanse,
+    
     this.createdStart,
     this.updatedAt,
     this.createdAt,
@@ -171,6 +189,7 @@ class PropertyModel {
     this.propertyImageRoom,
     this.propertyImageLivingRoom,
     this.propertyImageKitchen,
+    this.deviseId,
   });
 
   factory PropertyModel.fromJson(Map<String, dynamic> json) {
@@ -248,6 +267,14 @@ class PropertyModel {
       electric: _parseInt(propertyNode["electric"]) ?? 0,
       water: _parseInt(propertyNode["water"]) ?? 0,
 
+      // CHAMPS SPÉCIFIQUES
+      roomMeet: _parseInt(propertyNode["roomMeet"]),
+      numberPiece: _parseInt(propertyNode["numberPiece"]),
+      isEquip: _parseBool(propertyNode["isEquip"]) || _parseBool(propertyNode["equipped"]),
+      capacityPeople: _parseInt(propertyNode["capacityPeople"]),
+      isDecore: _parseBool(propertyNode["isDecore"]) || _parseBool(propertyNode["decore"]),
+      pisteDanse: _parseBool(propertyNode["pisteDanse"]),
+
       // NOUVELLES PROPRIÉTES STATISTIQUES
       viewCount: _parseInt(json["viewCount"]) ?? 0,
       favoriteCount: _parseInt(json["favoriteCount"]) ?? 0,
@@ -262,6 +289,7 @@ class PropertyModel {
       available: _parseBool(propertyNode["available"]) ?? _parseBool(json["available"]) ?? true,
       status: _parseString(propertyNode["status"]) ?? "active",
       rejectionReason: _parseString(propertyNode["rejectionReason"]),
+      deviseId: _parseInt(propertyNode["deviseId"]) ?? _parseInt(json["deviseId"]) ?? _parseInt(json["devise"]?["id"]),
 
       features: (json["features"] ?? propertyNode["features"]) is List
           ? List<PropertyFeatureModel>.from(
@@ -336,8 +364,9 @@ class PropertyModel {
     "districtId": districtId,
     "postalCode": postalCode,
     "quartier": quartier,
-    "sold": sold,
     "transactionType": transactionType,
+    "deviseId": deviseId,
+    "devise_id": deviseId, // Helper for API consistency
     "propertyTypeId": propertyTypeId,
     "propertyType": propertyType?.toJson(),
     "userId": userId,
@@ -349,6 +378,14 @@ class PropertyModel {
     "createdAt": createdAt,
     "electric": electric,
     "water": water,
+
+    // CHAMPS SPÉCIFIQUES
+    "roomMeet": roomMeet,
+    "numberPiece": numberPiece,
+    "isEquip": isEquip,
+    "capacityPeople": capacityPeople,
+    "isDecore": isDecore,
+    "pisteDanse": pisteDanse,
 
     // NOUVELLES PROPRIÉTES STATISTIQUES
     "viewCount": viewCount,
@@ -385,10 +422,11 @@ class PropertyModel {
   // Méthodes utilitaires
   String get formattedPrice {
     if (price == null) return "0";
+    String symbol = (deviseId == 1) ? "FC" : "\$";
     if (transactionType == "vente") {
-      return "${price!.toStringAsFixed(0)}\$";
+      return "${price!.toStringAsFixed(0)} $symbol";
     } else {
-      return "${price!.toStringAsFixed(0)}\$/mois";
+      return "${price!.toStringAsFixed(0)} $symbol/mois";
     }
   }
 
@@ -482,6 +520,8 @@ class PropertyModel {
         'electric: $electric, '
         'water: $water, '
         'transactionType: $transactionType, '
+        'roomMeet: $roomMeet, '
+        'capacityPeople: $capacityPeople, '
         'isActive: $isActive, '
         'isVerified: $isVerified'
         ')';
@@ -527,6 +567,12 @@ class PropertyModel {
     String? createdAt,
     int? electric,
     int? water,
+    int? roomMeet,
+    int? numberPiece,
+    bool? isEquip,
+    int? capacityPeople,
+    bool? isDecore,
+    bool? pisteDanse,
     int? viewCount,
     int? favoriteCount,
     bool? isFavorite,
@@ -583,6 +629,14 @@ class PropertyModel {
       createdAt: createdAt ?? this.createdAt,
       electric: electric ?? this.electric,
       water: water ?? this.water,
+      
+      roomMeet: roomMeet ?? this.roomMeet,
+      numberPiece: numberPiece ?? this.numberPiece,
+      isEquip: isEquip ?? this.isEquip,
+      capacityPeople: capacityPeople ?? this.capacityPeople,
+      isDecore: isDecore ?? this.isDecore,
+      pisteDanse: pisteDanse ?? this.pisteDanse,
+      
       viewCount: viewCount ?? this.viewCount,
       favoriteCount: favoriteCount ?? this.favoriteCount,
       isFavorite: isFavorite ?? this.isFavorite,
