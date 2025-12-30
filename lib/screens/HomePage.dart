@@ -20,10 +20,14 @@ import 'package:shimmer/shimmer.dart';
 
 import '../models/PropertyModel.dart';
 import '../models/ServiceModel.dart';
-import '../utils/requetes.dart' show HttpResponse, deleteData;
+import '../models/PrestationModel.dart';
+import '../utils/requetes.dart' show HttpResponse, deleteData, getData;
+import '../utils/Endpoints.dart';
 import '../utils/Routes.dart';
 import '../utils/database/FavoriteDatabaseHelper.dart';
 import '../utils/database/ReservationDatabaseHelper.dart';
+import '../utils/database/ServiceCategoryDatabaseHelper.dart';
+import '../utils/database/PrestationDatabaseHelper.dart';
 import 'CategoryPropertiesPage.dart';
 import 'AllServiceCategoriesPage.dart';
 import 'NotificationPage.dart';
@@ -48,7 +52,17 @@ class _HomePageState extends State<HomePage> {
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
   final GetStorage storage = GetStorage();
-  String _selectedSpecialCategory = 'Bureaux';
+  
+  // Données pour les prestations
+  List<ServiceModel> majordhommeServices = [];
+  List<ServiceModel> demenagementServices = [];
+  Map<ServiceType, List<ServiceModel>> otherServicesByType = {};
+  bool isLoadingPrestations = false;
+  
+  // Mapping nom compte -> ID
+  Map<String, int> accountNameToIdMap = {};
+  
+  // String _selectedSpecialCategory = 'Bureaux'; // Supprimé pour simplification UI
 
   @override
   void initState() {
@@ -72,8 +86,413 @@ class _HomePageState extends State<HomePage> {
       
       // Charger tous les services
       serviceCtrl.fetchServices();
+      
+      // Charger les prestations depuis l'API
+      _loadPrestationsFromAPI();
     });
   }
+
+  // Charger les comptes depuis l'API et mapper les noms aux IDs
+  // Aussi charger et stocker les catégories de services dans SQLite
+  Future<void> _loadAccountMapping() async {
+    try {
+      // D'abord, essayer de charger depuis le cache local
+      final categoryDB = ServiceCategoryDatabaseHelper.instance;
+      final cachedCategories = await categoryDB.getAllCategories();
+      
+      if (cachedCategories.isNotEmpty) {
+        print("📦 [HomePage] ${cachedCategories.length} catégories chargées depuis le cache local");
+        // Remplir le mapping depuis le cache
+        accountNameToIdMap.clear();
+        for (var category in cachedCategories) {
+          final accountName = category['accountName']?.toString().toLowerCase();
+          final accountId = category['accountId'];
+          if (accountName != null && accountId != null) {
+            accountNameToIdMap[accountName] = accountId;
+          }
+        }
+      }
+      
+      // Ensuite, charger depuis l'API pour mettre à jour
+      final url = Endpoints.accounts;
+      final token = storage.read<String>(StockageKeys.tokenKey);
+      var response = await getData(url, token: token);
+      
+      if (response != null && response is Map<String, dynamic>) {
+        // L'API retourne "accounts" dans la réponse (pas "user_accounts")
+        final accounts = response['accounts'] as List<dynamic>?;
+        
+        if (accounts != null && accounts.isNotEmpty) {
+          accountNameToIdMap.clear();
+          final List<Map<String, dynamic>> categoriesToCache = [];
+          
+          // Mapping des icônes et couleurs par nom de compte
+          final iconMap = {
+            'plombier': 'plumbing_rounded',
+            'electricien': 'electrical_services_rounded',
+            'salubrité': 'cleaning_services_rounded',
+            'peintre': 'format_paint_rounded',
+            'carrelleur': 'square_foot_rounded',
+            'menusier': 'carpenter_rounded',
+            'frigoriste': 'ac_unit_rounded',
+            'ajusteur': 'build_rounded',
+            'architect': 'architecture_rounded',
+            'chauffeur': 'drive_eta_rounded',
+            'maçon': 'construction_rounded',
+            'majordome': 'cleaning_services_rounded',
+            'demenagement': 'local_shipping_rounded',
+          };
+          
+          final colorMap = {
+            'plombier': 0xFF2196F3,
+            'electricien': 0xFFFFEB3B,
+            'salubrité': 0xFF4CAF50,
+            'peintre': 0xFFFF5722,
+            'carrelleur': 0xFF9C27B0,
+            'menusier': 0xFF8D6E63,
+            'frigoriste': 0xFF00BCD4,
+            'ajusteur': 0xFF4CAF50,
+            'architect': 0xFFFF9800,
+            'chauffeur': 0xFFF44336,
+            'maçon': 0xFF795548,
+            'majordome': 0xFF607D8B,
+            'demenagement': 0xFF3F51B5,
+          };
+          
+          for (var acc in accounts) {
+            final accountName = acc['name']?.toString().toLowerCase();
+            final accountId = acc['id'];
+            final typeAccount = acc['typeAccount'];
+            final typeAccountId = typeAccount?['typeAccountId'];
+            
+            if (accountName != null && accountId != null) {
+              accountNameToIdMap[accountName] = accountId;
+              print("📋 [HomePage] Mapping API: $accountName -> $accountId");
+              
+              // Stocker uniquement les prestataires de service (typeAccountId == 3) dans le cache
+              if (typeAccountId == 3) {
+                final displayName = accountName[0].toUpperCase() + accountName.substring(1);
+                final serviceType = _mapAccountNameToServiceType(accountName);
+                
+                if (serviceType != null) {
+                  categoriesToCache.add({
+                    'name': displayName,
+                    'value': serviceType.value,
+                    'accountName': accountName,
+                    'accountId': accountId,
+                    'iconName': iconMap[accountName] ?? 'build_rounded',
+                    'colorValue': colorMap[accountName] ?? primaryColor.value,
+                  });
+                }
+              }
+            }
+          }
+          
+          // Stocker les catégories dans SQLite
+          if (categoriesToCache.isNotEmpty) {
+            await categoryDB.insertOrUpdateCategories(categoriesToCache);
+            print("💾 [HomePage] ${categoriesToCache.length} catégories stockées dans SQLite");
+          }
+          
+          print("✅ [HomePage] ${accountNameToIdMap.length} comptes chargés depuis l'API");
+        } else {
+          print("⚠️ [HomePage] Aucun accounts dans la réponse API ou liste vide");
+        }
+      } else {
+        print("⚠️ [HomePage] Réponse API invalide ou null");
+      }
+    } catch (e) {
+      print("❌ [HomePage] Erreur lors du chargement du mapping des comptes depuis l'API: $e");
+      // Fallback sur le stockage local si l'API échoue
+      try {
+        final userData = storage.read<Map<String, dynamic>>(StockageKeys.userKey);
+        final userAccounts = userData?['user_accounts'] as List<dynamic>?;
+        
+        if (userAccounts != null) {
+          accountNameToIdMap.clear();
+          for (var acc in userAccounts) {
+            final accountName = acc['name']?.toString().toLowerCase();
+            final accountId = acc['id'];
+            if (accountName != null && accountId != null) {
+              accountNameToIdMap[accountName] = accountId;
+              print("📋 [HomePage] Mapping local: $accountName -> $accountId");
+            }
+          }
+        }
+      } catch (e2) {
+        print("❌ [HomePage] Erreur lors du chargement du mapping local: $e2");
+      }
+    }
+  }
+
+  // Charger les prestations depuis l'API (avec cache SQLite)
+  Future<void> _loadPrestationsFromAPI() async {
+    if (mounted) {
+      setState(() => isLoadingPrestations = true);
+    }
+
+    try {
+      // Charger le mapping des comptes
+      await _loadAccountMapping();
+      
+      final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+      
+      // Charger d'abord depuis le cache local pour affichage immédiat
+      final dbHelper = PrestationDatabaseHelper.instance;
+      final cachedPrestations = await dbHelper.getAllPrestations();
+      
+      // Récupérer l'ID du compte majordome (peut être "majordome" ou "majordhomme")
+      final majordomeId = accountNameToIdMap['majordome'] ?? accountNameToIdMap['majordhomme'];
+      if (majordomeId != null) {
+        // Charger depuis le cache d'abord
+        final cachedMajordome = cachedPrestations.where((p) => p.serviceId == majordomeId).toList();
+        if (cachedMajordome.isNotEmpty) {
+          majordhommeServices = cachedMajordome.map((p) => _prestationToServiceModel(p, ServiceType.majordhomme)).toList();
+          print("✅ [HomePage] ${majordhommeServices.length} prestations majordome chargées depuis le cache");
+          if (mounted) {
+            setState(() {});
+          }
+        }
+        
+        // Mettre à jour depuis l'API en arrière-plan
+        final majordomePrestations = await serviceCtrl.fetchPrestationsByServiceId(majordomeId);
+        majordhommeServices = majordomePrestations.map((p) => _prestationToServiceModel(p, ServiceType.majordhomme)).toList();
+        print("✅ [HomePage] ${majordhommeServices.length} prestations majordome mises à jour depuis l'API (serviceId: $majordomeId)");
+      } else {
+        print("⚠️ [HomePage] Aucun compte majordome trouvé dans user_accounts");
+      }
+      
+      // Récupérer l'ID du compte demenagement
+      final demenagementId = accountNameToIdMap['demenagement'];
+      if (demenagementId != null) {
+        // Charger depuis le cache d'abord
+        final cachedDemenagement = cachedPrestations.where((p) => p.serviceId == demenagementId).toList();
+        if (cachedDemenagement.isNotEmpty) {
+          demenagementServices = cachedDemenagement.map((p) => _prestationToServiceModel(p, ServiceType.demenagement)).toList();
+          print("✅ [HomePage] ${demenagementServices.length} prestations demenagement chargées depuis le cache");
+          if (mounted) {
+            setState(() {});
+          }
+        }
+        
+        // Mettre à jour depuis l'API en arrière-plan
+        final demenagementPrestations = await serviceCtrl.fetchPrestationsByServiceId(demenagementId);
+        demenagementServices = demenagementPrestations.map((p) => _prestationToServiceModel(p, ServiceType.demenagement)).toList();
+        print("✅ [HomePage] ${demenagementServices.length} prestations demenagement mises à jour depuis l'API (serviceId: $demenagementId)");
+      } else {
+        print("⚠️ [HomePage] Aucun compte demenagement trouvé dans user_accounts");
+      }
+      
+      // Charger toutes les prestations pour les autres services (uniquement prestataires de service)
+      // D'abord depuis le cache
+      final cachedOtherServices = cachedPrestations.where((p) {
+        if (p.serviceId == null) return false;
+        String? accountName;
+        accountNameToIdMap.forEach((name, id) {
+          if (id == p.serviceId) {
+            accountName = name;
+          }
+        });
+        return accountName != null && 
+               accountName != 'majordome' && 
+               accountName != 'majordhomme' &&
+               accountName != 'demenagement';
+      }).toList();
+      
+      // Afficher les données du cache d'abord
+      if (cachedOtherServices.isNotEmpty) {
+        otherServicesByType.clear();
+        for (var prestation in cachedOtherServices) {
+          if (prestation.serviceId != null) {
+            String? accountName;
+            accountNameToIdMap.forEach((name, id) {
+              if (id == prestation.serviceId) {
+                accountName = name;
+              }
+            });
+            if (accountName != null) {
+              final serviceType = _mapAccountNameToServiceType(accountName!);
+              if (serviceType != null) {
+                final serviceModel = _prestationToServiceModel(prestation, serviceType);
+                otherServicesByType.putIfAbsent(serviceType, () => []).add(serviceModel);
+              }
+            }
+          }
+        }
+        print("✅ [HomePage] ${cachedOtherServices.length} prestations autres services chargées depuis le cache");
+        if (mounted) {
+          setState(() {});
+        }
+      }
+      
+      // Mettre à jour depuis l'API en arrière-plan
+      final allPrestations = await serviceCtrl.fetchAllPrestations();
+      
+      print("🔍 [HomePage] ${allPrestations.length} prestations chargées au total");
+      print("🔍 [HomePage] Mapping des comptes: $accountNameToIdMap");
+      
+      // Grouper par type de compte (serviceId) - uniquement prestataires de service
+      // Exclure majordome et demenagement qui sont déjà traités séparément
+      otherServicesByType.clear();
+      
+      for (var prestation in allPrestations) {
+        if (prestation.serviceId != null) {
+          // Trouver le nom du compte correspondant à ce serviceId
+          String? accountName;
+          accountNameToIdMap.forEach((name, id) {
+            if (id == prestation.serviceId) {
+              accountName = name;
+            }
+          });
+          
+          // Exclure majordome et demenagement
+          if (accountName != null && 
+              accountName != 'majordome' && 
+              accountName != 'majordhomme' &&
+              accountName != 'demenagement') {
+            // Mapper le nom du compte vers ServiceType
+            final serviceType = _mapAccountNameToServiceType(accountName!);
+            if (serviceType != null) {
+              final serviceModel = _prestationToServiceModel(prestation, serviceType);
+              otherServicesByType.putIfAbsent(serviceType, () => []).add(serviceModel);
+              print("✅ [HomePage] Ajout prestation ${prestation.id} (serviceId: ${prestation.serviceId}, type: $serviceType, compte: $accountName)");
+            } else {
+              print("⚠️ [HomePage] ServiceType non trouvé pour compte: $accountName (serviceId: ${prestation.serviceId})");
+            }
+          } else if (accountName != null) {
+            print("ℹ️ [HomePage] Prestation ${prestation.id} exclue (compte: $accountName, serviceId: ${prestation.serviceId})");
+          } else {
+            print("⚠️ [HomePage] Aucun compte trouvé pour serviceId: ${prestation.serviceId} (prestation: ${prestation.id})");
+          }
+        }
+      }
+      
+      final totalPrestations = otherServicesByType.values.map((l) => l.length).fold(0, (a, b) => a + b);
+      print("✅ [HomePage] Autres services groupés: ${otherServicesByType.length} types, $totalPrestations prestations totales");
+      
+    } catch (e) {
+      print("❌ [HomePage] Erreur lors du chargement des prestations: $e");
+    } finally {
+      if (mounted) {
+        setState(() => isLoadingPrestations = false);
+      }
+    }
+  }
+
+  // Obtenir l'icône pour un type de service
+  IconData _getServiceTypeIcon(ServiceType serviceType) {
+    switch (serviceType) {
+      case ServiceType.plomberie:
+        return Icons.plumbing_rounded;
+      case ServiceType.electricite:
+        return Icons.electrical_services_rounded;
+      case ServiceType.peinture:
+        return Icons.format_paint_rounded;
+      case ServiceType.carrelage:
+        return Icons.square_foot_rounded;
+      case ServiceType.climatisation:
+        return Icons.ac_unit_rounded;
+      case ServiceType.reparation:
+        return Icons.build_rounded;
+      case ServiceType.nettoyage:
+        return Icons.cleaning_services_rounded;
+      case ServiceType.transport:
+        return Icons.drive_eta_rounded;
+      case ServiceType.renovation:
+        return Icons.construction_rounded;
+      case ServiceType.installation:
+        return Icons.install_mobile_rounded;
+      case ServiceType.serrurerie:
+        return Icons.vpn_key_rounded;
+      case ServiceType.vitrerie:
+        return Icons.window_rounded;
+      case ServiceType.majordhomme:
+        return Icons.cleaning_services_rounded;
+      case ServiceType.demenagement:
+        return Icons.local_shipping_rounded;
+      default:
+        return Icons.build_rounded;
+    }
+  }
+
+  // Mapper le nom du compte vers ServiceType
+  ServiceType? _mapAccountNameToServiceType(String accountName) {
+    final normalizedName = accountName.toLowerCase().trim();
+    final map = {
+      'majordome': ServiceType.majordhomme,
+      'majordhomme': ServiceType.majordhomme,
+      'plombier': ServiceType.plomberie,
+      'plombiers': ServiceType.plomberie,
+      'electricien': ServiceType.electricite,
+      'electriciens': ServiceType.electricite,
+      'salubrité': ServiceType.nettoyage,
+      'salubrites': ServiceType.nettoyage,
+      'peintre': ServiceType.peinture,
+      'peintres': ServiceType.peinture,
+      'carreleur': ServiceType.carrelage,
+      'carrelleur': ServiceType.carrelage, // Note: l'API retourne "carrelleur" avec double 'l'
+      'carreleurs': ServiceType.carrelage,
+      'menuisier': ServiceType.reparation,
+      'menusier': ServiceType.reparation, // Note: l'API retourne "menusier" sans 'u'
+      'menuisiers': ServiceType.reparation,
+      'frigoriste': ServiceType.climatisation,
+      'frigoristes': ServiceType.climatisation,
+      'ajusteur': ServiceType.reparation,
+      'ajusteurs': ServiceType.reparation,
+      'architecte': ServiceType.renovation,
+      'architect': ServiceType.renovation, // Note: l'API retourne "architect" sans 'e'
+      'architectes': ServiceType.renovation,
+      'maçon': ServiceType.renovation, // Note: l'API retourne "maçon" avec accent
+      'macon': ServiceType.renovation,
+      'chauffeur': ServiceType.transport,
+      'chauffeurs': ServiceType.transport,
+      'demenagement': ServiceType.demenagement,
+      'demenagements': ServiceType.demenagement,
+    };
+    return map[normalizedName];
+  }
+
+  // Convertir PrestationModel en ServiceModel
+  ServiceModel _prestationToServiceModel(PrestationModel prestation, ServiceType serviceType) {
+    // Utiliser profile en premier, puis les images de portfolio
+    List<String>? imagesList = [];
+    
+    // Ajouter la photo de profil en premier si elle existe
+    if (prestation.profile != null && prestation.profile!.isNotEmpty) {
+      imagesList.add(prestation.profile!);
+      print("📸 [HomePage] Prestation ${prestation.id} a une photo de profil");
+    }
+    
+    // Ajouter les images de portfolio après
+    if (prestation.images != null && prestation.images!.isNotEmpty) {
+      imagesList.addAll(prestation.images!);
+      print("📸 [HomePage] Prestation ${prestation.id} a ${prestation.images!.length} image(s) de portfolio");
+    }
+    
+    if (imagesList.isEmpty) {
+      print("⚠️ [HomePage] Prestation ${prestation.id} n'a pas d'images");
+      imagesList = null;
+    } else {
+      print("✅ [HomePage] Prestation ${prestation.id} a ${imagesList.length} image(s) total (profil + portfolio)");
+    }
+    
+    return ServiceModel()
+      ..serviceId = prestation.id
+      ..title = prestation.title ?? ''
+      ..description = prestation.description ?? ''
+      ..price = prestation.minPrice ?? prestation.maxPrice
+      ..serviceType = serviceType
+      ..address = prestation.address ?? ''
+      ..cityValue = prestation.cityValue ?? ''
+      ..communeValue = prestation.communeValue ?? ''
+      ..quartierValue = prestation.quartierValue ?? ''
+      ..isAvailable = prestation.isActive ?? true
+      ..isVerified = prestation.isCertified ?? false
+      ..rating = 4.5 // Valeur par défaut
+      ..reviewCount = 0
+      ..images = imagesList; // Transférer les images
+  }
+
 
   void _logHomePageLoaded(int propertyCount) {
     print("🏠 Page accueil chargée: $propertyCount propriétés");
@@ -111,24 +530,10 @@ class _HomePageState extends State<HomePage> {
       maisonTypeIds.contains(p.propertyTypeId)
     ).toList();
     
-    // Utiliser les données statiques pour majordome et demenagement
-    final staticServices = StaticServicesData.getStaticServices();
-    final majordhommeServices = staticServices.where((s) => s.serviceType == ServiceType.majordhomme).toList();
-    final demenagementServices = staticServices.where((s) => s.serviceType == ServiceType.demenagement).toList();
-    
-    // Autres services (excluant majordhomme et demenagement)
-    final otherServices = services.where((s) => 
-      s.serviceType != ServiceType.majordhomme && 
-      s.serviceType != ServiceType.demenagement
-    ).toList();
-    
-    // Grouper les autres services par type
-    final Map<ServiceType, List<ServiceModel>> servicesByType = {};
-    for (var service in otherServices) {
-      if (service.serviceType != null) {
-        servicesByType.putIfAbsent(service.serviceType!, () => []).add(service);
-      }
-    }
+    // Utiliser uniquement les prestations chargées depuis l'API (pas de fallback statique)
+    final currentMajordhommeServices = majordhommeServices;
+    final currentDemenagementServices = demenagementServices;
+    final currentOtherServicesByType = otherServicesByType;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -251,7 +656,7 @@ class _HomePageState extends State<HomePage> {
               // ============================================
               // NOUVELLES SECTIONS SPÉCIALISÉES (Consolidées pour réduire la longueur)
               // ============================================
-              _buildSpecializedPropertiesSection(propertyCtrl),
+              // _buildSpecializedPropertiesSection(propertyCtrl), // Supprimé pour UX plus propre, voir catégories en haut
               
               // ============================================
               // ZONE 3 : SERVICES PRINCIPAUX
@@ -270,7 +675,7 @@ class _HomePageState extends State<HomePage> {
                     MaterialPageRoute(
                       builder: (context) => ServiceCategoryPage(
                         serviceType: ServiceType.majordhomme,
-                        services: majordhommeServices,
+                        services: currentMajordhommeServices,
                       ),
                     ),
                   );
@@ -278,8 +683,8 @@ class _HomePageState extends State<HomePage> {
               ),
               SizedBox(height: 16),
               _buildServiceCarousel(
-                services: majordhommeServices,
-                isLoading: false,
+                services: currentMajordhommeServices,
+                isLoading: isLoadingPrestations,
                 serviceType: ServiceType.majordhomme,
               ),
               SizedBox(height: 32),
@@ -294,7 +699,7 @@ class _HomePageState extends State<HomePage> {
                     MaterialPageRoute(
                       builder: (context) => ServiceCategoryPage(
                         serviceType: ServiceType.demenagement,
-                        services: demenagementServices,
+                        services: currentDemenagementServices,
                       ),
                     ),
                   );
@@ -302,8 +707,8 @@ class _HomePageState extends State<HomePage> {
               ),
               SizedBox(height: 16),
               _buildServiceCarousel(
-                services: demenagementServices,
-                isLoading: false,
+                services: currentDemenagementServices,
+                isLoading: isLoadingPrestations,
                 serviceType: ServiceType.demenagement,
               ),
               SizedBox(height: 32),
@@ -325,8 +730,8 @@ class _HomePageState extends State<HomePage> {
               ),
               SizedBox(height: 16),
               _buildOtherServicesGrid(
-                servicesByType: servicesByType,
-                isLoading: serviceCtrl.loading,
+                servicesByType: currentOtherServicesByType,
+                isLoading: isLoadingPrestations || serviceCtrl.loading,
               ),
               SizedBox(height: 32),
               
@@ -988,36 +1393,36 @@ class _HomePageState extends State<HomePage> {
                             isSelected:  selectedRoute == Routes.favoriteRoute,
                             onTap: () => _handleNavigation(Routes.favoriteRoute),
                           ),
-                          _buildDrawerItem(
-                            icon: Icons.add_task_rounded,
-                            title: 'Demander un service',
-                            routeName: Routes.quickServiceRequestRoute,
-                            isSelected: selectedRoute == Routes.quickServiceRequestRoute,
-                            onTap: () => _handleNavigation(Routes.quickServiceRequestRoute),
-                          ),
+                          // _buildDrawerItem(
+                          //   icon: Icons.add_task_rounded,
+                          //   title: 'Demander un service',
+                          //   routeName: Routes.quickServiceRequestRoute,
+                          //   isSelected: selectedRoute == Routes.quickServiceRequestRoute,
+                          //   onTap: () => _handleNavigation(Routes.quickServiceRequestRoute),
+                          // ),
                           if (isLoggedIn) ...[
-                            _buildDrawerItem(
-                              icon: Icons.request_quote_rounded,
-                              title: 'Mes demandes',
-                              routeName: Routes.myServiceRequestsRoute,
-                              isSelected: selectedRoute == Routes.myServiceRequestsRoute,
-                              onTap: () => _handleNavigation(Routes.myServiceRequestsRoute),
-                            ),
-                            _buildDrawerItem(
-                              icon: Icons.construction_rounded,
-                              title: 'Demander intervention',
-                              routeName: Routes.requestInterventionRoute,
-                              isSelected: selectedRoute == Routes.requestInterventionRoute,
-                              onTap: () {
-                                // Note: Cette route nécessite un ServiceModel en argument
-                                // Pour l'instant, on affiche juste un message
-                                Navigator.pop(context);
-                                SnackbarForCasa.info(
-                                  context,
-                                  "Sélectionnez un service pour demander une intervention",
-                                );
-                              },
-                            ),
+                            // _buildDrawerItem(
+                            //   icon: Icons.request_quote_rounded,
+                            //   title: 'Mes demandes',
+                            //   routeName: Routes.myServiceRequestsRoute,
+                            //   isSelected: selectedRoute == Routes.myServiceRequestsRoute,
+                            //   onTap: () => _handleNavigation(Routes.myServiceRequestsRoute),
+                            // ),
+                            // _buildDrawerItem(
+                            //   icon: Icons.construction_rounded,
+                            //   title: 'Demander intervention',
+                            //   routeName: Routes.requestInterventionRoute,
+                            //   isSelected: selectedRoute == Routes.requestInterventionRoute,
+                            //   onTap: () {
+                            //     // Note: Cette route nécessite un ServiceModel en argument
+                            //     // Pour l'instant, on affiche juste un message
+                            //     Navigator.pop(context);
+                            //     SnackbarForCasa.info(
+                            //       context,
+                            //       "Sélectionnez un service pour demander une intervention",
+                            //     );
+                            //   },
+                            // ),
                             _buildDrawerItem(
                               icon: Icons.calendar_today_rounded,
                               title: 'Mes Réservations',
@@ -1025,19 +1430,26 @@ class _HomePageState extends State<HomePage> {
                               isSelected: selectedRoute == Routes.bookingHistoryPageRoute,
                               onTap: () => _handleNavigation(Routes.bookingHistoryPageRoute),
                             ),
-                            _buildDrawerItem(
-                              icon: Icons.dashboard_rounded,
-                              title: 'Ma gestion',
-                              routeName: Routes.commissionnaireDashboardPageRoute,
-                              isSelected: selectedRoute == Routes.commissionnaireDashboardPageRoute,
-                              onTap: () => _handleNavigation(Routes.commissionnaireDashboardPageRoute),
-                            ),
+                            // _buildDrawerItem(
+                            //   icon: Icons.dashboard_rounded,
+                            //   title: 'Ma gestion',
+                            //   routeName: Routes.commissionnaireDashboardPageRoute,
+                            //   isSelected: selectedRoute == Routes.commissionnaireDashboardPageRoute,
+                            //   onTap: () => _handleNavigation(Routes.commissionnaireDashboardPageRoute),
+                            // ),
                             _buildDrawerItem(
                               icon: Icons.apartment_rounded,
                               title: 'Mes propriétés',
                               routeName: Routes.myPropertiesRoute,
                               isSelected: selectedRoute == Routes.myPropertiesRoute,
                               onTap: () => _handleNavigation(Routes.myPropertiesRoute),
+                            ),
+                            _buildDrawerItem(
+                              icon: Icons.work_rounded,
+                              title: 'Mes services',
+                              routeName: Routes.myServicesRoute,
+                              isSelected: selectedRoute == Routes.myServicesRoute,
+                              onTap: () => _handleNavigation(Routes.myServicesRoute),
                             ),
                           ],
                         ],
@@ -1259,6 +1671,8 @@ class _HomePageState extends State<HomePage> {
         routeName == Routes.commissionnaireDashboardPageRoute ||
         routeName == Routes.favoriteRoute ||
         routeName == Routes.myPropertiesRoute ||
+        routeName == Routes.myServicesRoute ||
+        routeName == Routes.ParrainagePageRoute ||
         routeName == Routes.bookingHistoryPageRoute ||
         routeName == Routes.quickServiceRequestRoute ||
         routeName == Routes.myServiceRequestsRoute ||
@@ -1551,6 +1965,7 @@ class _HomePageState extends State<HomePage> {
     final propertyCtrl = Provider.of<PropertyController>(context);
     
     // Si la liste est vide, on utilise une liste de fallback pour éviter un écran vide au premier démarrage
+    // Si la liste est vide, on utilise une liste de fallback complète pour couvrir tous les besoins
     final List<Map<String, dynamic>> categories = propertyCtrl.propertyTypes.isNotEmpty 
       ? propertyCtrl.propertyTypes.map((type) => {
           'propertyTypeId': type['propertyTypeId'],
@@ -1562,7 +1977,12 @@ class _HomePageState extends State<HomePage> {
           {'label': 'Studios', 'image': 'assets/images/studio.png', 'value': 'Studio'},
           {'label': 'Apparts', 'image': 'assets/images/apart.png', 'value': 'Apparts'},
           {'label': 'Maisons', 'image': 'assets/images/maison.png', 'value': 'Maisons'},
+          {'label': 'Villas', 'image': 'assets/images/maison.png', 'value': 'Maisons'},
           {'label': 'Bureaux', 'image': 'assets/images/office.png', 'value': 'Bureau'},
+          {'label': 'Fêtes', 'image': 'assets/images/fete.png', 'value': 'Salle de fête'},
+          {'label': 'Funéraires', 'image': 'assets/images/funebre.png', 'value': 'Salle funéraires'},
+          {'label': 'Terrains', 'image': 'assets/images/Terrain.png', 'value': 'Terrain'},
+          {'label': 'Hôtels', 'image': 'assets/images/hotel.png', 'value': 'Hotels'},
         ];
 
     return Container(
@@ -1686,141 +2106,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildSpecializedPropertiesSection(PropertyController propertyCtrl) {
-    if (!propertyCtrl.loadingSpecial && 
-        propertyCtrl.bureaux.isEmpty && 
-        propertyCtrl.festives.isEmpty && 
-        propertyCtrl.funeraires.isEmpty) {
-      return SizedBox.shrink();
-    }
 
-    List<PropertyModel> currentList = [];
-    String title = "";
-    String subtitle = "";
-    String heroPrefix = "";
-
-    switch (_selectedSpecialCategory) {
-      case 'Bureaux':
-        currentList = propertyCtrl.bureaux;
-        title = "Espaces Bureaux";
-        subtitle = "Lieu de travail idéal";
-        heroPrefix = 'bureau';
-        break;
-      case 'Fêtes':
-        currentList = propertyCtrl.festives;
-        title = "Salles de Fête";
-        subtitle = "Célébrez vos moments";
-        heroPrefix = 'festive';
-        break;
-      case 'Funéraires':
-        currentList = propertyCtrl.funeraires;
-        title = "Salles Funéraires";
-        subtitle = "Hommages dignes";
-        heroPrefix = 'funeraire';
-        break;
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Row(
-            children: [
-              _buildCategoryChip('Bureaux', Icons.business_center_rounded, propertyCtrl.bureaux.isNotEmpty),
-              SizedBox(width: 8),
-              _buildCategoryChip('Fêtes', Icons.celebration_rounded, propertyCtrl.festives.isNotEmpty),
-              SizedBox(width: 8),
-              _buildCategoryChip('Funéraires', Icons.church_rounded, propertyCtrl.funeraires.isNotEmpty),
-            ],
-          ),
-        ),
-        SizedBox(height: 16),
-        if (currentList.isNotEmpty || propertyCtrl.loadingSpecial) ...[
-          _buildSectionHeader(
-            title: title,
-            subtitle: subtitle,
-            onSeeAll: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => AllPropertiesPage(
-                    initialProperties: currentList,
-                    title: title,
-                    isForRent: true,
-                  ),
-                ),
-              );
-            },
-          ),
-          SizedBox(height: 16),
-          _buildPropertyCarousel(
-            isForRent: true,
-            properties: currentList,
-            isLoading: propertyCtrl.loadingSpecial,
-            heroPrefix: heroPrefix,
-          ),
-          SizedBox(height: 32),
-        ] else
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: Text(
-              "Aucun(e) $_selectedSpecialCategory disponible pour le moment.",
-              style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
-            ),
-          ),
-          SizedBox(height: 32),
-      ],
-    );
-  }
-
-  Widget _buildCategoryChip(String label, IconData icon, bool hasData) {
-    bool isSelected = _selectedSpecialCategory == label;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedSpecialCategory = label;
-        });
-      },
-      child: AnimatedContainer(
-        duration: Duration(milliseconds: 300),
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? primaryColor : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? primaryColor : Colors.grey[300]!,
-            width: 1,
-          ),
-          boxShadow: isSelected ? [
-            BoxShadow(
-              color: primaryColor.withOpacity(0.3),
-              blurRadius: 8,
-              offset: Offset(0, 4),
-            )
-          ] : [],
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 16,
-              color: isSelected ? Colors.white : Colors.grey[600],
-            ),
-            SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.grey[600],
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                fontSize: 13,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildSectionHeader({
     required String title,
@@ -2338,16 +2624,8 @@ class _HomePageState extends State<HomePage> {
     required Map<ServiceType, List<ServiceModel>> servicesByType,
     required bool isLoading,
   }) {
-    // Utiliser les données statiques
-    final staticServices = StaticServicesData.getStaticServices();
-    
-    // Grouper par type de service
-    final Map<ServiceType, List<ServiceModel>> groupedServices = {};
-    for (var service in staticServices) {
-      if (service.serviceType != null) {
-        groupedServices.putIfAbsent(service.serviceType!, () => []).add(service);
-      }
-    }
+    // Utiliser uniquement les prestations depuis l'API (pas de fallback statique)
+    Map<ServiceType, List<ServiceModel>> groupedServices = servicesByType;
 
     // Liste des types de services à afficher (priorité)
     final List<ServiceType> priorityServiceTypes = [
@@ -2421,10 +2699,30 @@ class _HomePageState extends State<HomePage> {
           final firstService = serviceList.first;
 
           // Récupérer l'image de fond depuis le premier service
-          final backgroundImageUrl = firstService.images != null && 
-                                     firstService.images!.isNotEmpty
-              ? firstService.images!.first
-              : null;
+          // Chercher dans tous les services de la liste si le premier n'a pas d'image
+          String? backgroundImageUrl;
+          if (firstService.images != null && firstService.images!.isNotEmpty) {
+            backgroundImageUrl = firstService.images!.first;
+          } else {
+            // Parcourir les autres services pour trouver une image
+            for (var service in serviceList) {
+              if (service.images != null && service.images!.isNotEmpty) {
+                backgroundImageUrl = service.images!.first;
+                break;
+              }
+            }
+          }
+          
+          // Debug: afficher les informations sur les images
+          if (backgroundImageUrl == null) {
+            print("⚠️ [HomePage] Aucune image trouvée pour le type de service: $serviceType (${serviceList.length} services)");
+            for (var i = 0; i < serviceList.length && i < 3; i++) {
+              final s = serviceList[i];
+              print("  Service ${i + 1}: images = ${s.images?.length ?? 0} (${s.images?.join(', ') ?? 'null'})");
+            }
+          } else {
+            print("✅ [HomePage] Image trouvée pour $serviceType: $backgroundImageUrl");
+          }
 
           return Material(
             color: Colors.transparent,
@@ -2509,67 +2807,58 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
                       
-                      // Contenu superposé
+                      // Overlay sombre pour améliorer la lisibilité
                       Container(
-                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withOpacity(0.3),
+                              Colors.black.withOpacity(0.7),
+                            ],
+                            stops: [0.0, 0.5, 1.0],
+                          ),
+                        ),
+                      ),
+                      
+                      // Contenu superposé amélioré
+                      Container(
+                        padding: EdgeInsets.all(14),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
+                            // Icône en haut avec badge
                             Container(
-                              padding: EdgeInsets.all(8),
+                              padding: EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.25),
+                                color: Colors.white.withOpacity(0.95),
                                 shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.5),
-                                  width: 2,
-                                ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
+                                    color: Colors.black.withOpacity(0.15),
                                     blurRadius: 8,
                                     offset: Offset(0, 2),
                                   ),
                                 ],
                               ),
+                              child: Icon(
+                                _getServiceTypeIcon(serviceType),
+                                color: primaryColor,
+                                size: 24,
+                              ),
                             ),
 
-                            // Texte et badge en bas
+                            // Texte et badge en bas améliorés
                             Column(
                               children: [
-                                Text(
-                                  serviceType.displayName,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                    height: 1.2,
-                                    shadows: [
-                                      Shadow(
-                                        color: Colors.black.withOpacity(0.5),
-                                        offset: Offset(0, 1),
-                                        blurRadius: 3,
-                                      ),
-                                    ],
-                                  ),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                SizedBox(height: 6),
                                 Container(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
+                                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.25),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Colors.white.withOpacity(0.5),
-                                      width: 1,
-                                    ),
+                                    color: Colors.white.withOpacity(0.95),
+                                    borderRadius: BorderRadius.circular(10),
                                     boxShadow: [
                                       BoxShadow(
                                         color: Colors.black.withOpacity(0.1),
@@ -2579,19 +2868,54 @@ class _HomePageState extends State<HomePage> {
                                     ],
                                   ),
                                   child: Text(
-                                    '$serviceCount service${serviceCount > 1 ? 's' : ''}',
+                                    serviceType.displayName,
                                     style: GoogleFonts.inter(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
-                                      shadows: [
-                                        Shadow(
-                                          color: Colors.black.withOpacity(0.3),
-                                          offset: Offset(0, 1),
-                                          blurRadius: 2,
-                                        ),
-                                      ],
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.grey[900],
+                                      height: 1.2,
+                                      letterSpacing: 0.2,
                                     ),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: primaryColor.withOpacity(0.9),
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: primaryColor.withOpacity(0.3),
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.work_outline_rounded,
+                                        size: 12,
+                                        color: Colors.white,
+                                      ),
+                                      SizedBox(width: 4),
+                                      Text(
+                                        '$serviceCount',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
