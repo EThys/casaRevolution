@@ -52,8 +52,11 @@ class Endpoints {
   static const String deleteProperty = "properties/";
   static const String propertiesByOwner = "property/owner/";
   static const String propertyBureaux = "property/bureaux";
+  static const String propertyBureau = "property/bureau";
   static const String propertyFestives = "property/festives";
   static const String propertyFuneraires = "property/funeraires";
+  static const String propertyVacances = "property/vacances";
+  static const String propertyTerrains = "property/terrains";
 
   // Property Feature Endpoints
   static const String features = "features";
@@ -77,6 +80,22 @@ class Endpoints {
   static const String AddFavorite = "favorite";
   static const String getMyfavorites = "favorite/user";
   static const String removeMyfavorites = "favorite/user/delete";
+  
+  // Specific Favorites
+  static const String favoriteHotel = "hotel/favorite";
+  static const String favoriteFestive = "festive/favorite";
+  static const String favoriteVacance = "vacance/favorite";
+  static const String favoritePrestation = "prestation/favorite";
+  static const String favoriteFuneraire = "funeraire/favorite";
+  static const String favoriteTerrain = "terrain/favorite";
+
+  // Specific Favorites GET by User
+  static const String favoriteHotelByUser = "hotel/favorite/user";
+  static const String favoriteFestiveByUser = "festive/favorite/user";
+  static const String favoriteVacanceByUser = "vacance/favorite/user";
+  static const String favoritePrestationByUser = "prestation/favorite/user";
+  static const String favoriteFuneraireByUser = "funeraire/favorite/user";
+  static const String favoriteTerrainByUser = "terrain/favorite/user";
 
   // Visit Endpoints
   static const String allReservations = "reservations/";
@@ -111,10 +130,20 @@ class Endpoints {
   static const String acceptResponse = "service-requests"; // PUT avec requestId et responseId
   static const String cancelRequest = "service-requests"; // DELETE avec requestId
 
+  static const String sollicitation = "sollicitation"; // For creating service solicitations
+  static const String sollicitationsByUser = "sollicitation/user/";
+
   // Notifications Endpoints
   static const String notifications = "notifications";
   static const String markNotificationRead = "notifications/"; // PUT avec id
   static const String markAllNotificationsRead = "notifications/read-all";
   static const String deleteNotification = "notifications/"; // DELETE avec id
+
+  // Card Types Endpoint
+  static const String cards = "cards";
+
+  // Agency Endpoints
+  static const String agences = "agences";
+  static const String devises = "devises";
 
 }

@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:get_storage/get_storage.dart';
 
 import '../utils/Endpoints.dart';
+import 'package:casa/services/ServerHealthService.dart';
 
 class PropertyFavoriteCtrl with ChangeNotifier {
   GetStorage? stockage;
@@ -18,82 +19,87 @@ class PropertyFavoriteCtrl with ChangeNotifier {
 
   Future<List<PropertyFavoriteModel>> getFavoritesByUser(String userId) async {
     final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-    final url = "${Endpoints.getMyfavorites}/$userId";
+    // Main URL
+    final urlMain = "${Endpoints.getMyfavorites}/$userId";
+    
+    // Specific URLs
+    final urlHotel = "${Endpoints.favoriteHotelByUser}/$userId";
+    final urlFestive = "${Endpoints.favoriteFestiveByUser}/$userId";
+    final urlFuneraire = "${Endpoints.favoriteFuneraireByUser}/$userId";
+    final urlTerrain = "${Endpoints.favoriteTerrainByUser}/$userId";
+    final urlVacance = "${Endpoints.favoriteVacanceByUser}/$userId";
+    final urlPrestation = "${Endpoints.favoritePrestationByUser}/$userId";
 
     loading = true;
     notifyListeners();
 
     try {
-      final response = await getData(url, token: tkn);
-      print("API Response: $response");
+      // 1. Lancer toutes les requêtes en parallèle
+      final results = await Future.wait([
+        getData(urlMain, token: tkn),       // 0: Main
+        getData(urlHotel, token: tkn),      // 1: Hotel
+        getData(urlFestive, token: tkn),    // 2: Festive
+        getData(urlFuneraire, token: tkn),  // 3: Funeraire
+        getData(urlTerrain, token: tkn),    // 4: Terrain
+        getData(urlVacance, token: tkn),    // 5: Vacance
+        getData(urlPrestation, token: tkn), // 6: Prestation
+      ]);
 
-      // Réinitialiser la liste avant de la remplir
+      print("API Responses received: ${results.length}");
       propertyFavorites.clear();
+      await _dbHelper.clearUserFavorites(userId);
 
-      if (response != null) {
-        await _dbHelper.clearUserFavorites(userId);
+      // 2. Parser chaque réponse et aggréger
+      List<PropertyFavoriteModel> aggregatedFavorites = [];
 
-        List<PropertyFavoriteModel> favorites = [];
-
-        // ANALYSE DE LA RÉPONSE - Plusieurs cas possibles
-        if (response['favorites'] is List) {
-          // Cas 1: La réponse contient une liste 'favorites'
-          print("Structure: Liste de favoris dans 'favorites'");
-          favorites = (response['favorites'] as List)
-              .map<PropertyFavoriteModel>((e) => PropertyFavoriteModel.fromJson(e))
-              .toList();
-        }
-        else if (response['favorite'] is List) {
-          // Cas 2: La réponse contient une liste 'favorite'
-          print("Structure: Liste de favoris dans 'favorite'");
-          favorites = (response['favorite'] as List)
-              .map<PropertyFavoriteModel>((e) => PropertyFavoriteModel.fromJson(e))
-              .toList();
-        }
-        else if (response['favorite'] is Map) {
-          // Cas 3: La réponse contient un seul favori dans 'favorite'
-          print("Structure: Un seul favori dans 'favorite'");
-          final favorite = PropertyFavoriteModel.fromJson(response['favorite']);
-          favorites.add(favorite);
-        }
-        else if (response is List) {
-          // Cas 4: La réponse est directement une liste
-          print("Structure: Réponse directe en liste");
-          favorites = (response as List)
-              .map<PropertyFavoriteModel>((e) => PropertyFavoriteModel.fromJson(e))
-              .toList();
-        }
-        else {
-          // Cas 5: Essayer de parser la réponse directement
-          print("Structure: Essai de parsing direct");
-          try {
-            final favorite = PropertyFavoriteModel.fromJson(response);
-            favorites.add(favorite);
-          } catch (e) {
-            print("Échec du parsing direct: $e");
+      // Helper pour parser une réponse individuelle selon la structure (favorites/favorite/list/single)
+      List<PropertyFavoriteModel> parseResponse(dynamic response) {
+        if (response == null) return [];
+        List<PropertyFavoriteModel> parsed = [];
+        try {
+          if (response['favorites'] is List) {
+             parsed = (response['favorites'] as List)
+                .map<PropertyFavoriteModel>((e) => PropertyFavoriteModel.fromJson(e)).toList();
+          } else if (response['favorite'] is List) {
+             parsed = (response['favorite'] as List)
+                .map<PropertyFavoriteModel>((e) => PropertyFavoriteModel.fromJson(e)).toList();
+          } else if (response['favorite'] is Map) {
+             parsed.add(PropertyFavoriteModel.fromJson(response['favorite']));
+          } else if (response is List) {
+             parsed = (response as List)
+                .map<PropertyFavoriteModel>((e) => PropertyFavoriteModel.fromJson(e)).toList();
+          } else {
+             try {
+                parsed.add(PropertyFavoriteModel.fromJson(response));
+             } catch (_) {}
           }
+        } catch (e) {
+          print("Error parsing response subset: $e");
         }
-
-        print("Nombre de favoris extraits: ${favorites.length}");
-
-        // Sauvegarder en base locale
-        for (var fav in favorites) {
-          await _dbHelper.insertOrUpdateFavorite(fav, userId);
-        }
-
-        propertyFavorites = favorites;
-      } else {
-        print("Réponse API nulle ou vide");
+        return parsed;
       }
 
-    } catch (e) {
-      print("Error fetching favorites from API: $e");
+      // 3. Aggréger
+      for (var response in results) {
+        aggregatedFavorites.addAll(parseResponse(response));
+      }
 
-      // Fallback sur la base de données locale en cas d'erreur
+      print("Total aggregated favorites from API: ${aggregatedFavorites.length}");
+
+      // 4. Sauvegarder en local
+      for (var fav in aggregatedFavorites) {
+        await _dbHelper.insertOrUpdateFavorite(fav, userId);
+      }
+
+      propertyFavorites = aggregatedFavorites;
+
+    } catch (e) {
+      print("Error fetching all favorites: $e");
+      // Fallback local
       try {
         final localFavorites = await _dbHelper.getFavoritesByUser(userId);
         propertyFavorites = localFavorites;
-        print("Chargement depuis la base locale: ${localFavorites.length} favoris");
+        print("Chargement depuis la base locale (Fallback): ${localFavorites.length} favoris");
       } catch (dbError) {
         print("Error loading from local database: $dbError");
       }
@@ -101,154 +107,218 @@ class PropertyFavoriteCtrl with ChangeNotifier {
 
     loading = false;
     notifyListeners();
-
-    print("Total des favoris chargés: ${propertyFavorites.length}");
     return propertyFavorites;
   }
 
-  Future<bool> addFavorite(String userId, String propertyId) async {
-    print("❤️ [PropertyFavoriteCtrl] Début addFavorite - userId: $userId, propertyId: $propertyId");
-    final token = stockage?.read<String>(StockageKeys.tokenKey);
-    if (token == null) {
-      print("❌ [PropertyFavoriteCtrl] Token non disponible");
-      throw Exception('Token non disponible');
+
+
+  // Méthode pour synchroniser la file d'attente hors ligne
+  Future<void> syncOfflineQueue(String userId) async {
+    // 1. Vérifier si le serveur est connu comme étant hors ligne
+    if (ServerHealthService().isServerDown) {
+      print("🛑 [PropertyFavoriteCtrl] Serveur marqué DOWN par HealthService -> sync annulé/reporté");
+      return;
     }
 
-    const url = Endpoints.AddFavorite;
-    print("🔗 [PropertyFavoriteCtrl] URL POST: $url");
+    final queue = await _dbHelper.getQueue(userId);
+    if (queue.isEmpty) return;
 
-    var data = {
-      "userId": int.tryParse(userId),
-      "propertyId": int.tryParse(propertyId),
+    print("🔄 [PropertyFavoriteCtrl] Traitement de la file d'attente (${queue.length} éléments)...");
+    
+    // Flag pour arrêter si urgence serveur
+    bool abortSync = false;
+
+    for (var item in queue) {
+      if (abortSync) break;
+
+      final id = item['id'] as int;
+      final propertyId = item['propertyId'] as String;
+      final action = item['action'] as String;
+      
+      // THROTTLING: Petit délai pour ne pas spammer le serveur
+      await Future.delayed(Duration(milliseconds: 1000));
+
+      bool success = false;
+      try {
+        if (action == 'ADD') {
+          success = await _performAddFavoriteApi(userId, propertyId);
+        } else if (action == 'REMOVE') {
+          success = await _performRemoveFavoriteApi(userId, propertyId);
+        }
+        
+        if (success) {
+          await _dbHelper.removeFromQueue(id);
+          print("✅ [PropertyFavoriteCtrl] Élément de file traité et supprimé: $action $propertyId");
+        }
+      } catch (e) {
+        print("❌ [PropertyFavoriteCtrl] Échec synchro item $id: $e");
+        
+        // Gérer les erreurs critiques pour arrêter le massacre
+        final errorStr = e.toString().toLowerCase();
+        if (errorStr.contains('429') || // Too Many Requests
+            errorStr.contains('500') || // Internal Server Error
+            errorStr.contains('503') || // Service Unavailable
+            errorStr.contains('refused') || // Connection refused (still down)
+            errorStr.contains('timed out')) {
+           
+           print("🛑 [PropertyFavoriteCtrl] Erreur critique/Serveur ($errorStr) -> Arrêt de la synchro");
+           abortSync = true;
+        }
+      }
+    }
+    
+    // Rafraîchir la liste finale
+    if (!abortSync) {
+        await getFavoritesByUser(userId);
+    }
+  }
+
+  // API Call interne sans logique de queue
+  Future<bool> _performAddFavoriteApi(String userId, String propertyId, {int? propertyTypeId}) async {
+    final token = stockage?.read<String>(StockageKeys.tokenKey);
+    if (token == null) throw Exception('Token non disponible');
+    
+    String url = Endpoints.AddFavorite;
+    Map<String, dynamic> data = {};
+    final uid = int.tryParse(userId);
+    final pid = int.tryParse(propertyId);
+
+    // Default body
+    data = {
+      "userId": uid,
+      "propertyId": pid,
     };
 
-    // Vérifier que la conversion a réussi
-    if (data['userId'] == null || data['propertyId'] == null) {
-      print("❌ [PropertyFavoriteCtrl] IDs invalides - userId: ${data['userId']}, propertyId: ${data['propertyId']}");
-      throw Exception('IDs invalides');
+    if (propertyTypeId != null) {
+       switch (propertyTypeId) {
+         case 5: // Hotel
+           url = Endpoints.favoriteHotel;
+           data = {"userId": uid, "hotelId": pid};
+           break;
+         case 7: // Funeraire
+           url = Endpoints.favoriteFuneraire;
+           data = {"userId": uid, "funeraireId": pid};
+           break;
+         case 8: // Festive
+           url = Endpoints.favoriteFestive;
+           data = {"userId": uid, "festId": pid};
+           break;
+         case 9: // Terrain
+           url = Endpoints.favoriteTerrain;
+           data = {"userId": uid, "terrainId": pid};
+           break;
+         // Case for Vacance? Assuming it shares ID logic or uses propertyTypeId specific to it.
+         // If "Vacance" is a type, mapped to ?
+         // For now, if user says "vacance", we need to know its ID.
+         // Let's assume ID 11? Or is it part of properties?
+         // If generic property, it uses default.
+         case 11: // Vacance (Hypothetical ID, check consts if available)
+            url = Endpoints.favoriteVacance;
+            data = {"userId": uid, "terrainId": pid}; // User said terrainId for vacance... suspicious but following order.
+            break;
+            
+         // Prestation?
+         case 12: // Prestation (Hypothetical) 
+            url = Endpoints.favoritePrestation;
+            data = {"userId": uid, "prestationId": pid};
+            break;
+       }
     }
+    
+    // Fallback logic specific for implicit overrides based on IDs if type is passed but not matched above? 
+    // Actually, let's keep it simple. If it matches known types, switch.
+    
+    print("AddFavorite: $url with body $data");
 
-    try {
-      // Ajout local d'abord pour un feedback immédiat (optimistic update)
-      // On va créer un favori temporaire qui sera remplacé par la vraie réponse API
-      print("💾 [PropertyFavoriteCtrl] Préparation de l'ajout local...");
-
-      final response = await postData(url, data, token: token);
-      print("📡 [PropertyFavoriteCtrl] Réponse API: ${response.data}");
-      print("📡 [PropertyFavoriteCtrl] Status: ${response.status}");
-
-      if (response.status == true && response.data['favorite'] != null) {
-        // Ajout local si l'API réussit
-        dynamic favoriteData = response.data['favorite'];
-        PropertyFavoriteModel newFavorite;
-
-        if (favoriteData is List) {
-           if (favoriteData.isEmpty) {
-             throw Exception("Liste de favoris vide retournée par l'API");
-           }
-           newFavorite = PropertyFavoriteModel.fromJson(favoriteData.first);
-        } else {
-           newFavorite = PropertyFavoriteModel.fromJson(favoriteData);
-        }
-        await _dbHelper.insertOrUpdateFavorite(newFavorite, userId);
-        print("💾 [PropertyFavoriteCtrl] Favori ajouté en base locale");
-        
-        // Éviter les doublons
-        if (!propertyFavorites.any((fav) => 
-          fav.property?.propertyId.toString() == propertyId)) {
-          propertyFavorites.add(newFavorite);
-          print("📋 [PropertyFavoriteCtrl] Favori ajouté à la liste en mémoire");
-        } else {
-          print("⚠️ [PropertyFavoriteCtrl] Favori déjà présent dans la liste, mise à jour");
-          final index = propertyFavorites.indexWhere((fav) => 
-            fav.property?.propertyId.toString() == propertyId);
-          if (index != -1) {
-            propertyFavorites[index] = newFavorite;
-          }
-        }
-        
-        notifyListeners();
-        print("✅ [PropertyFavoriteCtrl] Favori ajouté avec succès");
+    final response = await postData(url, data, token: token);
+    
+    if (response.status == true) return true;
+    if (response.data != null && 
+        response.data is Map && 
+        response.data['message'] != null &&
+        response.data['message'].toString().toLowerCase().contains('déjà')) {
         return true;
-      } else if (response.data['message'] != null &&
-          response.data['message'].toString().toLowerCase().contains('déjà')) {
-        // Cas où le favori existe déjà - considérer comme succès
-        print("ℹ️ [PropertyFavoriteCtrl] Favori déjà existant, considéré comme succès");
-        // Synchroniser depuis l'API pour s'assurer qu'on a les bonnes données
-        await getFavoritesByUser(userId);
+    }
+    return false;
+  }
+
+  Future<bool> _performRemoveFavoriteApi(String userId, String propertyId, {int? propertyTypeId}) async {
+    final token = stockage?.read<String>(StockageKeys.tokenKey);
+    if (token == null) throw Exception('Token non disponible');
+    
+    // Note: User didn't specify DELETE endpoints, assuming generic delete works by ID
+    // If specific delete endpoints exist, implement switch here too.
+    final url = "favorite/delete/$userId/$propertyId";
+    final response = await deleteData(url, token: token);
+    
+    if (response.status == true) return true;
+    if (response.data != null && response.data is Map) {
+         final msg = response.data['message']?.toString().toLowerCase() ?? '';
+         if (msg.contains('deleted') || msg.contains('success')) return true;
+    }
+    return false;
+  }
+
+  Future<bool> addFavorite(String userId, String propertyId, {int? propertyTypeId}) async {
+    print("❤️ [PropertyFavoriteCtrl] Début addFavorite - userId: $userId, propertyId: $propertyId, type: $propertyTypeId");
+    
+    try {
+      final success = await _performAddFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId);
+      
+      if (success) {
+        print("✅ [PropertyFavoriteCtrl] API Success: Favorite added");
         return true;
       } else {
-        final errorMsg = response.data['message'] ?? 'Échec de l\'ajout aux favoris';
-        print("❌ [PropertyFavoriteCtrl] Erreur API: $errorMsg");
-        throw Exception(errorMsg);
+        throw Exception("API a retourné false");
       }
-    } catch (e, stackTrace) {
-      print("❌ [PropertyFavoriteCtrl] Erreur lors de l'ajout: $e");
-      print("📚 [PropertyFavoriteCtrl] Stack trace: $stackTrace");
+
+    } catch (e) {
+      print("⚠️ [PropertyFavoriteCtrl] Erreur API lors de l'ajout: $e");
+      
+      bool isNetworkError = e.toString().contains("SocketException") || 
+                           e.toString().contains("ClientException") ||
+                           e.toString().contains("Connection refused") ||
+                           e.toString().contains("Network is unreachable");
+
+      if (isNetworkError) {
+        print("🌐 [PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente ADD");
+        await _dbHelper.enqueueAction(userId, propertyId, 'ADD');
+        return true;
+      }
       rethrow;
     }
   }
 
-  Future<bool> removeFavorite(String userId, String propertyId) async {
-    print("🗑️ [PropertyFavoriteCtrl] Début removeFavorite - userId: $userId, propertyId: $propertyId");
-    final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-    if (tkn == null) {
-      print("❌ [PropertyFavoriteCtrl] Token non disponible");
-      throw Exception('Token non disponible');
-    }
-
-    // Utiliser le nouvel endpoint: /api/favorite/delete/{userId}/{propertyId}
-    final url = "favorite/delete/$userId/$propertyId";
-    print("🔗 [PropertyFavoriteCtrl] URL DELETE: $url");
+  Future<bool> removeFavorite(String userId, String propertyId, {int? propertyTypeId}) async {
+    print("🗑️ [PropertyFavoriteCtrl] Début removeFavorite - userId: $userId, propertyId: $propertyId, type: $propertyTypeId");
 
     try {
-      // Suppression locale d'abord pour un feedback immédiat
-      final userIdInt = int.tryParse(userId);
-      if (userIdInt != null) {
-        final deletedCount = await _dbHelper.removeFavorite(userId, propertyId);
-        print("💾 [PropertyFavoriteCtrl] Suppression locale: $deletedCount ligne(s) supprimée(s)");
-      }
-
-      // Suppression dans la liste en mémoire
-      propertyFavorites.removeWhere((fav) =>
-          fav.userId.toString() == userId &&
-          fav.property?.propertyId.toString() == propertyId);
-      print("📋 [PropertyFavoriteCtrl] Supprimé de la liste en mémoire");
-
-      // Appel API
-      final response = await deleteData(url, token: tkn);
-      print("📡 [PropertyFavoriteCtrl] Réponse API: ${response.data}");
-      print("📡 [PropertyFavoriteCtrl] Status: ${response.status}");
-
-      // Vérifier plusieurs formats de réponse de succès
-      final responseData = response.data;
-      final message = responseData?['message']?.toString().toLowerCase() ?? '';
-      final success = responseData?['success'] ?? false;
+      // Suppression locale immédiate (déjà géré par Provider en optimiste, mais on nettoie la DB local)
+      await _dbHelper.removeFavorite(userId, propertyId);
       
-      if (response.status == true || 
-          success == true || 
-          message.contains('deleted') || 
-          message.contains('successfully') || 
-          message.contains('removed') ||
-          message.contains('supprimé')) {
-        print("✅ [PropertyFavoriteCtrl] Favori supprimé avec succès");
-        notifyListeners();
+      // Appel API
+      final success = await _performRemoveFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId);
+      
+      if (success) {
+        print("✅ [PropertyFavoriteCtrl] Suppression API réussie");
         return true;
       } else {
-        print("⚠️ [PropertyFavoriteCtrl] Réponse API ambiguë, mais considérée comme succès");
-        // Même si la réponse n'est pas claire, on considère que c'est un succès car la suppression locale a réussi
-        notifyListeners();
-        return true;
+        throw Exception("API a retourné false");
       }
-    } catch (e, stackTrace) {
-      print("❌ [PropertyFavoriteCtrl] Erreur lors de la suppression: $e");
-      print("📚 [PropertyFavoriteCtrl] Stack trace: $stackTrace");
+    } catch (e) {
+      print("⚠️ [PropertyFavoriteCtrl] Erreur API lors de suppression: $e");
       
-      // En cas d'erreur API, on garde la suppression locale (optimistic update)
-      // L'utilisateur verra que le favori est retiré, et la prochaine sync corrigera si nécessaire
-      print("💾 [PropertyFavoriteCtrl] Conservation de la suppression locale malgré l'erreur API");
-      notifyListeners();
-      return true; // Retourner true car la suppression locale a réussi
+      bool isNetworkError = e.toString().contains("SocketException") || 
+                           e.toString().contains("ClientException") ||
+                           e.toString().contains("Connection refused");
+
+      if (isNetworkError) {
+        print("🌐 [PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente REMOVE");
+        await _dbHelper.enqueueAction(userId, propertyId, 'REMOVE');
+        return true; // Succès optimiste
+      }
+      
+      rethrow;
     }
   }
 

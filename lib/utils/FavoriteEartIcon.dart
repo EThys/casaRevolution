@@ -8,18 +8,22 @@ import '../controllers/AuthentificationCtrl.dart';
 
 class FavoriteHeartIcon extends StatefulWidget {
   final String propertyId;
+  final int? propertyTypeId; // Nouveau paramètre optionnel
   final double size;
   final Color? activeColor;
   final Color? inactiveColor;
   final double splashRadius;
+  final Function(bool isLiked)? onLikeChanged;
 
   const FavoriteHeartIcon({
     super.key,
     required this.propertyId,
-    this.size = 48, // Taille augmentée (32 → 48)
+    this.propertyTypeId,
+    this.size = 48,
     this.activeColor = Colors.red,
     this.inactiveColor = Colors.grey,
-    this.splashRadius = 30, // Zone de splash augmentée pour correspondre
+    this.splashRadius = 30, 
+    this.onLikeChanged,
   });
 
   @override
@@ -58,19 +62,7 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
                     ),
                   );
                 },
-                child: isLoadingThisProperty
-                    ? SizedBox(
-                        key: ValueKey('loading-${widget.propertyId}'),
-                        width: widget.size * 0.6,
-                        height: widget.size * 0.6,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            widget.activeColor ?? Colors.red,
-                          ),
-                        ),
-                      )
-                    : Icon(
+                child: Icon(
                         isFavorite ? Icons.favorite : Icons.favorite_border,
                         key: ValueKey('${widget.propertyId}-${isFavorite}'),
                         color: isFavorite
@@ -87,16 +79,10 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
                       ),
               ),
               onPressed: isLoadingThisProperty
-                  ? null
+                  ? null // Prevent double-tap while processing
                   : () async {
                 if (!isLoggedIn) {
-                  FancyNotification.show(
-                    context,
-                    "Vous devez avoir un compte et être connecté pour ajouter aux favoris",
-                    onTap: () {
-                      Navigator.pushNamed(context, Routes.loginRoute);
-                    },
-                  );
+                  Navigator.pushNamed(context, Routes.loginRoute);
                   return;
                 }
 
@@ -115,13 +101,18 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
                   await provider.toggleFavorite(
                     userId: userId,
                     propertyId: widget.propertyId,
+                    propertyTypeId: widget.propertyTypeId, // Passé au provider
                   );
+                  
+                  // Callback après succès
+                  if (widget.onLikeChanged != null) {
+                    final newStatus = provider.state.isFavorite(widget.propertyId);
+                    widget.onLikeChanged!(newStatus);
+                  }
                 } catch (e) {
-                  FancyNotification.show(
-                    context,
-                    'Erreur: ${e.toString().replaceAll("Null check", "Veuillez vous connecter")}',
-                    isError: true,
-                  );
+                  // Erreur silencieuse ou snackbar discret si vraiment nécessaire
+                  // Mais le provider gère le rollback si c'est une erreur critique (pas offline)
+                  print("Erreur favorite icon: $e"); 
                 } finally {
                   if (mounted) {
                     setState(() => _isProcessing = false);

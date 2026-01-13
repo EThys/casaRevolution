@@ -23,7 +23,14 @@ class PropertyFavoriteModel {
     userId: json["userId"] ?? json["UserId"],
     propertyId: json["propertyId"] ?? json["PropertyId"],
     user: json["user"] == null ? null : UserModel.fromJson(json["user"]),
-    property: json["property"] == null ? null : PropertyModel.fromJson(json["property"]),
+    property: json["property"] != null ? PropertyModel.fromJson(json["property"]) :
+              json["hotel"] != null ? PropertyModel.fromJson(json["hotel"]) :
+              json["festive"] != null ? PropertyModel.fromJson(json["festive"]) :
+              json["terrain"] != null ? PropertyModel.fromJson(json["terrain"]) :
+              json["funeraire"] != null ? PropertyModel.fromJson(json["funeraire"]) :
+              json["vacance"] != null ? PropertyModel.fromJson(json["vacance"]) :
+              json["prestation"] != null ? PropertyModel.fromJson(json["prestation"]) :
+              null,
   );
 
   Map<String, dynamic> toJson() => {

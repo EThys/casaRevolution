@@ -1,4 +1,5 @@
 import 'package:casa/screens/FullScreenImageViewer.dart';
+import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/screens/FullScreenProfileImage.dart' hide FullScreenImageViewer;
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FavoriteEartIcon.dart';
@@ -23,7 +24,13 @@ import '../controllers/provider/FavoriteProvider.dart';
 
 class PropertyDetailPage extends StatefulWidget {
   final PropertyModel property;
-  const PropertyDetailPage({Key? key, required this.property}) : super(key: key);
+  final String? heroTag;
+  
+  const PropertyDetailPage({
+    Key? key, 
+    required this.property,
+    this.heroTag,
+  }) : super(key: key);
 
   @override
   _PropertyDetailPageState createState() => _PropertyDetailPageState();
@@ -239,13 +246,15 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 if (groupedImages.isNotEmpty) _buildGroupedImagesSection(groupedImages),
                 SizedBox(height: 16),
                 _buildSimilarProperties(similar),
-                SizedBox(height: 100),
+                SizedBox(height: 24),
+                _buildBottomActionBar(), // Moved from bottomSheet
+                SizedBox(height: 40),
               ].where((widget) => widget != null).toList()),
             ),
           ),
         ],
       ),
-      bottomSheet: _buildBottomActionBar(),
+      // bottomSheet: _buildBottomActionBar(), // Removed
     );
   }
 
@@ -260,8 +269,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       bool isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
 
       final priceText = isForRent
-          ? '${widget.property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-          : '${widget.property.price?.toStringAsFixed(0) ?? '0'}\$';
+          ? '${widget.property.price?.toStringAsFixed(0) ?? '0'} ${widget.property.currency}/mois'
+          : '${widget.property.price?.toStringAsFixed(0) ?? '0'} ${widget.property.currency}';
 
       final surfaceText = _showSurface ? '📐 ${widget.property.surface?.toInt() ?? 0} m²' : '';
       
@@ -327,7 +336,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                   );
                 },
                 child: Hero(
-                  tag: 'property_image_${widget.property.propertyId}_$index',
+                  tag: index == 0 && widget.heroTag != null 
+                      ? widget.heroTag! 
+                      : 'property_image_${widget.property.propertyId}_$index',
                   child: CachedNetworkImage(
                     imageUrl: imageUrl,
                     fit: BoxFit.cover,
@@ -426,6 +437,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                     ),
                     child: FavoriteHeartIcon(
                       propertyId: widget.property.propertyId.toString(),
+                      propertyTypeId: widget.property.propertyTypeId, // Pass propertyTypeId
                       size: 24,
                       splashRadius: 20,
                       activeColor: Colors.red,
@@ -809,7 +821,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             SizedBox(width: 6),
             Expanded(
               child: Text(
-                widget.property.address ?? "Adresse non disponible",
+                (widget.property.address != null && widget.property.address!.isNotEmpty)
+                    ? widget.property.address!
+                    : "Adresse non disponible",
                 style: TextStyle(
                   color: _greyColor,
                   fontSize: 15,
@@ -823,24 +837,35 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   String _getPropertyTypeFromTitle(String? title) {
-    if (title == null) return 'Propriété';
-
-    final lowerTitle = title.toLowerCase();
-    if (lowerTitle.contains('apparts') || lowerTitle.contains('apparts')) {
-      return 'Appartements';
-    } else if (lowerTitle.contains('maisons')) {
-      return 'Maison';
-    } else if (lowerTitle.contains('studio')) {
-      return 'Studio';
-    } else if (lowerTitle.contains('villas')) {
-      return 'Villas';
-    } else if (lowerTitle.contains('bureau')) {
-      return 'Bureau';
-    } else if (lowerTitle.contains('hotels')) {
-      return 'Hotel';
-    } else if (lowerTitle.contains('penthouse')) {
-      return 'Penthouse';
+    // 1. D'abord vérifier le propertyTypeId si disponible
+    final typeId = widget.property.propertyTypeId;
+    if (typeId != null) {
+      if (typeId == 1) return 'Studio';
+      if (typeId == 2) return 'Appartement';
+      if (typeId == 3) return 'Maison';
+      if (typeId == 4) return 'Bureau'; 
+      if (typeId == 5) return 'Hotel';
+      if (typeId == 6) return 'Chambre';
+      if (typeId == 7) return 'Espace Funéraire';
+      if (typeId == 8) return 'Salle de fête';
+      if (typeId == 9) return 'Terrain';
+      if (typeId == 10) return 'Entrepôt';
     }
+
+    // 2. Fallback sur le titre si propertyTypeId est manquant
+    if (title == null) return 'Propriété';
+    final lowerTitle = title.toLowerCase();
+    
+    if (lowerTitle.contains('appart')) return 'Appartement';
+    if (lowerTitle.contains('maison')) return 'Maison';
+    if (lowerTitle.contains('studio')) return 'Studio';
+    if (lowerTitle.contains('villa')) return 'Villa';
+    if (lowerTitle.contains('bureau')) return 'Bureau';
+    if (lowerTitle.contains('hotel')) return 'Hotel';
+    if (lowerTitle.contains('fête') || lowerTitle.contains('fete')) return 'Salle de fête';
+    if (lowerTitle.contains('funéra') || lowerTitle.contains('deuil')) return 'Espace Funéraire';
+    if (lowerTitle.contains('terrain') || lowerTitle.contains('parcelle')) return 'Terrain';
+    
     return 'Propriété';
   }
 
@@ -910,7 +935,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                       ),
                     ),
                     Text(
-                      '\$',
+                      widget.property.currency ?? '\$',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -1246,6 +1271,60 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         'unit': widget.property.bathroom! > 1 ? 'SDB' : 'SDB',
         'color': Color(0xFF90CAF9),
       });
+    }
+
+    // SPECIAL FIELDS
+    // Bureau
+    if (widget.property.propertyTypeId == 4) {
+      if (widget.property.roomMeet != null && widget.property.roomMeet! > 0) {
+        stats.add({
+          'icon': Icons.meeting_room_outlined,
+          'label': 'Réunions',
+          'value': '${widget.property.roomMeet}',
+          'unit': widget.property.roomMeet! > 1 ? 'salles' : 'salle',
+          'color': Color(0xFF5C6BC0),
+        });
+      }
+      if (widget.property.isEquip != null) {
+        stats.add({
+          'icon': widget.property.isEquip == true ? Icons.chair : Icons.chair_outlined,
+          'label': 'Meublé',
+          'value': widget.property.isEquip == true ? 'Oui' : 'Non',
+          'unit': widget.property.isEquip == true ? 'Équipé' : 'Vide',
+          'color': Color(0xFF26A69A),
+        });
+      }
+    }
+
+    // Festive/Funeraire
+    if (widget.property.propertyTypeId == 7 || widget.property.propertyTypeId == 8) {
+      if (widget.property.capacityPeople != null && widget.property.capacityPeople! > 0) {
+        stats.add({
+          'icon': Icons.people_outline,
+          'label': 'Capacité',
+          'value': '${widget.property.capacityPeople}',
+          'unit': 'pers.',
+          'color': Color(0xFFEC407A),
+        });
+      }
+      if (widget.property.propertyTypeId == 8 && widget.property.pisteDanse != null) {
+          stats.add({
+            'icon': Icons.music_note_outlined,
+            'label': 'Piste',
+            'value': widget.property.pisteDanse == true ? 'Oui' : 'Non',
+            'unit': 'Danse',
+            'color': Color(0xFFFF7043),
+          });
+      }
+      if (widget.property.isDecore != null) {
+          stats.add({
+            'icon': Icons.auto_awesome_outlined,
+            'label': 'Décoré',
+            'value': widget.property.isDecore == true ? 'Oui' : 'Non',
+            'unit': 'Déco',
+            'color': Color(0xFFAB47BC),
+          });
+      }
     }
 
     if (stats.isEmpty) return SizedBox();
@@ -1731,6 +1810,24 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       ),
     );
   }
+  String get safeUsername {
+    final userData = storage.read(StockageKeys.userKey);
+    final profileData = storage.read(StockageKeys.profileKey);
+
+    // PRIORITÉ 1: fullName
+    final fullName = profileData?['fullname']?.toString() ?? profileData?['fullName']?.toString() ??
+        userData?['fullname']?.toString() ?? userData?['fullName']?.toString();
+
+    if (fullName != null && fullName.isNotEmpty) {
+      return fullName;
+    }
+
+    // PRIORITÉ 2: username
+    return userData?['username']?.toString() ??
+        profileData?['username']?.toString() ??
+        'Bio'; // Or Visiteur
+  }
+
 
   Widget _buildPublicationInfoSection() {
     final user = widget.property.user;
@@ -1814,21 +1911,86 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                     width: 2,
                   ),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(23),
-                  child: CachedNetworkImage(
-                    imageUrl: "dedde", // Remplacez par l'URL réelle
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Center(
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                  child: GestureDetector(
+                    onTap: () {
+                      final imageUrl = (widget.property.image != null && widget.property.image!.isNotEmpty)
+                          ? widget.property.image!
+                          : (widget.property.user?.profilePicture ?? '');
+                      
+                      if (imageUrl.isNotEmpty) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => FullScreenProfileImage(
+                              imageUrl: imageUrl,
+                              heroTag: 'profile_image_${widget.property.propertyId}',
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    child: Hero(
+                      tag: 'profile_image_${widget.property.propertyId}',
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(23),
+                        child: (widget.property.image != null && widget.property.image!.isNotEmpty)
+                            ? CachedNetworkImage(
+                                imageUrl: widget.property.image!,
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => Center(
+                                  child: Text(
+                                    publisherName.isNotEmpty
+                                        ? publisherName[0].toUpperCase()
+                                        : 'A',
+                                    style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: _primaryColor,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : (widget.property.user?.profilePicture != null && widget.property.user!.profilePicture!.isNotEmpty)
+                                ? CachedNetworkImage(
+                                    imageUrl: widget.property.user!.profilePicture!,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                                      ),
+                                    ),
+                                    errorWidget: (context, url, error) => Center(
+                                      child: Text(
+                                        publisherName.isNotEmpty
+                                            ? publisherName[0].toUpperCase()
+                                            : 'A',
+                                        style: TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.bold,
+                                          color: _primaryColor,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : Center(
+                                    child: Text(
+                                      publisherName.isNotEmpty
+                                          ? publisherName[0].toUpperCase()
+                                          : 'A',
+                                      style: TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                        color: _primaryColor,
+                                      ),
+                                    ),
                       ),
-                    ),
-                    errorWidget: (context, url, error) => Icon(
-                      Icons.person,
-                      color: _primaryColor,
-                      size: 24,
                     ),
                   ),
                 ),
@@ -1872,7 +2034,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                           SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              _formatFrenchDateTime(widget.property.createdAt ?? widget.property.createdStart!),
+                              'Publié le ${_formatPublicationDate(widget.property.createdAt ?? widget.property.createdStart!)}',
                               style: TextStyle(
                                 color: _greyColor,
                                 fontSize: 13,
@@ -1925,25 +2087,28 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       
       // For recent dates, show relative time
       if (difference.inHours < 1) {
-        final minutes = difference.inMinutes;
-        return 'Publié il y a ${minutes} minute${minutes > 1 ? 's' : ''}';
-      } else if (difference.inHours < 24) {
-        final hours = difference.inHours;
-        return 'Publié il y a ${hours} heure${hours > 1 ? 's' : ''}';
+        return 'Publié il y a ${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''}';
+      } else if (difference.inDays == 0) {
+        return "Publié aujourd'hui à ${DateFormat('HH:mm').format(date)}";
       } else if (difference.inDays == 1) {
-        final timeFormat = DateFormat('HH:mm', 'fr_FR');
-        return 'Publié hier à ${timeFormat.format(date)}';
+        return 'Publié hier à ${DateFormat('HH:mm').format(date)}';
       } else if (difference.inDays < 7) {
-        final timeFormat = DateFormat('HH:mm', 'fr_FR');
-        return 'Publié il y a ${difference.inDays} jours à ${timeFormat.format(date)}';
+        return 'Publié il y a ${difference.inDays} jours';
       } else {
-        // For older dates, show full date with time
-        final dateFormat = DateFormat('d MMMM yyyy', 'fr_FR');
-        final timeFormat = DateFormat('HH:mm', 'fr_FR');
-        return 'Publié le ${dateFormat.format(date)} à ${timeFormat.format(date)}';
+        return 'Publié le ${DateFormat('dd/MM/yyyy').format(date)}';
       }
     } catch (e) {
       return 'Publié récemment';
+    }
+  }
+
+  // Format date as DD/MM/YYYY
+  String _formatPublicationDate(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      return DateFormat('dd/MM/yyyy').format(date);
+    } catch (e) {
+      return dateString;
     }
   }
 
@@ -2538,9 +2703,14 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     
     final token = storage.read(StockageKeys.tokenKey);
     if (token == null) {
-      SnackbarForCasa.info(
-        context,
+      FancyNotification.show(
+        context, 
         "Vous devez être connecté pour planifier une visite",
+        type: NotificationType.info
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => LoginScreen()),
       );
     } else {
       Navigator.pushNamed(
@@ -2554,47 +2724,48 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   Widget _buildBottomActionBar() {
     final isAvailable = widget.property.available ?? true;
     
-    return Container(
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: Offset(0, -5),
-          ),
-        ],
-      ),
-      child: ElevatedButton(
-        onPressed: _navigateToBookingPage,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: isAvailable ? _primaryColor : _greyColor,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          padding: EdgeInsets.symmetric(vertical: 16),
-          elevation: isAvailable ? 2 : 0,
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isAvailable ? Icons.calendar_today : Icons.block,
-              size: 20,
+    return Column(
+      children: [
+        ElevatedButton(
+          onPressed: _navigateToBookingPage,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isAvailable ? _primaryColor : _greyColor,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
-            SizedBox(width: 8),
-            Text(
-              isAvailable ? 'PLANIFIER UNE VISITE' : 'NON DISPONIBLE',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
+            padding: EdgeInsets.symmetric(vertical: 16),
+            elevation: isAvailable ? 2 : 0,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isAvailable ? Icons.calendar_today : Icons.block,
+                size: 20,
               ),
-            ),
-          ],
+              SizedBox(width: 8),
+              Text(
+                isAvailable ? 'PLANIFIER UNE VISITE' : 'NON DISPONIBLE',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
+        SizedBox(height: 8),
+        Text(
+          "Visitez en toute tranquillité pendant un an grâce à un   accessible de 4\$",
+          style: TextStyle(
+            color: Colors.grey[500],
+            fontSize: 12,
+            fontStyle: FontStyle.italic,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 }

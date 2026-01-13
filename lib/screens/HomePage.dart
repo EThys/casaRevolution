@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/controllers/ServiceController.dart';
+import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/screens/AllPropertiesPage.dart';
 import 'package:casa/screens/PromoBanner.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
@@ -21,6 +22,7 @@ import 'package:shimmer/shimmer.dart';
 import '../models/PropertyModel.dart';
 import '../models/ServiceModel.dart';
 import '../models/PrestationModel.dart';
+import '../controllers/AgenceController.dart';
 import '../utils/requetes.dart' show HttpResponse, deleteData, getData;
 import '../utils/Endpoints.dart';
 import '../utils/Routes.dart';
@@ -31,12 +33,17 @@ import '../utils/database/PrestationDatabaseHelper.dart';
 import 'CategoryPropertiesPage.dart';
 import 'AllServiceCategoriesPage.dart';
 import 'NotificationPage.dart';
+import 'TerrainPropertiesPage.dart';
 import '../utils/DraftHelper.dart';
 import '../utils/static_services_data.dart';
 import 'ServiceDetailPage.dart';
 import 'ServiceCategoryPage.dart';
 import 'QuickServiceRequestModal.dart';
 import 'QuickServiceRequestPage.dart';
+import 'MyAgencyPage.dart';
+import 'package:casa/services/ServerHealthService.dart';
+import 'package:casa/controllers/NotificationController.dart';
+import '../utils/PulseBadge.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -54,9 +61,9 @@ class _HomePageState extends State<HomePage> {
   final GetStorage storage = GetStorage();
   
   // Données pour les prestations
-  List<ServiceModel> majordhommeServices = [];
-  List<ServiceModel> demenagementServices = [];
-  Map<ServiceType, List<ServiceModel>> otherServicesByType = {};
+  List<PrestationModel> majordhommeServices = [];
+  List<PrestationModel> demenagementServices = [];
+  Map<ServiceType, List<PrestationModel>> otherServicesByType = {};
   bool isLoadingPrestations = false;
   
   // Mapping nom compte -> ID
@@ -64,10 +71,31 @@ class _HomePageState extends State<HomePage> {
   
   // String _selectedSpecialCategory = 'Bureaux'; // Supprimé pour simplification UI
 
+
+
   @override
   void initState() {
     super.initState();
     _loadInitialData();
+    
+    // Démarrer la surveillance du serveur après le build initial
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final notifCtrl = Provider.of<NotificationController>(context, listen: false);
+      final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
+      
+      // Charger les notifications spécifiques à l'utilisateur
+      if (authCtrl.isLoggedIn && authCtrl.user.userId != null) {
+        notifCtrl.loadForUser(authCtrl.user.userId.toString());
+      }
+      
+      ServerHealthService().startMonitoring(context, notifCtrl);
+    });
+  }
+
+  @override
+  void dispose() {
+    ServerHealthService().stopMonitoring();
+    super.dispose();
   }
 
   void _loadInitialData() {
@@ -89,6 +117,32 @@ class _HomePageState extends State<HomePage> {
       
       // Charger les prestations depuis l'API
       _loadPrestationsFromAPI();
+
+      // Vérifier en arrière-plan si le gérant a une agence
+      final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
+      final userAccounts = storage.read('user_accounts');
+      
+      // Charger toutes les agences pour la section Vacances
+      final agenceCtrl = Provider.of<AgenceController>(context, listen: false);
+      agenceCtrl.fetchAgences();
+      
+      if (authCtrl.isLoggedIn && userAccounts != null && userAccounts is List) {
+         bool isManager = userAccounts.any((acc) {
+             var typeAcc = acc['typeAccount'];
+             var id = typeAcc is Map 
+                  ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'])
+                  : (acc['typeAccountId'] ?? acc['TypeAccountId']);
+             return id == 2; // 2 = Gérant/Owner
+         });
+         
+       if (isManager && authCtrl.user.userId != null) {
+            authCtrl.checkUserAgency(authCtrl.user.userId!);
+         }
+      }
+
+      // [OPTIMIZATION] Charger les types de comptes en arrière-plan et les cacher en SQL
+      // Cela permet à la page Register de charger instantanément sans réseau
+      Provider.of<TypeAccountController>(context, listen: false).fetchAndCacheAccountTypes();
     });
   }
 
@@ -247,7 +301,7 @@ class _HomePageState extends State<HomePage> {
         // Charger depuis le cache d'abord
         final cachedMajordome = cachedPrestations.where((p) => p.serviceId == majordomeId).toList();
         if (cachedMajordome.isNotEmpty) {
-          majordhommeServices = cachedMajordome.map((p) => _prestationToServiceModel(p, ServiceType.majordhomme)).toList();
+          majordhommeServices = cachedMajordome;
           print("✅ [HomePage] ${majordhommeServices.length} prestations majordome chargées depuis le cache");
           if (mounted) {
             setState(() {});
@@ -256,7 +310,8 @@ class _HomePageState extends State<HomePage> {
         
         // Mettre à jour depuis l'API en arrière-plan
         final majordomePrestations = await serviceCtrl.fetchPrestationsByServiceId(majordomeId);
-        majordhommeServices = majordomePrestations.map((p) => _prestationToServiceModel(p, ServiceType.majordhomme)).toList();
+        majordhommeServices = List<PrestationModel>.from(majordomePrestations)
+          ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
         print("✅ [HomePage] ${majordhommeServices.length} prestations majordome mises à jour depuis l'API (serviceId: $majordomeId)");
       } else {
         print("⚠️ [HomePage] Aucun compte majordome trouvé dans user_accounts");
@@ -268,7 +323,7 @@ class _HomePageState extends State<HomePage> {
         // Charger depuis le cache d'abord
         final cachedDemenagement = cachedPrestations.where((p) => p.serviceId == demenagementId).toList();
         if (cachedDemenagement.isNotEmpty) {
-          demenagementServices = cachedDemenagement.map((p) => _prestationToServiceModel(p, ServiceType.demenagement)).toList();
+          demenagementServices = cachedDemenagement;
           print("✅ [HomePage] ${demenagementServices.length} prestations demenagement chargées depuis le cache");
           if (mounted) {
             setState(() {});
@@ -277,7 +332,8 @@ class _HomePageState extends State<HomePage> {
         
         // Mettre à jour depuis l'API en arrière-plan
         final demenagementPrestations = await serviceCtrl.fetchPrestationsByServiceId(demenagementId);
-        demenagementServices = demenagementPrestations.map((p) => _prestationToServiceModel(p, ServiceType.demenagement)).toList();
+        demenagementServices = List<PrestationModel>.from(demenagementPrestations)
+          ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
         print("✅ [HomePage] ${demenagementServices.length} prestations demenagement mises à jour depuis l'API (serviceId: $demenagementId)");
       } else {
         print("⚠️ [HomePage] Aucun compte demenagement trouvé dans user_accounts");
@@ -313,8 +369,7 @@ class _HomePageState extends State<HomePage> {
             if (accountName != null) {
               final serviceType = _mapAccountNameToServiceType(accountName!);
               if (serviceType != null) {
-                final serviceModel = _prestationToServiceModel(prestation, serviceType);
-                otherServicesByType.putIfAbsent(serviceType, () => []).add(serviceModel);
+                otherServicesByType.putIfAbsent(serviceType, () => []).add(prestation);
               }
             }
           }
@@ -326,7 +381,17 @@ class _HomePageState extends State<HomePage> {
       }
       
       // Mettre à jour depuis l'API en arrière-plan
-      final allPrestations = await serviceCtrl.fetchAllPrestations();
+      List<PrestationModel> allPrestations = [];
+      try {
+        allPrestations = await serviceCtrl.fetchAllPrestations();
+      } catch (e) {
+        // Silently fail for network errors - cache is already loaded
+        if (e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
+          print("ℹ️ [HomePage] Mode hors ligne - utilisation du cache uniquement");
+        } else {
+          print("⚠️ [HomePage] Erreur lors du chargement des prestations: $e");
+        }
+      }
       
       print("🔍 [HomePage] ${allPrestations.length} prestations chargées au total");
       print("🔍 [HomePage] Mapping des comptes: $accountNameToIdMap");
@@ -353,8 +418,7 @@ class _HomePageState extends State<HomePage> {
             // Mapper le nom du compte vers ServiceType
             final serviceType = _mapAccountNameToServiceType(accountName!);
             if (serviceType != null) {
-              final serviceModel = _prestationToServiceModel(prestation, serviceType);
-              otherServicesByType.putIfAbsent(serviceType, () => []).add(serviceModel);
+              otherServicesByType.putIfAbsent(serviceType, () => []).add(prestation);
               print("✅ [HomePage] Ajout prestation ${prestation.id} (serviceId: ${prestation.serviceId}, type: $serviceType, compte: $accountName)");
             } else {
               print("⚠️ [HomePage] ServiceType non trouvé pour compte: $accountName (serviceId: ${prestation.serviceId})");
@@ -366,6 +430,11 @@ class _HomePageState extends State<HomePage> {
           }
         }
       }
+      
+      // Trier chaque liste de services par ID décroissant (plus récent en premier)
+      otherServicesByType.forEach((type, services) {
+        services.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+      });
       
       final totalPrestations = otherServicesByType.values.map((l) => l.length).fold(0, (a, b) => a + b);
       print("✅ [HomePage] Autres services groupés: ${otherServicesByType.length} types, $totalPrestations prestations totales");
@@ -452,46 +521,6 @@ class _HomePageState extends State<HomePage> {
     return map[normalizedName];
   }
 
-  // Convertir PrestationModel en ServiceModel
-  ServiceModel _prestationToServiceModel(PrestationModel prestation, ServiceType serviceType) {
-    // Utiliser profile en premier, puis les images de portfolio
-    List<String>? imagesList = [];
-    
-    // Ajouter la photo de profil en premier si elle existe
-    if (prestation.profile != null && prestation.profile!.isNotEmpty) {
-      imagesList.add(prestation.profile!);
-      print("📸 [HomePage] Prestation ${prestation.id} a une photo de profil");
-    }
-    
-    // Ajouter les images de portfolio après
-    if (prestation.images != null && prestation.images!.isNotEmpty) {
-      imagesList.addAll(prestation.images!);
-      print("📸 [HomePage] Prestation ${prestation.id} a ${prestation.images!.length} image(s) de portfolio");
-    }
-    
-    if (imagesList.isEmpty) {
-      print("⚠️ [HomePage] Prestation ${prestation.id} n'a pas d'images");
-      imagesList = null;
-    } else {
-      print("✅ [HomePage] Prestation ${prestation.id} a ${imagesList.length} image(s) total (profil + portfolio)");
-    }
-    
-    return ServiceModel()
-      ..serviceId = prestation.id
-      ..title = prestation.title ?? ''
-      ..description = prestation.description ?? ''
-      ..price = prestation.minPrice ?? prestation.maxPrice
-      ..serviceType = serviceType
-      ..address = prestation.address ?? ''
-      ..cityValue = prestation.cityValue ?? ''
-      ..communeValue = prestation.communeValue ?? ''
-      ..quartierValue = prestation.quartierValue ?? ''
-      ..isAvailable = prestation.isActive ?? true
-      ..isVerified = prestation.isCertified ?? false
-      ..rating = 4.5 // Valeur par défaut
-      ..reviewCount = 0
-      ..images = imagesList; // Transférer les images
-  }
 
 
   void _logHomePageLoaded(int propertyCount) {
@@ -517,18 +546,42 @@ class _HomePageState extends State<HomePage> {
     var properties = propertyCtrl.properties;
     var services = serviceCtrl.services;
 
-    // Types "Maison" standards (exclure Bureaux, Salles)
-    final maisonTypeIds = [1, 2, 5, 6]; // Appartement, Maison, Villa, Studio
+    // Types de propriétés à afficher : Studio (1), Apparts (2), Maisons (3), Bureaux (4)
+    // Utiliser les types depuis l'API si disponibles, sinon fallback sur les IDs
+    final List<int> allowedTypeIds = [];
+    
+    if (propertyCtrl.propertyTypes.isNotEmpty) {
+      // Mapper les noms depuis l'API vers les IDs
+      for (var type in propertyCtrl.propertyTypes) {
+        final name = (type['name'] ?? '').toString().toLowerCase();
+        final typeId = type['propertyTypeId'];
+        if (typeId != null) {
+          if (name.contains('studio') || name.contains('appart') || 
+              name.contains('maison') || name.contains('bureau') ||
+              name.contains('fête') || name.contains('fete') ||
+              name.contains('funéraire') || name.contains('funeraire')) {
+            allowedTypeIds.add(typeId as int);
+          }
+        }
+      }
+    }
+    
+    // Fallback si l'API n'a pas encore chargé les types
+    if (allowedTypeIds.isEmpty) {
+      allowedTypeIds.addAll([1, 2, 3, 4, 7, 8]); // Studio, Apparts, Maisons, Bureaux, Funéraire, Fêtes
+    }
     
     final rentalProperties = properties.where((p) => 
       p.transactionType == 'location' && 
-      maisonTypeIds.contains(p.propertyTypeId)
-    ).toList();
+      allowedTypeIds.contains(p.propertyTypeId)
+    ).toList()
+      ..sort((a, b) => (b.propertyId ?? 0).compareTo(a.propertyId ?? 0));
     
     final saleProperties = properties.where((p) => 
       p.transactionType == 'vente' && 
-      maisonTypeIds.contains(p.propertyTypeId)
-    ).toList();
+      allowedTypeIds.contains(p.propertyTypeId)
+    ).toList()
+      ..sort((a, b) => (b.propertyId ?? 0).compareTo(a.propertyId ?? 0));
     
     // Utiliser uniquement les prestations chargées depuis l'API (pas de fallback statique)
     final currentMajordhommeServices = majordhommeServices;
@@ -544,26 +597,9 @@ class _HomePageState extends State<HomePage> {
         controller: _refreshController,
         enablePullDown: true,
         enablePullUp: false,
-        header: ClassicHeader(
-          height: 60,
-          releaseText: 'Relâchez pour actualiser',
-          refreshingText: 'Mise à jour...',
-          completeText: 'Actualisation terminée',
-          failedText: 'Échec de l\'actualisation',
-          idleText: 'Tirez pour actualiser',
-          textStyle: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-          refreshingIcon: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-            ),
-          ),
+        header: WaterDropMaterialHeader(
+          backgroundColor: primaryColor,
+          color: Colors.white,
         ),
         onRefresh: () async {
           await _handlePullToRefresh(propertyCtrl);
@@ -603,7 +639,7 @@ class _HomePageState extends State<HomePage> {
               
               // Section Locations (priorité car plus recherchée)
               _buildSectionHeader(
-                title: "Maisons en Location",
+                title: "Biens en Location",
                 subtitle: "Découvrez nos meilleures offres",
                 onSeeAll: () {
                   _logCategoryTap('locations_see_all');
@@ -629,7 +665,7 @@ class _HomePageState extends State<HomePage> {
               
               // Section Ventes
               _buildSectionHeader(
-                title: "Maisons en Vente",
+                title: "Biens en Vente",
                 subtitle: "Investissez dans votre avenir",
                 onSeeAll: () {
                   _logCategoryTap('ventes_see_all');
@@ -797,7 +833,11 @@ class _HomePageState extends State<HomePage> {
     });
 
     try {
+      // Refresh properties and special categories SEQUENTIALLY to avoid race conditions
+      // syncAllSpecialCategories will merge its results into propertyCtrl.properties
       await propertyCtrl.refreshProperties();
+      await propertyCtrl.syncAllSpecialCategories(); // Charger bureaux, festives, funeraires
+      
       _refreshController.refreshCompleted();
       //SnackbarForCasa.success(context, "Liste actualisée");
     } catch (e) {
@@ -987,35 +1027,51 @@ class _HomePageState extends State<HomePage> {
             Positioned(
               right: 12,
               top: 10,
-              child: Container(
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: Colors.redAccent,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.redAccent.withOpacity(0.6),
-                      blurRadius: 6,
-                      spreadRadius: 1,
+              child: Consumer<NotificationController>(
+                builder: (context, notifCtrl, child) {
+                  final count = notifCtrl.unreadCount;
+                  // Afficher le badge même si 0 ou non ? Le user dit "fais clignoter le nombres" et "indique les nonbres de ceux pas encore lit"
+                  // Usuellement on cache si 0. Mais "il ya 2 notificatoons mais aussi iindique les nonbres"
+                  if (count == 0) return SizedBox.shrink();
+
+                  Widget badge = Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.redAccent.withOpacity(0.6),
+                          blurRadius: 6,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                      border: Border.all(
+                        color: Colors.white,
+                        width: 1.5,
+                      ),
                     ),
-                  ],
-                  border: Border.all(
-                    color: Colors.white,
-                    width: 1.5,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    "3",
-                    style: TextStyle(
-                      fontSize: 9,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      height: 1.2,
+                    child: Center(
+                      child: Text(
+                        count > 9 ? '9+' : count.toString(),
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          height: 1.2,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+
+                  // Clignoter si notifications non lues
+                  if (count > 0) {
+                    return PulseBadge(child: badge);
+                  }
+                  
+                  return badge;
+                },
               ),
             ),
           ],
@@ -1075,7 +1131,17 @@ class _HomePageState extends State<HomePage> {
         await DraftHelper.clearAllDrafts();
         print("✅ Tous les brouillons supprimés");
       } catch (e) {
+        print("✅ Tous les brouillons supprimés");
+      } catch (e) {
         print("⚠️ Erreur lors de la suppression des brouillons: $e");
+      }
+
+      // 6. Vider le contrôleur de notifications
+      try {
+        final notifCtrl = Provider.of<NotificationController>(context, listen: false);
+        notifCtrl.clearForLogout();
+      } catch (e) {
+        print("⚠️ Erreur lors du nettoyage des notifications: $e");
       }
 
       // 5. Forcer l'écriture des changements
@@ -1179,12 +1245,34 @@ class _HomePageState extends State<HomePage> {
       }
     }
   }
+  String get safeUsername {
+    final userData = storage.read(StockageKeys.userKey);
+    final profileData = storage.read(StockageKeys.profileKey);
+
+    // PRIORITÉ 1: fullName
+    final fullName = profileData?['fullname']?.toString() ?? profileData?['fullName']?.toString() ??
+        userData?['fullname']?.toString() ?? userData?['fullName']?.toString();
+
+    if (fullName != null && fullName.isNotEmpty) {
+      return fullName;
+    }
+
+    // PRIORITÉ 2: username
+    return userData?['username']?.toString() ??
+        profileData?['username']?.toString() ??
+        'Bio'; // Or Visiteur
+  }
 
   Widget _buildDrawer() {
     final stockage = GetStorage();
     final token = stockage.read(StockageKeys.tokenKey);
     final user = stockage.read(StockageKeys.userKey);
     final profile = stockage.read(StockageKeys.profileKey);
+    
+    // Retrieve authCtrl and userAccounts for use in drawer
+    final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
+    final userAccounts = stockage.read('user_accounts');
+    
     bool isLoggedIn = token != null;
 
     String selectedRoute = ModalRoute.of(context)?.settings.name ?? Routes.bottomPageRoute;
@@ -1301,7 +1389,7 @@ class _HomePageState extends State<HomePage> {
                                 maxWidth: 200, // Limite la largeur maximale
                               ),
                               child: Text(
-                                _getDisplayName(profile, user),
+                                (safeUsername ?? 'Utilisateur'),
                                 key: ValueKey('user'),
                                 style: TextStyle(
                                   color: Colors.white,
@@ -1402,13 +1490,6 @@ class _HomePageState extends State<HomePage> {
                           // ),
                           if (isLoggedIn) ...[
                             // _buildDrawerItem(
-                            //   icon: Icons.request_quote_rounded,
-                            //   title: 'Mes demandes',
-                            //   routeName: Routes.myServiceRequestsRoute,
-                            //   isSelected: selectedRoute == Routes.myServiceRequestsRoute,
-                            //   onTap: () => _handleNavigation(Routes.myServiceRequestsRoute),
-                            // ),
-                            // _buildDrawerItem(
                             //   icon: Icons.construction_rounded,
                             //   title: 'Demander intervention',
                             //   routeName: Routes.requestInterventionRoute,
@@ -1423,6 +1504,8 @@ class _HomePageState extends State<HomePage> {
                             //     );
                             //   },
                             // ),
+                            
+                            // "Mes Réservations" - Visible pour tous (si loggé)
                             _buildDrawerItem(
                               icon: Icons.calendar_today_rounded,
                               title: 'Mes Réservations',
@@ -1430,26 +1513,86 @@ class _HomePageState extends State<HomePage> {
                               isSelected: selectedRoute == Routes.bookingHistoryPageRoute,
                               onTap: () => _handleNavigation(Routes.bookingHistoryPageRoute),
                             ),
-                            // _buildDrawerItem(
-                            //   icon: Icons.dashboard_rounded,
-                            //   title: 'Ma gestion',
-                            //   routeName: Routes.commissionnaireDashboardPageRoute,
-                            //   isSelected: selectedRoute == Routes.commissionnaireDashboardPageRoute,
-                            //   onTap: () => _handleNavigation(Routes.commissionnaireDashboardPageRoute),
-                            // ),
-                            _buildDrawerItem(
-                              icon: Icons.apartment_rounded,
-                              title: 'Mes propriétés',
-                              routeName: Routes.myPropertiesRoute,
-                              isSelected: selectedRoute == Routes.myPropertiesRoute,
-                              onTap: () => _handleNavigation(Routes.myPropertiesRoute),
-                            ),
-                            _buildDrawerItem(
-                              icon: Icons.work_rounded,
-                              title: 'Mes services',
-                              routeName: Routes.myServicesRoute,
-                              isSelected: selectedRoute == Routes.myServicesRoute,
-                              onTap: () => _handleNavigation(Routes.myServicesRoute),
+                            
+                            // LOGIQUE DE FILTRAGE
+                            Builder(
+                              builder: (context) {
+                                bool showMesProprietes = false;
+                                bool showMesServices = false;
+                                bool showMonAgence = false;
+
+                                // Analyser user_accounts
+                                if (userAccounts != null && userAccounts is List) {
+                                  // Vérifier d'abord si Gérant est présent
+                                  bool isGerant = userAccounts.any((acc) {
+                                    final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+                                    final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+                                    return typeId == 2 && (name.contains('gerant') || acc['id'] == 3); 
+                                    // Note: En JSON fourni, gerant a id:3 et typeAccount.name="Proprietaire" (id:2)
+                                    // Donc on check aussi le nom ou l'ID spécifique si on veut être strict
+                                  });
+                                  
+                                  // Gérant -> voit Mon Agence
+                                  if (isGerant) {
+                                    showMonAgence = true;
+                                  }
+
+                                  for (var acc in userAccounts) {
+                                    final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+                                    final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+                                    final accId = acc['id']; // id du compte
+
+                                    // Propriétaire (typeAccountId == 2)
+                                    // MAIS EXCLURE GÉRANT (qui a aussi typeAccountId == 2)
+                                    if (typeId == 2) {
+                                       // Si c'est un gérant, on l'a déjà traité pour showMonAgence
+                                       // Si ce N'EST PAS un gérant, alors c'est Commissionnaire ou Bailleur -> voit Mes Propriétés
+                                       if (!name.contains('gerant') && accId != 3) {
+                                          showMesProprietes = true;
+                                       }
+                                    }
+
+                                    // Prestataire (typeAccountId == 3) -> voit Mes Services
+                                    if (typeId == 3) {
+                                      showMesServices = true;
+                                    }
+                                  }
+                                }
+                                
+                                return Column(
+                                  children: [
+                                    // "Mes propriétés" - Seulement pour Commissionnaire/Bailleur (PAS Gérant)
+                                    if (showMesProprietes)
+                                      _buildDrawerItem(
+                                        icon: Icons.apartment_rounded,
+                                        title: 'Mes propriétés',
+                                        routeName: Routes.myPropertiesRoute,
+                                        isSelected: selectedRoute == Routes.myPropertiesRoute,
+                                        onTap: () => _handleNavigation(Routes.myPropertiesRoute),
+                                      ),
+                                      
+                                    // "Mes services" - Visible pour TOUS (si loggé)
+                                    // Modification demandée: Tout le monde voit le menu, mais l'intérieur change
+                                    _buildDrawerItem(
+                                      icon: Icons.work_rounded,
+                                      title: 'Mes services',
+                                      routeName: Routes.myServicesRoute,
+                                      isSelected: selectedRoute == Routes.myServicesRoute,
+                                      onTap: () => _handleNavigation(Routes.myServicesRoute),
+                                    ),
+                                      
+                                    // "Mon Agence" - Seulement pour Gérant
+                                    if (showMonAgence)
+                                      _buildDrawerItem(
+                                        icon: Icons.store_mall_directory_rounded,
+                                        title: 'Mon Agence',
+                                        routeName: '/my-agency', 
+                                        isSelected: selectedRoute == '/my-agency',
+                                        onTap: () => _handleNavigation('/my-agency'),
+                                      ),
+                                  ],
+                                );
+                              }
                             ),
                           ],
                         ],
@@ -1678,6 +1821,8 @@ class _HomePageState extends State<HomePage> {
         routeName == Routes.myServiceRequestsRoute ||
         routeName == Routes.notificationPageRoute) {
       Navigator.pushNamed(context, routeName);
+    } else if (routeName == '/my-agency') {
+       Navigator.push(context, MaterialPageRoute(builder: (_) => MyAgencyPage()));
     } else {
       SnackbarForCasa.info(
         context,
@@ -2043,14 +2188,25 @@ class _HomePageState extends State<HomePage> {
                       borderRadius: BorderRadius.circular(12),
                       onTap: () {
                         _logCategoryTap(category['value'] as String);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => CategoryPropertiesPage(
-                              category: category['value'] as String,
+                        
+                        // Navigate to TerrainPropertiesPage for terrains
+                        if (category['value'] == 'Terrain') {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => TerrainPropertiesPage(),
                             ),
-                          ),
-                        );
+                          );
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CategoryPropertiesPage(
+                                category: category['value'] as String,
+                              ),
+                            ),
+                          );
+                        }
                       },
                       child: Container(
                         padding: EdgeInsets.all(8),
@@ -2248,7 +2404,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildServiceCarousel({
-    required List<ServiceModel> services,
+    required List<PrestationModel> services,
     required bool isLoading,
     required ServiceType serviceType,
   }) {
@@ -2320,10 +2476,9 @@ class _HomePageState extends State<HomePage> {
         itemBuilder: (context, index) {
           final service = services[index];
 
-          final firstImage = service.images?.isNotEmpty ?? false
-              ? service.images!.first
-              : null;
-          final imageUrl = firstImage;
+          final String? imageUrl = (service.profile != null && service.profile!.isNotEmpty)
+              ? service.profile
+              : (service.images?.isNotEmpty ?? false ? service.images!.first : null);
 
           return Container(
             width: 280,
@@ -2360,7 +2515,7 @@ class _HomePageState extends State<HomePage> {
                       children: [
                         Positioned.fill(
                           child: Hero(
-                            tag: 'service-image-${service.serviceId}',
+                            tag: 'service-image-${service.id}',
                             child: AnimatedSwitcher(
                               duration: Duration(milliseconds: 500),
                               child: imageUrl != null && imageUrl.isNotEmpty
@@ -2414,7 +2569,7 @@ class _HomePageState extends State<HomePage> {
                           top: 12,
                           right: 12,
                           child: FavoriteHeartIcon(
-                            propertyId: 'service_${service.serviceId}',
+                            propertyId: 'service_${service.id}',
                             size: 24,
                             splashRadius: 20,
                             activeColor: Colors.red,
@@ -2596,19 +2751,22 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  String _getPriceRange(ServiceModel service) {
-    if (service.price == null) return 'Prix sur demande';
+  String _getPriceRange(PrestationModel service) {
+    if (service.minPrice == null && service.maxPrice == null) return 'Prix sur demande';
 
-    final double basePrice = service.price!;
-    // Calculer une plage de prix (±20%)
-    final double minPrice = (basePrice * 0.8);
-    final double maxPrice = (basePrice * 1.2);
+    final double? minP = service.minPrice != null ? service.minPrice!.toDouble() : null;
+    final double? maxP = service.maxPrice != null ? service.maxPrice!.toDouble() : null;
 
-    if (minPrice.round() == maxPrice.round()) {
-      return '${_formatServicePrice(basePrice)} \$';
+    if (minP != null && maxP != null) {
+      if (minP == maxP) return '${_formatServicePrice(minP)} \$';
+      return '${_formatServicePrice(minP)} - ${_formatServicePrice(maxP)} \$';
+    } else if (minP != null) {
+      return 'À partir de ${_formatServicePrice(minP)} \$';
+    } else if (maxP != null) {
+      return 'Jusqu\'à ${_formatServicePrice(maxP)} \$';
     }
-
-    return '${_formatServicePrice(minPrice)} - ${_formatServicePrice(maxPrice)} \$';
+    
+    return 'Prix sur demande';
   }
 
   String _formatServicePrice(num price) {
@@ -2621,11 +2779,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildOtherServicesGrid({
-    required Map<ServiceType, List<ServiceModel>> servicesByType,
+    required Map<ServiceType, List<PrestationModel>> servicesByType,
     required bool isLoading,
   }) {
     // Utiliser uniquement les prestations depuis l'API (pas de fallback statique)
-    Map<ServiceType, List<ServiceModel>> groupedServices = servicesByType;
+    Map<ServiceType, List<PrestationModel>> groupedServices = servicesByType;
 
     // Liste des types de services à afficher (priorité)
     final List<ServiceType> priorityServiceTypes = [
@@ -2701,13 +2859,22 @@ class _HomePageState extends State<HomePage> {
           // Récupérer l'image de fond depuis le premier service
           // Chercher dans tous les services de la liste si le premier n'a pas d'image
           String? backgroundImageUrl;
-          if (firstService.images != null && firstService.images!.isNotEmpty) {
-            backgroundImageUrl = firstService.images!.first;
-          } else {
+          
+          // Fonction locale pour extraire l'image d'une prestation
+          String? getPrestationImage(PrestationModel p) {
+            if (p.profile != null && p.profile!.isNotEmpty) return p.profile;
+            if (p.images != null && p.images!.isNotEmpty) return p.images!.first;
+            return null;
+          }
+
+          backgroundImageUrl = getPrestationImage(firstService);
+          
+          if (backgroundImageUrl == null) {
             // Parcourir les autres services pour trouver une image
             for (var service in serviceList) {
-              if (service.images != null && service.images!.isNotEmpty) {
-                backgroundImageUrl = service.images!.first;
+              final img = getPrestationImage(service);
+              if (img != null) {
+                backgroundImageUrl = img;
                 break;
               }
             }
@@ -2823,102 +2990,68 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       
-                      // Contenu superposé amélioré
+                      // Contenu avec design moderne et épuré
                       Container(
-                        padding: EdgeInsets.all(14),
+                        padding: EdgeInsets.all(12),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Icône en haut avec badge
+                            // Badge nombre en haut à gauche - Design simple et moderne
                             Container(
-                              padding: EdgeInsets.all(10),
+                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.95),
-                                shape: BoxShape.circle,
+                                color: Colors.white.withOpacity(0.3),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.5),
+                                  width: 1.5,
+                                ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.15),
+                                    color: Colors.black.withOpacity(0.2),
                                     blurRadius: 8,
                                     offset: Offset(0, 2),
                                   ),
                                 ],
                               ),
-                              child: Icon(
-                                _getServiceTypeIcon(serviceType),
-                                color: primaryColor,
-                                size: 24,
+                              child: Text(
+                                "$serviceCount",
+                                style: GoogleFonts.inter(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.5,
+                                ),
                               ),
                             ),
-
-                            // Texte et badge en bas améliorés
-                            Column(
-                              children: [
-                                Container(
-                                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.95),
-                                    borderRadius: BorderRadius.circular(10),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.1),
-                                        blurRadius: 4,
-                                        offset: Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Text(
-                                    serviceType.displayName,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.grey[900],
-                                      height: 1.2,
-                                      letterSpacing: 0.2,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                            
+                            // Titre du service en bas
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black.withOpacity(0.7),
+                                  ],
                                 ),
-                                SizedBox(height: 8),
-                                Container(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: primaryColor.withOpacity(0.9),
-                                    borderRadius: BorderRadius.circular(8),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: primaryColor.withOpacity(0.3),
-                                        blurRadius: 4,
-                                        offset: Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.work_outline_rounded,
-                                        size: 12,
-                                        color: Colors.white,
-                                      ),
-                                      SizedBox(width: 4),
-                                      Text(
-                                        '$serviceCount',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                serviceType.displayName,
+                                style: GoogleFonts.inter(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.3,
                                 ),
-                              ],
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.left,
+                              ),
                             ),
                           ],
                         ),
@@ -3174,8 +3307,8 @@ class _HomePageState extends State<HomePage> {
               : null;
 
           final priceText = isForRent
-              ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-              : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
+              ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+              : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
 
           return Container(
             width: 280,

@@ -1,3 +1,4 @@
+import 'package:casa/services/ConnectivityService.dart';
 import 'package:casa/controllers/PropertyFavoriteCtrl.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +10,7 @@ class FavoriteProvider with ChangeNotifier {
   final FavoriteDatabaseHelper _dbHelper;
   final PropertyFavoriteCtrl _favoriteCtrl;
   FavoriteState _state = FavoriteState(favoriteStatus: {});
+  final ConnectivityService _connectivityService = ConnectivityService();
 
   FavoriteProvider(this._dbHelper, this._favoriteCtrl);
 
@@ -19,14 +21,48 @@ class FavoriteProvider with ChangeNotifier {
       _state = _state.copyWith(isLoading: true);
       notifyListeners();
 
+      // Initialize connectivity listener
+      _connectivityService.initialize();
+      _connectivityService.connectionChange.listen((hasConnection) {
+        if (hasConnection) {
+          print("📡 [FavoriteProvider] Connexion rétablie : Lancement sync queue...");
+          _favoriteCtrl.syncOfflineQueue(userId);
+        }
+      });
+
+      // D'abord on essaie de synchroniser la queue
+      _favoriteCtrl.syncOfflineQueue(userId).then((_) {
+         print("🔄 [FavoriteProvider] Sync queue terminer en background");
+      }).catchError((e) {
+         print("⚠️ [FavoriteProvider] Sync queue failed (offline?): $e");
+      });
+
+      // Charger les favoris depuis API (ou cache si offline)
       await _favoriteCtrl.getFavoritesByUser(userId);
 
+      // Récupérer les favoris stockés en local
       final favorites = await _dbHelper.getFavoritesByUser(userId);
+      
+      // Récupérer aussi la file d'attente pour appliquer les changements en attente
+      final queue = await _dbHelper.getQueue(userId);
+
+      // Construire la map de status de base
       final statusMap = <String, bool>{
         for (var fav in favorites)
           if (fav.property?.propertyId != null)
             fav.property!.propertyId.toString(): true
       };
+      
+      // Appliquer les changements en attente par dessus
+      for (var item in queue) {
+         final pid = item['propertyId'] as String;
+         final action = item['action'] as String;
+         if (action == 'ADD') {
+           statusMap[pid] = true;
+         } else if (action == 'REMOVE') {
+           statusMap.remove(pid);
+         }
+      }
 
       _state = _state.copyWith(
         favoriteStatus: statusMap,
@@ -51,11 +87,24 @@ class FavoriteProvider with ChangeNotifier {
       await _favoriteCtrl.getFavoritesByUser(userId);
 
       final favorites = await _dbHelper.getFavoritesByUser(userId);
+      final queue = await _dbHelper.getQueue(userId);
+
       final statusMap = <String, bool>{
         for (var fav in favorites)
           if (fav.property?.propertyId != null)
             fav.property!.propertyId.toString(): true
       };
+      
+      // Apply pending queue items
+      for (var item in queue) {
+         final pid = item['propertyId'] as String;
+         final action = item['action'] as String;
+         if (action == 'ADD') {
+           statusMap[pid] = true;
+         } else if (action == 'REMOVE') {
+           statusMap.remove(pid);
+         }
+      }
 
       _state = _state.copyWith(
         favoriteStatus: statusMap,
@@ -74,9 +123,10 @@ class FavoriteProvider with ChangeNotifier {
   Future<void> toggleFavorite({
     required String userId,
     required String propertyId,
+    int? propertyTypeId, // New parameter
   }) async {
     print("🔄 [FavoriteProvider] ========== DÉBUT toggleFavorite ==========");
-    print("🔄 [FavoriteProvider] userId: $userId, propertyId: $propertyId");
+    print("🔄 [FavoriteProvider] userId: $userId, propertyId: $propertyId, type: $propertyTypeId");
     
     // Éviter les actions multiples simultanées sur la même propriété
     if (_state.isLoadingProperty(propertyId)) {
@@ -119,7 +169,7 @@ class FavoriteProvider with ChangeNotifier {
       try {
         if (newStatus) {
           print("➕ [FavoriteProvider] Ajout du favori...");
-          final success = await _favoriteCtrl.addFavorite(userId, propertyId);
+          final success = await _favoriteCtrl.addFavorite(userId, propertyId, propertyTypeId: propertyTypeId);
           if (!success) {
             throw Exception("Échec de l'ajout aux favoris");
           }
@@ -149,7 +199,7 @@ class FavoriteProvider with ChangeNotifier {
           print("💾 [FavoriteProvider] Total favoris dans l'état: ${updatedStatus.length}");
         } else {
           print("➖ [FavoriteProvider] Suppression du favori...");
-          final success = await _favoriteCtrl.removeFavorite(userId, propertyId);
+          final success = await _favoriteCtrl.removeFavorite(userId, propertyId, propertyTypeId: propertyTypeId);
           if (!success) {
             throw Exception("Échec de la suppression");
           }
