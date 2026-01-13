@@ -11,6 +11,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../controllers/AuthentificationCtrl.dart';
+import 'auth/IdentityVerificationPage.dart';
 
 class MyPropertiesPage extends StatefulWidget {
   @override
@@ -199,49 +201,27 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
     if (token == null) {
       FancyNotification.show(
         context,
-        "Vous devez avoir un compte et être connecté pour publier une annonce",
+        "Vous devez être connecté pour publier une annonce",
         type: NotificationType.info,
       );
       return;
     }
 
-    // Lire les comptes depuis 'user_accounts'
-    List<dynamic>? userAccounts = _stockage.read('user_accounts');
-    
-    if (userAccounts == null || userAccounts.isEmpty) {
-      FancyNotification.show(context, "Aucun compte associé trouvé.");
+    final authCtrl = context.read<AuthentificationCtrl>();
+    if (authCtrl.user.isCertified != true) {
+      Navigator.push(
+        context, 
+        MaterialPageRoute(builder: (context) => IdentityVerificationPage())
+      ).then((result) {
+        if (result == true) {
+           Navigator.pushNamed(context, Routes.createPropertyRoute).then((_) => _loadMyProperties());
+        }
+      });
       return;
     }
 
-    // Extraire les IDs de types de comptes
-    Set<int> typeIds = userAccounts.map<int>((acc) {
-      var typeAcc = acc['typeAccount'];
-      return typeAcc is Map 
-          ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'] ?? 0)
-          : (acc['typeAccountId'] ?? acc['TypeAccountId'] ?? 0);
-    }).toSet();
-
-    if (typeIds.contains(3) && !typeIds.contains(2)) {
-      Navigator.pushNamed(
-        context,
-        Routes.createServicePostRoute,
-      ).then((_) => _loadMyProperties());
-    } else if (typeIds.contains(2)) {
-      Navigator.pushNamed(context, Routes.createPropertyRoute)
-          .then((_) => _loadMyProperties());
-    } else if (typeIds.contains(1)) {
-      FancyNotification.show(
-        context,
-        "Les comptes clients ne peuvent pas publier d'annonces.",
-        type: NotificationType.info,
-      );
-    } else {
-      FancyNotification.show(
-        context,
-        "Type de compte non reconnu.",
-        type: NotificationType.info,
-      );
-    }
+    Navigator.pushNamed(context, Routes.createPropertyRoute)
+        .then((_) => _loadMyProperties());
   }
 
   List<PropertyModel> get _activeProperties => _myProperties.where((p) => p.isActive == true).toList();
@@ -314,21 +294,6 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
             ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: "my_properties_fab",
-        onPressed: _handleCreateProperty,
-        backgroundColor: _primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 3,
-        icon: Icon(Icons.add_rounded, size: 24),
-        label: Text(
-          'Nouveau',
-          style: TextStyle(
-            fontWeight: FontWeight.w500,
-            fontSize: 14,
-          ),
-        ),
       ),
     );
   }

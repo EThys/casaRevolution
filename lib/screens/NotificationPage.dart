@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:casa/controllers/NotificationController.dart';
 import '../utils/Routes.dart';
 import '../models/ServiceRequestModel.dart';
 import 'ServiceRequestDetailPage.dart';
@@ -11,140 +13,20 @@ class NotificationsPage extends StatefulWidget {
 }
 
 class _NotificationsPageState extends State<NotificationsPage> {
-  final List<NotificationItem> _notifications = [
-    NotificationItem(
-      id: '1',
-      title: 'Nouvelle demande de service',
-      description: 'Une nouvelle demande de plomberie vous attend',
-      time: 'Il y a 5 min',
-      icon: Icons.add_task_rounded,
-      iconColor: Colors.blueAccent,
-      isRead: false,
-      category: 'Demandes',
-      type: NotificationType.serviceRequest,
-      data: {'requestId': 1},
-    ),
-    NotificationItem(
-      id: '2',
-      title: 'Réponse à votre demande',
-      description: 'Un prestataire a répondu à votre demande de plomberie',
-      time: 'Il y a 10 min',
-      icon: Icons.reply_rounded,
-      iconColor: Colors.greenAccent,
-      isRead: false,
-      category: 'Demandes',
-      type: NotificationType.serviceResponse,
-      data: {'requestId': 2},
-    ),
-    NotificationItem(
-      id: '3',
-      title: 'Demande acceptée',
-      description: 'Votre réponse a été acceptée par le client',
-      time: 'Il y a 15 min',
-      icon: Icons.check_circle_rounded,
-      iconColor: Colors.greenAccent,
-      isRead: true,
-      category: 'Demandes',
-      type: NotificationType.serviceAccepted,
-      data: {'requestId': 3},
-    ),
-    NotificationItem(
-      id: '4',
-      title: 'Nouveau message',
-      description: 'Vous avez reçu un message de Peter Mposhi',
-      time: 'Il y a 1 heure',
-      icon: Icons.message_rounded,
-      iconColor: Colors.blueAccent,
-      isRead: false,
-      category: 'Messages',
-      type: NotificationType.message,
-    ),
-    NotificationItem(
-      id: '5',
-      title: 'Rappel de rendez-vous',
-      description: 'Rendez-vous demain à 14h30',
-      time: 'Il y a 2 heures',
-      icon: Icons.calendar_today_rounded,
-      iconColor: Colors.greenAccent,
-      isRead: false,
-      category: 'Agenda',
-      type: NotificationType.appointment,
-    ),
-    NotificationItem(
-      id: '6',
-      title: 'Paiement confirmé',
-      description: 'Votre paiement de 149\$ a été accepté',
-      time: 'Il y a 3 heures',
-      icon: Icons.payment_rounded,
-      iconColor: Colors.greenAccent,
-      isRead: true,
-      category: 'Finances',
-      type: NotificationType.payment,
-    ),
-    NotificationItem(
-      id: '7',
-      title: 'Sécurité',
-      description: 'Connexion détectée depuis un nouvel appareil',
-      time: 'Il y a 6 heures',
-      icon: Icons.security_rounded,
-      iconColor: Colors.orangeAccent,
-      isRead: true,
-      category: 'Sécurité',
-      type: NotificationType.security,
-    ),
-    NotificationItem(
-      id: '8',
-      title: 'Promotion spéciale',
-      description: 'Profitez de -30% sur tous les services ce week-end',
-      time: 'Il y a 1 jour',
-      icon: Icons.local_offer_rounded,
-      iconColor: Colors.purpleAccent,
-      isRead: true,
-      category: 'Promotions',
-      type: NotificationType.promotion,
-    ),
-    NotificationItem(
-      id: '9',
-      title: 'Mise à jour disponible',
-      description: 'Nouvelle version de l\'application Casa',
-      time: 'Il y a 2 jours',
-      icon: Icons.system_update_rounded,
-      iconColor: Colors.blueAccent,
-      isRead: true,
-      category: 'Système',
-      type: NotificationType.system,
-    ),
-  ];
-
+  // Suppression de la liste statique _notifications
   bool _showUnreadOnly = false;
 
-  List<NotificationItem> get _filteredNotifications {
-    if (_showUnreadOnly) {
-      return _notifications.where((notification) => !notification.isRead).toList();
-    }
-    return _notifications;
-  }
-
   void _markAllAsRead() {
-    setState(() {
-      for (var notification in _notifications) {
-        notification.isRead = true;
-      }
-    });
+    Provider.of<NotificationController>(context, listen: false).markAllAsRead();
     _showSuccessSnackbar('Toutes les notifications sont marquées comme lues');
   }
 
   void _toggleReadStatus(String id) {
-    setState(() {
-      final notification = _notifications.firstWhere((n) => n.id == id);
-      notification.isRead = !notification.isRead;
-    });
+    // Géré via tap sur item
   }
 
   void _deleteNotification(String id) {
-    setState(() {
-      _notifications.removeWhere((n) => n.id == id);
-    });
+    Provider.of<NotificationController>(context, listen: false).deleteNotification(id);
     _showSuccessSnackbar('Notification supprimée');
   }
 
@@ -159,120 +41,117 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
+  String _formatTimeAgo(DateTime timestamp) {
+    final now = DateTime.now();
+    final difference = now.difference(timestamp);
+
+    if (difference.inDays > 7) {
+      return "${timestamp.day}/${timestamp.month}/${timestamp.year}";
+    } else if (difference.inDays >= 1) {
+      return "Il y a ${difference.inDays} jour${difference.inDays > 1 ? 's' : ''}";
+    } else if (difference.inHours >= 1) {
+      return "Il y a ${difference.inHours} h";
+    } else if (difference.inMinutes >= 1) {
+      return "Il y a ${difference.inMinutes} min";
+    } else {
+      return "À l'instant";
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: _buildAppBar(),
-      body: Column(
-        children: [
-          _buildFilterSection(),
-          Expanded(
-            child: _notifications.isEmpty
-                ? _buildEmptyState()
-                : _buildNotificationsList(),
+    return Consumer<NotificationController>(
+      builder: (context, controller, child) {
+        // Filtrer les notifications
+        List<NotificationItem> displayedNotifications = controller.notifications;
+        if (_showUnreadOnly) {
+          displayedNotifications = displayedNotifications.where((n) => !n.isRead).toList();
+        }
+
+        return Scaffold(
+          backgroundColor: Colors.grey[50],
+          appBar: _buildAppBar(controller),
+          body: Column(
+            children: [
+              _buildFilterSection(displayedNotifications.length),
+              Expanded(
+                child: displayedNotifications.isEmpty
+                    ? _buildEmptyState()
+                    : _buildNotificationsList(displayedNotifications),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      }
     );
   }
 
-  PreferredSizeWidget _buildAppBar() {
+  PreferredSizeWidget _buildAppBar(NotificationController controller) {
     return AppBar(
-      backgroundColor: Colors.transparent,
+      backgroundColor: primaryColor,
       elevation: 0,
-      leading: Container(
-        margin: EdgeInsets.only(left: 16, top: 8, bottom: 8),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              primaryColor,
-              primaryColor,
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
-        child: IconButton(
-          icon: Icon(Icons.arrow_back_rounded, color: Colors.white, size: 24),
-          onPressed: () => Navigator.of(context).pop(),
-          splashRadius: 20,
-        ),
+      leading: IconButton(
+        icon: Icon(Icons.arrow_back_rounded, color: Colors.white, size: 24),
+        onPressed: () => Navigator.of(context).pop(),
+        splashRadius: 20,
       ),
       title: Text(
         'Notifications',
         style: TextStyle(
-          fontSize: 24,
+          fontSize: 20,
           fontWeight: FontWeight.w700,
-          color: primaryColor,
+          color: Colors.white,
           letterSpacing: 0.5,
         ),
       ),
+      centerTitle: true,
       actions: [
-        if (_notifications.any((n) => !n.isRead))
-          Container(
-            margin: EdgeInsets.only(right: 16, top: 8, bottom: 8),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  primaryColor,
-                  primaryColor,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: Offset(0, 2),
-                ),
-              ],
+        if (controller.notifications.any((n) => !n.isRead))
+          TextButton.icon(
+            onPressed: _markAllAsRead,
+            icon: Icon(Icons.mark_email_read_rounded, color: Colors.white, size: 20),
+            label: Text(
+              "Tout lu",
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
             ),
-            child: IconButton(
-              icon: Icon(Icons.mark_email_read_rounded, color: Colors.white, size: 22),
-              onPressed: _markAllAsRead,
-              splashRadius: 20,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              foregroundColor: Colors.white, 
             ),
-          ),
+          )
       ],
     );
   }
 
-  Widget _buildFilterSection() {
+  Widget _buildFilterSection(int displayedCount) {
+    final unreadCount = Provider.of<NotificationController>(context, listen: false).unreadCount;
+    
     return Container(
-      margin: EdgeInsets.all(16),
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 15,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 10),
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              '${_filteredNotifications.length} notification${_filteredNotifications.length > 1 ? 's' : ''}',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Récentes',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  '$unreadCount non lues • Total $displayedCount',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
           GestureDetector(
@@ -282,32 +161,36 @@ class _NotificationsPageState extends State<NotificationsPage> {
               });
             },
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                gradient: _showUnreadOnly
-                    ? LinearGradient(
-                  colors: [primaryColor, primaryColor],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-                    : null,
-                color: _showUnreadOnly ? null : Colors.grey[200],
-                borderRadius: BorderRadius.circular(12),
+                color: _showUnreadOnly ? primaryColor : Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: _showUnreadOnly ? primaryColor : Colors.grey[300]!,
+                ),
+                 boxShadow: [
+                  if (!_showUnreadOnly)
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 4,
+                      offset: Offset(0, 2),
+                    ),
+                ],
               ),
               child: Row(
                 children: [
                   Icon(
                     Icons.filter_list_rounded,
-                    size: 18,
-                    color: _showUnreadOnly ? Colors.white : Colors.grey[600],
+                    size: 16,
+                    color: _showUnreadOnly ? Colors.white : Colors.grey[700],
                   ),
                   SizedBox(width: 6),
                   Text(
                     'Non lues',
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
-                      color: _showUnreadOnly ? Colors.white : Colors.grey[600],
+                      color: _showUnreadOnly ? Colors.white : Colors.grey[700],
                     ),
                   ),
                 ],
@@ -319,12 +202,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
-  Widget _buildNotificationsList() {
+  Widget _buildNotificationsList(List<NotificationItem> displayedNotifications) {
     return ListView.builder(
       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      itemCount: _filteredNotifications.length,
+      itemCount: displayedNotifications.length,
       itemBuilder: (context, index) {
-        final notification = _filteredNotifications[index];
+        final notification = displayedNotifications[index];
         return _buildNotificationCard(notification);
       },
     );
@@ -333,7 +216,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
   void _handleNotificationTap(NotificationItem notification) {
     // Marquer comme lu
     if (!notification.isRead) {
-      _toggleReadStatus(notification.id);
+      Provider.of<NotificationController>(context, listen: false).markAsRead(notification.id);
     }
 
     // Navigation selon le type
@@ -456,7 +339,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                         ),
                       ),
                       Text(
-                        notification.time,
+                        _formatTimeAgo(notification.timestamp),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[500],
@@ -555,25 +438,26 @@ enum NotificationType {
   serviceResponse, // Nouvelle réponse à une demande
   serviceAccepted, // Demande acceptée
   serviceCompleted, // Service terminé
+  warning,
 }
 
 class NotificationItem {
   final String id;
   final String title;
   final String description;
-  final String time;
+  final DateTime timestamp;
   final IconData icon;
   final Color iconColor;
   bool isRead;
   final String category;
   final NotificationType type;
-  final Map<String, dynamic>? data; // Données pour navigation (ex: requestId)
+  final Map<String, dynamic>? data;
 
   NotificationItem({
     required this.id,
     required this.title,
     required this.description,
-    required this.time,
+    required this.timestamp,
     required this.icon,
     required this.iconColor,
     required this.isRead,

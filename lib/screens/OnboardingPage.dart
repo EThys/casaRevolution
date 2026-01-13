@@ -352,7 +352,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                       offset: Offset(0, 20 * (1 - value)),
                       child: Text(
                         'CasaNayo',
-                        style: GoogleFonts.inter(
+                        style: GoogleFonts.outfit(
                           color: Colors.white,
                           fontSize: 24,
                           fontWeight: FontWeight.w900,
@@ -429,10 +429,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 final visibleLength = (text.length * value).floor();
                 return Text(
                   text.substring(0, visibleLength.clamp(0, text.length)),
-                  style: GoogleFonts.inter(
+                  style: GoogleFonts.outfit(
                     color: Colors.white,
                     fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                     height: 1.5,
                     letterSpacing: 0.2,
                     shadows: [
@@ -573,7 +573,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                             children: [
                               Text(
                                 'Allons-y!',
-                                style: GoogleFonts.inter(
+                                style: GoogleFonts.outfit(
                                   color: primaryColor,
                                   fontSize: 18,
                                   fontWeight: FontWeight.w800,

@@ -14,11 +14,13 @@ import '../utils/FavoriteEartIcon.dart';
 class AllPropertiesPage extends StatefulWidget {
   final List<PropertyModel> initialProperties;
   final bool isForRent;
+  final String? title;
 
   const AllPropertiesPage({
     Key? key,
     required this.initialProperties,
     required this.isForRent,
+    this.title,
   }) : super(key: key);
 
   @override
@@ -59,26 +61,9 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         controller: _refreshController,
         enablePullDown: true,
         enablePullUp: false,
-        header: ClassicHeader(
-          height: 60,
-          releaseText: 'Relâchez pour actualiser',
-          refreshingText: 'Mise à jour...',
-          completeText: 'Actualisation terminée',
-          failedText: 'Échec de l\'actualisation',
-          idleText: 'Tirez pour actualiser',
-          textStyle: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-          refreshingIcon: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
-            ),
-          ),
+        header: WaterDropMaterialHeader(
+          backgroundColor: _primaryColor,
+          color: Colors.white,
         ),
         onRefresh: () async {
           await _handlePullToRefresh(propertyCtrl);
@@ -217,20 +202,31 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
   }
 
   Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
+    // Sauvegarder le filtre actuel avant le refresh
+    final currentFilter = _selectedFilter;
+    print("🔄 [AllPropertiesPage] Début du refresh - Filtre actuel: $currentFilter");
+    
     try {
       await propertyCtrl.refreshProperties();
 
-      // Mettre à jour la liste filtrée avec les nouvelles données
-      final newProperties = propertyCtrl.properties.where((p) =>
-      p.transactionType?.toLowerCase().contains(widget.isForRent ? 'location' : 'vente') ?? false
-      ).toList();
+      // Si le filtre est "Tous", récupérer toutes les propriétés du type de transaction
+      if (currentFilter == 'Tous') {
+        final newProperties = propertyCtrl.properties.where((p) =>
+          p.transactionType?.toLowerCase().contains(widget.isForRent ? 'location' : 'vente') ?? false
+        ).toList();
 
-      setState(() {
-        _filteredProperties = newProperties;
-      });
+        setState(() {
+          _filteredProperties = newProperties;
+        });
+      } else {
+        // Sinon, réappliquer le filtre actuel
+        setState(() {
+          _applyFilters();
+        });
+      }
 
       _refreshController.refreshCompleted();
-      SnackbarForCasa.success(context, "Liste actualisée");
+      // Pas de snackbar de succès comme demandé par l'utilisateur
 
     } catch (e) {
       print("❌ Erreur refresh: $e");
@@ -246,7 +242,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         onPressed: () => Navigator.pop(context),
       ),
       title: Text(
-        widget.isForRent ? 'Locations disponibles' : 'Biens à vendre',
+        widget.title ?? (widget.isForRent ? 'Locations disponibles' : 'Biens à vendre'),
         style: TextStyle(
           fontWeight: FontWeight.w600,
           fontSize: 20,
@@ -384,8 +380,8 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
   // Carte en mode liste - Design moderne avec superposition améliorée
   Widget _buildPropertyListItem(PropertyModel property, bool isDarkMode) {
     final priceText = widget.isForRent
-        ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
+        ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+        : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
 
     // Utilisation des vraies images du modèle
     final firstImage = property.propertyImage?.isNotEmpty ?? false
@@ -397,8 +393,10 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
 
     String propertyType = _getPropertyTypeFromTitle(property.propertyType?.name);
 
+    final String heroTag = 'all-list-${property.propertyId}';
+
     return InkWell(
-      onTap: () => _navigateToDetail(property),
+      onTap: () => _navigateToDetail(property, heroTag: heroTag),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         margin: EdgeInsets.only(bottom: 16),
@@ -433,34 +431,36 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
               ),
               child: Stack(
                 children: [
-                  // Image principale
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: imageUrl != null
-                        ? CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: double.infinity,
-                      placeholder: (context, url) => Container(
-                        color: Colors.grey[200],
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                  Hero(
+                    tag: heroTag,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: imageUrl != null
+                          ? CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey[200],
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                            ),
                           ),
                         ),
+                        errorWidget: (context, url, error) {
+                          return Container(
+                            color: Colors.grey[200],
+                            child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
+                          );
+                        },
+                      )
+                          : Container(
+                        color: Colors.grey[200],
+                        child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
                       ),
-                      errorWidget: (context, url, error) {
-                        return Container(
-                          color: Colors.grey[200],
-                          child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
-                        );
-                      },
-                    )
-                        : Container(
-                      color: Colors.grey[200],
-                      child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
                     ),
                   ),
 
@@ -645,16 +645,38 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _buildFeatureItem(
-                          icon: FontAwesomeIcons.bed,
-                          value: '${property.bedrooms ?? 0}',
-                          label: 'Chambres',
-                        ),
-                        _buildFeatureItem(
-                          icon: FontAwesomeIcons.bath,
-                          value: '${property.bathroom ?? 0}',
-                          label: 'SDB',
-                        ),
+                        if (property.propertyTypeId != 4 && property.propertyTypeId != 7 && property.propertyTypeId != 8) ...[
+                          _buildFeatureItem(
+                            icon: FontAwesomeIcons.bed,
+                            value: '${property.bedrooms ?? 0}',
+                            label: 'Chambres',
+                          ),
+                          _buildFeatureItem(
+                            icon: FontAwesomeIcons.bath,
+                            value: '${property.bathroom ?? 0}',
+                            label: 'SDB',
+                          ),
+                        ] else ...[
+                          if (property.propertyTypeId == 4) ...[
+                            _buildFeatureItem(
+                              icon: Icons.meeting_room_outlined,
+                              value: '${property.roomMeet ?? 0}',
+                              label: 'Réunions',
+                            ),
+                            _buildFeatureItem(
+                              icon: property.isEquip == true ? Icons.chair : Icons.chair_outlined,
+                              value: property.isEquip == true ? 'Oui' : 'Non',
+                              label: 'Meublé',
+                            ),
+                          ],
+                          if (property.propertyTypeId == 7 || property.propertyTypeId == 8) ...[
+                            _buildFeatureItem(
+                              icon: Icons.people_outline,
+                              value: '${property.capacityPeople ?? 0}',
+                              label: 'Pers.',
+                            ),
+                          ],
+                        ],
                         _buildFeatureItem(
                           icon: FontAwesomeIcons.rulerCombined,
                           value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
@@ -675,8 +697,8 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
   // Carte en mode grille - Design moderne avec superposition améliorée
   Widget _buildPropertyCard(PropertyModel property, bool isDarkMode) {
     final priceText = widget.isForRent
-        ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
+        ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+        : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
 
     // Utilisation des vraies images du modèle
     final firstImage = property.propertyImage?.isNotEmpty ?? false
@@ -688,8 +710,10 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
 
     String propertyType = _getPropertyTypeFromTitle(property.propertyType?.name);
 
+    final String heroTag = 'all-grid-${property.propertyId}';
+
     return InkWell(
-      onTap: () => _navigateToDetail(property),
+      onTap: () => _navigateToDetail(property, heroTag: heroTag),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
@@ -723,34 +747,36 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                 ),
                 child: Stack(
                   children: [
-                    // Image principale
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: imageUrl != null
-                          ? CachedNetworkImage(
-                        imageUrl: imageUrl,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                        placeholder: (context, url) => Container(
-                          color: Colors.grey[200],
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                    Hero(
+                      tag: heroTag,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: imageUrl != null
+                            ? CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey[200],
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                              ),
                             ),
                           ),
+                          errorWidget: (context, url, error) {
+                            return Container(
+                              color: Colors.grey[200],
+                              child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
+                            );
+                          },
+                        )
+                            : Container(
+                          color: Colors.grey[200],
+                          child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
                         ),
-                        errorWidget: (context, url, error) {
-                          return Container(
-                            color: Colors.grey[200],
-                            child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
-                          );
-                        },
-                      )
-                          : Container(
-                        color: Colors.grey[200],
-                        child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
                       ),
                     ),
 
@@ -930,8 +956,18 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _buildMiniFeatureItem(FontAwesomeIcons.bed, '${property.bedrooms ?? 0}'),
-                        _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bathroom ?? 0}'),
+                        if (property.propertyTypeId != 4 && property.propertyTypeId != 7 && property.propertyTypeId != 8) ...[
+                          _buildMiniFeatureItem(FontAwesomeIcons.bed, '${property.bedrooms ?? 0}'),
+                          _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bathroom ?? 0}'),
+                        ] else ...[
+                          if (property.propertyTypeId == 4) ...[
+                             _buildMiniFeatureItem(Icons.meeting_room_outlined, '${property.roomMeet ?? 0}'),
+                             _buildMiniFeatureItem(property.isEquip == true ? Icons.chair : Icons.chair_outlined, property.isEquip == true ? 'Oui' : 'Non'),
+                          ],
+                          if (property.propertyTypeId == 7 || property.propertyTypeId == 8) ...[
+                             _buildMiniFeatureItem(Icons.people_outline, '${property.capacityPeople ?? 0}'),
+                          ],
+                        ],
                         _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
                       ],
                     ),
@@ -1001,11 +1037,13 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
   }
 
   // Navigation vers la page de détail
-  void _navigateToDetail(PropertyModel property) {
+  void _navigateToDetail(PropertyModel property, {String? heroTag}) {
     Navigator.pushNamed(
       context,
       Routes.detailPageRoute,
-      arguments: property,
+      arguments: heroTag != null 
+          ? {'property': property, 'heroTag': heroTag}
+          : property,
     );
   }
 

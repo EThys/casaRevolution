@@ -1,9 +1,12 @@
+import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/controllers/RegisterBailleurCtrl.dart';
 import 'package:casa/screens/termsAndPrivacy/TermsAndPrivacyPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
+import 'package:casa/utils/country_codes.dart'; // Added
 import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/utils/requetes.dart';
+import 'package:casa/controllers/TypeAccountController.dart'; // Added
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -18,8 +21,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
   final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
+  final _contactController = TextEditingController(); // Unified
+  // final _phoneController = removed
+  // final _emailController = removed
   final _passwordController = TextEditingController();
   final _cityController = TextEditingController();
   final _parrainSearchController = TextEditingController();
@@ -27,8 +31,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
   // Focus nodes pour la navigation au clavier
   final _firstNameFocus = FocusNode();
   final _lastNameFocus = FocusNode();
-  final _phoneFocus = FocusNode();
-  final _emailFocus = FocusNode();
+  final _contactFocus = FocusNode(); // Unified
+  // final _phoneFocus = removed
+  // final _emailFocus = removed
   final _cityFocus = FocusNode();
   final _passwordFocus = FocusNode();
   final _parrainFocus = FocusNode();
@@ -50,10 +55,16 @@ class _ParrainagePageState extends State<ParrainagePage> {
   // Variables pour suivre l'interaction utilisateur avec chaque champ
   bool _firstNameTouched = false;
   bool _lastNameTouched = false;
-  bool _phoneTouched = false;
-  bool _emailTouched = false;
+  bool _contactTouched = false; // Unified
+  // bool _phoneTouched = removed
+  // bool _emailTouched = removed
   bool _cityTouched = false;
   bool _passwordTouched = false;
+
+  // Unified contact field logic
+  bool _isPhoneInput = false;
+  String _selectedCountryCode = '+243'; 
+  final Map<String, String> _countryFlags = Map<String, String>.from(countryFlags); // Needs import
 
   // Couleurs cohérentes avec le login - uniquement bleu
   final Color primaryColor = Color(0xFF1976D2);
@@ -66,14 +77,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
   final Color successColor = Color(0xFF38B000);
 
   String _selectedAccountType = 'Bailleur';
-  final Map<String, Map<String, dynamic>> _accountTypes = {
-    'Bailleur': {
-      'value': 3,
-      'icon': Icons.house_siding_rounded,
-      'description': 'Je propose un logement en location',
-      'color': Color(0xFF2196F3),
-    },
-  };
+  // Dynamic Map from TypeAccountController can represent this, but for now we keep UI logic simple
+  // We will load types dynamically.
 
   @override
   void initState() {
@@ -83,12 +88,17 @@ class _ParrainagePageState extends State<ParrainagePage> {
     _setupFocusNavigation();
     _loadInitialParrains();
 
+    // Initialiser le controller de type
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+       await context.read<TypeAccountController>().fetchTypeAccounts();
+    });
+
     _firstNameController.addListener(_updateButtonState);
     _lastNameController.addListener(_updateButtonState);
-    _phoneController.addListener(_updateButtonState);
+    _contactController.addListener(_updateContactType); // Unified
     _cityController.addListener(_updateButtonState);
     _passwordController.addListener(_updateButtonState);
-    _emailController.addListener(_updateButtonState);
+    // _emailController removed
 
     _setupFieldTouchListeners();
 
@@ -113,15 +123,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
       }
     });
 
-    _phoneFocus.addListener(() {
-      if (!_phoneFocus.hasFocus && _phoneController.text.isNotEmpty) {
-        setState(() => _phoneTouched = true);
-      }
-    });
-
-    _emailFocus.addListener(() {
-      if (!_emailFocus.hasFocus && _emailController.text.isNotEmpty) {
-        setState(() => _emailTouched = true);
+    _contactFocus.addListener(() {
+      if (!_contactFocus.hasFocus && _contactController.text.isNotEmpty) {
+        setState(() => _contactTouched = true);
       }
     });
 
@@ -138,6 +142,31 @@ class _ParrainagePageState extends State<ParrainagePage> {
     });
   }
 
+  // Détecter si l'utilisateur saisit un numéro de téléphone
+  void _updateContactType() {
+    if (mounted) {
+      setState(() {
+        final text = _contactController.text.trim();
+        _isPhoneInput = _looksLikePhoneNumber(text);
+      });
+    }
+  }
+
+  bool _looksLikePhoneNumber(String text) {
+    if (text.isEmpty) return false;
+    final hasDigits = RegExp(r'\d').hasMatch(text);
+    final hasAtSymbol = text.contains('@');
+    final startsWithPlus = text.startsWith('+');
+    final startsWithDigit = text.isNotEmpty && RegExp(r'^\d').hasMatch(text);
+    return hasDigits && !hasAtSymbol && (startsWithPlus || startsWithDigit || text.length >= 8);
+  }
+
+  String? _getCountryNameFromCode(String code) {
+    // Inverse lookup from countryCodes map if needed, or just return code for now
+    // Since we don't have the full map here, we return null or basic logic
+    return null; 
+  }
+
   // Nouvelle méthode pour mettre à jour l'état du bouton
   void _updateButtonState() {
     if (mounted) {
@@ -150,15 +179,13 @@ class _ParrainagePageState extends State<ParrainagePage> {
     _passwordController.removeListener(_updatePasswordStrength);
     _firstNameController.removeListener(_updateButtonState);
     _lastNameController.removeListener(_updateButtonState);
-    _phoneController.removeListener(_updateButtonState);
+    _contactController.removeListener(_updateContactType);
     _cityController.removeListener(_updateButtonState);
     _passwordController.removeListener(_updateButtonState);
-    _emailController.removeListener(_updateButtonState);
-
+    
     _firstNameFocus.dispose();
     _lastNameFocus.dispose();
-    _phoneFocus.dispose();
-    _emailFocus.dispose();
+    _contactFocus.dispose();
     _cityFocus.dispose();
     _passwordFocus.dispose();
     _parrainFocus.dispose();
@@ -183,18 +210,10 @@ class _ParrainagePageState extends State<ParrainagePage> {
       }
     });
 
-    _phoneFocus.addListener(() {
-      if (!_phoneFocus.hasFocus) {
-        if (_phoneController.text.isNotEmpty && !_phoneTouched) {
-          setState(() => _phoneTouched = true);
-        }
-      }
-    });
-
-    _emailFocus.addListener(() {
-      if (!_emailFocus.hasFocus) {
-        if (_emailController.text.isNotEmpty && !_emailTouched) {
-          setState(() => _emailTouched = true);
+    _contactFocus.addListener(() {
+      if (!_contactFocus.hasFocus) {
+        if (_contactController.text.isNotEmpty && !_contactTouched) {
+          setState(() => _contactTouched = true);
         }
       }
     });
@@ -849,6 +868,16 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   Widget _buildAccountTypeField() {
+    // Utiliser le contrôleur pour récupérer les types dynamiquement
+    final typeAccountCtrl = context.watch<TypeAccountController>();
+    final ownerTypes = typeAccountCtrl.ownerTypes;
+    
+    // Filtrer pour ne garder que "Bailleur" si possible, sinon afficher tous les types propriétaires
+    // Si la liste est vide (chargement), on affiche un indicateur ou rien
+    if (ownerTypes.isEmpty) {
+        return SizedBox.shrink(); 
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -870,6 +899,10 @@ class _ParrainagePageState extends State<ParrainagePage> {
                 color: primaryColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: primaryColor.withOpacity(0.3)),
+              ),
+              child: Text(
+                "Obligatoire",
+                style: TextStyle(fontSize: 10, color: primaryColor, fontWeight: FontWeight.bold),
               ),
             ),
           ],
@@ -902,10 +935,19 @@ class _ParrainagePageState extends State<ParrainagePage> {
         ),
         SizedBox(height: 12),
 
-        // Options de compte (seulement Bailleur disponible)
-        ..._accountTypes.entries.map((entry) =>
-            _buildAccountTypeOption(entry.key, entry.value)
-        ),
+        // Options de compte dynamiques
+        ...ownerTypes.map((type) {
+            // Mapping simple pour l'icône et la couleur si besoin, sinon par défaut
+            return _buildAccountTypeOption(
+                type['name'] ?? 'Bailleur', 
+                {
+                  'value': type['typeAccountId'],
+                  'icon': Icons.house_siding_rounded,
+                  'description': type['description'] ?? 'Compte propriétaire',
+                  'color': Color(0xFF2196F3),
+                }
+            );
+        }).toList(),
       ],
     ).animate().slideY(
       begin: 0.2,
@@ -992,14 +1034,14 @@ class _ParrainagePageState extends State<ParrainagePage> {
             label: 'Nom',
             hint: 'Baka',
             focusNode: _lastNameFocus,
-            nextFocus: _phoneFocus,
+            nextFocus: _contactFocus, 
           ),
           SizedBox(height: 15),
-          // Téléphone
-          _buildPhoneField(),
           SizedBox(height: 15),
-          // Email
-          _buildEmailField(),
+          // Contact Unifié
+          _buildContactField(),
+          SizedBox(height: 15),
+          // Ville removed phone and email calls
           SizedBox(height: 15),
           // Ville
           _buildCityField(),
@@ -1374,8 +1416,52 @@ class _ParrainagePageState extends State<ParrainagePage> {
     );
   }
 
-  Widget _buildPhoneField() {
-    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _phoneTouched;
+  Widget _buildCountryCodePicker() {
+    return Container(
+      decoration: BoxDecoration(
+        color: lightBlue.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: PopupMenuButton<String>(
+        onSelected: (value) {
+          setState(() {
+            _selectedCountryCode = value;
+            _contactController.notifyListeners(); // Re-validate if needed
+          });
+        },
+        itemBuilder: (BuildContext context) {
+          return _countryFlags.keys.map((String code) {
+            return PopupMenuItem<String>(
+              value: code,
+              child: Row(
+                children: [
+                  Text(_countryFlags[code]!, style: TextStyle(fontSize: 18)),
+                  SizedBox(width: 8),
+                  Text(code, style: TextStyle(fontSize: 14)),
+                ],
+              ),
+            );
+          }).toList();
+        },
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_countryFlags[_selectedCountryCode]!, style: TextStyle(fontSize: 18)),
+              SizedBox(width: 4),
+              Text(_selectedCountryCode, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textColor)),
+              Icon(Icons.arrow_drop_down, size: 18, color: textColor),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContactField() {
+    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _contactTouched;
 
     return Container(
       decoration: BoxDecoration(
@@ -1389,26 +1475,36 @@ class _ParrainagePageState extends State<ParrainagePage> {
         ],
       ),
       child: TextFormField(
-        controller: _phoneController,
-        focusNode: _phoneFocus,
+        controller: _contactController,
+        focusNode: _contactFocus,
         autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
         style: TextStyle(color: textColor, fontSize: 16),
-        keyboardType: TextInputType.phone,
+        keyboardType: _isPhoneInput ? TextInputType.phone : TextInputType.emailAddress,
         textInputAction: TextInputAction.next,
-        onFieldSubmitted: (_) => _goToNextField(_phoneFocus, _emailFocus),
+        onFieldSubmitted: (_) => _goToNextField(_contactFocus, _cityFocus),
         onChanged: (value) {
-          if (value.isNotEmpty && !_phoneTouched) {
-            setState(() => _phoneTouched = true);
+          if (value.isNotEmpty && !_contactTouched) {
+            setState(() => _contactTouched = true);
           }
+           // IMPORTANT: Trigger logic to detect if phone/email
+           _updateContactType();
         },
         decoration: InputDecoration(
-          labelText: 'Téléphone*',
+          labelText: 'Email ou Téléphone*',
           labelStyle: TextStyle(color: secondaryTextColor),
           prefixIcon: Container(
             padding: EdgeInsets.all(12),
-            child: Icon(Icons.phone_iphone_rounded, color: primaryColor),
+            child: Icon(
+               _isPhoneInput ? Icons.phone_iphone_rounded : Icons.email_rounded,
+               color: primaryColor
+            ),
           ),
-          suffixIcon: _buildNextButton(() => _goToNextField(_phoneFocus, _emailFocus)),
+          prefix: _isPhoneInput 
+            ? Container(
+                margin: EdgeInsets.only(right: 8),
+                child: _buildCountryCodePicker(),
+              ) 
+            : null,
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -1427,81 +1523,15 @@ class _ParrainagePageState extends State<ParrainagePage> {
           ),
           filled: true,
           fillColor: lightBlue.withOpacity(0.3),
-          hintText: '+243 81 000 0000',
+          hintText: _isPhoneInput ? '81 000 0000' : 'exemple@email.com',
           hintStyle: TextStyle(color: Colors.grey.shade500),
         ),
-        validator: _validatePhone,
+        validator: _validateContact,
       ),
     ).animate().slideX(
       begin: 0.3,
       duration: 500.ms,
       delay: 1400.ms,
-      curve: Curves.easeOut,
-    );
-  }
-
-  Widget _buildEmailField() {
-    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _emailTouched;
-
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: primaryColor.withOpacity(0.05),
-            blurRadius: 10,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: TextFormField(
-        controller: _emailController,
-        focusNode: _emailFocus,
-        autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
-        style: TextStyle(color: textColor, fontSize: 16),
-        keyboardType: TextInputType.emailAddress,
-        textInputAction: TextInputAction.next,
-        onFieldSubmitted: (_) => _goToNextField(_emailFocus, _cityFocus),
-        onChanged: (value) {
-          if (value.isNotEmpty && !_emailTouched) {
-            setState(() => _emailTouched = true);
-          }
-        },
-        decoration: InputDecoration(
-          labelText: 'Email (optionnel)',
-          labelStyle: TextStyle(color: secondaryTextColor),
-          prefixIcon: Container(
-            padding: EdgeInsets.all(12),
-            child: Icon(Icons.email_rounded, color: primaryColor),
-          ),
-          suffixIcon: _buildNextButton(() => _goToNextField(_emailFocus, _cityFocus)),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: primaryColor, width: 2),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red, width: 2),
-          ),
-          filled: true,
-          fillColor: lightBlue.withOpacity(0.3),
-          hintText: 'exemple@email.com',
-          hintStyle: TextStyle(color: Colors.grey.shade500),
-        ),
-        validator: _validateEmail,
-      ),
-    ).animate().slideX(
-      begin: -0.3,
-      duration: 500.ms,
-      delay: 1500.ms,
       curve: Curves.easeOut,
     );
   }
@@ -1821,7 +1851,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
     // Vérifier d'abord que tous les champs requis sont remplis
     if (_firstNameController.text.isEmpty ||
         _lastNameController.text.isEmpty ||
-        _phoneController.text.isEmpty ||
+        _contactController.text.isEmpty ||
         _cityController.text.isEmpty ||
         _passwordController.text.isEmpty) {
       return false;
@@ -1830,12 +1860,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
     // Ensuite vérifier que chaque champ est valide en utilisant les validateurs
     if (_validateName(_firstNameController.text, 'prénom') != null) return false;
     if (_validateName(_lastNameController.text, 'nom') != null) return false;
-    if (_validatePhone(_phoneController.text) != null) return false;
+    if (_validateContact(_contactController.text) != null) return false;
     if (_validateCity(_cityController.text) != null) return false;
     if (_validatePassword(_passwordController.text) != null) return false;
-
-    // L'email est optionnel, donc on ne le valide que s'il est rempli
-    if (_emailController.text.isNotEmpty && _validateEmail(_emailController.text) != null) return false;
 
     return true;
   }
@@ -1889,25 +1916,32 @@ class _ParrainagePageState extends State<ParrainagePage> {
     return null;
   }
 
-  String? _validatePhone(String? value) {
+  String? _validateContact(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Le numéro de téléphone est obligatoire';
+      return 'Ce champ est obligatoire';
     }
 
-    // Nettoyer le numéro
-    String cleanedPhone = value.replaceAll(RegExp(r'[^\d+]'), '');
+    // Check locally if looks like phone
+    final isPhone = _looksLikePhoneNumber(value);
 
-    // Vérification plus simple
-    if (cleanedPhone.length < 9) {
-      return 'Le numéro doit contenir au moins 9 chiffres';
+    if (isPhone) {
+        final cleanedValue = value.replaceAll(RegExp(r'[\s\-\+\(\)]'), '');
+        // Validation spécifique selon le pays sélectionné
+        if (_selectedCountryCode == '+243') {
+           if (cleanedValue.length != 9) return 'Le numéro RDC doit avoir 9 chiffres';
+           if (!RegExp(r'^[89]').hasMatch(cleanedValue)) return 'Le numéro RDC doit commencer par 8 ou 9';
+        } else {
+           if (cleanedValue.length < 8) return 'Numéro de téléphone trop court';
+        }
+    } else {
+        // Validation email
+        final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+        if (!emailRegex.hasMatch(value)) return 'Email invalide';
     }
 
-    // Regex plus permissive pour les tests
-    if (!RegExp(r'^(\+?243|0)?[1-9]\d{8}$').hasMatch(cleanedPhone)) {
-      return 'Format invalide. Ex: +243810000000 ou 0810000000';
-    }
     return null;
   }
+
 
   String? _validatePassword(String? value) {
     if (value == null || value.isEmpty) {
@@ -1918,17 +1952,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
     }
     return null;
   }
-  String? _validateEmail(String? value) {
-    if (value != null && value.isNotEmpty) {
-      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-        return 'Adresse email invalide. Ex: exemple@mail.com';
-      }
-      if (value.length > 100) {
-        return 'L\'email ne peut pas dépasser 100 caractères';
-      }
-    }
-    return null;
-  }
+
 
   String? _validateCity(String? value) {
     if (value == null || value.isEmpty) {
@@ -1953,8 +1977,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
       // Marquer tous les champs comme touchés pour forcer l'affichage des erreurs
       _firstNameTouched = true;
       _lastNameTouched = true;
-      _phoneTouched = true;
-      _emailTouched = true;
+      _contactTouched = true;
       _cityTouched = true;
       _passwordTouched = true;
     });
@@ -1983,44 +2006,77 @@ class _ParrainagePageState extends State<ParrainagePage> {
     }
 
     try {
-      final accountType = _accountTypes[_selectedAccountType]!;
+      // Recalculer si c'est un téléphone ou email pour la soumission
+      String phoneField = '';
+      String emailField = '';
+      
+      final contactValue = _contactController.text.trim();
+      final isPhone = _looksLikePhoneNumber(contactValue);
 
-      // Structure de base pour l'utilisateur
-      final userData = {
-        "phone": _phoneController.text,
+      if (isPhone) {
+        // C'est un numéro de téléphone
+        final cleanedPhone = contactValue.replaceAll(RegExp(r'[^\d]'), '');
+        phoneField = cleanedPhone.startsWith('0') 
+            ? '${_selectedCountryCode}${cleanedPhone.substring(1)}'
+            : '${_selectedCountryCode}$cleanedPhone';
+        // S'assurer que le champ phone ne soit pas vide s'il y a un souci de parsing
+        if (phoneField == _selectedCountryCode) phoneField = contactValue;
+      } else {
+        // C'est un email
+        emailField = contactValue;
+      }
+
+      // Récupérer l'ID du type de compte Bailleur dynamiquement
+      int accountTypeId = 3; // Fallback
+      final typeAccountCtrl = context.read<TypeAccountController>();
+      if (typeAccountCtrl.ownerTypes.isNotEmpty) {
+           final validTypes = typeAccountCtrl.ownerTypes.where(
+              (t) => (t['name'] ?? '').toString().toLowerCase().contains('bailleur')
+           ).toList();
+           if (validTypes.isNotEmpty) {
+               accountTypeId = validTypes.first['typeAccountId'] ?? 3;
+           } else {
+               // Si pas de "Bailleur" explicite, prendre le premier type propriétaire (ex: Propriétaire)
+               accountTypeId = typeAccountCtrl.ownerTypes.first['typeAccountId'] ?? 3;
+           }
+      }
+
+      final Map<String, dynamic> userData = {
         "password": _passwordController.text,
-        "typeAccountId": accountType['value'],
-        "email": _emailController.text.isNotEmpty ? _emailController.text : "",
-        "cityId": 1, // À adapter selon votre système de villes
+        "city": _cityController.text.trim(),
+        "country": "RDC",
+        "username": "@${_firstNameController.text}${_lastNameController.text}".replaceAll(' ', ''),
       };
-
-      Map<String, dynamic> payload;
-
-      // Construction du payload avec le parrain
-      payload = {
-        "user": userData,
-        "bailleur": {
+      
+      if (isPhone) {
+        userData["phone"] = phoneField;
+        userData["email"] = "";
+      } else {
+        userData["phone"] = "";
+        userData["email"] = emailField;
+      }
+      
+      final actorData = {
           "lastName": _lastNameController.text,
           "firstName": _firstNameController.text,
           "address": _cityController.text,
           "images": "",
           "cardFront": "",
           "cardBack": "",
+          "typeCardId": 0,
           "parrainId": _selectedParrain != null ? _selectedParrain!['id'] : 0,
-          "typeCardId": 1,
-          "numberCard": "",
-          "note": "Nouveau bailleur parrainé"
-        }
+          "numberCard": ""
+      };
+      
+      // Payload unifié standard
+      final Map<String, dynamic> payload = {
+        "user": userData,
+        "account": [{"typeAccount": accountTypeId}],
+        "actor": actorData
       };
 
-      HttpResponse response;
-
-      // Utiliser le contrôleur Bailleur pour l'inscription
-      final ctrl = context.read<RegisterBailleurCtrl>();
-      response = await ctrl.registerBailleur(
-        payload,
-        typeCompteId: accountType['value'],
-      );
+      final authCtrl = context.read<AuthentificationCtrl>();
+      final response = await authCtrl.register(payload, url: '');
 
       if (!mounted) return;
 
@@ -2041,11 +2097,11 @@ class _ParrainagePageState extends State<ParrainagePage> {
           );
         }
       } else {
-        String errorMessage = response.errorMsg ?? "Erreur lors de l'inscription";
-        FancyNotification.show(context, errorMessage);
+        String errorMsg = _sanitizeError(response.errorMsg);
+        FancyNotification.show(context, errorMsg);
       }
     } catch (e) {
-      FancyNotification.show(context, "Erreur technique lors de l'inscription");
+      FancyNotification.show(context, "Une erreur est survenue. Veuillez réessayer.");
       print("Register error: $e");
     } finally {
       if (mounted) {
@@ -2054,5 +2110,21 @@ class _ParrainagePageState extends State<ParrainagePage> {
         });
       }
     }
+  }
+  String _sanitizeError(String? error) {
+    if (error == null || error.isEmpty) return "Erreur lors de l'inscription. Veuillez réessayer.";
+    final lower = error.toLowerCase();
+    
+    // Masquer les erreurs techniques
+    if (lower.contains("internal server error") || 
+        lower.contains("exception") || 
+        lower.contains("status") || 
+        lower.contains("timeout") ||
+        lower.contains("connection refused") ||
+        error.startsWith("{") ||
+        error.startsWith("<html>")) {
+      return "Une erreur est survenue. Veuillez réessayer.";
+    }
+    return error; 
   }
 }

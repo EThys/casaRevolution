@@ -1,6 +1,7 @@
 import 'package:casa/controllers/ServiceController.dart';
 import 'package:casa/models/PrestationModel.dart';
 import 'package:casa/models/ServiceModel.dart';
+import 'package:casa/models/SollicitationModel.dart';
 import 'package:casa/screens/ServiceDetailPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
@@ -24,6 +25,10 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
   late TabController _tabController;
   bool _isLoadingData = true;
   bool _isRefreshing = false;
+  
+  // View mode: Provider (Prestations) vs Consumer (Solicitations)
+  bool _isProviderView = true;
+
   final DateFormat _dateFormat = DateFormat('dd MMM yyyy', 'fr_FR');
   final GetStorage _stockage = GetStorage();
   
@@ -40,16 +45,36 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
   final Color _chipBackground = Color(0xFFE8F4F8);
 
   List<PrestationModel> _myPrestations = [];
+  List<SollicitationModel> _mySolicitations = [];
   List<int> _deletingIds = [];
   bool _isGridView = false;
+
+  // Role check
+  bool _isPrestataire = false;
 
   @override
   void initState() {
     super.initState();
+    _checkUserRole();
     _tabController = TabController(length: 3, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadMyPrestations();
+      _loadData();
     });
+  }
+
+  void _checkUserRole() {
+    final userAccounts = _stockage.read('user_accounts');
+    if (userAccounts != null && userAccounts is List) {
+      _isPrestataire = userAccounts.any((acc) {
+        final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+        return typeId == 3; // Prestataire
+      });
+    }
+    
+    // Si pas prestataire, on force la vue "Mes Demandes" (Consumer)
+    if (!_isPrestataire) {
+      _isProviderView = false;
+    }
   }
 
   @override
@@ -58,32 +83,57 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
     super.dispose();
   }
 
+  // ... (existing methods)
+
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoadingData = true;
+      _isRefreshing = true;
+    });
+
+    // Si prestataire, on charge les deux. Sinon juste les sollicitations.
+    if (_isPrestataire) {
+       await Future.wait([
+        _loadMyPrestations(),
+        _loadMySolicitations(),
+      ]);
+    } else {
+       await _loadMySolicitations();
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoadingData = false;
+        _isRefreshing = false;
+      });
+    }
+  }
+
   Future<void> _loadMyPrestations() async {
     try {
-      setState(() {
-        _isLoadingData = true;
-        _isRefreshing = true;
-      });
-
       final serviceController = Provider.of<ServiceController>(context, listen: false);
       final prestations = await serviceController.getMyPrestations();
-      
       if (mounted) {
         setState(() {
           _myPrestations = prestations;
-          _isLoadingData = false;
-          _isRefreshing = false;
         });
       }
     } catch (e) {
       print("❌ Erreur lors du chargement des prestations: $e");
+    }
+  }
+  
+  Future<void> _loadMySolicitations() async {
+    try {
+      final serviceController = Provider.of<ServiceController>(context, listen: false);
+      final solicitations = await serviceController.fetchUserSollicitations();
       if (mounted) {
         setState(() {
-          _isLoadingData = false;
-          _isRefreshing = false;
+          _mySolicitations = solicitations;
         });
-        FancyNotification.show(context, "Erreur lors du chargement des prestations");
       }
+    } catch (e) {
+      print("❌ Erreur lors du chargement des sollicitations: $e");
     }
   }
 
@@ -184,14 +234,14 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
         MaterialPageRoute(builder: (context) => IdentityVerificationPage())
       ).then((result) {
         if (result == true) {
-           Navigator.pushNamed(context, Routes.createServicePostRoute).then((_) => _loadMyPrestations());
+           Navigator.pushNamed(context, Routes.createServicePostRoute).then((_) => _loadData());
         }
       });
       return;
     }
 
     Navigator.pushNamed(context, Routes.createServicePostRoute)
-        .then((_) => _loadMyPrestations());
+        .then((_) => _loadData());
   }
 
   List<PrestationModel> get _activePrestations => _myPrestations.where((p) => p.isActive == true).toList();
@@ -209,55 +259,28 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
     }
   }
 
-  Widget _buildStatusBadge(PrestationModel prestation, {bool isGrid = false}) {
-    Color bgColor;
-    String text;
-
-    if (prestation.isActive == true) {
-      bgColor = _successColor;
-      text = 'Active';
-    } else {
-      bgColor = _mediumGrey;
-      text = 'Inactive';
-    }
-
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: isGrid ? 8 : 12, vertical: isGrid ? 4 : 6),
-      decoration: BoxDecoration(
-        color: bgColor.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(isGrid ? 12 : 20),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: isGrid ? 10 : 12,
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _lightGrey,
       appBar: _buildAppBar(),
-      body: Column(
-        children: [
-          _buildTabBar(),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildPrestationList(_filterPrestations('all')),
-                _buildPrestationList(_filterPrestations('active')),
-                _buildPrestationList(_filterPrestations('inactive')),
-              ],
-            ),
-          ),
-        ],
-      ),
+      body: _isProviderView 
+        ? Column(
+            children: [
+              _buildTabBar(),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildPrestationList(_filterPrestations('all')),
+                    _buildPrestationList(_filterPrestations('active')),
+                    _buildPrestationList(_filterPrestations('inactive')),
+                  ],
+                ),
+              ),
+            ],
+          )
+        : _buildSolicitationList(_mySolicitations),
     );
   }
 
@@ -273,52 +296,45 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
           ),
         ),
       ),
-      title: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.work_rounded, color: Colors.white, size: 18),
-          ),
-          SizedBox(width: 12),
-          Text(
-            'Mes services',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 18,
-            ),
-            textAlign: TextAlign.left,
-          ),
-        ],
+      title: Text(
+        'Mes activités',
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+          fontSize: 18,
+        ),
+      ),
+      bottom: PreferredSize(
+        preferredSize: Size.fromHeight(60),
+        child: Container(
+           padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+           child: _buildViewToggle(),
+        ),
       ),
       actions: [
-        Tooltip(
-          message: _isGridView ? 'Vue liste' : 'Vue grille',
-          child: IconButton(
-            icon: Icon(
-              _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
-              color: Colors.white,
+        if (_isProviderView) ...[
+          Tooltip(
+            message: _isGridView ? 'Vue liste' : 'Vue grille',
+            child: IconButton(
+              icon: Icon(
+                _isGridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+                color: Colors.white,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isGridView = !_isGridView;
+                });
+              },
             ),
-            onPressed: () {
-              setState(() {
-                _isGridView = !_isGridView;
-              });
-            },
           ),
-        ),
+        ],
         Tooltip(
           message: 'Actualiser',
           child: Stack(
             children: [
               IconButton(
-                icon: Icon(_isRefreshing ? Icons.refresh : Icons.refresh, color: Colors.white),
-                onPressed: _isRefreshing ? null : _loadMyPrestations,
+                icon: Icon(Icons.refresh, color: Colors.white),
+                onPressed: _isRefreshing ? null : _loadData,
               ),
               if (_isRefreshing)
                 Positioned(
@@ -348,11 +364,75 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
           ),
         ),
       ],
-      bottom: PreferredSize(
-        preferredSize: Size.fromHeight(1),
-        child: Container(
-          height: 1,
-          color: Colors.white.withOpacity(0.2),
+    );
+  }
+  
+
+
+  Widget _buildViewToggle() {
+    // Si l'utilisateur n'est pas prestataire, on cache le toggle car il ne peut voir que "Mes Demandes"
+    if (!_isPrestataire) {
+       return Container(
+         width: double.infinity,
+         padding: EdgeInsets.symmetric(vertical: 12),
+         alignment: Alignment.center,
+         decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(12),
+         ),
+         child: Text(
+           "Mes Demandes",
+           style: TextStyle(
+             color: Colors.white,
+             fontWeight: FontWeight.w600,
+             fontSize: 16,
+           ),
+         ),
+       );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: EdgeInsets.all(4),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildToggleButton("Mes Annonces", _isProviderView, () {
+              setState(() => _isProviderView = true);
+            }),
+          ),
+          Expanded(
+             child: _buildToggleButton("Mes Demandes", !_isProviderView, () {
+              setState(() => _isProviderView = false);
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildToggleButton(String text, bool isSelected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isSelected ? [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))] : [],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          text,
+          style: TextStyle(
+            color: isSelected ? _primaryColor : Colors.white.withOpacity(0.8),
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+          ),
         ),
       ),
     );
@@ -403,18 +483,7 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
   Widget _buildPrestationList(List<PrestationModel> prestations) {
     return AnimatedSwitcher(
       duration: Duration(milliseconds: 300),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        return ScaleTransition(
-          scale: animation,
-          child: FadeTransition(
-            opacity: animation,
-            child: child,
-          ),
-        );
-      },
-      child: _isLoadingData
-          ? _buildShimmerEffect()
-          : prestations.isEmpty
+      child: prestations.isEmpty && !_isLoadingData
           ? _buildEmptyState()
           : _buildPrestationListContent(prestations),
     );
@@ -424,7 +493,7 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
     return RefreshIndicator(
       color: _primaryColor,
       backgroundColor: Colors.white,
-      onRefresh: _loadMyPrestations,
+      onRefresh: _loadData,
       child: _isGridView
           ? _buildGridView(prestations)
           : ListView.separated(
@@ -433,13 +502,27 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
               separatorBuilder: (_, __) => SizedBox(height: 20),
               itemBuilder: (context, index) {
                 final prestation = prestations[index];
-                return AnimatedSwitcher(
-                  duration: Duration(milliseconds: 300),
-                  child: _buildPrestationCard(prestation, isGrid: false),
-                );
+                return _buildPrestationCard(prestation, isGrid: false);
               },
             ),
     );
+  }
+  
+  Widget _buildSolicitationList(List<SollicitationModel> items) {
+     if (_isLoadingData) return _buildShimmerEffect();
+     if (items.isEmpty) return _buildEmptyStateSolicitation();
+     
+     return RefreshIndicator(
+        color: _primaryColor,
+        backgroundColor: Colors.white,
+        onRefresh: _loadData,
+        child: ListView.separated(
+          padding: EdgeInsets.all(16),
+          itemCount: items.length,
+          separatorBuilder: (_, __) => SizedBox(height: 16),
+          itemBuilder: (context, index) => _buildSolicitationCard(items[index]),
+        ),
+     );
   }
 
   Widget _buildShimmerEffect() {
@@ -452,47 +535,10 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
           baseColor: Colors.grey[300]!,
           highlightColor: Colors.grey[100]!,
           child: Container(
+            height: 120,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               color: Colors.white,
-            ),
-            padding: EdgeInsets.all(1),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  height: 180,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                    color: Colors.grey[400],
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        height: 20,
-                        width: double.infinity,
-                        color: Colors.grey[400],
-                      ),
-                      SizedBox(height: 8),
-                      Container(
-                        height: 16,
-                        width: 150,
-                        color: Colors.grey[400],
-                      ),
-                      SizedBox(height: 12),
-                      Container(
-                        height: 16,
-                        width: 200,
-                        color: Colors.grey[400],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ),
           ),
         );
@@ -501,85 +547,40 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
   }
 
   Widget _buildEmptyState() {
-    final emptyMessages = [
-      "Aucun service publié",
-      "Aucun service actif",
-      "Aucun service inactif"
-    ];
-
-    final emptyIcons = [
-      Icons.work_outline,
-      Icons.check_circle_outline,
-      Icons.hourglass_empty
-    ];
-
     return Center(
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                color: _lightGrey,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                emptyIcons[_tabController.index],
-                size: 60,
-                color: _mediumGrey.withOpacity(0.3),
-              ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.work_outline, size: 60, color: _mediumGrey.withOpacity(0.3)),
+          SizedBox(height: 20),
+          Text('Aucun service publié', style: TextStyle(color: _mediumGrey, fontSize: 18, fontWeight: FontWeight.w600)),
+          SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: _navigateToCreateService,
+            icon: Icon(Icons.add_rounded, size: 20),
+            label: Text('Créer un service'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primaryColor,
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            SizedBox(height: 20),
-            Text(
-              'Aucun service',
-              style: TextStyle(
-                color: _mediumGrey,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            SizedBox(height: 10),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                emptyMessages[_tabController.index],
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: _mediumGrey.withOpacity(0.8),
-                  fontSize: 14,
-                ),
-              ),
-            ),
-            SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _navigateToCreateService,
-              icon: Icon(Icons.add_rounded, size: 20),
-              label: Text('Créer un service'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _primaryColor,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
-
-  Widget _buildListView(List<PrestationModel> prestations) {
-    return ListView.builder(
-      padding: EdgeInsets.all(16),
-      itemCount: prestations.length,
-      itemBuilder: (context, index) {
-        final prestation = prestations[index];
-        return _buildPrestationCard(prestation, isGrid: false);
-      },
+  
+  Widget _buildEmptyStateSolicitation() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.assignment_outlined, size: 60, color: _mediumGrey.withOpacity(0.3)),
+          SizedBox(height: 20),
+          Text('Aucune demande effectuée', style: TextStyle(color: _mediumGrey, fontSize: 18, fontWeight: FontWeight.w600)),
+        ],
+      ),
     );
   }
 
@@ -607,12 +608,10 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
     return GestureDetector(
       onTap: isDeleting ? null : () {
         if (prestation.id != null) {
-          // Convertir PrestationModel en ServiceModel
-          final serviceModel = _prestationToServiceModel(prestation);
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => ServiceDetailPage(service: serviceModel),
+              builder: (context) => ServiceDetailPage(service: prestation),
             ),
           );
         }
@@ -734,6 +733,185 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
       ),
     );
   }
+  
+  Widget _buildSolicitationCard(SollicitationModel item) {
+    return Container(
+       padding: EdgeInsets.all(16),
+       decoration: BoxDecoration(
+         color: _cardBackground,
+         borderRadius: BorderRadius.circular(16),
+         boxShadow: [
+           BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: Offset(0, 4))
+         ],
+       ),
+       child: Column(
+         crossAxisAlignment: CrossAxisAlignment.start,
+         children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(item.status).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    item.status ?? 'PENDING',
+                    style: TextStyle(color: _getStatusColor(item.status), fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+                Text(
+                  item.createdAt != null && item.createdAt!.isNotEmpty
+                      ? _dateFormat.format(DateTime.parse(item.createdAt!))
+                      : '',
+                  style: TextStyle(color: _mediumGrey, fontSize: 12),
+                ),
+              ],
+            ),
+            SizedBox(height: 12),
+            if (item.prestation != null) ...[
+               Row(
+                 crossAxisAlignment: CrossAxisAlignment.start,
+                 children: [
+                   Container(
+                     width: 50, 
+                     height: 50,
+                     decoration: BoxDecoration(
+                       borderRadius: BorderRadius.circular(8),
+                       color: _lightGrey,
+                     ),
+                     child: ClipRRect(
+                       borderRadius: BorderRadius.circular(8),
+                       child: (item.prestation!.profile != null || (item.prestation!.images?.isNotEmpty ?? false))
+                         ? CachedNetworkImage(
+                             imageUrl: item.prestation!.profile ?? item.prestation!.images!.first,
+                             fit: BoxFit.cover,
+                             errorWidget: (context, url, err) => Icon(Icons.build, color: _mediumGrey),
+                           )
+                         : Icon(Icons.build, color: _mediumGrey),
+                     ),
+                   ),
+                   SizedBox(width: 12),
+                   Expanded(
+                     child: Column(
+                       crossAxisAlignment: CrossAxisAlignment.start,
+                       children: [
+                          Text(
+                            item.prestation!.title ?? 'Service',
+                            style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: _darkColor),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            item.prestation!.cityValue ?? '',
+                            style: TextStyle(fontSize: 12, color: _mediumGrey),
+                          ),
+                       ],
+                     ),
+                   ),
+                 ],
+               ),
+               SizedBox(height: 12),
+            ],
+            Divider(color: Colors.grey[200]),
+            SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.calendar_today_rounded, size: 16, color: _primaryColor),
+                SizedBox(width: 8),
+                Text(
+                  '${_formatDate(item.startDate)} - ${_formatDate(item.endDate)}',
+                  style: TextStyle(fontSize: 13, color: _darkColor),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            Row(
+               children: [
+                 Icon(Icons.monetization_on_rounded, size: 16, color: _successColor),
+                 SizedBox(width: 8),
+                 Text(
+                   'Budget: ${NumberFormat('#,###').format(item.budget)} ${item.prestation?.currency ?? 'CDF'}',
+                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: _darkColor),
+                 ),
+               ],
+            ),
+            if (item.description != null && item.description!.isNotEmpty) ...[
+               SizedBox(height: 8),
+               Container(
+                 padding: EdgeInsets.all(10),
+                 decoration: BoxDecoration(
+                   color: _lightGrey,
+                   borderRadius: BorderRadius.circular(8),
+                 ),
+                 child: Text(
+                   item.description!,
+                   style: TextStyle(fontSize: 13, color: Colors.grey[800]),
+                   maxLines: 2,
+                   overflow: TextOverflow.ellipsis,
+                 ),
+               ),
+            ],
+         ],
+       ),
+    );
+  }
+  
+  String _formatDate(String? dateStr) {
+     if (dateStr == null) return '';
+     try {
+       final date = DateTime.parse(dateStr);
+       return DateFormat('dd MMM').format(date);
+     } catch (e) {
+       return dateStr;
+     }
+  }
+  
+  Color _getStatusColor(String? status) {
+    switch (status?.toUpperCase()) {
+      case 'ACCEPTED':
+      case 'CONFIRMED':
+        return _successColor;
+      case 'PENDING': 
+        return _warningColor;
+      case 'REJECTED': 
+      case 'CANCELLED':
+        return _errorColor;
+      default: 
+        return _mediumGrey;
+    }
+  }
+
+  Widget _buildStatusBadge(PrestationModel prestation, {bool isGrid = false}) {
+    Color bgColor;
+    String text;
+
+    if (prestation.isActive == true) {
+      bgColor = _successColor;
+      text = 'Active';
+    } else {
+      bgColor = _mediumGrey;
+      text = 'Inactive';
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: isGrid ? 8 : 12, vertical: isGrid ? 4 : 6),
+      decoration: BoxDecoration(
+        color: bgColor.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(isGrid ? 12 : 20),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: isGrid ? 10 : 12,
+        ),
+      ),
+    );
+  }
 
   void _showOptionsMenu(PrestationModel prestation) {
     showModalBottomSheet(
@@ -752,12 +930,10 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
               onTap: () {
                 Navigator.pop(context);
                 if (prestation.id != null) {
-                  // Convertir PrestationModel en ServiceModel
-                  final serviceModel = _prestationToServiceModel(prestation);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => ServiceDetailPage(service: serviceModel),
+                      builder: (context) => ServiceDetailPage(service: prestation),
                     ),
                   );
                 }
@@ -776,40 +952,4 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
       ),
     );
   }
-
-  // Convertir PrestationModel en ServiceModel
-  ServiceModel _prestationToServiceModel(PrestationModel prestation) {
-    // Utiliser profile en premier, puis les images de portfolio
-    List<String>? imagesList = [];
-    
-    // Ajouter la photo de profil en premier si elle existe
-    if (prestation.profile != null && prestation.profile!.isNotEmpty) {
-      imagesList.add(prestation.profile!);
-    }
-    
-    // Ajouter les images de portfolio après
-    if (prestation.images != null && prestation.images!.isNotEmpty) {
-      imagesList.addAll(prestation.images!);
-    }
-    
-    if (imagesList.isEmpty) {
-      imagesList = null;
-    }
-    
-    return ServiceModel()
-      ..serviceId = prestation.id
-      ..title = prestation.title ?? ''
-      ..description = prestation.description ?? ''
-      ..price = prestation.minPrice ?? prestation.maxPrice
-      ..serviceType = ServiceType.reparation // Type par défaut
-      ..address = prestation.address ?? ''
-      ..cityValue = prestation.cityValue ?? ''
-      ..communeValue = prestation.communeValue ?? ''
-      ..quartierValue = prestation.quartierValue ?? ''
-      ..isAvailable = prestation.isActive ?? true
-      ..isVerified = prestation.isCertified ?? false
-      ..rating = 4.5
-      ..images = imagesList;
-  }
 }
-

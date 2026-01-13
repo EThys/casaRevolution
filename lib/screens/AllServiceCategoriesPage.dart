@@ -161,6 +161,10 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
           }
         }
         
+        // Trier par ordre alphabétique pour éviter le sautillement
+        serviceProviderCategories.sort((a, b) => 
+          (a['name'] as String).compareTo(b['name'] as String));
+
         if (mounted) {
           setState(() {});
         }
@@ -285,6 +289,10 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
             }
           }
           
+          // Trier par ordre alphabétique pour la stabilité visuelle
+          serviceProviderCategories.sort((a, b) => 
+            (a['name'] as String).compareTo(b['name'] as String));
+
           // Stocker dans le cache SQLite
           if (categoriesToCache.isNotEmpty) {
             final categoryDB = ServiceCategoryDatabaseHelper.instance;
@@ -382,44 +390,8 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
     return map[normalizedName];
   }
 
-  // Convertir PrestationModel en ServiceModel
-  ServiceModel _prestationToServiceModel(PrestationModel prestation, ServiceType serviceType) {
-    // Utiliser profile en premier, puis les images de portfolio
-    List<String>? imagesList = [];
-    
-    // Ajouter la photo de profil en premier si elle existe
-    if (prestation.profile != null && prestation.profile!.isNotEmpty) {
-      imagesList.add(prestation.profile!);
-    }
-    
-    // Ajouter les images de portfolio après
-    if (prestation.images != null && prestation.images!.isNotEmpty) {
-      imagesList.addAll(prestation.images!);
-    }
-    
-    if (imagesList.isEmpty) {
-      imagesList = null;
-    }
-    
-    return ServiceModel()
-      ..serviceId = prestation.id
-      ..title = prestation.title ?? ''
-      ..description = prestation.description ?? ''
-      ..price = prestation.minPrice ?? prestation.maxPrice
-      ..serviceType = serviceType
-      ..address = prestation.address ?? ''
-      ..cityValue = prestation.cityValue ?? ''
-      ..communeValue = prestation.communeValue ?? ''
-      ..quartierValue = prestation.quartierValue ?? ''
-      ..isAvailable = prestation.isActive ?? true
-      ..isVerified = prestation.isCertified ?? false
-      ..rating = 4.5
-      ..reviewCount = 0
-      ..images = imagesList; // Transférer les images (profil en premier)
-  }
-
   // Charger les prestations pour une catégorie donnée (avec filtrage par serviceId)
-  Future<List<ServiceModel>> _loadServicesForCategory(String accountName, int accountId, ServiceType serviceType) async {
+  Future<List<PrestationModel>> _loadServicesForCategory(int accountId) async {
     try {
       final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
       
@@ -429,12 +401,9 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
       
       if (prestations.isNotEmpty) {
         // Filtrer pour s'assurer que serviceId correspond bien
-        final filteredPrestations = prestations.where((p) => p.serviceId == accountId).toList();
-        return filteredPrestations.map((p) => _prestationToServiceModel(p, serviceType)).toList();
+        return prestations.where((p) => p.serviceId == accountId).toList();
       }
       
-      // Retourner une liste vide si pas de prestations
-      print("⚠️ [AllServiceCategories] Aucune prestation trouvée pour $accountName (ID: $accountId)");
       return [];
     } catch (e) {
       print("❌ [AllServiceCategories] Erreur lors du chargement des prestations: $e");
@@ -539,7 +508,7 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
           setState(() => isLoading = true);
           
           // Charger les prestations depuis l'API avec filtrage par serviceId
-          final services = await _loadServicesForCategory(accountName, accountId, serviceType);
+          final services = await _loadServicesForCategory(accountId);
           
           setState(() => isLoading = false);
           

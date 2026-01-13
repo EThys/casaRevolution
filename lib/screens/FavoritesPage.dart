@@ -53,7 +53,10 @@ class _FavoritesPageState extends State<FavoritesPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadFavorites();
+    // Fix: Delay load to avoid setState during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadFavorites();
+    });
   }
 
   // Shimmer effect
@@ -149,7 +152,7 @@ class _FavoritesPageState extends State<FavoritesPage>
 
     } catch (e) {
       print("❌ Erreur lors du chargement des favoris: $e");
-      FancyNotification.show(context, "Erreur lors du chargement des favoris");
+      // FancyNotification.show(context, "Erreur lors du chargement des favoris"); // Silent error
     } finally {
       if (mounted) {
         setState(() {
@@ -184,13 +187,13 @@ class _FavoritesPageState extends State<FavoritesPage>
         await favoriteProvider.syncFavorites(userId);
 
         await Future.delayed(Duration(milliseconds: 300));
-        _showNotification("Supprimé des favoris", isError: false);
+        // _showNotification("Supprimé des favoris", isError: false); // Silent
 
         // Recharger les données
         await _loadFavorites();
       }
     } catch (e) {
-      _showNotification("Échec de la suppression", isError: true);
+      // _showNotification("Échec de la suppression", isError: true); // Silent
       print("Erreur lors de la suppression: $e");
     } finally {
       if (mounted) {
@@ -494,10 +497,9 @@ class _FavoritesPageState extends State<FavoritesPage>
       onRefresh: _loadFavorites,
       child: _isGridView
           ? _buildFavoriteGridContent(favorites)
-          : ListView.separated(
-              padding: EdgeInsets.all(20),
+          : ListView.builder(
+              padding: EdgeInsets.only(top: 20, left: 20, right: 20),
               itemCount: favorites.length,
-              separatorBuilder: (_, __) => SizedBox(height: 20),
               itemBuilder: (context, index) {
                 final favorite = favorites[index];
                 return AnimatedSwitcher(
@@ -541,8 +543,8 @@ class _FavoritesPageState extends State<FavoritesPage>
     final imageUrl = firstImage?.path;
 
     final priceText = isForRent
-        ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$';
+        ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}/mois'
+        : '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}';
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -742,10 +744,10 @@ class _FavoritesPageState extends State<FavoritesPage>
     final imageUrl = firstImage?.path;
 
     final priceText = isForRent
-        ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${propertyData?.price?.toStringAsFixed(0) ?? '0'}\$';
+        ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}/mois'
+        : '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}';
 
-    return InkWell(
+    final cardContent = InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: () {
         Navigator.pushNamed(context, Routes.detailPageRoute, arguments: propertyData);
@@ -895,6 +897,12 @@ class _FavoritesPageState extends State<FavoritesPage>
                                 splashRadius: 18,
                                 activeColor: Colors.red,
                                 inactiveColor: _mediumGrey,
+                                onLikeChanged: (isLiked) {
+                                  if (!isLiked) {
+                                    // Si l'utilisateur a désaimé, on déclenche la suppression
+                                    _removeFavorite(propertyData.propertyId);
+                                  }
+                                },
                               ),
                             ),
                         ],
@@ -960,51 +968,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                             ),
                           ),
                           Spacer(),
-                          if (isDeleting)
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: _errorColor,
-                              ),
-                            )
-                          else
-                            InkWell(
-                              onTap: () {
-                                if (propertyData?.propertyId != null) {
-                                  _removeFavorite(propertyData!.propertyId!);
-                                }
-                              },
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: _errorColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: _errorColor.withOpacity(0.3)),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.delete_outline,
-                                      size: 16,
-                                      color: _errorColor,
-                                    ),
-                                    SizedBox(width: 5),
-                                    Text(
-                                      'Supprimer',
-                                      style: TextStyle(
-                                        color: _errorColor,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                          // Bouton supprimer retiré
                         ],
                       ),
                     ],
@@ -1012,23 +976,32 @@ class _FavoritesPageState extends State<FavoritesPage>
                 ),
               ],
             ),
-            if (isDeleting)
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Center(
-                    child: CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  ),
-                ),
-              ),
+            // Overlay de suppression visuelle (optionnel, maintenant on fait disparaitre)
           ],
         ),
       ),
+    );
+
+    // Animation plus fluide avec changement de taille et fondu
+    return AnimatedSwitcher(
+      duration: Duration(milliseconds: 400),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return SizeTransition(
+          sizeFactor: animation,
+          axis: Axis.vertical,
+          child: FadeTransition(
+            opacity: animation,
+            child: child,
+          ),
+        );
+      },
+      child: isDeleting
+          ? SizedBox.shrink(key: ValueKey('empty-${propertyData?.propertyId}'))
+          : Container(
+              key: ValueKey('content-${propertyData?.propertyId}'),
+              child: cardContent,
+              margin: EdgeInsets.only(bottom: 20), // Déplacer le margin ici pour qu'il s'anime aussi
+            ),
     );
   }
 
