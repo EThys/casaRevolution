@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../models/PrestationModel.dart';
 import '../models/ServiceModel.dart';
 import '../utils/FavoriteEartIcon.dart';
 import 'ServiceDetailPage.dart';
 
 class ServiceCategoryPage extends StatefulWidget {
   final ServiceType serviceType;
-  final List<ServiceModel> services;
+  final List<PrestationModel> services;
 
   const ServiceCategoryPage({
     Key? key,
@@ -19,24 +20,9 @@ class ServiceCategoryPage extends StatefulWidget {
   static const Color accentColor = Color(0xFF64B5F6);
   static const Color darkBlue = Color(0xFF0D47A1);
 
-  String _getPriceRange(ServiceModel service) {
-    if (service.price == null) return 'Prix sur demande';
-    final double basePrice = service.price!;
-    final double minPrice = basePrice * 0.8;
-    final double maxPrice = basePrice * 1.2;
-    if (minPrice.round() == maxPrice.round()) {
-      return '${_formatPrice(basePrice)} \$';
-    }
-    return '${_formatPrice(minPrice)} - ${_formatPrice(maxPrice)} \$';
-  }
-
-  String _formatPrice(num price) {
-    if (price >= 1000000) {
-      return '${(price / 1000000).toStringAsFixed(1)}M';
-    } else if (price >= 1000) {
-      return (price / 1000).toStringAsFixed(0) + 'K';
-    }
-    return price.toStringAsFixed(0);
+  String _getPriceRange(PrestationModel service) {
+    if (service.minPrice == null || service.minPrice == 0) return 'Prix sur demande';
+    return 'À partir de ${service.minPrice!.toStringAsFixed(0)} ${service.currency}';
   }
 
   @override
@@ -51,37 +37,19 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
   Color get accentColor => ServiceCategoryPage.accentColor;
   Color get darkBlue => ServiceCategoryPage.darkBlue;
 
-  String _getPriceRange(ServiceModel service) {
-    if (service.price == null) return 'Prix sur demande';
-    final double basePrice = service.price!;
-    final double minPrice = basePrice * 0.8;
-    final double maxPrice = basePrice * 1.2;
-    if (minPrice.round() == maxPrice.round()) {
-      return '${_formatPrice(basePrice)} \$';
-    }
-    return '${_formatPrice(minPrice)} - ${_formatPrice(maxPrice)} \$';
-  }
 
-  String _formatPrice(num price) {
-    if (price >= 1000000) {
-      return '${(price / 1000000).toStringAsFixed(1)}M';
-    } else if (price >= 1000) {
-      return (price / 1000).toStringAsFixed(0) + 'K';
-    }
-    return price.toStringAsFixed(0);
-  }
 
-  List<ServiceModel> get _sortedServices {
-    final list = List<ServiceModel>.from(widget.services);
+  List<PrestationModel> get _sortedServices {
+    final list = List<PrestationModel>.from(widget.services);
     switch (_sort) {
       case 'Prix ↑':
-        list.sort((a, b) => (a.price ?? 0).compareTo(b.price ?? 0));
+        list.sort((a, b) => (a.minPrice ?? 0).compareTo(b.minPrice ?? 0));
         break;
       case 'Prix ↓':
-        list.sort((a, b) => (b.price ?? 0).compareTo(a.price ?? 0));
+        list.sort((a, b) => (b.minPrice ?? 0).compareTo(a.minPrice ?? 0));
         break;
       case 'Note':
-        list.sort((a, b) => (b.rating ?? 0).compareTo(a.rating ?? 0));
+        // list.sort((a, b) => (b.rating ?? 0).compareTo(a.rating ?? 0));
         break;
       default:
         break;
@@ -230,12 +198,12 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
     );
   }
 
-  Widget _buildServiceCard(BuildContext context, ServiceModel service, {bool isCompact = false}) {
-    final firstImage = service.images != null && service.images!.isNotEmpty
+  Widget _buildServiceCard(BuildContext context, PrestationModel service, {bool isCompact = false}) {
+    final firstImage = service.profile ?? (service.images != null && service.images!.isNotEmpty
         ? service.images!.first
-        : null;
+        : null);
 
-    final priceText = _getPriceRange(service);
+    final priceText = widget._getPriceRange(service);
 
     // Mode compact (grille) - Layout optimisé
     if (isCompact) {
@@ -376,7 +344,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                         ),
                         
                         // Badge vérifié
-                        if (service.isVerified == true)
+                        if (service.isCertified == true)
                           Positioned(
                             top: 8,
                             left: 8,
@@ -441,7 +409,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                                   SizedBox(width: 4),
                                   Flexible(
                                     child: Text(
-                                      service.address!,
+                                      service.address ?? service.cityValue ?? '',
                                       style: GoogleFonts.inter(
                                         fontSize: 10,
                                         color: Colors.grey[600],
@@ -455,7 +423,8 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                               ),
                             ),
                           
-                          // Reviews (étoiles)
+                          // Reviews (étoiles) - Hidden for now as PrestationModel doesn't have it
+                          /*
                           if (service.rating != null) ...[
                             if (service.address != null) SizedBox(width: 8),
                             Row(
@@ -488,6 +457,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                               ],
                             ),
                           ],
+                          */
                         ],
                       ),
                     ],
@@ -569,7 +539,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                         top: 12,
                         right: 12,
                         child: FavoriteHeartIcon(
-                          propertyId: 'service_${service.serviceId}',
+                          propertyId: 'service_${service.id}',
                           size: 24,
                           splashRadius: 20,
                           activeColor: Colors.red,
@@ -577,7 +547,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                         ),
                       ),
                       // Badge vérifié
-                      if (service.isVerified == true)
+                      if (service.isCertified == true)
                         Positioned(
                           top: 12,
                           left: 12,
@@ -661,6 +631,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                             ),
                           ),
                         ),
+                        /*
                         if (service.rating != null)
                           Row(
                             children: [
@@ -684,19 +655,20 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                                 ),
                             ],
                           ),
+                        */
                       ],
                     ),
                     SizedBox(height: 12),
                     
                     // Adresse
-                    if (service.address != null)
+                    if (service.address != null || service.cityValue != null)
                       Row(
                         children: [
                           Icon(Icons.location_on, size: 16, color: primaryColor),
                           SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              service.address!,
+                              service.address ?? service.cityValue ?? '',
                               style: GoogleFonts.inter(
                                 fontSize: 13,
                                 color: Colors.grey[600],

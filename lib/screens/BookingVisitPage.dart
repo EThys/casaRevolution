@@ -1,4 +1,5 @@
 import 'package:casa/controllers/ReservationController.dart';
+import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
@@ -286,7 +287,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     try {
       // Sur Android, utiliser directement le chemin du stockage externe public
       if (Platform.isAndroid) {
-        final dir = Directory('/storage/emulated/0/casaNayo/documents');
+        final dir = Directory('/storage/emulated/0/casa');
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
@@ -306,7 +307,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
           base = ext.path;
         }
         if (base.isEmpty) base = '/storage/emulated/0';
-        final dir = Directory('$base/casaNayo/documents');
+        final dir = Directory('$base/casa');
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
@@ -318,7 +319,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
     // Fallback: répertoire documents applicatif
     final docs = await getApplicationDocumentsDirectory();
-    final fallbackDir = Directory('${docs.path}/casaNayo/documents');
+    final fallbackDir = Directory('${docs.path}/casa');
     if (!await fallbackDir.exists()) {
       await fallbackDir.create(recursive: true);
     }
@@ -406,34 +407,47 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
           }
           
           if (profile != null) {
-            final firstname = profile['firstname']?.toString() ?? profile['firstName']?.toString() ?? '';
-            final lastname = profile['lastname']?.toString() ?? profile['lastName']?.toString() ?? '';
-            print("📋 Profile trouvé - firstname: $firstname, lastname: $lastname");
+            // PRIORITÉ 1: fullName
+            final fullname = profile['fullname']?.toString() ?? profile['fullName']?.toString() ?? '';
             
-            if (firstname.isNotEmpty || lastname.isNotEmpty) {
-              _userName = '${firstname} ${lastname}'.trim(); // Concatenation demandée
+            if (fullname.isNotEmpty) {
+              _userName = fullname;
+              print("✅ FullName récupéré: $_userName");
             } else {
-              // Fallback sur fullname si disponible
-              final fullname = profile['fullname']?.toString() ?? '';
-              _userName = fullname.isNotEmpty ? fullname : '';
+              // PRIORITÉ 2: firstname + lastname
+              final firstname = profile['firstname']?.toString() ?? profile['firstName']?.toString() ?? '';
+              final lastname = profile['lastname']?.toString() ?? profile['lastName']?.toString() ?? '';
+              print("📋 Profile trouvé - firstname: $firstname, lastname: $lastname");
+              
+              if (firstname.isNotEmpty || lastname.isNotEmpty) {
+                _userName = '${firstname} ${lastname}'.trim();
+                print("✅ Nom composé récupéré: $_userName");
+              } else {
+                _userName = '';
+              }
             }
-            print("✅ Nom récupéré: $_userName");
           } else {
             print("⚠️ Profile non trouvé dans profileKey ni dans userData");
-            // Fallback sur les autres champs si profile n'existe pas
-            final username = user['username']?.toString() ?? '';
-            final name = user['name']?.toString() ?? '';
-            final firstName = user['firstName']?.toString() ?? '';
-            final lastname = user['lastname']?.toString() ?? user['lastName']?.toString() ?? '';
-            
-            if (firstName.isNotEmpty || lastname.isNotEmpty) {
-              _userName = '${firstName} ${lastname}'.trim();
-            } else if (username.isNotEmpty) {
-              _userName = username.replaceAll('@', '').trim();
-            } else if (name.isNotEmpty) {
-              _userName = name.trim();
+            // Fallback sur fullName dans user directement
+            final fullname = user['fullname']?.toString() ?? user['fullName']?.toString() ?? '';
+            if (fullname.isNotEmpty) {
+              _userName = fullname;
             } else {
-              _userName = '';
+              // Fallback sur les autres champs si profile n'existe pas
+              final username = user['username']?.toString() ?? '';
+              final name = user['name']?.toString() ?? '';
+              final firstName = user['firstName']?.toString() ?? '';
+              final lastname = user['lastname']?.toString() ?? user['lastName']?.toString() ?? '';
+              
+              if (firstName.isNotEmpty || lastname.isNotEmpty) {
+                _userName = '${firstName} ${lastname}'.trim();
+              } else if (username.isNotEmpty) {
+                _userName = username.replaceAll('@', '').trim();
+              } else if (name.isNotEmpty) {
+                _userName = name.trim();
+              } else {
+                _userName = '';
+              }
             }
           }
           
@@ -534,14 +548,22 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   }
 
   Future<void> _handleBooking() async {
-    if (_selectedDate == null || _selectedTime == null) {
-      FancyNotification.show(context, "Veuillez sélectionner une date et une heure");
+    final userId = _getUserId();
+    if (userId == null) {
+      FancyNotification.show(
+        context, 
+        "Vous devez être connecté pour planifier une visite",
+        type: NotificationType.info
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => LoginScreen()),
+      );
       return;
     }
 
-    final userId = _getUserId();
-    if (userId == null) {
-      FancyNotification.show(context, "Utilisateur non connecté");
+    if (_selectedDate == null || _selectedTime == null) {
+      FancyNotification.show(context, "Veuillez sélectionner une date et une heure");
       return;
     }
 
@@ -1177,7 +1199,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
     final price = widget.property.price?.toInt() ?? 0;
 
-    return isForRent ? '${price}\$ / mois' : '${price}\$';
+    return isForRent ? '${price} ${widget.property.currency} / mois' : '${price} ${widget.property.currency}';
   }
 
   void _showAddressVerification() {
@@ -1370,15 +1392,22 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         }
         
         if (profile != null) {
-          final firstname = profile['firstname']?.toString() ?? profile['firstName']?.toString() ?? '';
-          final lastname = profile['lastname']?.toString() ?? profile['lastName']?.toString() ?? '';
-          print("📋 Profile trouvé (fallback) - firstname: $firstname, lastname: $lastname");
+          // PRIORITÉ 1: fullName
+          final fullname = profile['fullname']?.toString() ?? profile['fullName']?.toString() ?? '';
           
-          if (firstname.isNotEmpty || lastname.isNotEmpty) {
-            displayName = '${firstname} ${lastname}'.trim();
+          if (fullname.isNotEmpty) {
+            displayName = fullname;
           } else {
-            final fullname = profile['fullname']?.toString() ?? profile['fullName']?.toString() ?? '';
-            displayName = fullname.isNotEmpty ? fullname : 'Visiteur';
+            // PRIORITÉ 2: firstname + lastname
+            final firstname = profile['firstname']?.toString() ?? profile['firstName']?.toString() ?? '';
+            final lastname = profile['lastname']?.toString() ?? profile['lastName']?.toString() ?? '';
+            print("📋 Profile trouvé (fallback) - firstname: $firstname, lastname: $lastname");
+            
+            if (firstname.isNotEmpty || lastname.isNotEmpty) {
+              displayName = '${firstname} ${lastname}'.trim();
+            } else {
+              displayName = 'Visiteur';
+            }
           }
         } else {
           print("⚠️ Profile non trouvé dans profileKey ni dans userData (fallback)");

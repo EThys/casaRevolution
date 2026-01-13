@@ -7,12 +7,17 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
 import '../controllers/PropertyCtrl.dart';
+import '../controllers/ServiceController.dart';
+import '../models/ServiceModel.dart';
 import '../controllers/LocationController.dart';
 import '../models/CityModel.dart';
 import '../models/CommuneModel.dart';
-import '../models/PropertyModel.dart';
+import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/models/PrestationModel.dart'; // Added
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/Routes.dart';
+import '../controllers/AuthentificationCtrl.dart';
+import '../controllers/provider/FavoriteProvider.dart';
 
 class PropertySearchPage extends StatefulWidget {
   @override
@@ -31,9 +36,20 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   String _selectedPropertyType = 'Tous';
   String? _selectedBedrooms;
   bool _showFilters = false;
+  bool _isLoadingProperties = true; // New flag for coordinated loading
   TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
   bool _showSearchLoader = false;
+
+  // Mode de recherche
+  String _searchType = 'Propriétés'; // 'Propriétés' ou 'Services'
+  
+  // Filtres Services
+  String? _selectedServiceCategory; // Changed from ServiceType to String for flexibility
+  List<String> _serviceCategories = [];
+  List<PrestationModel> _allPrestations = []; // Using PrestationModel
+  List<PrestationModel> _filteredPrestations = [];
+  bool _isLoadingServices = false;
 
   // Contrôles de localisation
   String? _selectedCity;
@@ -47,7 +63,19 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
   // Options
   String _selectedTransaction = 'Location';
-  final List<String> _propertyTypes = ['Tous', 'Studio', 'Apparts', 'Maisons', 'Bureau', 'Hotels', 'Vacances'];
+  final List<String> _propertyTypes = [
+    'Tous', 
+    'Studio', 
+    'Apparts', 
+    'Maisons', 
+    'Bureau', 
+    'Hotels', 
+    'Vacances',
+    'Salle de fête',
+    'Salle funéraires',
+    'Terrain',
+    'Entrepôt'
+  ];
 
   // Remplacement des listes statiques par des données dynamiques
   List<String> _cities = [];
@@ -62,13 +90,18 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     'Bureau': 4,
     'Hotels': 5,
     'Vacances': 6,
+    'Salle funéraires': 7,
+    'Salle de fête': 8,
+    'Terrain': 9,
+    'Entrepôt': 10,
   };
 
   // Timer pour le debounce de recherche
   Timer? _searchDebounce;
 
-  // Refresh controller pour pull-to-refresh
-  final RefreshController _refreshController = RefreshController();
+  // Refresh controllers pour pull-to-refresh
+  final RefreshController _propertyRefreshController = RefreshController();
+  final RefreshController _serviceRefreshController = RefreshController();
 
   @override
   void initState() {
@@ -88,33 +121,50 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   void _initializeData() async {
     final propertyController = Provider.of<PropertyController>(context, listen: false);
     final locationController = Provider.of<LocationController>(context, listen: false);
+    final serviceController = Provider.of<ServiceController>(context, listen: false);
 
-    // Charger les propriétés
-    propertyController.getAllProperty();
+    // Charger les services (Prestations)
+    setState(() {
+      _isLoadingServices = true;
+    });
+    
+    // Utiliser fetchAllPrestations au lieu de fetchServices
+    await serviceController.fetchAllPrestations();
+    
+    if (mounted) {
+      setState(() {
+        // Extraire les catégories uniques des prestations
+        _allPrestations = List.from(serviceController.prestations);
+        _filteredPrestations = List.from(serviceController.prestations);
+        
+        // Extraire les catégories dynamiquement si possible, sinon utiliser une liste statique
+        // Ici on va utiliser les types de comptes ou catégories codés en dur pour l'instant
+        _serviceCategories = [
+          'Plombier', 'Electricien', 'Menuisier', 'Peintre', 'Maçon', 
+          'Jardinier', 'Nettoyage', 'Déménagement', 'Traiteur', 'Photographe'
+        ];
+        
+        _isLoadingServices = false;
+      });
+    }
+
+    // Charger les propriétés (Normales + Spéciales) de manière séquentielle pour garantir le merge
+    try {
+      if (mounted) setState(() => _isLoadingProperties = true);
+      
+      // 1. Charger les propriétés standard (écrase la liste)
+      await propertyController.getAllProperty();
+      // 2. Charger et fusionner les catégories spéciales (ajoute à la liste)
+      await propertyController.syncAllSpecialCategories();
+      
+    } catch (e) {
+      print("Erreur chargement propriétés: $e");
+    } finally {
+      if (mounted) setState(() => _isLoadingProperties = false);
+    }
 
     // Charger les données de localisation
     await locationController.loadAllData();
-
-    // Vérifier les relations entre villes, districts et communes
-    print("=== VERIFICATION DES RELATIONS ===");
-    print("🏙️ Villes chargées: ${locationController.cities.length}");
-    print("📊 Districts chargés: ${locationController.districts.length}");
-    print("🏘️ Communes chargées: ${locationController.communes.length}");
-
-    // Vérifier quelques exemples de relations
-    if (locationController.cities.isNotEmpty && locationController.communes.isNotEmpty) {
-      final testCity = locationController.cities.first;
-      print("🔍 Test pour la ville: ${testCity.name} (ID: ${testCity.cityId})");
-
-      final communesForTestCity = locationController.communes.where((commune) {
-        return commune.district?.city?.cityId == testCity.cityId;
-      }).toList();
-
-      print("🏘️ Communes liées à ${testCity.name}: ${communesForTestCity.length}");
-      for (var commune in communesForTestCity.take(3)) {
-        print("   - ${commune.name} (District: ${commune.district?.name})");
-      }
-    }
 
     // Mettre à jour les listes de villes et communes
     if (mounted) {
@@ -129,8 +179,6 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             .map((commune) => commune.name!)
             .toList();
       });
-
-      print("✅ Interface initialisée: ${_cities.length} villes, ${_communes.length} communes");
     }
   }
 
@@ -204,83 +252,54 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     print("🌍 Affichage de toutes les communes: ${_communes.length}");
   }
 
-  void _applyFilters() {
-    final propertyController = Provider.of<PropertyController>(context, listen: false);
-    final locationController = Provider.of<LocationController>(context, listen: false);
 
-    // Convertir les filtres UI en paramètres API
-    int? propertyTypeId = _propertyTypeMapping[_selectedPropertyType];
-    if (propertyTypeId == 0) propertyTypeId = null; // "Tous" = pas de filtre
-
-    // Gérer le type de transaction (sold parameter)
-    bool? sold;
-    if (_selectedTransaction == 'Location') {
-      sold = false; // Properties disponibles pour location
-    } else if (_selectedTransaction == 'Achat') {
-      sold = true; // Properties vendues (ou à vendre)
-    }
-
-    // Récupérer les IDs des villes et communes sélectionnées
-    int? cityId;
-    int? communeId;
-
-    if (_selectedCity != null) {
-      final city = locationController.cities.firstWhere(
-            (c) => c.name == _selectedCity,
-        orElse: () => CityModel(),
-      );
-      cityId = city.cityId;
-    }
-
-    if (_selectedCommune != null) {
-      final commune = locationController.communes.firstWhere(
-            (c) => c.name == _selectedCommune,
-        orElse: () => CommuneModel(),
-      );
-      communeId = commune.communeId;
-    }
-
-    int? bedrooms = _selectedBedrooms != null ? int.tryParse(_selectedBedrooms!) : null;
-
-    // Appliquer les filtres selon l'API
-    propertyController.filterProperties(
-      sold: sold,
-      minPrice: _priceRange.start,
-      maxPrice: _priceRange.end,
-      typeMaison: propertyTypeId,
-      city: cityId,
-      commune: communeId,
-      room: bedrooms,
-      sortBy: 'price',
-      sortOrder: 'asc',
-    );
-
-    setState(() {
-      _showFilters = false;
-    });
-  }
 
   void _performSearch() {
-    final controller = Provider.of<PropertyController>(context, listen: false);
     final searchTerm = _searchController.text.trim();
 
-    if (searchTerm.isNotEmpty) {
-      setState(() {
-        _showSearchLoader = true;
-      });
-
-      controller.searchProperties(searchTerm).then((_) {
-        if (mounted) {
+    if (_searchType == 'Propriétés') {
+       final controller = Provider.of<PropertyController>(context, listen: false);
+       if (searchTerm.isNotEmpty) {
           setState(() {
-            _showSearchLoader = false;
+            _showSearchLoader = true;
           });
-        }
-      });
+          controller.searchProperties(searchTerm).then((_) {
+            if (mounted) {
+              setState(() {
+                _showSearchLoader = false;
+              });
+            }
+          });
+       } else {
+         controller.resetFilters();
+         setState(() {
+           _showSearchLoader = false;
+         });
+       }
     } else {
-      controller.resetFilters();
-      setState(() {
-        _showSearchLoader = false;
-      });
+       // Search for Services (Local filtering)
+       setState(() {
+         _showSearchLoader = true;
+       });
+       
+       // Simulate network delay for better UX
+       Future.delayed(Duration(milliseconds: 500), () {
+         if (mounted) {
+           setState(() {
+             if (searchTerm.isEmpty) {
+               _filteredPrestations = List.from(_allPrestations);
+             } else {
+               _filteredPrestations = _allPrestations.where((s) {
+                 final title = s.title?.toLowerCase() ?? '';
+                 final desc = s.description?.toLowerCase() ?? '';
+                 final query = searchTerm.toLowerCase();
+                 return title.contains(query) || desc.contains(query);
+               }).toList();
+             }
+             _showSearchLoader = false;
+           });
+         }
+       });
     }
   }
 
@@ -288,12 +307,18 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     _searchDebounce?.cancel();
 
     if (value.trim().isEmpty) {
+      if (_searchType == 'Propriétés') {
+         final controller = Provider.of<PropertyController>(context, listen: false);
+         controller.resetFilters();
+      } else {
+        setState(() {
+          _filteredPrestations = List.from(_allPrestations);
+        });
+      }
       setState(() {
         _showSearchLoader = false;
         _isSearching = false;
       });
-      final controller = Provider.of<PropertyController>(context, listen: false);
-      controller.resetFilters();
       return;
     }
 
@@ -317,6 +342,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       _selectedCity = null;
       _selectedCommune = null;
       _selectedTransaction = 'Location';
+      _selectedServiceCategory = null; 
       _minPriceController.text = '500';
       _maxPriceController.text = '2500';
       _bedroomsController.clear();
@@ -329,6 +355,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           .where((commune) => commune.name != null)
           .map((commune) => commune.name!)
           .toList();
+      
+      // Reset prestations list
+      _filteredPrestations = List.from(_allPrestations);
     });
 
     final controller = Provider.of<PropertyController>(context, listen: false);
@@ -336,264 +365,259 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   }
 
   // Méthode pour gérer le pull-to-refresh
-  Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
+  Future<void> _handlePullToRefresh(PropertyController propertyCtrl, {RefreshController? controller}) async {
+    final activeController = controller ?? (_searchType == 'Propriétés' ? _propertyRefreshController : _serviceRefreshController);
+    
     try {
-      await propertyCtrl.refreshProperties();
-      _refreshController.refreshCompleted();
-      _showRefreshSuccess();
+      // 0. Sync Favorites (Fix for red hearts issue)
+      if (mounted) {
+        final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
+        final favProvider = Provider.of<FavoriteProvider>(context, listen: false);
+        if (authCtrl.token.isNotEmpty && authCtrl.user.userId != null) {
+          // Don't await strictly to avoid blocking UI, but it runs in parallel
+          favProvider.syncFavorites(authCtrl.user.userId.toString()); 
+        }
+      }
+
+      // 1. Refresh Logic respecting partial state
+      if (_searchType == 'Propriétés') {
+         // Check if filters are active or search is active
+         bool hasFilters = _getActiveFilterCount() > 0;
+         bool hasSearch = _isSearching && _searchController.text.isNotEmpty;
+
+         if (hasSearch) {
+           // If searching, just re-run search
+           await propertyCtrl.searchProperties(_searchController.text.trim());
+         } else if (hasFilters) {
+           // If filtered, re-apply filters (calls API with filters)
+           // Extract logic from _applyFilters to be awaitable here
+           await _applyFiltersAsync(propertyCtrl); 
+         } else {
+           // Default: Refresh All
+           await propertyCtrl.refreshProperties(forceSync: true);
+         }
+         
+         // Always sync special categories
+         await propertyCtrl.syncAllSpecialCategories();
+
+      } else {
+        // Services Refresh
+        if (mounted) {
+          final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+          await serviceCtrl.fetchAllPrestations();
+          setState(() {
+             _allPrestations = List.from(serviceCtrl.prestations);
+             // Re-apply local service search if needed
+              if (_searchController.text.isNotEmpty) {
+                 final query = _searchController.text.toLowerCase();
+                 _filteredPrestations = _allPrestations.where((s) {
+                   final title = s.title?.toLowerCase() ?? '';
+                   final desc = s.description?.toLowerCase() ?? '';
+                   return title.contains(query) || desc.contains(query);
+                 }).toList();
+              } else {
+                _filteredPrestations = List.from(serviceCtrl.prestations);
+                // TODO: Re-apply local category filters if any
+                if (_selectedServiceCategory != null) {
+                   _onServiceCategoryRefilter(); 
+                }
+              }
+          });
+        }
+      }
+      
+      activeController.refreshCompleted();
     } catch (e) {
       print("❌ Erreur refresh: $e");
-      _refreshController.refreshFailed();
-      _showRefreshError();
+      activeController.refreshFailed();
     }
   }
 
-  void _showRefreshSuccess() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.white, size: 20),
-            SizedBox(width: 8),
-            Text('Données à jour', style: TextStyle(fontWeight: FontWeight.w500)),
-          ],
-        ),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: Duration(seconds: 2),
-      ),
-    );
+  // Helper to re-apply service filters locally after refresh
+  void _onServiceCategoryRefilter() {
+      if (_selectedServiceCategory == null) return;
+      
+      _filteredPrestations = _filteredPrestations.where((prestation) {
+         final serviceName = _getServiceName(prestation.serviceId);
+         if (serviceName == null) return false;
+         if (!serviceName.toLowerCase().contains(_selectedServiceCategory!.toLowerCase()) && 
+             !_selectedServiceCategory!.toLowerCase().contains(serviceName.toLowerCase())) {
+           return false;
+         }
+         return true;
+      }).toList();
   }
 
-  void _showRefreshError() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.error_outline, color: Colors.white, size: 20),
-            SizedBox(width: 8),
-            Text('Erreur de rafraîchissement', style: TextStyle(fontWeight: FontWeight.w500)),
-          ],
-        ),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: Duration(seconds: 3),
-      ),
-    );
+  // Async version of applyFilters for refresh
+  Future<void> _applyFiltersAsync(PropertyController propertyController) async {
+      final locationController = Provider.of<LocationController>(context, listen: false);
+
+      int? propertyTypeId = _propertyTypeMapping[_selectedPropertyType];
+      if (propertyTypeId == 0) propertyTypeId = null;
+
+      bool? sold;
+      if (_selectedTransaction == 'Location') sold = false;
+      else if (_selectedTransaction == 'Achat') sold = true;
+
+      int? cityId;
+      int? communeId;
+
+      if (_selectedCity != null) {
+        final city = locationController.cities.firstWhere(
+          (c) => c.name == _selectedCity,
+          orElse: () => CityModel(),
+        );
+        cityId = city.cityId;
+      }
+
+      if (_selectedCommune != null) {
+         final commune = locationController.communes.firstWhere(
+          (c) => c.name == _selectedCommune,
+          orElse: () => CommuneModel(),
+        );
+        communeId = commune.communeId;
+      }
+
+      int? bedrooms = _selectedBedrooms != null ? int.tryParse(_selectedBedrooms!) : null;
+
+      await propertyController.filterProperties(
+        sold: sold,
+        minPrice: _priceRange.start,
+        maxPrice: _priceRange.end,
+        typeMaison: propertyTypeId,
+        city: cityId,
+        commune: communeId,
+        room: bedrooms,
+        sortBy: 'price',
+        sortOrder: 'asc',
+      );
   }
+
+  // Removed _showRefreshSuccess and _showRefreshError per user request
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _lightColor,
-      appBar: _showFilters ? null : _buildAppBar(),
-      body: _showFilters ? _buildSimplifiedFilterPanel() : _buildPropertyList(),
-      floatingActionButton: _showFilters ? _buildApplyFiltersButton() : null,
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      appBar: _buildAppBar(),
+      body: _searchType == 'Propriétés' ? _buildPropertyList() : _buildServiceList(),
+     
     );
   }
 
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      title: _buildSearchField(),
-      centerTitle: false,
-      elevation: 1,
-      backgroundColor: Colors.white,
-      automaticallyImplyLeading: false,
-      toolbarHeight: 80,
-      actions: [
-        _buildFilterBadge(),
-        SizedBox(width: 8),
-      ],
-    );
-  }
-
-  Widget _buildFilterBadge() {
-    final filterCount = _getActiveFilterCount();
-
-    return Container(
-      margin: EdgeInsets.only(top: 8, bottom: 8),
-      child: Stack(
-        children: [
-          IconButton(
-            icon: Icon(Icons.filter_list_rounded, color: _primaryColor),
-            onPressed: () {
-              setState(() {
-                _showFilters = true;
-              });
-            },
-          ),
-          if (filterCount > 0)
-            Positioned(
-              right: 8,
-              top: 8,
-              child: Container(
-                padding: EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  color: _accentColor,
-                  shape: BoxShape.circle,
-                ),
-                constraints: BoxConstraints(
-                  minWidth: 16,
-                  minHeight: 16,
-                ),
-                child: Text(
-                  filterCount.toString(),
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  int _getActiveFilterCount() {
-    int count = 0;
-    if (_selectedPropertyType != 'Tous') count++;
-    if (_selectedBedrooms != null && _selectedBedrooms!.isNotEmpty) count++;
-    if (_priceRange.start > 500 || _priceRange.end < 2500) count++;
-    if (_selectedCity != null) count++;
-    if (_selectedCommune != null) count++;
-    if (_selectedTransaction != 'Location') count++;
-    return count;
-  }
-
-  Widget _buildSimplifiedFilterPanel() {
-    return GestureDetector(
-      onTap: () {
-        FocusScope.of(context).unfocus();
-      },
-      child: Container(
+  void _showFilterModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              _lightColor,
-              Colors.white,
-            ],
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 10,
+              offset: Offset(0, -2),
+            ),
+          ],
         ),
         child: Column(
           children: [
-            // En-tête des filtres avec gradient bleu
+            // Handle and Header
             Container(
-              padding: EdgeInsets.only(top: 8, bottom: 16, left: 8, right: 16),
+              padding: EdgeInsets.fromLTRB(20, 12, 20, 20),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    _primaryColor,
-                    Color(0xFF64B5F6),
-                  ],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: _primaryColor.withOpacity(0.3),
-                    blurRadius: 10,
-                    offset: Offset(0, 4),
+                border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Filtres',
+                        style: GoogleFonts.inter(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: _darkColor,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          _resetFilters();
+                          Navigator.pop(context);
+                          _showFilterModal();
+                        },
+                        style: TextButton.styleFrom(
+                          foregroundColor: _primaryColor,
+                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          backgroundColor: _primaryColor.withOpacity(0.05),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        ),
+                        child: Text('Réinitialiser', style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              child: SafeArea(
-                bottom: false,
-                child: Row(
-                  children: [
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () {
-                          setState(() {
-                            _showFilters = false;
-                          });
-                        },
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: EdgeInsets.all(8),
-                          child: Icon(Icons.arrow_back_rounded, color: Colors.white, size: 24),
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Icon(Icons.tune_rounded, color: Colors.white, size: 24),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Filtres de recherche',
-                        style: GoogleFonts.inter(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: _resetFilters,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.white.withOpacity(0.3)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
-                              SizedBox(width: 4),
-                              Text(
-                                'Réinitialiser',
-                                style: GoogleFonts.inter(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
 
+            // Content
             Expanded(
               child: SingleChildScrollView(
-                padding: EdgeInsets.all(20),
+                padding: EdgeInsets.all(24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildTransactionTypeSection(),
-                    SizedBox(height: 28),
+                    if (_searchType == 'Propriétés') ...[
+                      _buildSectionTitle('Transaction'),
+                      SizedBox(height: 12),
+                      _buildModernTransactionSelector(),
+                      SizedBox(height: 32),
+                      
+                      _buildSectionTitle('Type de bien'),
+                      SizedBox(height: 12),
+                      _buildModernPropertyTypeSelector(),
+                      SizedBox(height: 32),
+
+                      _buildSectionTitle('Prix'),
+                      SizedBox(height: 12),
+                      _buildModernPriceRange(),
+                      SizedBox(height: 32),
+ 
+                      _buildSectionTitle('Chambres'),
+                      SizedBox(height: 12),
+                      _buildModernBedroomsSelector(),
+                      SizedBox(height: 32),
+                    ] else ...[
+                       _buildSectionTitle('Catégorie de service'),
+                       SizedBox(height: 12),
+                       _buildServiceCategorySelector(),
+                       SizedBox(height: 32),
+                    ],
+
                     _buildLocationSection(),
-                    SizedBox(height: 28),
-                    _buildPropertyTypeSection(),
-                    SizedBox(height: 28),
-                    _buildPriceFilterSection(),
-                    SizedBox(height: 28),
-                    _buildBedroomsSection(),
-                    SizedBox(height: 20),
+                    SizedBox(height: 80), // Bottom padding
                   ],
                 ),
               ),
             ),
 
-            // Bouton fixe en bas
+            // Footer Button
             Container(
               padding: EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -602,11 +626,37 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                   BoxShadow(
                     color: Colors.black.withOpacity(0.05),
                     blurRadius: 10,
-                    offset: Offset(0, -2),
+                    offset: Offset(0, -5),
                   ),
                 ],
               ),
-              child: _buildApplyFiltersButton(),
+              child: SafeArea(
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      _applyFilters();
+                      Navigator.pop(context);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _darkColor,
+                      foregroundColor: Colors.white, 
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: Text(
+                      'Appliquer les filtres',
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -614,63 +664,198 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  Widget _buildTransactionTypeSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: _primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.swap_horiz_rounded, color: _primaryColor, size: 20),
-            ),
-            SizedBox(width: 12),
-            Text(
-              'Type de transaction',
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _darkColor,
-              ),
-            ),
-          ],
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: GoogleFonts.inter(
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: _darkColor,
+      ),
+    );
+  }
+
+  Widget _buildModernTransactionSelector() {
+    return Container(
+      padding: EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: _buildModernTransactionOption('Location')),
+          Expanded(child: _buildModernTransactionOption('Achat')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModernTransactionOption(String type) {
+    final isSelected = _selectedTransaction == type;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedTransaction = type;
+        });
+        Navigator.pop(context);
+        _showFilterModal();
+      },
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(vertical: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: isSelected ? [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))] : null,
         ),
-        SizedBox(height: 16),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: Offset(0, 4),
-              ),
-            ],
+        child: Text(
+          type,
+          style: GoogleFonts.inter(
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? _darkColor : Colors.grey[600],
           ),
-          child: Row(
-            children: [
-              Expanded(
-                child: _buildTransactionOption('Location', Icons.home_work_outlined),
-              ),
-              Container(
-                width: 1,
-                height: 50,
-                color: Colors.grey[200],
-              ),
-              Expanded(
-                child: _buildTransactionOption('Achat', Icons.shopping_cart_outlined),
-              ),
-            ],
-          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildServiceCategorySelector() {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: _serviceCategories.map((category) {
+        final isSelected = _selectedServiceCategory == category;
+        return _buildModernChip(
+          label: category, 
+          isSelected: isSelected,
+          onTap: () {
+            setState(() {
+              _selectedServiceCategory = isSelected ? null : category;
+            });
+          }
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildModernPropertyTypeSelector() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: _propertyTypes.map((type) {
+           return Padding(
+             padding: EdgeInsets.only(right: 8),
+             child: _buildModernChip(
+               label: type,
+               isSelected: _selectedPropertyType == type,
+               onTap: () {
+                 setState(() {
+                   _selectedPropertyType = type;
+                 });
+                 Navigator.pop(context);
+                 _showFilterModal();
+               },
+             ),
+           );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildModernChip({required String label, required bool isSelected, required VoidCallback onTap}) {
+    return GestureDetector(
+       onTap: onTap,
+       child: AnimatedContainer(
+         duration: Duration(milliseconds: 200),
+         padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+         decoration: BoxDecoration(
+           color: isSelected ? _primaryColor : Colors.white,
+           borderRadius: BorderRadius.circular(30),
+           border: Border.all(color: isSelected ? _primaryColor : Colors.grey.shade300),
+           boxShadow: isSelected ? [BoxShadow(color: _primaryColor.withOpacity(0.3), blurRadius: 8, offset: Offset(0, 4))] : null,
+         ),
+         child: Text(
+           label,
+           style: TextStyle(
+             color: isSelected ? Colors.white : Colors.black87,
+             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+           ),
+         ),
+       ),
+    );
+  }
+
+  Widget _buildModernPriceRange() {
+      // Simplification: Just two inputs for now, could act as a range
+    return Row(
+      children: [
+        Expanded(
+          child: _buildModernInput(_minPriceController, 'Min', Icons.attach_money),
+        ),
+        SizedBox(width: 16),
+        Text('-', style: TextStyle(color: Colors.grey, fontSize: 24)),
+        SizedBox(width: 16),
+        Expanded(
+          child: _buildModernInput(_maxPriceController, 'Max', Icons.attach_money),
         ),
       ],
     );
   }
+
+  Widget _buildModernInput(TextEditingController controller, String hint, IconData icon) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: TextField(
+        controller: controller,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(
+          hintText: hint,
+          prefixIcon: Icon(icon, size: 18, color: Colors.grey),
+          border: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          contentPadding: EdgeInsets.symmetric(vertical: 12),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernBedroomsSelector() {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [1, 2, 3, 4, 5].map((count) {
+         final label = count == 5 ? '5+' : '$count';
+         final isSelected = _bedroomsController.text == count.toString();
+         return _buildModernChip(
+           label: '$label Ch.',
+           isSelected: isSelected,
+           onTap: () {
+             setState(() {
+                if (isSelected) {
+                   _bedroomsController.clear();
+                   _selectedBedrooms = null;
+                } else {
+                   _bedroomsController.text = count.toString();
+                   _selectedBedrooms = count.toString();
+                }
+             });
+             Navigator.pop(context);
+             _showFilterModal();
+           },
+         );
+      }).toList(),
+    );
+  }
+
+  // Removed _buildSimplifiedFilterPanel implementation as it's replaced by modal
+  // Keeping helper methods used in modal content below...
 
   Widget _buildLocationSection() {
     return Consumer<LocationController>(
@@ -835,176 +1020,6 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  Widget _buildTransactionOption(String type, IconData icon) {
-    final isSelected = _selectedTransaction == type;
-
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedTransaction = type;
-        });
-      },
-      child: AnimatedContainer(
-        duration: Duration(milliseconds: 200),
-        padding: EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          gradient: isSelected
-              ? LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    _primaryColor,
-                    Color(0xFF64B5F6),
-                  ],
-                )
-              : null,
-          color: isSelected ? null : Colors.transparent,
-          borderRadius: type == 'Location'
-              ? BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16))
-              : BorderRadius.only(topRight: Radius.circular(16), bottomRight: Radius.circular(16)),
-        ),
-        child: Column(
-          children: [
-            Icon(icon,
-                size: 24,
-                color: isSelected ? Colors.white : _greyColor),
-            SizedBox(height: 6),
-            Text(
-              type,
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: isSelected ? Colors.white : _greyColor,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPropertyTypeSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: _primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.category_rounded, color: _primaryColor, size: 20),
-            ),
-            SizedBox(width: 12),
-            Text(
-              'Type de bien',
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _darkColor,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 16),
-        Container(
-          padding: EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-              childAspectRatio: 2.2,
-            ),
-            itemCount: _propertyTypes.length,
-            itemBuilder: (context, index) {
-              return _buildPropertyTypeChip(_propertyTypes[index]);
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPropertyTypeChip(String type) {
-    final isSelected = _selectedPropertyType == type;
-    final icon = _getPropertyTypeIcon(type);
-
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedPropertyType = isSelected ? 'Tous' : type;
-        });
-      },
-      child: AnimatedContainer(
-        duration: Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          gradient: isSelected
-              ? LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    _primaryColor,
-                    Color(0xFF64B5F6),
-                  ],
-                )
-              : null,
-          color: isSelected ? null : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? _primaryColor : Colors.grey[300]!,
-            width: isSelected ? 2 : 1,
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: _primaryColor.withOpacity(0.3),
-                    blurRadius: 8,
-                    offset: Offset(0, 4),
-                  ),
-                ]
-              : [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 4,
-                    offset: Offset(0, 2),
-                  ),
-                ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 20,
-              color: isSelected ? Colors.white : _primaryColor,
-            ),
-            SizedBox(height: 4),
-            Text(
-              type,
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: isSelected ? Colors.white : _darkColor,
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   IconData _getPropertyTypeIcon(String type) {
     switch (type) {
       case 'Studio':
@@ -1024,78 +1039,266 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     }
   }
 
-  Widget _buildPriceFilterSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: _primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.attach_money_rounded, color: _primaryColor, size: 20),
-            ),
-            SizedBox(width: 12),
-            Text(
-              'Prix (\$)',
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _darkColor,
-              ),
-            ),
-          ],
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: _buildSearchField(),
+      centerTitle: false,
+      elevation: 0,
+      backgroundColor: _primaryColor,
+      automaticallyImplyLeading: false,
+      toolbarHeight: 70,
+      actions: [
+        _buildFilterBadge(),
+        SizedBox(width: 16),
+      ],
+      bottom: PreferredSize(
+        preferredSize: Size.fromHeight(60),
+        child: Container(
+          decoration: BoxDecoration(
+            color: _primaryColor,
+            border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.1))),
+          ),
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: _buildTypeToggle(),
         ),
-        SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _buildPriceInputField(
-                'Prix min',
-                _minPriceController,
-                _minPriceFocus,
-                Icons.arrow_downward_rounded,
-              ),
+      ),
+    );
+  }
+
+  Widget _buildTypeToggle() {
+    return Container(
+      height: 45,
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      padding: EdgeInsets.all(4),
+      child: Row(
+        children: [
+          _buildToggleItem('Propriétés'),
+          _buildToggleItem('Services'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleItem(String type) {
+    final bool isSelected = _searchType == type;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _searchType = type;
+            _showFilters = false; // Fermer les filtres si ouverts
+          });
+        },
+        child: AnimatedContainer(
+          duration: Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 4,
+                      offset: Offset(0, 2),
+                    )
+                  ]
+                : null,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            type,
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+              color: isSelected ? _primaryColor : Colors.white.withOpacity(0.9),
             ),
-            SizedBox(width: 12),
-            Expanded(
-              child: _buildPriceInputField(
-                'Prix max',
-                _maxPriceController,
-                _maxPriceFocus,
-                Icons.arrow_upward_rounded,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 20),
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 4),
-          child: RangeSlider(
-            values: _priceRange,
-            min: 20,
-            max: 5000,
-            divisions: 100,
-            labels: RangeLabels(
-              '${_priceRange.start.toInt()}\$',
-              '${_priceRange.end.toInt()}\$',
-            ),
-            onChanged: (RangeValues values) {
-              setState(() {
-                _priceRange = values;
-                _minPriceController.text = values.start.toInt().toString();
-                _maxPriceController.text = values.end.toInt().toString();
-              });
-            },
-            activeColor: _primaryColor,
-            inactiveColor: Colors.grey[300],
           ),
         ),
-      ],
+      ),
     );
+  }
+
+  Widget _buildFilterBadge() {
+    final filterCount = _getActiveFilterCount();
+
+    return Container(
+      margin: EdgeInsets.only(top: 8, bottom: 8),
+      child: Stack(
+        children: [
+          IconButton(
+            icon: Icon(Icons.tune_rounded, color: Colors.white),
+            onPressed: _showFilterModal,
+          ),
+          if (filterCount > 0)
+            Positioned(
+              right: 8,
+              top: 8,
+              child: Container(
+                padding: EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: _accentColor,
+                  shape: BoxShape.circle,
+                ),
+                constraints: BoxConstraints(
+                  minWidth: 16,
+                  minHeight: 16,
+                ),
+                child: Text(
+                  filterCount.toString(),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  int _getActiveFilterCount() {
+    int count = 0;
+    
+    // Filtres communs
+    if (_selectedCity != null) count++;
+    if (_selectedCommune != null) count++;
+
+    if (_searchType == 'Propriétés') {
+      if (_selectedPropertyType != 'Tous') count++;
+      if (_selectedBedrooms != null && _selectedBedrooms!.isNotEmpty) count++;
+      if (_priceRange.start > 500 || _priceRange.end < 2500) count++;
+      if (_selectedTransaction != 'Location') count++;
+    } else {
+      // Filtres Services
+      if (_selectedServiceCategory != null) count++;
+    }
+    
+    return count;
+  }
+
+  // ... (keeping _buildServiceCategoryChip string version)
+
+  void _applyFilters() {
+    if (_searchType == 'Propriétés') {
+      // ... (keeping existing property filter logic)
+      final propertyController = Provider.of<PropertyController>(context, listen: false);
+      final locationController = Provider.of<LocationController>(context, listen: false);
+
+      // Convertir les filtres UI en paramètres API
+      int? propertyTypeId = _propertyTypeMapping[_selectedPropertyType];
+      if (propertyTypeId == 0) propertyTypeId = null; // "Tous" = pas de filtre
+
+      // Gérer le type de transaction (sold parameter)
+      bool? sold;
+      if (_selectedTransaction == 'Location') {
+        sold = false; // Properties disponibles pour location
+      } else if (_selectedTransaction == 'Achat') {
+        sold = true; // Properties vendues (ou à vendre)
+      }
+
+      // Récupérer les ids
+      int? cityId;
+      int? communeId;
+
+      if (_selectedCity != null) {
+        final city = locationController.cities.firstWhere(
+          (c) => c.name == _selectedCity,
+          orElse: () => CityModel(),
+        );
+        cityId = city.cityId;
+      }
+
+      if (_selectedCommune != null) {
+        final commune = locationController.communes.firstWhere(
+          (c) => c.name == _selectedCommune,
+          orElse: () => CommuneModel(),
+        );
+        communeId = commune.communeId;
+      }
+
+      int? bedrooms = _selectedBedrooms != null ? int.tryParse(_selectedBedrooms!) : null;
+
+      // Appliquer
+      propertyController.filterProperties(
+        sold: sold,
+        minPrice: _priceRange.start,
+        maxPrice: _priceRange.end,
+        typeMaison: propertyTypeId,
+        city: cityId,
+        commune: communeId,
+        room: bedrooms,
+        sortBy: 'price',
+        sortOrder: 'asc',
+      );
+    } else {
+      // Filtrage local des services
+      setState(() {
+        _filteredPrestations = _allPrestations.where((prestation) {
+          // Filtre Catégorie
+          if (_selectedServiceCategory != null) {
+             final serviceName = _getServiceName(prestation.serviceId);
+             if (serviceName == null) return false;
+             
+             // Check if the service name (e.g. "Plombier") matches the selected category
+             // Using simple contains for flexibility
+             if (!serviceName.toLowerCase().contains(_selectedServiceCategory!.toLowerCase()) && 
+                 !_selectedServiceCategory!.toLowerCase().contains(serviceName.toLowerCase())) {
+               return false;
+             }
+          }
+
+          // Filtre Ville
+          if (_selectedCity != null) {
+            final pCity = prestation.cityValue;
+            if (pCity != null && pCity != _selectedCity) return false;
+          }
+
+          // Filtre Commune
+          if (_selectedCommune != null) {
+             final pCommune = prestation.communeValue;
+            if (pCommune != null && pCommune != _selectedCommune) return false;
+          }
+          
+          return true;
+        }).toList();
+      });
+    }
+
+    setState(() {
+      _showFilters = false;
+    });
+  }
+
+  // ...
+  
+  // In _buildServiceListItem
+  // Replace service.serviceType?.displayName with a lookup or fallback
+  // Text(
+  //   _getServiceName(service.serviceId) ?? "Service",
+  //   style: GoogleFonts.inter(fontSize: 12, color: _primaryColor, fontWeight: FontWeight.w600),
+  // ),
+
+  String? _getServiceName(int? serviceId) {
+    if (serviceId == null) return null;
+    try {
+      final serviceController = Provider.of<ServiceController>(context, listen: false);
+      if (serviceController.services.isEmpty) return null;
+      
+      final service = serviceController.services.firstWhere(
+        (s) => s.serviceId == serviceId, 
+        orElse: () => ServiceModel()
+      );
+      return service.title ?? service.serviceType?.displayName; 
+    } catch (e) {
+      print("Err getting service name: $e");
+      return null;
+    }
   }
 
   Widget _buildPriceInputField(
@@ -1305,6 +1508,12 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           return _buildSearchLoader();
         }
 
+        if (_isLoadingProperties) {
+          return Center(
+            child: _buildMainLoader(),
+          );
+        }
+
         if (controller.loading && controller.properties.isEmpty) {
           return Center(
             child: _buildMainLoader(),
@@ -1316,16 +1525,15 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         }
 
         return SmartRefresher(
-          controller: _refreshController,
+          controller: _propertyRefreshController,
           enablePullDown: true,
           enablePullUp: false,
-          header: CustomHeader(
-            builder: (context, mode) {
-              return _buildRefreshHeader(mode!, controller);
-            },
+          header: WaterDropMaterialHeader(
+            backgroundColor: _primaryColor,
+            color: Colors.white,
           ),
           onRefresh: () async {
-            await _handlePullToRefresh(controller);
+            await _handlePullToRefresh(controller, controller: _propertyRefreshController);
           },
           child: ListView.builder(
             padding: EdgeInsets.all(16),
@@ -1334,6 +1542,165 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildServiceList() {
+    // Afficher le loader de recherche
+    if (_showSearchLoader) {
+      return _buildSearchLoader();
+    }
+
+    if (_isLoadingServices && _filteredPrestations.isEmpty) {
+      return Center(
+        child: _buildMainLoader(),
+      );
+    }
+
+    if (_filteredPrestations.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.cleaning_services_rounded, size: 64, color: Colors.grey[300]),
+            SizedBox(height: 16),
+            Text(
+              "Aucun service trouvé",
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: _greyColor,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              "Essayez de modifier vos filtres",
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: Colors.grey[400],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SmartRefresher(
+      controller: _serviceRefreshController,
+      enablePullDown: true,
+      enablePullUp: false,
+      header: WaterDropMaterialHeader(
+        backgroundColor: _primaryColor,
+        color: Colors.white,
+      ),
+      onRefresh: () async {
+        final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+        await _handlePullToRefresh(propertyCtrl, controller: _serviceRefreshController);
+      },
+      child: ListView.builder(
+        padding: EdgeInsets.all(16),
+        itemCount: _filteredPrestations.length,
+        itemBuilder: (context, index) {
+          return _buildServiceListItem(_filteredPrestations[index]);
+        },
+      ),
+    );
+  }
+
+  Widget _buildServiceListItem(PrestationModel service) {
+    return GestureDetector(
+      onTap: () {
+         Navigator.pushNamed(
+           context,
+           Routes.serviceDetail,
+           arguments: service,
+         );
+      },
+      child: Container(
+        margin: EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  bottomLeft: Radius.circular(16),
+                ),
+                image: DecorationImage(
+                  image: (service.images != null && service.images!.isNotEmpty)
+                      ? CachedNetworkImageProvider(service.images!.first)
+                      : AssetImage('assets/images/placeholder.png') as ImageProvider,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                             service.title ?? 'Service sans nom',
+                            style: GoogleFonts.inter(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: _darkColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey[400]),
+                      ],
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                       _getServiceName(service.serviceId) ?? "Service",
+                      style: GoogleFonts.inter(fontSize: 12, color: _primaryColor, fontWeight: FontWeight.w600),
+                    ),
+                    SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.location_on_rounded, size: 14, color: _greyColor),
+                        SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            "${service.communeValue ?? ''}, ${service.cityValue ?? ''}",
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: _greyColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1513,27 +1880,12 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   }
 
   Widget _buildMainLoader() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 80,
-          height: 80,
-          child: CircularProgressIndicator(
-            strokeWidth: 4,
-            color: _primaryColor,
-            backgroundColor: _primaryColor.withOpacity(0.1),
-          ),
-        ),
-        SizedBox(height: 20),
-        Text(
-          'Chargement des propriétés...',
-          style: GoogleFonts.inter(
-            fontSize: 16,
-            color: _greyColor,
-          ),
-        ),
-      ],
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: 5,
+      itemBuilder: (context, index) {
+        return _buildShimmerLoader(height: 150);
+      },
     );
   }
 
@@ -1655,8 +2007,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         : null;
 
     final priceText = _selectedTransaction == 'Location'
-        ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
+        ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+        : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
 
     return InkWell(
       onTap: () {_navigateToDetail(property);},
@@ -1956,10 +2308,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             ),
             boxShadow: [
               BoxShadow(
-                color: _searchController.text.isNotEmpty
-                    ? _primaryColor.withOpacity(0.1)
-                    : Colors.black.withOpacity(0.03),
-                blurRadius: 8,
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 4,
                 offset: Offset(0, 2),
               ),
             ],
@@ -1970,10 +2320,15 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                 child: TextField(
                   controller: _searchController,
                   decoration: InputDecoration(
-                    hintText: 'Rechercher une ville, un quartier, une adresse...',
+                    hintText: 'Rechercher une ville, un quartier...',
                     hintStyle: GoogleFonts.inter(fontSize: 14, color: _greyColor),
                     prefixIcon: Icon(Icons.search_rounded, color: _searchController.text.isNotEmpty ? _primaryColor : _greyColor, size: 20),
                     border: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    errorBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    filled: false, // Ensure no background fill
                     contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
@@ -2072,7 +2427,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     _minPriceFocus.dispose();
     _maxPriceFocus.dispose();
     _bedroomsFocus.dispose();
-    _refreshController.dispose();
+    _propertyRefreshController.dispose();
+    _serviceRefreshController.dispose();
     super.dispose();
   }
 }

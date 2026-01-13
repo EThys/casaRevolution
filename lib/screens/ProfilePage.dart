@@ -178,10 +178,18 @@ class _ProfilePageState extends State<ProfilePage> {
     final userData = storage.read(StockageKeys.userKey);
     final profileData = storage.read(StockageKeys.profileKey);
 
-    // Priorité aux données du profil, puis user
-    return profileData?['fullname']?.toString() ??
-        userData?['username']?.toString() ??
-        'Visiteur';
+    // PRIORITÉ 1: fullName
+    final fullName = profileData?['fullname']?.toString() ?? profileData?['fullName']?.toString() ?? 
+                     userData?['fullname']?.toString() ?? userData?['fullName']?.toString();
+    
+    if (fullName != null && fullName.isNotEmpty) {
+      return fullName;
+    }
+
+    // PRIORITÉ 2: username
+    return userData?['username']?.toString() ??
+        profileData?['username']?.toString() ??
+        'Bio'; // Or Visiteur
   }
 
   String get safeEmail {
@@ -342,80 +350,83 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildProfileCompletionCard() {
     if (!isLoggedIn || _profileCompletion >= 1.0) return SizedBox.shrink();
 
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: _warningColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(Icons.person_add_alt_1, color: _warningColor, size: 20),
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Complétez votre profil',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: _darkColor,
-                      ),
-                    ),
-                    Text(
-                      '${(_profileCompletion * 100).toInt()}% complété',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _greyColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: Icon(Icons.arrow_forward_ios, size: 16, color: _greyColor),
-                onPressed: _navigateToEditProfile,
-              ),
-            ],
-          ),
-          SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: _profileCompletion,
-            backgroundColor: _borderColor,
-            color: _primaryColor,
-            borderRadius: BorderRadius.circular(10),
-            minHeight: 6,
-          ),
-          SizedBox(height: 8),
-          Text(
-            _getCompletionMessage(),
-            style: TextStyle(
-              fontSize: 12,
-              color: _greyColor,
+    return GestureDetector(
+      onTap: _navigateToEditProfile,
+      child: Container(
+        margin: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: _cardColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: Offset(0, 4),
             ),
-          ),
-        ],
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: _warningColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.person_add_alt_1, color: _warningColor, size: 20),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Complétez votre profil',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: _darkColor,
+                        ),
+                      ),
+                      Text(
+                        '${(_profileCompletion * 100).toInt()}% complété',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _greyColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.arrow_forward_ios, size: 16, color: _greyColor),
+                  onPressed: _navigateToEditProfile,
+                ),
+              ],
+            ),
+            SizedBox(height: 12),
+            LinearProgressIndicator(
+              value: _profileCompletion,
+              backgroundColor: _borderColor,
+              color: _primaryColor,
+              borderRadius: BorderRadius.circular(10),
+              minHeight: 6,
+            ),
+            SizedBox(height: 8),
+            Text(
+              _getCompletionMessage(),
+              style: TextStyle(
+                fontSize: 12,
+                color: _greyColor,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -900,27 +911,8 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Column(
         children: [
           _buildSettingItem(
-            icon: Icons.edit_outlined,
-            title: 'Modifier mon profil',
-            onTap: _navigateToEditProfile,
-            color: _primaryColor,
-          ),
-          Divider(height: 1, indent: 16, endIndent: 16, color: _borderColor),
-          _buildSettingItem(
-            icon: Icons.settings_outlined,
-            title: 'Paramètres du compte',
-            onTap: () {},
-          ),
-          Divider(height: 1, indent: 16, endIndent: 16, color: _borderColor),
-          _buildSettingItem(
             icon: Icons.share_outlined,
             title: 'Partager l\'application',
-            onTap: () {},
-          ),
-          Divider(height: 1, indent: 16, endIndent: 16, color: _borderColor),
-          _buildSettingItem(
-            icon: Icons.star_outline,
-            title: 'Évaluer l\'application',
             onTap: () {},
           ),
           Divider(height: 1, indent: 16, endIndent: 16, color: _borderColor),

@@ -1,4 +1,8 @@
-import 'package:casa/models/ServiceModel.dart';
+import 'package:casa/models/PrestationModel.dart';
+import 'package:casa/models/DeviseModel.dart';
+import 'package:casa/controllers/ServiceController.dart';
+import 'package:casa/screens/auth/LoginScreen.dart';
+import 'package:provider/provider.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/networkCheck.dart';
@@ -8,10 +12,18 @@ import 'package:flutter_datetime_picker_plus/flutter_datetime_picker_plus.dart' 
 import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle;
+
 
 class RequestInterventionPage extends StatefulWidget {
-  final ServiceModel service;
+  final PrestationModel service;
 
   const RequestInterventionPage({Key? key, required this.service}) : super(key: key);
 
@@ -34,14 +46,19 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
   final _formKey = GlobalKey<FormState>();
   final GetStorage storage = GetStorage();
   DateTime? _selectedDate;
+  DateTime? _selectedEndDate;
   TimeOfDay? _selectedTime;
   final TextEditingController _notesController = TextEditingController();
+  final TextEditingController _budgetController = TextEditingController();
+  DeviseModel? _selectedDevise;
   bool _isLoading = false;
 
   String _userName = '';
   String _userEmail = '';
   String _userPhone = '';
   int? _userId;
+  pw.MemoryImage? _logoImage;
+
 
   final List<TimeOfDay> _availableHours = [
     TimeOfDay(hour: 7, minute: 0),
@@ -63,7 +80,21 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     super.initState();
     initializeDateFormatting('fr_FR');
     _loadUserInfo();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDevises());
+    _loadLogo();
   }
+
+  Future<void> _loadLogo() async {
+    try {
+      final data = await rootBundle.load('assets/images/logoCasa.png');
+      setState(() {
+        _logoImage = pw.MemoryImage(data.buffer.asUint8List());
+      });
+    } catch (_) {
+      // ignore logo load failure
+    }
+  }
+
 
   void _loadUserInfo() {
     try {
@@ -73,10 +104,12 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
         final Map<String, dynamic> user = _convertToStringMap(userData);
 
         setState(() {
-          _userId = user['userId'] is int
-              ? user['userId']
-              : int.tryParse(user['userId']?.toString() ?? '');
+          final rawId = user['user']?['userId'] ?? user['userId'];
+          _userId = rawId is int
+              ? rawId
+              : int.tryParse(rawId?.toString() ?? '');
           
+          // Récupérer le nom depuis profile stocké séparément dans StockageKeys.profileKey
           final profileData = storage.read(StockageKeys.profileKey);
           Map<String, dynamic>? profile;
           
@@ -88,6 +121,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
             }
           }
           
+          // Si profile n'est pas trouvé dans profileKey, essayer dans user['profile']
           if (profile == null) {
             final profileFromUser = user['profile'];
             if (profileFromUser != null) {
@@ -100,29 +134,43 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
           }
           
           if (profile != null) {
-            final firstname = profile['firstname']?.toString() ?? '';
-            final lastname = profile['lastname']?.toString() ?? '';
+            // PRIORITÉ 1: fullName
+            final fullname = profile['fullname']?.toString() ?? profile['fullName']?.toString() ?? '';
             
-            if (firstname.isNotEmpty || lastname.isNotEmpty) {
-              _userName = '${firstname} ${lastname}'.trim();
+            if (fullname.isNotEmpty) {
+              _userName = fullname;
             } else {
-              final fullname = profile['fullname']?.toString() ?? '';
-              _userName = fullname.isNotEmpty ? fullname : '';
+              // PRIORITÉ 2: firstname + lastname
+              final firstname = profile['firstname']?.toString() ?? profile['firstName']?.toString() ?? '';
+              final lastname = profile['lastname']?.toString() ?? profile['lastName']?.toString() ?? '';
+              
+              if (firstname.isNotEmpty || lastname.isNotEmpty) {
+                _userName = '${firstname} ${lastname}'.trim();
+              } else {
+                _userName = '';
+              }
             }
           } else {
-            final username = user['username']?.toString() ?? '';
-            final name = user['name']?.toString() ?? '';
-            final firstName = user['firstName']?.toString() ?? '';
-            final lastname = user['lastname']?.toString() ?? user['lastName']?.toString() ?? '';
-            
-            if (username.isNotEmpty) {
-              _userName = username.replaceAll('@', '').trim();
-            } else if (name.isNotEmpty) {
-              _userName = name.trim();
-            } else if (firstName.isNotEmpty || lastname.isNotEmpty) {
-              _userName = '${firstName} ${lastname}'.trim();
+            // Fallback sur fullName dans user directement
+            final fullname = user['fullname']?.toString() ?? user['fullName']?.toString() ?? '';
+            if (fullname.isNotEmpty) {
+              _userName = fullname;
             } else {
-              _userName = '';
+              // Fallback sur les autres champs si profile n'existe pas
+              final username = user['username']?.toString() ?? '';
+              final name = user['name']?.toString() ?? '';
+              final firstName = user['firstName']?.toString() ?? '';
+              final lastname = user['lastname']?.toString() ?? user['lastName']?.toString() ?? '';
+              
+              if (firstName.isNotEmpty || lastname.isNotEmpty) {
+                _userName = '${firstName} ${lastname}'.trim();
+              } else if (username.isNotEmpty) {
+                _userName = username.replaceAll('@', '').trim();
+              } else if (name.isNotEmpty) {
+                _userName = name.trim();
+              } else {
+                _userName = '';
+              }
             }
           }
           
@@ -132,6 +180,16 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
       }
     } catch (e) {
       print("Erreur lors du chargement des infos utilisateur: $e");
+    }
+  }
+
+  void _loadDevises() async {
+    final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+    await serviceCtrl.fetchDevises();
+    if (mounted && serviceCtrl.devisesList.isNotEmpty) {
+      setState(() {
+        _selectedDevise = serviceCtrl.devisesList.firstWhere((d) => d.code == 'USD', orElse: () => serviceCtrl.devisesList.first);
+      });
     }
   }
 
@@ -174,32 +232,62 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
       showTitleActions: true,
       minTime: DateTime.now(),
       maxTime: DateTime.now().add(const Duration(days: 60)),
-      theme: picker.DatePickerTheme(
-        headerColor: _primaryColor,
-        backgroundColor: Colors.white,
-        itemStyle: TextStyle(
-          color: _textPrimary,
-          fontWeight: FontWeight.w400,
-          fontSize: 16,
-        ),
-        doneStyle: TextStyle(
-          color: Colors.white,
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        ),
-        cancelStyle: TextStyle(
-          color: Colors.white,
-          fontSize: 16,
-        ),
-      ),
+      theme: _getDatePickerTheme(),
       onConfirm: (date) {
         setState(() {
           _selectedDate = date;
+          // Si la date d'intervention change, on reset la date de fin si elle est avant
+          if (_selectedEndDate != null && _selectedEndDate!.isBefore(date)) {
+            _selectedEndDate = null;
+          }
           _selectedTime = null;
         });
       },
       currentTime: _selectedDate ?? DateTime.now(),
       locale: picker.LocaleType.fr,
+    );
+  }
+
+  Future<void> _selectEndDate() async {
+    if (_selectedDate == null) {
+      FancyNotification.show(context, "Veuillez d'abord sélectionner une date de début");
+      return;
+    }
+
+    picker.DatePicker.showDatePicker(
+      context,
+      showTitleActions: true,
+      minTime: _selectedDate!,
+      maxTime: _selectedDate!.add(const Duration(days: 60)),
+      theme: _getDatePickerTheme(),
+      onConfirm: (date) {
+        setState(() {
+          _selectedEndDate = date;
+        });
+      },
+      currentTime: _selectedEndDate ?? _selectedDate!,
+      locale: picker.LocaleType.fr,
+    );
+  }
+
+  picker.DatePickerTheme _getDatePickerTheme() {
+    return picker.DatePickerTheme(
+      headerColor: _primaryColor,
+      backgroundColor: Colors.white,
+      itemStyle: TextStyle(
+        color: _textPrimary,
+        fontWeight: FontWeight.w400,
+        fontSize: 16,
+      ),
+      doneStyle: TextStyle(
+        color: Colors.white,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+      ),
+      cancelStyle: TextStyle(
+        color: Colors.white,
+        fontSize: 16,
+      ),
     );
   }
 
@@ -210,14 +298,22 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
   }
 
   Future<void> _handleInterventionRequest() async {
-    if (_selectedDate == null || _selectedTime == null) {
-      FancyNotification.show(context, "Veuillez sélectionner une date et une heure");
+    final userId = _getUserId();
+    if (userId == null) {
+      FancyNotification.show(
+        context, 
+        "Vous devez être connecté pour demander une intervention",
+        type: NotificationType.info
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => LoginScreen()),
+      );
       return;
     }
 
-    final userId = _getUserId();
-    if (userId == null) {
-      FancyNotification.show(context, "Utilisateur non connecté");
+    if (_selectedDate == null) {
+      FancyNotification.show(context, "Veuillez sélectionner une date de début");
       return;
     }
 
@@ -236,17 +332,45 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     }
 
     try {
-      // TODO: Implémenter l'appel API pour la demande d'intervention
-      // Pour l'instant, on affiche juste une notification de succès
-      
-      await Future.delayed(Duration(seconds: 1)); // Simuler un appel API
-      
+      final double? budget = double.tryParse(_budgetController.text.replaceAll(RegExp(r'[^0-9.]'), ''));
+      if (budget == null) {
+        FancyNotification.show(context, "Budget invalide");
+        return;
+      }
+
+      final solicitationData = {
+        "userId": userId,
+        "prestationId": widget.service.id,
+        "deviseId": _selectedDevise?.id ?? 1,
+        "budget": budget,
+        "description": _notesController.text.trim(),
+        "startDate": DateFormat('yyyy-MM-dd').format(_selectedDate!),
+        "endDate": _selectedEndDate != null 
+            ? DateFormat('yyyy-MM-dd').format(_selectedEndDate!)
+            : DateFormat('yyyy-MM-dd').format(DateTime.now())
+      };
+
+
+      final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+      final response = await serviceCtrl.createSolicitation(solicitationData);
+
       if (!mounted) return;
-      
-      _showConfirmationDialog();
+
+      if (response.status) {
+         Map<String, dynamic> responseData = {};
+         if (response.data is Map) {
+            responseData = Map<String, dynamic>.from(response.data);
+         }
+         _showConfirmationDialog(responseData);
+      } else {
+         String errorMsg = response.errorMsg ?? 
+                           (response.data is Map ? (response.data['detailMessage'] ?? response.data['message']) : "Erreur inconnue");
+         FancyNotification.show(context, errorMsg, isError: true);
+      }
+
     } catch (e) {
       if (mounted) {
-        FancyNotification.show(context, "Erreur technique lors de la demande: $e");
+        FancyNotification.show(context, "Une erreur est survenue, veuillez réessayer.");
       }
       print("Intervention request error: $e");
     } finally {
@@ -258,9 +382,10 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     }
   }
 
-  void _showConfirmationDialog() {
+  void _showConfirmationDialog(Map<String, dynamic> successData) {
     final formattedDate = DateFormat('EEEE d MMMM y', 'fr_FR').format(_selectedDate!);
-    final formattedTime = '${_selectedTime!.hour.toString().padLeft(2, '0')}h${_selectedTime!.minute == 0 ? '' : _selectedTime!.minute.toString().padLeft(2, '0')}';
+    // Time selection removed
+    // Time selection removed
 
     showDialog(
       context: context,
@@ -362,16 +487,6 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                         Text(
                           formattedDate,
                           style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: _primaryColor,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'à $formattedTime',
-                          style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                             color: _textPrimary,
@@ -381,7 +496,57 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  // Boutons Partager et Télécharger
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async => await _shareInterventionPdf(successData),
+                          icon: Icon(Icons.ios_share_rounded, color: _primaryColor),
+                          label: Text(
+                            "Partager",
+                            style: TextStyle(
+                              color: _textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            side: BorderSide(
+                              color: _primaryColor.withOpacity(0.3),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async => await _downloadInterventionPdf(successData),
+                          icon: Icon(Icons.download_rounded, color: _primaryColor),
+                          label: Text(
+                            "Télécharger",
+                            style: TextStyle(
+                              color: _textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            side: BorderSide(
+                              color: _primaryColor.withOpacity(0.3),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
 
                   SizedBox(
                     width: double.infinity,
@@ -416,6 +581,233 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
         );
       },
     );
+  }
+
+  Future<Uint8List> _buildInterventionPdfBytes(Map<String, dynamic> data) async {
+    final doc = pw.Document();
+    final now = DateFormat('dd/MM/yy HH:mm').format(DateTime.now());
+
+    final solicitationWrapper = data['sollicitation'] ?? {};
+    final solicitation = solicitationWrapper['sollicitation'] ?? solicitationWrapper;
+
+    final prestation = solicitationWrapper['prestation'] ?? data['prestation'] ?? {};
+    final prestateur = data['prestateur'] ?? {};
+    final demandeur = data['demandeur'] ?? {};
+    final devise = solicitationWrapper['devise'] ?? data['devise'] ?? {};
+    
+    // Infos Prestateur
+    final prestateurName = prestateur['username']?.toString() ?? 'Non renseigné';
+    final prestateurPhone = prestateur['phone']?.toString() ?? 'Non renseigné';
+    final prestateurEmail = prestateur['email']?.toString() ?? 'Non renseigné';
+
+    // Service Info
+    final serviceTitle = prestation['title']?.toString() ?? 'Service';
+    final serviceAddress = prestation['address']?.toString() ?? '';
+    final serviceCity = prestation['cityValue']?.toString() ?? '';
+    final serviceCountry = prestation['countryValue']?.toString() ?? '';
+    
+    final fullServiceAddress = [serviceAddress, serviceCity, serviceCountry]
+        .where((s) => s.isNotEmpty)
+        .join(', ');
+
+    // Infos Demandeur
+    final demandeurName = demandeur['username']?.toString() ?? 'Client';
+    final demandeurPhone = demandeur['phone']?.toString() ?? '';
+    final demandeurEmail = demandeur['email']?.toString() ?? '';
+
+    // Sollicitation Info
+    final budget = solicitation['budget']?.toString() ?? '0';
+    final deviseCode = devise['code']?.toString() ?? 'USD';
+    final startDateStr = solicitation['startDate'];
+    final endDateStr = solicitation['endDate'];
+    final description = solicitation['description']?.toString() ?? '';
+
+    String formatDate(String? dateStr) {
+      if (dateStr == null) return 'Non spécifiée';
+      try {
+        final date = DateTime.parse(dateStr);
+        return DateFormat('dd-MM-yyyy').format(date);
+      } catch (e) {
+        return dateStr;
+      }
+    }
+
+    doc.addPage(
+      pw.Page(
+        build: (context) => pw.Container(
+          padding: const pw.EdgeInsets.all(24),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              // Header
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                   if (_logoImage != null)
+                    pw.Container(
+                      width: 48,
+                      height: 48,
+                      margin: const pw.EdgeInsets.only(right: 12),
+                      child: pw.Image(_logoImage!),
+                    ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'CasaNayo',
+                        style: pw.TextStyle(
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        'Demande d\'intervention',
+                        style: pw.TextStyle(
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text('Généré le $now'),
+              pw.Divider(),
+              pw.SizedBox(height: 12),
+
+              pw.Text('Service', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text(serviceTitle),
+              if (fullServiceAddress.isNotEmpty)
+                pw.Text(fullServiceAddress),
+              pw.SizedBox(height: 16),
+
+              pw.Text('Intervention', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('Début : ${formatDate(startDateStr)}'),
+              pw.Text('Fin : ${formatDate(endDateStr)}'),
+              pw.Text('Budget proposé : $budget $deviseCode'),
+              if (description.isNotEmpty)
+                pw.Text('Description : $description'),
+              pw.SizedBox(height: 16),
+
+              pw.Text('Demandeur', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('Nom : $demandeurName'),
+              if (demandeurPhone.isNotEmpty) pw.Text('Téléphone : $demandeurPhone'),
+              if (demandeurEmail.isNotEmpty) pw.Text('Email : $demandeurEmail'),
+              pw.SizedBox(height: 16),
+
+              pw.Text('Prestataire', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('Nom : $prestateurName'),
+              if (prestateurPhone.isNotEmpty) pw.Text('Téléphone : $prestateurPhone'),
+              if (prestateurEmail.isNotEmpty) pw.Text('Email : $prestateurEmail'),
+              pw.SizedBox(height: 24),
+
+              pw.Text(
+                "Ce document confirme l'envoi de votre demande d'intervention. "
+                "Le prestataire doit encore valider la demande.",
+                style: pw.TextStyle(fontSize: 12),
+                textAlign: pw.TextAlign.justify,
+              ),
+              pw.SizedBox(height: 18),
+              pw.Text(
+                "Coordonnées CasaNayo :",
+                style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+              ),
+              pw.Text("Siège : CasaNayo, Support"),
+              pw.Text("Email : contact@casanayo.com"),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    return doc.save();
+  }
+
+  Future<Directory> _getExportDir() async {
+    try {
+      if (Platform.isAndroid) {
+        final dir = Directory('/storage/emulated/0/casa');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return dir;
+      }
+      
+      final ext = await getExternalStorageDirectory();
+      if (ext != null) {
+        final parts = ext.path.split('/');
+        int androidIndex = parts.indexOf('Android');
+        String base;
+        if (androidIndex > 0) {
+          base = parts.sublist(0, androidIndex).join('/');
+        } else {
+          base = ext.path;
+        }
+        if (base.isEmpty) base = '/storage/emulated/0';
+        final dir = Directory('$base/casa');
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        return dir;
+      }
+    } catch (e) {
+      print("Erreur répertoire: $e");
+    }
+
+    final docs = await getApplicationDocumentsDirectory();
+    final fallbackDir = Directory('${docs.path}/casa');
+    if (!await fallbackDir.exists()) {
+      await fallbackDir.create(recursive: true);
+    }
+    return fallbackDir;
+  }
+
+  Future<void> _downloadInterventionPdf(Map<String, dynamic> data) async {
+    try {
+      final bytes = await _buildInterventionPdfBytes(data);
+      final dir = await _getExportDir();
+      
+      final demandeur = data['demandeur'] ?? {};
+      final userName = demandeur['username']?.toString() ?? 'Client';
+      final nowStr = DateFormat('dd-MM-yyyy_HHmm').format(DateTime.now());
+      
+      final baseName = '${userName.replaceAll(' ', '_')}_intervention_$nowStr';
+      final filePath = '${dir.path}/$baseName.pdf';
+      final file = File(filePath);
+      await file.writeAsBytes(bytes, flush: true);
+      FancyNotification.show(
+        context,
+        "PDF enregistré dans ${dir.path}",
+        isError: false,
+        type: NotificationType.success,
+      );
+    } catch (e) {
+       print("PDF Download Error: $e");
+      FancyNotification.show(context, "Impossible de générer le PDF");
+    }
+  }
+
+  Future<void> _shareInterventionPdf(Map<String, dynamic> data) async {
+    try {
+      final bytes = await _buildInterventionPdfBytes(data);
+       final demandeur = data['demandeur'] ?? {};
+      final userName = demandeur['username']?.toString() ?? 'Client';
+      final nowStr = DateFormat('dd-MM-yyyy_HHmm').format(DateTime.now());
+      final baseName = '${userName.replaceAll(' ', '_')}_intervention_$nowStr';
+      
+      final xfile = XFile.fromData(
+        bytes,
+        mimeType: 'application/pdf',
+        name: '$baseName.pdf',
+      );
+      await Share.shareXFiles(
+        [xfile],
+        text: "Demande d'intervention - CasaNayo",
+      );
+    } catch (e) {
+      print("PDF Share Error: $e");
+      FancyNotification.show(context, "Partage du PDF impossible");
+    }
   }
 
   PreferredSizeWidget _buildAppBar() {
@@ -493,7 +885,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Choisissez la date et l\'heure de votre intervention',
+                    'Choisissez la date de votre intervention',
                     style: TextStyle(
                       color: _textSecondary,
                       fontSize: 15,
@@ -503,8 +895,10 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
 
                   _buildDateField(),
                   const SizedBox(height: 24),
-
-                  _buildTimeGrid(),
+                  
+                  _buildBudgetField(),
+                  // const SizedBox(height: 24),
+                  // _buildTimeGrid(), // Time grid removed as requested by user logic implicit replacement
                   const SizedBox(height: 28),
 
                   _buildNotesField(),
@@ -564,7 +958,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                       placeholder: (context, url) => Container(
                         color: Colors.grey[100],
                         child: Icon(
-                          widget.service.serviceType?.icon ?? Icons.build,
+                          Icons.build,
                           color: Colors.grey[400],
                           size: 30,
                         ),
@@ -572,7 +966,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                       errorWidget: (context, url, error) => Container(
                         color: Colors.grey[100],
                         child: Icon(
-                          widget.service.serviceType?.icon ?? Icons.build,
+                          Icons.build,
                           color: Colors.grey[400],
                           size: 30,
                         ),
@@ -581,7 +975,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                   : Container(
                       color: Colors.grey[100],
                       child: Icon(
-                        widget.service.serviceType?.icon ?? Icons.build,
+                        Icons.build,
                         color: Colors.grey[400],
                         size: 30,
                       ),
@@ -604,35 +998,36 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 8),
-                if (widget.service.address != null && widget.service.address!.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: _accentColor,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _primaryColor.withOpacity(0.2)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.location_on_rounded, size: 14, color: _primaryColor),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            widget.service.address!,
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                // Address hidden as requested
+                // if (widget.service.address != null && widget.service.address!.isNotEmpty)
+                //   Container(
+                //     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                //     decoration: BoxDecoration(
+                //       color: _accentColor,
+                //       borderRadius: BorderRadius.circular(8),
+                //       border: Border.all(color: _primaryColor.withOpacity(0.2)),
+                //     ),
+                //     child: Row(
+                //       children: [
+                //         Icon(Icons.location_on_rounded, size: 14, color: _primaryColor),
+                //         const SizedBox(width: 6),
+                //         Expanded(
+                //           child: Text(
+                //             widget.service.address!,
+                //             style: TextStyle(
+                //               color: _textPrimary,
+                //               fontSize: 13,
+                //               fontWeight: FontWeight.w500,
+                //             ),
+                //             maxLines: 1,
+                //             overflow: TextOverflow.ellipsis,
+                //           ),
+                //         ),
+                //       ],
+                //     ),
+                //   ),
                 const SizedBox(height: 8),
-                if (widget.service.price != null)
+                if (widget.service.minPrice != null)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
@@ -657,15 +1052,17 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
   }
 
   String _getPriceText() {
-    if (widget.service.price == null) return 'Prix sur demande';
+    if (widget.service.minPrice == null) return 'Prix sur demande';
     
-    final price = widget.service.price!;
+    final price = widget.service.minPrice!;
+    final displayCurrency = widget.service.currency;
+
     if (price >= 1000000) {
-      return '${(price / 1000000).toStringAsFixed(1)}M\$';
+      return 'À partir de ${(price / 1000000).toStringAsFixed(1)}M $displayCurrency';
     } else if (price >= 1000) {
-      return '${(price / 1000).toStringAsFixed(0)}K\$';
+      return 'À partir de ${(price / 1000).toStringAsFixed(0)}K $displayCurrency';
     }
-    return '${price.toStringAsFixed(0)}\$';
+    return 'À partir de ${price.toStringAsFixed(0)} $displayCurrency';
   }
 
   Widget _buildUserInfoSection() {
@@ -718,7 +1115,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  displayName.isNotEmpty ? 'Bonjour, $displayName' : 'Bonjour',
+                  displayName.isNotEmpty ? displayName : 'Bonjour',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: _textPrimary,
@@ -746,8 +1143,35 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (widget.service.minPrice != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16.0),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+             decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _primaryColor.withOpacity(0.3)),
+             ),
+             child: Row(
+                children: [
+                   Icon(Icons.info_outline, color: _primaryColor, size: 20),
+                   SizedBox(width: 8),
+                   Expanded(child: Text(
+                       "Je tarifie mes services ${_getPriceText().toLowerCase()}",
+                       style: TextStyle(
+                          color: _primaryColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14
+                       ),
+                   )),
+                ],
+             ),
+          ),
+        ),
         Row(
           children: [
+
             Icon(Icons.calendar_month, size: 18, color: _primaryColor),
             const SizedBox(width: 8),
             Text(
@@ -802,6 +1226,149 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
               ],
             ),
           ),
+        ),
+        
+        const SizedBox(height: 16),
+        
+        // Date de fin
+        Row(
+          children: [
+            Icon(Icons.event_available, size: 18, color: _primaryColor),
+            const SizedBox(width: 8),
+            Text(
+              'Date de fin',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: _textPrimary,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: _selectEndDate,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            decoration: BoxDecoration(
+              color: _cardColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _selectedEndDate == null ? _borderColor : _primaryColor,
+                width: _selectedEndDate == null ? 1.5 : 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _selectedEndDate == null
+                      ? 'Date de fin (Optionnel)'
+                      : DateFormat('EEEE d MMMM y', 'fr_FR').format(_selectedEndDate!),
+
+                  style: TextStyle(
+                    color: _selectedEndDate == null ? _textLight : _textPrimary,
+                    fontSize: 16,
+                    fontWeight: _selectedEndDate == null ? FontWeight.normal : FontWeight.w600,
+                  ),
+                ),
+                Icon(
+                  Icons.event_busy,
+                  color: _selectedEndDate == null ? _textLight : _primaryColor,
+                  size: 22,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildBudgetField() {
+    final serviceCtrl = Provider.of<ServiceController>(context);
+    final devises = serviceCtrl.devisesList;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.monetization_on_outlined, size: 18, color: _primaryColor),
+            const SizedBox(width: 8),
+            Text(
+              'Votre Budget',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: _textPrimary,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 2,
+              child: TextFormField(
+                controller: _budgetController,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                style: TextStyle(fontSize: 16, color: _textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Montant (ex: 50)',
+                  helperStyle: TextStyle(color: _primaryColor, fontSize: 12, fontWeight: FontWeight.w500),
+                  hintStyle: TextStyle(color: _textLight),
+                  filled: true,
+                  fillColor: _cardColor,
+                  contentPadding: EdgeInsets.all(18),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: _borderColor)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: _borderColor)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: _primaryColor, width: 2)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 1,
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                height: 56, // Match height of TextFormField
+                decoration: BoxDecoration(
+                  color: _cardColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _borderColor),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<DeviseModel>(
+                    value: _selectedDevise,
+                    isExpanded: true,
+                    hint: Text("Devise"),
+                    items: devises.map((DeviseModel d) {
+                      return DropdownMenuItem<DeviseModel>(
+                        value: d,
+                        child: Text(d.code ?? d.name ?? "", style: TextStyle(fontSize: 14)),
+                      );
+                    }).toList(),
+                    onChanged: (DeviseModel? newVal) {
+                      setState(() {
+                        _selectedDevise = newVal;
+                      });
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -976,49 +1543,37 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
           ],
         ),
         const SizedBox(height: 12),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: TextFormField(
-            controller: _notesController,
-            maxLines: 4,
-            decoration: InputDecoration(
-              hintText: 'Décrivez votre problème ou vos besoins...',
-              alignLabelWithHint: true,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: _borderColor),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: _borderColor),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: _primaryColor, width: 2),
-              ),
-              filled: true,
-              fillColor: _cardColor,
-              contentPadding: const EdgeInsets.all(18),
-              hintStyle: TextStyle(color: _textLight, fontSize: 15),
+        TextFormField(
+          controller: _notesController,
+          maxLines: 4,
+          decoration: InputDecoration(
+            hintText: 'Décrivez votre problème ou vos besoins...',
+            alignLabelWithHint: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: _borderColor),
             ),
-            style: TextStyle(fontSize: 15, color: _textPrimary),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: _borderColor),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: _primaryColor, width: 2),
+            ),
+            filled: true,
+            fillColor: _cardColor,
+            contentPadding: const EdgeInsets.all(18),
+            hintStyle: TextStyle(color: _textLight, fontSize: 15),
           ),
+          style: TextStyle(fontSize: 15, color: _textPrimary),
         ),
       ],
     );
   }
 
   Widget _buildSubmitButton() {
-    final isFormValid = _selectedDate != null && _selectedTime != null;
+    final isFormValid = _selectedDate != null;
 
     return SizedBox(
       width: double.infinity,

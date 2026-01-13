@@ -1,6 +1,6 @@
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/screens/HomePage.dart';
-import 'package:casa/screens/termsAndPrivacy/TermsAndPrivacyPage.dart';
+
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/screens/auth/ForgotPasswordScreen.dart';
@@ -30,8 +30,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final Color errorColor = Color(0xFFD63031);
   final Color secondaryTextColor = Color(0xFF5C6BC0);
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
-  bool _acceptConditions = false;
-
+  // bool _acceptConditions removed
+  
   // États pour la gestion de la validation
   bool _emailTouched = false;
   bool _passwordTouched = false;
@@ -141,15 +141,16 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: Stack(
+        alignment: Alignment.center,
         children: [
           // Arrière-plan avec éléments décoratifs
           _buildBackground(),
 
           // Contenu principal
-          SafeArea(
-            child: SingleChildScrollView(
-              physics: BouncingScrollPhysics(),
-              padding: EdgeInsets.symmetric(horizontal: 15, vertical: 24),
+          SingleChildScrollView(
+            physics: BouncingScrollPhysics(),
+            padding: EdgeInsets.symmetric(horizontal: 15, vertical: 24),
+            child: SafeArea(
               child: Column(
                 children: [
                   SizedBox(height: 20),
@@ -368,8 +369,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
           _buildAuthForm(),
           SizedBox(height: 25),
-          _buildPrivacyText(),
-          SizedBox(height: 25),
+          // _buildPrivacyText() removed
           _buildAuthButton(),
           SizedBox(height: 10),
           _buildForgotPassword(),
@@ -414,11 +414,11 @@ class _LoginScreenState extends State<LoginScreen> {
         controller: _emailController,
         focusNode: _emailFocusNode,
         autovalidateMode: AutovalidateMode.disabled,
-        style: TextStyle(color: textColor, fontSize: 16),
+        style: TextStyle(color: Colors.black87, fontSize: 16), // Force black text on light background
         textInputAction: TextInputAction.next, // ← AJOUTER CETTE LIGNE
         decoration: InputDecoration(
           labelText: 'Email ou Téléphone',
-          labelStyle: TextStyle(color: secondaryTextColor),
+          labelStyle: TextStyle(color: Colors.black87), // Force black label on light background
           prefixIcon: _isPhoneInput && _emailController.text.isNotEmpty
               ? _buildCountryCodeDropdown()
               : Container(
@@ -548,7 +548,7 @@ class _LoginScreenState extends State<LoginScreen> {
       child: TextFormField(
         controller: _passwordController,
         focusNode: _passwordFocusNode,
-        style: TextStyle(color: textColor, fontSize: 16),
+        style: TextStyle(color: Colors.black87, fontSize: 16), // Force black text on light background
         obscureText: !_showPassword,
         autovalidateMode: AutovalidateMode.disabled,
         textInputAction: TextInputAction.done, // ← AJOUTER CETTE LIGNE
@@ -568,7 +568,7 @@ class _LoginScreenState extends State<LoginScreen> {
         },
         decoration: InputDecoration(
           labelText: 'Mot de passe',
-          labelStyle: TextStyle(color: secondaryTextColor),
+          labelStyle: TextStyle(color: Colors.black87), // Force black label on light background
           prefixIcon: Container(
             padding: EdgeInsets.all(12),
             child: Icon(Icons.lock_rounded, color: primaryColor),
@@ -618,216 +618,21 @@ class _LoginScreenState extends State<LoginScreen> {
     final isPasswordValid = _validatePassword(_passwordController.text) == null;
     final hasRequiredFields = _emailController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty;
-    final isButtonEnabled = isEmailValid && isPasswordValid && hasRequiredFields && _acceptConditions && !_isLoading;
+    final isButtonEnabled = isEmailValid && isPasswordValid && hasRequiredFields && !_isLoading;
 
     if (isButtonEnabled) {
       _handleLogin();
     }
   }
 
-  Widget _buildPrivacyText() {
-    return Column(
-      children: [
-        // Case à cocher pour les conditions
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Case à cocher
-              Transform.scale(
-                scale: 1.2,
-                child: Checkbox(
-                  value: _acceptConditions,
-                  onChanged: (bool? value) {
-                    setState(() {
-                      _acceptConditions = value ?? false;
-                    });
-                  },
-                  activeColor: primaryColor,
-                  checkColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-              SizedBox(width: 8),
-              // Texte des conditions
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    RichText(
-                      text: TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'J\'accepte les ',
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                            ),
-                          ),
-                          TextSpan(
-                            text: 'conditions d\'utilisation',
-                            style: TextStyle(
-                              color: primaryColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.underline,
-                            ),
-                            recognizer: TapGestureRecognizer()
-                              ..onTap = () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
-                                  ),
-                                );
-                              },
-                          ),
-                          TextSpan(
-                            text: ' et la ',
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                            ),
-                          ),
-                          TextSpan(
-                            text: 'politique de confidentialité',
-                            style: TextStyle(
-                              color: primaryColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.underline,
-                            ),
-                            recognizer: TapGestureRecognizer()
-                              ..onTap = () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
-                                  ),
-                                );
-                              },
-                          ),
-                          TextSpan(
-                            text: ' de CasaNayo',
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Message d'erreur amélioré - CORRIGÉ POUR LE LOGIN
-                    if (_autoValidateMode == AutovalidateMode.always && !_acceptConditions)
-                      Container(
-                        margin: EdgeInsets.only(top: 6),
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: errorColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: errorColor.withOpacity(0.3)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.error_outline_rounded, color: errorColor, size: 14),
-                            SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Vous devez accepter les conditions pour vous connecter',
-                                style: TextStyle(
-                                  color: errorColor,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(height: 15),
-        // Texte informatif supplémentaire
-        Wrap(
-          spacing: 4,
-          children: [
-            Text(
-              'En continuant, vous acceptez nos',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 12,
-              ),
-            ),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
-                    ),
-                  );
-                },
-                child: Text(
-                  'Conditions',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-            Text(
-              'et',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 12,
-              ),
-            ),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
-                    ),
-                  );
-                },
-                child: Text(
-                  'Politique de confidentialité',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ).animate().fadeIn(delay: 1700.ms);
-  }
+
 
   Widget _buildAuthButton() {
     final isEmailValid = _validateEmail(_emailController.text) == null;
     final isPasswordValid = _validatePassword(_passwordController.text) == null;
     final hasRequiredFields = _emailController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty;
-    final isButtonEnabled = isEmailValid && isPasswordValid && hasRequiredFields && _acceptConditions && !_isLoading;
+    final isButtonEnabled = isEmailValid && isPasswordValid && hasRequiredFields && !_isLoading;
 
     return Container(
       width: double.infinity,
@@ -1022,21 +827,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 
-  String getErrorMessage(String? detailMessage) {
-    const errorTranslations = {
-      'Invalid credentials.': 'Identifiants incorrects',
-      'Invalid credentials': 'Identifiants incorrects',
-      'User not found': 'Utilisateur non trouvé',
-      'Account locked': 'Compte verrouillé',
-      'Invalid phone number': 'Numéro de téléphone invalide',
-      'Invalid email': 'Email invalide',
-      'User disabled': 'Compte désactivé',
-      'Network error': 'Erreur de connexion',
-      // Ajoutez d'autres messages d'erreur ici
-    };
 
-    return errorTranslations[detailMessage] ?? "Erreur d'authentification";
-  }
 
   Future<void> _handleLogin() async {
     // Marquer tous les champs comme touchés pour afficher les erreurs
@@ -1048,18 +839,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
     await Future.delayed(Duration(milliseconds: 50));
 
+    // VÉRIFICATION DES CONDITIONS SUPPRIMÉE ICI
+    
     // Valider les champs
     final emailError = _validateEmail(_emailController.text);
     final passwordError = _validatePassword(_passwordController.text);
 
     if (emailError != null || passwordError != null) {
       SnackbarForCasa.error(context, "Veuillez corriger les erreurs ci-dessus");
-      return;
-    }
-
-    // VÉRIFICATION DES CONDITIONS AJOUTÉE ICI
-    if (!_acceptConditions) {
-      SnackbarForCasa.error(context, "Veuillez accepter les conditions d'utilisation");
       return;
     }
 
@@ -1131,10 +918,9 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         }
       } else {
-        String errorMessage = getErrorMessage(res.data['message']);
-        print("Login error: $errorMessage");
-        // Ne pas afficher les erreurs techniques du serveur
-        SnackbarForCasa.error(context, "Identifiants incorrects ou compte inexistant. Veuillez réessayer.");
+        String errorMsg = _sanitizeLoginError(res.data['message']?.toString());
+        print("Login error: ${res.data['message']}");
+        SnackbarForCasa.error(context, errorMsg);
       }
     } catch (e) {
       print("Login error: $e");
@@ -1147,5 +933,38 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     }
+  }
+
+  String _sanitizeLoginError(String? error) {
+    if (error == null) return "Une erreur est survenue. Veuillez réessayer.";
+    final lower = error.toLowerCase();
+    
+    // Technical errors to mask
+    if (lower.contains("internal server error") ||
+        lower.contains("exception") ||
+        lower.contains("socketexception") ||
+        lower.contains("status code") ||
+        lower.contains("timeout") ||
+        lower.contains("<html>")) {
+      return "Une erreur est survenue. Veuillez réessayer.";
+    }
+
+    // Known user messages
+    if (lower.contains("identifiants incorrects") || lower.contains("invalid credentials")) {
+      return "Identifiants incorrects ou compte inexistant.";
+    }
+    if (lower.contains("compte désactivé") || lower.contains("user disabled")) {
+      return "Votre compte a été désactivé.";
+    }
+    if (lower.contains("compte non vérifié")) {
+      return "Votre compte n'est pas encore vérifié.";
+    }
+
+    // Default mask if it looks technical (contains specialized chars)
+    if (error.contains("{") || error.contains("}") || error.contains("[") || error.contains("]")) {
+       return "Une erreur est survenue. Veuillez réessayer.";
+    }
+
+    return error;
   }
 }

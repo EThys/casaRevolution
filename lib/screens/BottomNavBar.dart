@@ -203,6 +203,8 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
         "Vous devez avoir un compte et être connecté pour publier une annonce",
         onTap: () => Navigator.pushNamed(context, Routes.loginRoute),
       );
+      // Redirection directe vers la page de connexion
+      Navigator.pushNamed(context, Routes.loginRoute);
       return;
     }
 

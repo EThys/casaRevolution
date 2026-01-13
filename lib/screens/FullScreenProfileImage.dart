@@ -3,8 +3,9 @@ import 'package:photo_view/photo_view.dart';
 
 class FullScreenProfileImage extends StatelessWidget {
   final String imageUrl;
+  final String? heroTag;
 
-  const FullScreenProfileImage({Key? key, required this.imageUrl}) : super(key: key);
+  const FullScreenProfileImage({Key? key, required this.imageUrl, this.heroTag}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -13,7 +14,7 @@ class FullScreenProfileImage extends StatelessWidget {
       body: Stack(
         children: [
           Hero(
-            tag: 'profile_image_${imageUrl}',
+            tag: heroTag ?? 'profile_image_${imageUrl}',
             child: PhotoView(
               imageProvider: NetworkImage(imageUrl),
               backgroundDecoration: BoxDecoration(color: Colors.black),

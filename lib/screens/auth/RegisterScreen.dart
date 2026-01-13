@@ -41,18 +41,19 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _emailController = TextEditingController();
+  final _contactController = TextEditingController(); // Unified email/phone
   final _passwordController = TextEditingController();
   final _cityController = TextEditingController();
 
   // Focus nodes pour la navigation au clavier
   final _firstNameFocus = FocusNode();
   final _lastNameFocus = FocusNode();
-  final _phoneFocus = FocusNode();
-  final _emailFocus = FocusNode();
+  final _contactFocus = FocusNode(); // Unified email/phone focus
   final _cityFocus = FocusNode();
   final _passwordFocus = FocusNode();
+
+  // Unified contact field state
+  bool _isPhoneInput = false;
 
   bool _isLoading = false;
   bool _showPassword = false;
@@ -76,8 +77,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   // États pour la gestion de la validation
   bool _firstNameTouched = false;
   bool _lastNameTouched = false;
-  bool _phoneTouched = false;
-  bool _emailTouched = false;
+  bool _contactTouched = false; // Unified email/phone touched
   bool _cityTouched = false;
   bool _passwordTouched = false;
   String? _selectedCountryName;
@@ -132,7 +132,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     // Ajouter des listeners pour tous les contrôleurs
     _firstNameController.addListener(_updateButtonState);
     _lastNameController.addListener(_updateButtonState);
-    _phoneController.addListener(_updateButtonState);
+    _contactController.addListener(_updateContactType); // Unified listener
     _cityController.addListener(_updateButtonState);
     _passwordController.addListener(_updateButtonState);
     
@@ -146,8 +146,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   void _setupFocusNavigation() {
     _firstNameFocus.addListener(() => _onFieldFocusChange(_firstNameFocus, () => _firstNameTouched = true));
     _lastNameFocus.addListener(() => _onFieldFocusChange(_lastNameFocus, () => _lastNameTouched = true));
-    _phoneFocus.addListener(() => _onFieldFocusChange(_phoneFocus, () => _phoneTouched = true));
-    _emailFocus.addListener(() => _onFieldFocusChange(_emailFocus, () => _emailTouched = true));
+    _contactFocus.addListener(() => _onFieldFocusChange(_contactFocus, () => _contactTouched = true));
     _cityFocus.addListener(() => _onFieldFocusChange(_cityFocus, () => _cityTouched = true));
     _passwordFocus.addListener(() => _onFieldFocusChange(_passwordFocus, () => _passwordTouched = true));
   }
@@ -166,19 +165,37 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     }
   }
 
+  // Détecter si l'utilisateur saisit un numéro de téléphone
+  void _updateContactType() {
+    if (mounted) {
+      setState(() {
+        final text = _contactController.text.trim();
+        _isPhoneInput = _looksLikePhoneNumber(text);
+      });
+    }
+  }
+
+  bool _looksLikePhoneNumber(String text) {
+    if (text.isEmpty) return false;
+    final hasDigits = RegExp(r'\d').hasMatch(text);
+    final hasAtSymbol = text.contains('@');
+    final startsWithPlus = text.startsWith('+');
+    final startsWithDigit = text.isNotEmpty && RegExp(r'^\d').hasMatch(text);
+    return hasDigits && !hasAtSymbol && (startsWithPlus || startsWithDigit || text.length >= 8);
+  }
+
   @override
   void dispose() {
     _passwordController.removeListener(_updatePasswordStrength);
     _firstNameController.removeListener(_updateButtonState);
     _lastNameController.removeListener(_updateButtonState);
-    _phoneController.removeListener(_updateButtonState);
+    _contactController.removeListener(_updateContactType);
     _cityController.removeListener(_updateButtonState);
     _passwordController.removeListener(_updateButtonState);
 
     _firstNameFocus.dispose();
     _lastNameFocus.dispose();
-    _phoneFocus.dispose();
-    _emailFocus.dispose();
+    _contactFocus.dispose();
     _cityFocus.dispose();
     _passwordFocus.dispose();
     super.dispose();
@@ -524,18 +541,15 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             label: 'Nom',
             hint: 'Baka',
             focusNode: _lastNameFocus,
-            nextFocus: _phoneFocus,
+            nextFocus: _contactFocus,
             isTouched: _lastNameTouched,
           ),
           SizedBox(height: 15),
-          // Téléphone
-          _buildPhoneField(),
+          // Email ou Téléphone (champ unifié)
+          _buildContactField(),
           SizedBox(height: 15),
           // Ville
           _buildCityField(),
-          SizedBox(height: 15),
-          // Email
-          _buildEmailField(),
           SizedBox(height: 15),
           // Type de compte
           _buildAccountTypeField(),
@@ -632,7 +646,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     );
   }
 
-  Widget _buildPhoneField() {
+  // Champ unifié Email ou Téléphone (comme LoginScreen)
+  Widget _buildContactField() {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
@@ -645,36 +660,22 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         ],
       ),
       child: TextFormField(
-        controller: _phoneController,
-        focusNode: _phoneFocus,
+        controller: _contactController,
+        focusNode: _contactFocus,
         autovalidateMode: AutovalidateMode.disabled,
-        style: TextStyle(color: Colors.black87, fontSize: 16), // Force black text on light background
-        keyboardType: TextInputType.phone,
-        textInputAction: TextInputAction.next, // Garder la navigation clavier
-        onFieldSubmitted: (_) => _goToNextField(_phoneFocus, _emailFocus),
-        onChanged: (String value) {
-          // Gérer automatiquement le 0 initial
-          String cleaned = value.replaceAll(RegExp(r'[^\d]'), '');
-          if (cleaned.startsWith('0') && cleaned.length > 1) {
-            // Supprimer le 0 et garder les chiffres suivants
-            cleaned = cleaned.substring(1);
-            _phoneController.value = TextEditingValue(
-              text: cleaned,
-              selection: TextSelection.collapsed(offset: cleaned.length),
-            );
-          }
-          if (_phoneTouched) _forceRevalidation();
-        },
-        onEditingComplete: () {
-          setState(() {
-            _phoneTouched = true;
-          });
-        },
+        style: TextStyle(color: Colors.black87, fontSize: 16),
+        textInputAction: TextInputAction.next,
+        onFieldSubmitted: (_) => _goToNextField(_contactFocus, _cityFocus),
         decoration: InputDecoration(
-          labelText: 'Téléphone*',
-          labelStyle: TextStyle(color: Colors.black87), // Force black label on light background
-          prefixIcon: _buildCountryCodeDropdown(),
-          // SUPPRIMER le suffixIcon pour avoir plus d'espace
+          labelText: 'Email ou Téléphone*',
+          labelStyle: TextStyle(color: Colors.black87),
+          prefixIcon: _isPhoneInput && _contactController.text.isNotEmpty
+              ? _buildCountryCodeDropdown()
+              : Container(
+                  padding: EdgeInsets.all(12),
+                  child: Icon(Icons.email_rounded, color: primaryColor),
+                ),
+
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -693,11 +694,35 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           ),
           filled: true,
           fillColor: lightBlue.withOpacity(0.3),
-          hintText: '810000000',
+          hintText: 'exemple@email.com ou 810000000',
           hintStyle: TextStyle(color: Colors.grey.shade500),
-          errorText: _phoneTouched ? _validatePhone(_phoneController.text) : null,
+          errorText: _contactTouched ? _validateContact(_contactController.text) : null,
         ),
-        validator: null, // Désactivé car on utilise errorText
+        keyboardType: _isPhoneInput ? TextInputType.phone : TextInputType.emailAddress,
+        onChanged: (String value) {
+          bool isPhone = _looksLikePhoneNumber(value);
+          if (isPhone) {
+            String cleaned = value.replaceAll(RegExp(r'[^\d]'), '');
+            if (cleaned.startsWith('0') && cleaned.length > 1) {
+              cleaned = cleaned.substring(1);
+              _contactController.value = TextEditingValue(
+                text: cleaned,
+                selection: TextSelection.collapsed(offset: cleaned.length),
+              );
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _updateContactType();
+                if (_contactTouched) _forceRevalidation();
+              });
+              return;
+            }
+          }
+          _updateContactType();
+          if (_contactTouched) _forceRevalidation();
+        },
+        onEditingComplete: () {
+          setState(() => _contactTouched = true);
+        },
+        validator: null,
       ),
     ).animate().slideX(
       begin: 0.3,
@@ -742,73 +767,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   //   );
   // }
 
-  Widget _buildEmailField() {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: primaryColor.withOpacity(0.05),
-            blurRadius: 10,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: TextFormField(
-        controller: _emailController,
-        focusNode: _emailFocus,
-        autovalidateMode: AutovalidateMode.disabled,
-        style: TextStyle(color: Colors.black87, fontSize: 16), // Force black text on light background
-        keyboardType: TextInputType.emailAddress,
-        textInputAction: TextInputAction.next,
-        onFieldSubmitted: (_) => _goToNextField(_emailFocus, _cityFocus),
-        onChanged: (_) {
-          if (_emailTouched) _forceRevalidation();
-        },
-        onEditingComplete: () {
-          setState(() {
-            _emailTouched = true;
-          });
-        },
-        decoration: InputDecoration(
-          labelText: 'Email (optionnel)',
-          labelStyle: TextStyle(color: Colors.black87), // Force black label on light background
-          prefixIcon: Container(
-            padding: EdgeInsets.all(12),
-            child: Icon(Icons.email_rounded, color: primaryColor),
-          ),
-          suffixIcon: _buildNextButton(() => _goToNextField(_emailFocus, _cityFocus)),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: primaryColor, width: 2),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red, width: 2),
-          ),
-          filled: true,
-          fillColor: lightBlue.withOpacity(0.3),
-          hintText: 'exemple@email.com',
-          hintStyle: TextStyle(color: Colors.grey.shade500),
-          errorText: _emailTouched ? _validateEmail(_emailController.text) : null,
-        ),
-        validator: null, // Désactivé car on utilise errorText
-      ),
-    ).animate().slideX(
-      begin: -0.3,
-      duration: 500.ms,
-      delay: 1500.ms,
-      curve: Curves.easeOut,
-    );
-  }
+
 
   Widget _buildCityField() {
     return Container(
@@ -839,7 +798,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           setState(() {
             _cityController.text = city.name ?? '';
             _cityTouched = true;
-            FocusScope.of(context).requestFocus(_emailFocus);
+            FocusScope.of(context).requestFocus(_passwordFocus);
           });
         },
         fieldViewBuilder: (
@@ -865,7 +824,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             ),
             onFieldSubmitted: (String value) {
               onFieldSubmitted();
-              _goToNextField(focusNode, _emailFocus);
+              _goToNextField(focusNode, _passwordFocus);
             },
             onChanged: (String value) {
               setState(() {
@@ -1087,7 +1046,14 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           icon: Icons.home_work_rounded,
           isSelected: _selectedOwnerAccountId != null,
           showBadge: true,
-          onTap: () {
+          onTap: () async {
+            if (typeCtrl.ownerTypes.isEmpty) {
+               await typeCtrl.fetchTypeAccounts();
+               if (typeCtrl.ownerTypes.isEmpty) {
+                  if (mounted) SnackbarForCasa.error(context, "Aucun type de compte immobilier disponible");
+                  return;
+               }
+            }
             setState(() {
               if (_selectedOwnerAccountId != null) {
                 _selectedOwnerAccountId = null;
@@ -1112,7 +1078,14 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           title: "Vous proposez des services ?",
           icon: Icons.handyman_rounded,
           isSelected: _selectedPrestataireAccountId != null,
-          onTap: () {
+          onTap: () async {
+            if (typeCtrl.serviceTypes.isEmpty) {
+               await typeCtrl.fetchTypeAccounts();
+               if (typeCtrl.serviceTypes.isEmpty) {
+                  if (mounted) SnackbarForCasa.error(context, "Aucun type de service disponible");
+                  return;
+               }
+            }
             setState(() {
               if (_selectedPrestataireAccountId != null) {
                 _selectedPrestataireAccountId = null;
@@ -1347,8 +1320,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     setState(() {
       _firstNameTouched = true;
       _lastNameTouched = true;
-      _phoneTouched = true;
-      _emailTouched = true;
+      _contactTouched = true;
       _cityTouched = true;
       _passwordTouched = true;
       _autoValidateMode = AutovalidateMode.always;
@@ -1361,22 +1333,20 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
     final hasRequiredFields = _firstNameController.text.isNotEmpty &&
         _lastNameController.text.isNotEmpty &&
-        _phoneController.text.isNotEmpty &&
+        _contactController.text.isNotEmpty &&
         _cityController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty &&
         hasSelectedAccount;
 
     final isFirstNameValid = _validateName(_firstNameController.text, 'prénom') == null;
     final isLastNameValid = _validateName(_lastNameController.text, 'nom') == null;
-    final isPhoneValid = _validatePhone(_phoneController.text) == null;
-    final isEmailValid = _emailController.text.isEmpty || _validateEmail(_emailController.text) == null;
+    final isContactValid = _validateContact(_contactController.text) == null;
     final isCityValid = _validateCity(_cityController.text) == null;
     final isPasswordValid = _validatePassword(_passwordController.text) == null;
 
     final isFormValid = isFirstNameValid &&
         isLastNameValid &&
-        isPhoneValid &&
-        isEmailValid &&
+        isContactValid &&
         isCityValid &&
         isPasswordValid;
 
@@ -1733,26 +1703,21 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
                                _selectedPrestataireAccountId != null;
     final hasRequiredFields = _firstNameController.text.isNotEmpty &&
         _lastNameController.text.isNotEmpty &&
-        _phoneController.text.isNotEmpty &&
+        _contactController.text.isNotEmpty &&
         _cityController.text.isNotEmpty &&
         _passwordController.text.isNotEmpty &&
         hasSelectedAccount;
 
-
-    final shouldValidate = _autoValidateMode == AutovalidateMode.always ||
-        (_firstNameTouched && _lastNameTouched && _phoneTouched && _cityTouched && _passwordTouched);
-
-    final isFirstNameValid = shouldValidate ? _validateName(_firstNameController.text, 'prénom') == null : true;
-    final isLastNameValid = shouldValidate ? _validateName(_lastNameController.text, 'nom') == null : true;
-    final isPhoneValid = shouldValidate ? _validatePhone(_phoneController.text) == null : true;
-    final isEmailValid = _emailController.text.isEmpty || _validateEmail(_emailController.text) == null;
-    final isCityValid = shouldValidate ? _validateCity(_cityController.text) == null : true;
-    final isPasswordValid = shouldValidate ? _validatePassword(_passwordController.text) == null : true;
+    // Always validate when fields have content
+    final isFirstNameValid = _firstNameController.text.isEmpty || _validateName(_firstNameController.text, 'prénom') == null;
+    final isLastNameValid = _lastNameController.text.isEmpty || _validateName(_lastNameController.text, 'nom') == null;
+    final isContactValid = _contactController.text.isEmpty || _validateContact(_contactController.text) == null;
+    final isCityValid = _cityController.text.isEmpty || _validateCity(_cityController.text) == null;
+    final isPasswordValid = _passwordController.text.isEmpty || _validatePassword(_passwordController.text) == null;
 
     final isFormValid = isFirstNameValid &&
         isLastNameValid &&
-        isPhoneValid &&
-        isEmailValid &&
+        isContactValid &&
         isCityValid &&
         isPasswordValid;
 
@@ -1884,41 +1849,37 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     return null;
   }
 
-  String? _validatePhone(String? value) {
+  // Unified Email/Phone validator (like LoginScreen)
+  String? _validateContact(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Le numéro de téléphone est obligatoire';
+      return 'Veuillez entrer un email ou un numéro de téléphone';
     }
 
-    // Nettoyer le numéro (garder seulement les chiffres)
-    String cleanedPhone = value.replaceAll(RegExp(r'[^\d]'), '');
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    final cleanedValue = value.replaceAll(RegExp(r'[\s\-\+\(\)]'), '');
+    final isPhone = _looksLikePhoneNumber(value);
 
-    // Validation pour les numéros congolais (RDC)
-    if (_selectedCountryCode == '+243') {
-      if (cleanedPhone.length != 9) {
-        return 'Le numéro RDC doit avoir 9 chiffres';
+    // If it looks like a phone, validate as phone
+    if (isPhone) {
+      final cleanedValue = value.replaceAll(RegExp(r'[\s\-\+\(\)]'), '');
+      if (_selectedCountryCode == '+243') {
+        if (cleanedValue.length != 9) {
+          return 'Le numéro RDC doit avoir 9 chiffres';
+        }
+        if (!RegExp(r'^[89]').hasMatch(cleanedValue)) {
+          return 'Le numéro RDC doit commencer par 8 ou 9';
+        }
+      } else {
+        if (cleanedValue.length < 8) {
+          return 'Numéro de téléphone trop court';
+        }
       }
-      if (!RegExp(r'^[89]').hasMatch(cleanedPhone)) {
-        return 'Le numéro RDC doit commencer par 8 ou 9';
-      }
-    }
-
-    // Validation générale pour les autres pays
-    if (cleanedPhone.length < 8) {
-      return 'Le numéro doit contenir au moins 8 chiffres';
-    }
-
-    return null;
-  }
-
-  String? _validateEmail(String? value) {
-    if (value != null && value.isNotEmpty) {
-      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-        return 'Adresse email invalide. Ex: exemple@mail.com';
-      }
-      if (value.length > 100) {
-        return 'L\'email ne peut pas dépasser 100 caractères';
+    } else {
+      if (!emailRegex.hasMatch(value)) {
+        return 'Email invalide';
       }
     }
+
     return null;
   }
 
@@ -1955,8 +1916,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
      setState(() {
       _firstNameTouched = true;
       _lastNameTouched = true;
-      _phoneTouched = true;
-      _emailTouched = true;
+      _contactTouched = true;
       _cityTouched = true;
       _passwordTouched = true;
       _autoValidateMode = AutovalidateMode.always;
@@ -1966,8 +1926,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
     if (_validateName(_firstNameController.text, 'prénom') != null || 
         _validateName(_lastNameController.text, 'nom') != null || 
-        _validatePhone(_phoneController.text) != null ||
-        _validateEmail(_emailController.text) != null || 
+        _validateContact(_contactController.text) != null || 
         _validateCity(_cityController.text) != null || 
         _validatePassword(_passwordController.text) != null) {
       SnackbarForCasa.error(context, "Veuillez corriger les erreurs");
@@ -2032,20 +1991,41 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           return;
       }
 
-      String phoneNumber = _phoneController.text.trim();
-      final cleanedPhone = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
-      String phoneWithCountryCode = cleanedPhone.startsWith('0') 
-          ? '${_selectedCountryCode}${cleanedPhone.substring(1)}'
-          : '${_selectedCountryCode}$cleanedPhone';
+      // Préparer les données de contact selon le type (email ou téléphone)
+      String phoneField = '';
+      String emailField = '';
+      
+      // Recalculer si c'est un téléphone ou email pour la soumission
+      final contactValue = _contactController.text.trim();
+      final isPhone = _looksLikePhoneNumber(contactValue);
 
-      final userData = {
-        "phone": phoneWithCountryCode,
+      if (isPhone) {
+        // C'est un numéro de téléphone
+        final cleanedPhone = contactValue.replaceAll(RegExp(r'[^\d]'), '');
+        phoneField = cleanedPhone.startsWith('0') 
+            ? '${_selectedCountryCode}${cleanedPhone.substring(1)}'
+            : '${_selectedCountryCode}$cleanedPhone';
+        // S'assurer que le champ phone ne soit pas vide s'il y a un souci de parsing
+        if (phoneField == _selectedCountryCode) phoneField = contactValue;
+      } else {
+        // C'est un email
+        emailField = contactValue;
+      }
+
+      final Map<String, dynamic> userData = {
         "password": _passwordController.text,
-        "email": _emailController.text.isNotEmpty ? _emailController.text : "",
         "city": _cityController.text.trim(),
         "country": _selectedCountryName ?? "RDC",
         "username": "@${_firstNameController.text}${_lastNameController.text}".replaceAll(' ', ''),
       };
+      
+      if (isPhone) {
+        userData["phone"] = phoneField;
+        userData["email"] = "";
+      } else {
+        userData["phone"] = "";
+        userData["email"] = emailField;
+      }
       
       final actorData = {
           "lastName": _lastNameController.text,
@@ -2074,12 +2054,12 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
          await Future.delayed(Duration(milliseconds: 500));
          Navigator.of(context).pushReplacementNamed(Routes.loginRoute);
       } else {
-         SnackbarForCasa.error(context, response.errorMsg ?? "Erreur lors de l'inscription");
+         SnackbarForCasa.error(context, _sanitizeError("Une erreur est survenue. Veuillez réessayer"));
       }
 
     } catch (e) {
       print("Erreur inscription: $e");
-      SnackbarForCasa.error(context, "Une erreur est survenue: $e");
+      SnackbarForCasa.error(context, "Une erreur est survenue. Veuillez réessayer.");
     } finally {
       if (mounted) {
         setState(() {
@@ -2087,5 +2067,22 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         });
       }
     }
+  }
+
+  String _sanitizeError(String? error) {
+    if (error == null || error.isEmpty) return "Erreur lors de l'inscription. Veuillez réessayer.";
+    final lower = error.toLowerCase();
+    
+    // Masquer les erreurs techniques
+    if (lower.contains("internal server error") || 
+        lower.contains("exception") || 
+        lower.contains("status") || 
+        lower.contains("timeout") ||
+        lower.contains("connection refused") ||
+        error.startsWith("{") ||
+        error.startsWith("<html>")) {
+      return "Une erreur est survenue. Veuillez réessayer.";
+    }
+    return error; 
   }
 }

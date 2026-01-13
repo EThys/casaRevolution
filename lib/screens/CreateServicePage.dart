@@ -564,7 +564,7 @@ class _CreateServicePageState extends State<CreateServicePage> {
             Expanded(
               child: _buildCurrentStepContent(),
             ),
-            _buildBottomNavigation(),
+            // _buildBottomNavigation(),
           ],
         ),
       ),
@@ -765,6 +765,8 @@ class _CreateServicePageState extends State<CreateServicePage> {
           SizedBox(height: _mediumSpace),
           _buildImagesGrid(),
           SizedBox(height: _largeSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
         ],
       ),
     );
@@ -1273,6 +1275,8 @@ class _CreateServicePageState extends State<CreateServicePage> {
           SizedBox(height: _mediumSpace),
           _buildTextField(_availableHoursController, 'Heures de disponibilité (ex: 08:00-18:00)', Icons.access_time_rounded),
           SizedBox(height: _largeSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
         ],
       ),
     );
@@ -1759,6 +1763,8 @@ class _CreateServicePageState extends State<CreateServicePage> {
           SizedBox(height: _mediumSpace),
           _buildTextField(_postalCodeController, 'Code postal', Icons.markunread_mailbox_rounded, keyboardType: TextInputType.number),
           SizedBox(height: _largeSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
         ],
       ),
     );
@@ -2323,78 +2329,82 @@ class _CreateServicePageState extends State<CreateServicePage> {
     // Obtenir la hauteur de la barre de navigation système
     final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
     
-    return Container(
-      padding: EdgeInsets.only(
-        left: _mediumSpace,
-        right: _mediumSpace,
-        top: _mediumSpace,
-        bottom: _mediumSpace + bottomPadding, // Ajouter le padding pour la barre de navigation
-      ),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, -2),
-          )
-        ],
-      ),
-      child: Row(
-        children: [
-          if (_currentStep > 0)
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () {
-                  setState(() => _currentStep--);
-                },
-                style: OutlinedButton.styleFrom(
-                  padding: EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  side: BorderSide(color: _borderColor),
-                ),
-                child: Text('Précédent', style: TextStyle(color: _darkColor)),
-              ),
-            ),
-          if (_currentStep > 0) SizedBox(width: _smallSpace),
-          Expanded(
-            flex: _currentStep == 0 ? 1 : 2,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : () {
-                _clickCount++;
-                _handleNextOrSubmit();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isLoading 
-                    ? _greyColor 
-                    : (_hasFieldErrors(_currentStep) && _hasAttemptedSubmit 
-                        ? _errorColor.withOpacity(0.7) 
-                        : _primaryColor),
-                padding: EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 0,
-              ),
-              child: _isLoading
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : Text(
-                      _currentStep == 2 ? 'Publier le service' : 'Suivant',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                    ),
-            ),
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.only(
+            left: _mediumSpace,
+            right: _mediumSpace,
+            top: _mediumSpace,
+            bottom: _mediumSpace + bottomPadding, // Ajouter le padding pour la barre de navigation
           ),
-        ],
-      ),
+          child: Row(
+            children: [
+              if (_currentStep > 0)
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      setState(() => _currentStep--);
+                    },
+                    style: OutlinedButton.styleFrom(
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      side: BorderSide(color: _borderColor),
+                    ),
+                    child: Text('Précédent', style: TextStyle(color: _darkColor)),
+                  ),
+                ),
+              if (_currentStep > 0) SizedBox(width: _smallSpace),
+              Expanded(
+                flex: _currentStep == 0 ? 1 : 2,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : () {
+                    _clickCount++;
+                    _handleNextOrSubmit();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isLoading 
+                        ? _greyColor 
+                        : (_hasFieldErrors(_currentStep) && _hasAttemptedSubmit 
+                            ? _errorColor.withOpacity(0.7) 
+                            : _primaryColor),
+                    padding: EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: _isLoading
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : Text(
+                          _currentStep == 2 ? 'Publier le service' : 'Suivant',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 8),
+        Text(
+          "Votre service sera visible après approbation.",
+          style: TextStyle(
+            color: Colors.grey[500],
+            fontSize: 12,
+            fontStyle: FontStyle.italic,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 

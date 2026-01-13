@@ -9,6 +9,7 @@ import 'package:casa/models/CityModel.dart';
 import 'package:casa/models/CommuneModel.dart';
 import 'package:casa/models/DistrictModel.dart';
 import 'package:casa/models/QuartierModel.dart';
+import 'package:casa/models/DeviseModel.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
@@ -28,6 +29,12 @@ import 'package:firebase_performance/firebase_performance.dart';
 
 import '../utils/StockageKeys.dart';
 import '../utils/requetes.dart' show HttpResponse;
+import 'package:casa/controllers/AgenceController.dart';
+import 'package:casa/screens/forms/TerrainFormFields.dart';
+import 'package:casa/screens/forms/BureauFormFields.dart';
+import 'package:casa/screens/forms/VacanceFormFields.dart';
+import 'package:casa/screens/forms/FuneraireFormFields.dart';
+import 'package:casa/screens/forms/FestiveFormFields.dart';
 
 class CreatePropertyPostPage extends StatefulWidget {
   @override
@@ -104,8 +111,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   String? _selectedUsage; 
   bool _isDecore = false;
   bool _pisteDanse = false;
-  bool _isEquip = false; // Meublé ou non
+  bool _isEquip = true; // Meublé par défaut (true pour éviter null)
   bool _hasFloor = false; // Pour le champ Étage (0/1)
+  
+  // Champs spécifiques Vacances
+  final TextEditingController _noteController = TextEditingController();
+  final TextEditingController _dateVacanceController = TextEditingController();
+  final TextEditingController _heureVacanceController = TextEditingController();
+  final TextEditingController _offreController = TextEditingController();
+  String? _selectedPriceCombo;
 
   // State variables
   bool _isForRent = true;
@@ -191,6 +205,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       _restoreDraft();
       _loadLocationData(); // Was _loadCities
       _checkUserVerification();
+      context.read<PropertyController>().fetchDevises();
     });
   }
 
@@ -714,6 +729,20 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         'kitchens': _kitchensController.text,
         'area': _areaController.text,
         'hasFloor': _hasFloor,
+        // New fields
+        'roomMeet': _roomMeetController.text,
+        'numberPiece': _numberPieceController.text,
+        'note': _noteController.text,
+        'dateVacance': _dateVacanceController.text,
+        'heureVacance': _heureVacanceController.text,
+        'capacity': _capacityController.text,
+        'offre': _offreController.text,
+        'isEquip': _isEquip,
+        'pri ceCombo': _selectedPriceCombo,
+        'usage': _selectedUsage,
+        'isDecore': _isDecore,
+        'pisteDanse': _pisteDanse,
+        
         'selectedAmenities': _selectedAmenities.toList(),
         'selectedCityId': _selectedCity?.cityId,
         'selectedDistrictId': _selectedDistrict?.districtId,
@@ -757,7 +786,22 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           _kitchensController.text = draft['kitchens'] ?? '';
           _areaController.text = draft['area'] ?? '';
           _hasFloor = draft['hasFloor'] ?? false;
-          _selectedAmenities = Set<String>.from(draft['selectedAmenities'] ?? []);
+        
+        // Restore new fields
+        _roomMeetController.text = draft['roomMeet'] ?? '';
+        _numberPieceController.text = draft['numberPiece'] ?? '';
+        _noteController.text = draft['note'] ?? '';
+        _dateVacanceController.text = draft['dateVacance'] ?? '';
+        _heureVacanceController.text = draft['heureVacance'] ?? '';
+        _capacityController.text = draft['capacity'] ?? '';
+        _offreController.text = draft['offre'] ?? '';
+        _isEquip = draft['isEquip'] ?? false;
+        _selectedPriceCombo = draft['priceCombo'];
+        _selectedUsage = draft['usage'];
+        _isDecore = draft['isDecore'] ?? false;
+        _pisteDanse = draft['pisteDanse'] ?? false;
+
+        _selectedAmenities = Set<String>.from(draft['selectedAmenities'] ?? []);
         });
 
         if (draft['selectedCityId'] != null) {
@@ -918,9 +962,46 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     final typeName = _selectedCategory?.toLowerCase() ?? '';
     final isFestive = typeName.contains('fête') || typeName.contains('festive');
     final isFuneraire = typeName.contains('funéra') || typeName.contains('deuil');
+    final isVacances = typeName.contains('vacance');
 
-    // Title validation
-    if (_titleController.text.trim().isEmpty) {
+    final isBureau = typeName.contains('bureau') || (_selectedPropertyTypeId == 4);
+  final isTerrain = typeName.contains('terrain');
+
+  // Vacances validation
+  if (isVacances) {
+      if (_dateVacanceController.text.trim().isEmpty) {
+         _setFieldError(1, 'date', 'Date requise');
+         errors.add('Date requise');
+      }
+      if (_heureVacanceController.text.trim().isEmpty) {
+         _setFieldError(1, 'time', 'Heure requise');
+         errors.add('Heure requise');
+      }
+      if (_capacityController.text.trim().isEmpty) {
+        _setFieldError(1, 'capacity', 'Capacité requise');
+        errors.add('Capacité requise');
+      }
+  }
+
+  // Bureau validation
+  if (isBureau) {
+      if (_numberPieceController.text.trim().isEmpty) {
+         _setFieldError(1, 'numberPiece', 'Nombre de pièces requis');
+      }
+      if (_areaController.text.trim().isEmpty) {
+         _setFieldError(1, 'area', 'Superficie requise');
+      }
+  }
+
+  // Terrain validation
+  if (isTerrain) {
+      if (_areaController.text.trim().isEmpty) {
+         _setFieldError(1, 'area', 'Superficie requise');
+      }
+  }
+
+  // Title validation
+  if (_titleController.text.trim().isEmpty) {
       _setFieldError(1, 'title', 'Veuillez entrer un titre');
     } else if (_titleController.text.trim().length < 5) { // Reduced constraint
       _setFieldError(1, 'title', 'Titre trop court (min 5 caractères)');
@@ -932,8 +1013,16 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     }
 
     // Capacity validation for specific types
-    if (isFestive || isFuneraire) {
+    if (isFestive) {
       if (_capacityController.text.trim().isEmpty) {
+         _setFieldError(1, 'capacity', 'Capacité requise');
+         errors.add('Capacité requise');
+      }
+    }
+    
+    // Funeraire validation
+    if (isFuneraire) {
+       if (_capacityController.text.trim().isEmpty) {
          _setFieldError(1, 'capacity', 'Capacité requise');
          errors.add('Capacité requise');
       }
@@ -955,6 +1044,12 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     if (_addressController.text.trim().isEmpty) {
       _setFieldError(1, 'address', 'Adresse requise');
     }
+    // Only check length for standard properties if needed, or remove completely as requested
+    // User asked to NOT be strict about 10 chars for terrain, bureau, salle de fete, funeraire, vacance
+    final isSpecial = isFestive || isFuneraire || isTerrain || isBureau || isVacances;
+    if (!isSpecial && _addressController.text.trim().length < 5) {
+       _setFieldError(1, 'address', 'Adresse trop courte');
+    }
 
     final isValid = !_hasFieldErrors(1) && errors.isEmpty;
     final errorMessage = _hasFieldErrors(1) || errors.isNotEmpty ? 'Veuillez corriger les erreurs' : '';
@@ -971,18 +1066,39 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     _clearStepFieldErrors(2);
     final errors = <String>[];
 
-    // Validation des photos (Seul élément requis pour cette étape)
+    // 1. Validation des photos (Toujours requises)
     final mainImages = _selectedImages['propertyImage'] ?? [];
     if (mainImages.length < 3) {
       errors.add('Au moins 3 photos principales sont requises');
       _setFieldError(2, 'photos', 'Min. 3 photos');
     }
 
-    // Les services (eau/élec) sont désormais optionnels
-    // On ne bloque plus la progression si ils sont vides
+    // 2. Validation des services essentiels si affichés
+    final typeName = _selectedCategory?.toLowerCase() ?? '';
+    final isFestive = typeName.contains('fête') || typeName.contains('festive');
+    final isFuneraire = typeName.contains('funéra') || typeName.contains('deuil');
+    final isTerrain = typeName.contains('terrain');
+    
+    // Services required for Festive and Funeraire, but not Terrain or Vacances (handled in VacanceFormFields or excluded)
+    // Actually Vacances has its own form, so this logic covers the main step 2 services (Electric/Water)
+    // User wants Festive to have services.
+    final isExcluded = isTerrain;
 
-    final isValid = !_hasFieldErrors(2);
-    final errorMessage = _hasFieldErrors(2) ? 'Veuillez ajouter au moins 3 photos' : '';
+    if (!isExcluded) {
+      if (_selectedElectric == null) {
+         _setFieldError(2, 'electric', 'Requis');
+         errors.add("Electricité requise");
+      }
+      if (_selectedWater == null) {
+         _setFieldError(2, 'water', 'Requis');
+         errors.add("Eau requise");
+      }
+    }
+
+    // Les équipements (features) restent optionnels comme demandé
+
+    final isValid = !_hasFieldErrors(2) && errors.isEmpty;
+    final errorMessage = _hasFieldErrors(2) || errors.isNotEmpty ? 'Veuillez compléter les informations requises' : '';
 
     setState(() {
       _stepValidations[2] = isValid;
@@ -1059,7 +1175,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         if (mounted) {
           setState(() {
             _selectedImages[categoryId]!.addAll(validImages);
-            _validateStep0();
+            _validateCurrentStepFields();
             _saveDraft();
           });
 
@@ -1113,7 +1229,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     if (mounted) {
       setState(() {
         _selectedImages[categoryId]!.removeAt(index);
-        _validateStep0();
+        _validateCurrentStepFields();
         _saveDraft();
       });
 
@@ -1124,6 +1240,158 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
   int get _totalImagesCount {
     return _selectedImages.values.fold(0, (sum, images) => sum + (images?.length ?? 0));
+  }
+
+  bool _isUserGerant() {
+    final storage = GetStorage();
+    final userData = storage.read(StockageKeys.userKey);
+    String currentAccountType = 'Non spécifié';
+        
+    // 1. Check main typeAccount
+    if (userData != null && userData['typeAccount'] != null) {
+          currentAccountType = userData['typeAccount']['name']?.toString() ?? 'Non spécifié';
+    }
+
+    print("🔍 VERIFICATION ROLE GERANT:");
+    print("👤 Compte principal: $currentAccountType");
+
+    // 2. Check user_accounts list
+    bool hasGerantRole = currentAccountType.toLowerCase().contains('gérant') || 
+                          currentAccountType.toLowerCase().contains('gerant');
+
+    if (!hasGerantRole) {
+        final accounts = storage.read('user_accounts');
+        print("📋 Liste des comptes additionnels: ${accounts?.length ?? 0}");
+        if (accounts != null && accounts is List) {
+            for (var acc in accounts) {
+                  if (acc is Map) {
+                    final name = acc['name']?.toString()?.toLowerCase() ?? '';
+                    final typeName = acc['typeAccount']?['name']?.toString()?.toLowerCase() ?? '';
+                    
+                    print("  - Compte: name=$name, type=$typeName");
+
+                    if (name.contains('gérant') || name.contains('gerant') ||
+                        typeName.contains('gérant') || typeName.contains('gerant')) {
+                            hasGerantRole = true;
+                            print("  ✅ Rôle Gérant trouvé dans les comptes secondaires");
+                            break;
+                    }
+                  }
+            }
+        }
+    } else {
+        print("✅ Rôle Gérant trouvé dans le compte principal");
+    }
+    
+    print("🏁 HasGerantRole final: $hasGerantRole");
+    return hasGerantRole;
+  }
+
+  Future<void> _checkAgencyRequirement(String categoryName) async {
+    // Logic specifically for Vacances
+    if (categoryName.toLowerCase().contains('vacance')) {
+        print("🏖️ [CreatePropertyPost] Vérification agence pour Vacances...");
+        
+        final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
+        final agenceCtrl = Provider.of<AgenceController>(context, listen: false);
+        final storage = GetStorage();
+        final userData = storage.read(StockageKeys.userKey);
+        
+        // Get userId
+        final userId = authCtrl.user.userId;
+        if (userId == null) {
+            print("❌ [CreatePropertyPost] UserId non trouvé");
+            FancyNotification.show(
+                context,
+                "Erreur: Impossible de vérifier votre compte",
+                isError: true
+            );
+            return;
+        }
+        
+        // Check if user is Gérant
+        String currentAccountType = 'Non spécifié';
+        if (userData != null && userData['typeAccount'] != null) {
+             currentAccountType = userData['typeAccount']['name']?.toString() ?? 'Non spécifié';
+        }
+
+        bool hasGerantRole = currentAccountType.toLowerCase().contains('gérant') || 
+                             currentAccountType.toLowerCase().contains('gerant');
+
+        if (!hasGerantRole) {
+            final accounts = storage.read('user_accounts');
+            if (accounts != null && accounts is List) {
+                for (var acc in accounts) {
+                     if (acc is Map) {
+                        final name = acc['name']?.toString()?.toLowerCase() ?? '';
+                        final typeName = acc['typeAccount']?['name']?.toString()?.toLowerCase() ?? '';
+                        
+                        if (name.contains('gérant') || name.contains('gerant') ||
+                            typeName.contains('gérant') || typeName.contains('gerant')) {
+                                hasGerantRole = true;
+                                break;
+                        }
+                     }
+                }
+            }
+        }
+        
+        if (!hasGerantRole) {
+            print("❌ [CreatePropertyPost] Utilisateur n'est pas Gérant");
+            FancyNotification.show(
+                context,
+                "Cette catégorie nécessite un compte Gérant",
+                isError: true
+            );
+            return;
+        }
+        
+        print("✅ [CreatePropertyPost] Utilisateur est Gérant, vérification agence...");
+        
+        // Fetch user's agencies
+        await agenceCtrl.fetchAgencesByUser(userId);
+        
+        // Check if user has agencies
+        if (agenceCtrl.agences.isNotEmpty) {
+            print("✅ [CreatePropertyPost] Agence trouvée: ${agenceCtrl.agences.first.name}");
+            // User has agency, proceed automatically
+            return;
+        }
+        
+        print("⚠️ [CreatePropertyPost] Aucune agence trouvée, affichage dialogue création");
+        // No agency found, show creation dialog
+        _showCreateAgencyDialog();
+    }
+  }
+
+
+  void _showCreateAgencyDialog() {
+      // Informer l'utilisateur avant la redirection
+      FancyNotification.show(
+        context, 
+        "Pour des raisons de qualité, la publication d'offres 'Vacances' nécessite un compte Agence. Créons-le ensemble !", 
+        isError: false, 
+        type: NotificationType.info,
+        duration: 4
+      );
+      
+      // Petit délai pour laisser lire le message
+      Future.delayed(Duration(seconds: 2), () {
+          if (mounted) {
+             // Désélectionner pour éviter l'état incohérent
+             setState(() { _selectedCategory = null; _selectedPropertyTypeId = null; });
+             
+             Navigator.pushNamed(context, Routes.createAgenceRoute).then((result) {
+                 if (result == true) {
+                     // Si l'agence a été créée, on laisse l'utilisateur réessayer ou on re-check
+                     final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
+                     if (authCtrl.user.userId != null) {
+                        authCtrl.checkUserAgency(authCtrl.user.userId!);
+                     }
+                 }
+             });
+          }
+      });
   }
 
   // =============================================
@@ -1149,11 +1417,13 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               Expanded(
                 child: _buildCurrentStepContent(),
               ),
-              _buildBottomNavigation(),
             ],
           ),
         ),
       ),
+      // bottomNavigationBar: SafeArea(
+      //   child: _buildBottomNavigation(),
+      // ),
     );
   }
 
@@ -1421,6 +1691,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           SizedBox(height: _mediumSpace),
           _buildModernPropertyTypeGrid(),
           SizedBox(height: _largeSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
         ],
       ),
     );
@@ -1438,7 +1710,54 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       );
     }
 
-    final categories = _propertyTypes.map((type) {
+    // Use dynamic property types from API
+    // FILTRAGE STRICT PAR RÔLE
+    final categories = _propertyTypes.where((type) {
+      final typeName = type['name']?.toString().toLowerCase();
+      // Types "Basiques" pour Commissionnaire/Bailleur (incluant Terrain)
+      final isBasicType = ['studio', 'apparts', 'maisons', 'bureau', 'terrain', 'terrains'].contains(typeName);
+      
+      // Récupérer les rôles depuis le stockage
+      final userAccounts = stockage.read('user_accounts');
+      bool isGerant = false;
+      bool isSimpleProprietaire = false;
+
+      if (userAccounts != null && userAccounts is List) {
+        // Check Gérant
+        isGerant = userAccounts.any((acc) {
+           final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+           final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+           return typeId == 2 && (name.contains('gerant') || acc['id'] == 3);
+        });
+        
+        // Check Simple Propriétaire (Commissionnaire/Bailleur)
+        // On vérifie TOUJOURS, même si Gérant (pour détecter les comptes mixtes)
+        isSimpleProprietaire = userAccounts.any((acc) {
+          final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+          final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+          // Propriétaire (typeId 2) MAIS PAS Gérant
+          return typeId == 2 && !name.contains('gerant');
+        });
+      }
+
+      // Si l'utilisateur a LES DEUX rôles -> Afficher TOUT
+      if (isGerant && isSimpleProprietaire) {
+        return true;
+      }
+      
+      // Si UNIQUEMENT Gérant -> Types spécialisés seulement
+      if (isGerant && !isSimpleProprietaire) {
+        return !isBasicType;
+      }
+      
+      // Si UNIQUEMENT Propriétaire simple -> Types basiques seulement
+      if (isSimpleProprietaire && !isGerant) {
+        return isBasicType;
+      }
+      
+      // Fallback (pas de rôle détecté) -> Afficher tout par sécurité
+      return true;
+    }).map((type) {
       IconData icon;
       String imagePath;
       
@@ -1536,6 +1855,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               }
               
               print("🔹 Type sélectionné: $_selectedCategory (ID: $_selectedPropertyTypeId)");
+              _checkAgencyRequirement(_selectedCategory!);
             }
           },
           child: AnimatedContainer(
@@ -1723,7 +2043,53 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     }
 
     // Use dynamic property types from API
-    final categories = _propertyTypes.map((type) {
+    // FILTRAGE STRICT PAR RÔLE
+    final categories = _propertyTypes.where((type) {
+      final typeName = type['name']?.toString().toLowerCase();
+      // Types "Basiques" pour Commissionnaire/Bailleur (incluant Terrain)
+      final isBasicType = ['studio', 'apparts', 'maisons', 'bureau', 'terrain', 'terrains'].contains(typeName);
+      
+      // Récupérer les rôles depuis le stockage
+      final userAccounts = stockage.read('user_accounts');
+      bool isGerant = false;
+      bool isSimpleProprietaire = false;
+
+      if (userAccounts != null && userAccounts is List) {
+        // Check Gérant
+        isGerant = userAccounts.any((acc) {
+           final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+           final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+           return typeId == 2 && (name.contains('gerant') || acc['id'] == 3);
+        });
+        
+        // Check Simple Propriétaire (Commissionnaire/Bailleur)
+        // On vérifie TOUJOURS, même si Gérant (pour détecter les comptes mixtes)
+        isSimpleProprietaire = userAccounts.any((acc) {
+          final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+          final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+          // Propriétaire (typeId 2) MAIS PAS Gérant
+          return typeId == 2 && !name.contains('gerant');
+        });
+      }
+
+      // Si l'utilisateur a LES DEUX rôles -> Afficher TOUT
+      if (isGerant && isSimpleProprietaire) {
+        return true;
+      }
+      
+      // Si UNIQUEMENT Gérant -> Types spécialisés seulement
+      if (isGerant && !isSimpleProprietaire) {
+        return !isBasicType;
+      }
+      
+      // Si UNIQUEMENT Propriétaire simple -> Types basiques seulement
+      if (isSimpleProprietaire && !isGerant) {
+        return isBasicType;
+      }
+      
+      // Fallback (pas de rôle détecté) -> Afficher tout par sécurité
+      return true;
+    }).map((type) {
       // Map property type names to icons and images
       IconData icon;
       String imagePath;
@@ -1753,6 +2119,23 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           icon = Icons.beach_access_rounded;
           imagePath = 'assets/images/plage.png';
           break;
+        case 'fêtes':
+        case 'salle de fêtes':
+        case 'festives':
+           icon = Icons.celebration_rounded;
+           imagePath = 'assets/images/party.png'; 
+           break;
+        case 'funérarium':
+        case 'salle funéraire':
+        case 'funéraires':
+           icon = Icons.volunteer_activism_rounded;
+           imagePath = 'assets/images/funeral.png'; 
+           break;
+        case 'terrain':
+        case 'terrains':
+           icon = Icons.landscape_rounded;
+           imagePath = 'assets/images/terrain.png';
+           break;
         default:
           icon = Icons.home_rounded;
           imagePath = 'assets/images/maisons.png';
@@ -1802,6 +2185,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                   _saveDraft();
                 });
                 _trackSelection('property_type', category['name'] as String);
+                _checkAgencyRequirement(_selectedCategory!);
               }
             },
             child: Container(
@@ -2362,6 +2746,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   Widget _buildStep2() {
+    // Detect property type
+    final typeName = _selectedCategory?.toLowerCase() ?? '';
+    final isVacances = typeName.contains('vacance');
+    final isBureau = typeName.contains('bureau') || (_selectedPropertyTypeId == 4);
+    final isTerrain = typeName.contains('terrain');
+    final isFestive = typeName.contains('fête') || typeName.contains('festive');
+    final isFuneraire = typeName.contains('funéra') || typeName.contains('deuil');
+    
     return SingleChildScrollView(
       key: ValueKey('step1_scroll'),
       physics: BouncingScrollPhysics(),
@@ -2420,78 +2812,116 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           ),
           SizedBox(height: _smallSpace),
 
-          // SÉLECTEUR DE DEVISE (FC / $)
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _borderColor),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
-                  blurRadius: 8,
-                  offset: Offset(0, 4),
-                )
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: EdgeInsets.only(left: 4, bottom: 8),
-                  child: Text(
-                    'Devise',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: _darkColor,
-                    ),
+          // SÉLECTEUR DE DEVISE DYNAMIQUE
+          Consumer<PropertyController>(
+            builder: (context, ctrl, child) {
+              final devises = ctrl.devisesList;
+              
+              // Si pas de devises chargées, on affiche quand même avec fallback ou loader
+              if (devises.isEmpty) {
+                 return SizedBox.shrink(); // Ou un loader
+              }
+
+              // Conversion des modèles en DropdownMenuItem
+              final List<DropdownMenuItem<int>> dropdownItems = devises.map((devise) {
+                return DropdownMenuItem<int>(
+                  value: devise.id,
+                  child: Row(
+                    children: [
+                       Text(
+                        devise.code ?? "", 
+                        style: TextStyle(
+                          color: _darkColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: _bodySize
+                        )
+                       ),
+                       SizedBox(width: 8),
+                       Text(
+                        devise.name ?? "",
+                        style: TextStyle(
+                          color: _greyColor,
+                          fontSize: _captionSize
+                        )
+                       )
+                    ],
                   ),
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildDeviseOption(
-                        label: 'FC (Franc Congolais)',
-                        value: 1,
-                        isSelected: _selectedDeviseId == 1,
-                        onTap: () => setState(() => _selectedDeviseId = 1),
-                      ),
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: _buildDeviseOption(
-                        label: '\$ (Dollar US)',
-                        value: 2,
-                        isSelected: _selectedDeviseId == 2,
-                        onTap: () => setState(() => _selectedDeviseId = 2),
-                      ),
-                    ),
+                );
+              }).toList();
+
+              // Safeguard: Ensure selected value exists in list
+              int? validValue = _selectedDeviseId;
+              if (devises.isNotEmpty && !devises.any((d) => d.id == _selectedDeviseId)) {
+                  validValue = devises.first.id;
+                  // Optional: Schedule a microtask to update state if needed, but for display this is enough
+              }
+
+              return Container(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _borderColor),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.02),
+                      blurRadius: 8,
+                      offset: Offset(0, 4),
+                    )
                   ],
                 ),
-              ],
-            ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.only(left: 4, bottom: 4, top: 4),
+                      child: Text(
+                        'Devise',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: _darkColor,
+                        ),
+                      ),
+                    ),
+                    DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        value: validValue,
+                        isExpanded: true,
+                        icon: Icon(Icons.keyboard_arrow_down_rounded, color: _primaryColor),
+                        items: dropdownItems,
+                        onChanged: (int? newValue) {
+                           if (newValue != null) {
+                             setState(() {
+                               _selectedDeviseId = newValue;
+                             });
+                           }
+                        },
+                      ),
+                    )
+                  ],
+                ),
+              );
+            }
           ),
           SizedBox(height: _smallSpace),
 
-          if (_isForRent) ...[
+          // Guarantee field - only show for rent and NOT for Vacances, Bureau, Terrain, Festive, or Funeraire
+          if (_isForRent && !isVacances && !isBureau && !isTerrain && !isFestive && !isFuneraire) ...[
             _buildModernTextField(
               controller: _guaranteeController,
-              label: 'Garantie (mois)',
-              hint: '2 (optionnel)',
+              label: 'Garantie',
+              hint: '3+1 (optionnel)',
               icon: Icons.security_rounded,
-              keyboardType: TextInputType.number,
-              suffixText: 'mois',
+              keyboardType: TextInputType.text, // Changed to text to allow "3+1" format
+              suffixText: '/mois',
               prefixIconColor: Colors.orange,
               focusNode: _focusNodes[2],
               nextFocusNode: _focusNodes[3],
               errorText: _getFieldError(1, 'guarantee'),
               fieldKey: 'guarantee',
               validator: (value) {
-                if (value != null && value.isNotEmpty && int.tryParse(value) == null) {
-                  return 'Veuillez entrer un nombre valide';
-                }
+                // No validation needed - allow any string format
                 return null;
               },
             ),
@@ -2650,145 +3080,71 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               final isFuneraire = typeName.contains('funéra') || typeName.contains('deuil');
               final isBureau = typeName.contains('bureau') || (_selectedPropertyTypeId == 4);
               final isTerrain = typeName.contains('terrain');
+              final isVacances = typeName.contains('vacance');
 
               if (isFestive) {
-                return Column(
-                  children: [
-                    GridView.count(
-                      shrinkWrap: true,
-                      physics: NeverScrollableScrollPhysics(),
-                      crossAxisCount: 2,
-                      crossAxisSpacing: _smallSpace,
-                      mainAxisSpacing: _smallSpace,
-                      childAspectRatio: 3.2,
-                      children: [
-                        _buildModernFeatureInput(
-                          controller: _capacityController,
-                          label: 'Capacité (pers.)',
-                          icon: Icons.groups_rounded,
-                          color: Color(0xFFE11D48).withOpacity(0.1),
-                          iconColor: Color(0xFFE11D48),
-                        ),
-                        _buildModernFeatureInput(
-                          controller: _priceController, // On réutilise le prix ici si besoin ou autre
-                          label: 'Prix/Jour', // Juste visuel, le vrai champ prix est plus haut
-                          icon: Icons.monetization_on_rounded,
-                          color: Colors.green.withOpacity(0.1),
-                          iconColor: Colors.green,
-                          readOnly: true, // Juste pour l'info
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: _smallSpace),
-                    // Dropdown Usage
-                    Container(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: _borderColor),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedUsage,
-                          hint: Text('Type d\'événement', style: TextStyle(fontSize: _bodySize)),
-                          isExpanded: true,
-                          items: ['Mariage', 'Conférence', 'Anniversaire', 'Concert', 'Autre']
-                              .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                          onChanged: (val) => setState(() => _selectedUsage = val),
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: _smallSpace),
-                    // Toggles
-                    Row(
-                      children: [
-                        Expanded(child: _buildSwitchTile('Décoration incluse ?', _isDecore, (v) => setState(() => _isDecore = v))),
-                        SizedBox(width: _smallSpace),
-                        Expanded(child: _buildSwitchTile('Piste de danse ?', _pisteDanse, (v) => setState(() => _pisteDanse = v))),
-                      ],
-                    ),
-                  ],
-                );
+                 return FestiveFormFields(
+                   capacityController: _capacityController,
+                   usageError: _getFieldError(1, 'usage'),
+                   capacityError: _getFieldError(1, 'capacity'),
+                   isDecore: _isDecore,
+                   pisteDanse: _pisteDanse,
+                   initUsage: _selectedUsage,
+                   onUsageChanged: (val) => setState(() => _selectedUsage = val),
+                   onDecoreChanged: (val) => setState(() => _isDecore = val),
+                   onPisteDanseChanged: (val) => setState(() => _pisteDanse = val),
+                 );
               } else if (isFuneraire) {
-                 return GridView.count(
-                      shrinkWrap: true,
-                      physics: NeverScrollableScrollPhysics(),
-                      crossAxisCount: 2,
-                      crossAxisSpacing: _smallSpace,
-                      mainAxisSpacing: _smallSpace,
-                      childAspectRatio: 3.2,
-                      children: [
-                        _buildModernFeatureInput(
-                          controller: _capacityController,
-                          label: 'Capacité (pers.)',
-                          icon: Icons.groups_rounded,
-                          color: Color(0xFF4B5563).withOpacity(0.1),
-                          iconColor: Color(0xFF4B5563),
-                        ),
-                      ],
-                    );
+                 return FuneraireFormFields(
+                   capacityController: _capacityController,
+                   capacityError: _getFieldError(1, 'capacity'),
+                 );
               } else if (isBureau) {
-                 return Column(
-                   children: [
-                     GridView.count(
-                      shrinkWrap: true,
-                      physics: NeverScrollableScrollPhysics(),
-                      crossAxisCount: 2,
-                      crossAxisSpacing: _smallSpace,
-                      mainAxisSpacing: _smallSpace,
-                      childAspectRatio: 3.2,
-                      children: [
-                        _buildModernFeatureInput(
-                          controller: _areaController,
-                          label: 'Surface (m²)',
-                          icon: FontAwesomeIcons.rulerCombined,
-                          color: Color(0xFF0891B2).withOpacity(0.1),
-                          iconColor: Color(0xFF0891B2),
-                        ),
-                        _buildSwitchTile(
-                          'Étage ?', 
-                          _hasFloor, 
-                          (v) => setState(() => _hasFloor = v)
-                        ),
-                        _buildModernFeatureInput(
-                          controller: _roomMeetController,
-                          label: 'Salles réunion',
-                          icon: FontAwesomeIcons.handshake,
-                          color: Color(0xFF6B46C1).withOpacity(0.1),
-                          iconColor: Color(0xFF6B46C1),
-                        ),
-                        _buildModernFeatureInput(
-                          controller: _numberPieceController,
-                          label: 'Nbr. Pièces',
-                          icon: FontAwesomeIcons.doorOpen,
-                          color: Color(0xFFEA580C).withOpacity(0.1),
-                          iconColor: Color(0xFFEA580C),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: _smallSpace),
-                    _buildSwitchTile('Meublé ?', _isEquip, (v) => setState(() => _isEquip = v)),
-                   ],
+                 return BureauFormFields(
+                   areaController: _areaController,
+                   roomMeetController: _roomMeetController,
+                   numberPieceController: _numberPieceController,
+                   isEquip: _isEquip,
+                   hasFloor: _hasFloor,
+                   areaError: _getFieldError(1, 'area'),
+                   roomMeetError: _getFieldError(1, 'roomMeet'),
+                   numberPieceError: _getFieldError(1, 'numberPiece'),
+                   onEquipChanged: (val) {
+                     setState(() {
+                       _isEquip = val;
+                       _saveDraft();
+                     });
+                   },
+                   onFloorChanged: (val) {
+                     setState(() {
+                       _hasFloor = val;
+                       _saveDraft();
+                     });
+                   },
                  );
               } else if (isTerrain) {
-                   return GridView.count(
-                      shrinkWrap: true,
-                      physics: NeverScrollableScrollPhysics(),
-                      crossAxisCount: 2,
-                      crossAxisSpacing: _smallSpace,
-                      mainAxisSpacing: _smallSpace,
-                      childAspectRatio: 3.2,
-                      children: [
-                        _buildModernFeatureInput(
-                          controller: _areaController,
-                          label: 'Surface (m²)',
-                          icon: FontAwesomeIcons.rulerCombined,
-                          color: Color(0xFF0891B2).withOpacity(0.1),
-                          iconColor: Color(0xFF0891B2),
-                        ),
-                      ],
-                    );
+                   return TerrainFormFields(
+                     surfaceController: _areaController,
+                     surfaceError: _getFieldError(1, 'area'),
+                   );
+              } else if (isVacances) {
+                 return VacanceFormFields(
+                   dateController: _dateVacanceController,
+                   heureController: _heureVacanceController,
+                   capacityController: _capacityController,
+                   noteController: _noteController,
+                   offreController: _offreController,
+                   selectedPriceCombo: _selectedPriceCombo,
+                   dateError: _getFieldError(1, 'date'),
+                   timeError: _getFieldError(1, 'time'),
+                   capacityError: _getFieldError(1, 'capacity'),
+                   onPriceComboChanged: (val) {
+                     setState(() {
+                       _selectedPriceCombo = val;
+                       _saveDraft();
+                     });
+                   },
+                 );
               } else {
                 // Résidentiel (Standard)
                  return GridView.count(
@@ -2845,12 +3201,18 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             }
           ),
           SizedBox(height: _mediumSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
         ],
       ),
     );
   }
 
-  Widget _buildStep3() {
+Widget _buildStep3() {
+    final typeName = _selectedCategory?.toLowerCase() ?? '';
+    final isTerrain = typeName.contains('terrain');
+    final isVacances = typeName.contains('vacances') || typeName.contains('hotel');
+
     return SingleChildScrollView(
       key: ValueKey('step2_scroll'),
       physics: BouncingScrollPhysics(),
@@ -2898,42 +3260,48 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           _buildModernImageCounter(),
           SizedBox(height: _largeSpace),
           
-          // SERVICES ESSENTIELS
-          _buildModernSectionHeader(
-            title: 'Services essentiels',
-            icon: Icons.engineering_rounded,
-          ),
-          SizedBox(height: _smallSpace),
-          Text(
-            'Ces informations sont obligatoires pour aider les locataires',
-            style: TextStyle(
-              color: _greyColor,
-              fontSize: _captionSize,
+          if (!isTerrain && !isVacances) ...[
+            // SERVICES ESSENTIELS
+            _buildModernSectionHeader(
+              title: 'Services essentiels',
+              icon: Icons.engineering_rounded,
             ),
-          ),
-          SizedBox(height: _mediumSpace),
-          _buildModernElectricDropdown(),
-          SizedBox(height: _smallSpace),
-          _buildModernWaterDropdown(),
-
-          SizedBox(height: _largeSpace),
-
-          _buildModernSectionHeader(
-            title: 'Équipements (optionnels)',
-            icon: Icons.emoji_objects_outlined,
-          ),
-          SizedBox(height: _smallSpace),
-          Text(
-            'Sélectionnez les équipements disponibles dans votre propriété',
-            style: TextStyle(
-              color: _greyColor,
-              fontSize: _captionSize,
+            SizedBox(height: _smallSpace),
+            Text(
+              'Ces informations sont obligatoires pour aider les locataires',
+              style: TextStyle(
+                color: _greyColor,
+                fontSize: _captionSize,
+              ),
             ),
-          ),
-          SizedBox(height: _mediumSpace),
+            SizedBox(height: _mediumSpace),
+            _buildModernElectricDropdown(),
+            SizedBox(height: _smallSpace),
+            _buildModernWaterDropdown(),
+            SizedBox(height: _largeSpace),
+          ],
+
+          if (!isTerrain && !isVacances)
+            _buildModernSectionHeader(
+              title: 'Équipements (optionnels)',
+              icon: Icons.emoji_objects_outlined,
+            ),
+          if (!isTerrain && !isVacances) ...[
+            SizedBox(height: _smallSpace),
+            Text(
+              'Sélectionnez les équipements disponibles dans votre propriété',
+              style: TextStyle(
+                color: _greyColor,
+                fontSize: _captionSize,
+              ),
+            ),
+            SizedBox(height: _mediumSpace),
+          ],
+          
           
           // Show loading indicator while fetching features
-          if (_loadingFeatures)
+          if (!isTerrain && !isVacances)
+            if (_loadingFeatures)
             Center(
               child: Padding(
                 padding: EdgeInsets.all(_mediumSpace),
@@ -2999,6 +3367,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             }).toList(),
           ),
           SizedBox(height: _largeSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
         ],
       ),
     );
@@ -3059,113 +3429,97 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     final canProceed = !_isLoading;
     final canPublish = _stepValidations[0]! && _stepValidations[1]! && _stepValidations[2]! && !_isLoading;
     
-    // Obtenir la hauteur de la barre de navigation système
-    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
-
-    return Container(
-      padding: EdgeInsets.only(
-        left: _mediumSpace,
-        right: _mediumSpace,
-        top: _mediumSpace,
-        bottom: _mediumSpace + bottomPadding, // Ajouter le padding pour la barre de navigation
-      ),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 16,
-            offset: Offset(0, -4),
-          )
-        ],
-      ),
-      child: Row(
-        children: [
-          if (_currentStep > 0)
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _isLoading ? null : () {
-                  if (mounted) {
-                    _endStepTracking(_currentStep, _getStepName(_currentStep), false);
-                    setState(() => _currentStep--);
-                    _startStepTracking(_currentStep, _getStepName(_currentStep));
-                  }
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _greyColor,
-                  side: BorderSide(color: _borderColor),
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.all(_mediumSpace),
+          child: Row(
+            children: [
+              if (_currentStep > 0)
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isLoading ? null : () {
+                      if (mounted) {
+                        _endStepTracking(_currentStep, _getStepName(_currentStep), false);
+                        setState(() => _currentStep--);
+                        _startStepTracking(_currentStep, _getStepName(_currentStep));
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _greyColor,
+                      side: BorderSide(color: _borderColor),
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      'Précédent',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: _bodySize),
+                    ),
                   ),
                 ),
-                child: Text(
-                  'Précédent',
-                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: _bodySize),
+              if (_currentStep > 0) SizedBox(width: _mediumSpace),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: isLastStep
+                      ? (canPublish ? _handleCreatePropertyPost : null)
+                      : (canProceed ? () {
+                    bool currentStepValid = false;
+                    switch (_currentStep) {
+                      case 0:
+                        currentStepValid = _validateStep0();
+                        break;
+                      case 1:
+                        currentStepValid = _validateStep1();
+                        break;
+                      case 2:
+                        currentStepValid = _validateStep2();
+                        break;
+                    }
+                    
+                    if (currentStepValid) {
+                      _endStepTracking(_currentStep, _getStepName(_currentStep), true);
+                      setState(() => _currentStep++);
+                      _startStepTracking(_currentStep, _getStepName(_currentStep));
+                    } else {
+                       _hasAttemptedSubmit = true;
+                    }
+                  } : null),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isLastStep 
+                        ? (canPublish ? _primaryColor : _greyColor)
+                        : (canProceed ? _primaryColor : _greyColor),
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    isLastStep ? 'Publier l\'annonce' : 'Suivant',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: _bodySize),
+                  ),
                 ),
               ),
-            ),
-          if (_currentStep > 0) SizedBox(width: _mediumSpace),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: isLastStep
-                  ? (canPublish ? _handleCreatePropertyPost : null)
-                  : (canProceed ? () {
-                bool currentStepValid = false;
-                switch (_currentStep) {
-                  case 0:
-                    currentStepValid = _validateStep0();
-                    break;
-                  case 1:
-                    currentStepValid = _validateStep1();
-                    break;
-                  case 2:
-                    currentStepValid = _validateStep2();
-                    break;
-                }
-
-                if (currentStepValid && mounted) {
-                  _endStepTracking(_currentStep, _getStepName(_currentStep), true);
-                  setState(() => _currentStep++);
-                  _startStepTracking(_currentStep, _getStepName(_currentStep));
-                } else {
-                  _showStepErrorNotification(_currentStep);
-                }
-              } : null),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isLastStep
-                    ? (canPublish ? _primaryColor : _greyColor)
-                    : (canProceed ? _primaryColor : _greyColor),
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 0,
-                shadowColor: Colors.transparent,
-              ),
-              child: _isLoading
-                  ? SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 3,
-                  color: Colors.white,
-                ),
-              )
-                  : Text(
-                isLastStep ? 'Publier l\'annonce' : 'Continuer',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: _bodySize,
-                ),
-              ),
-            ),
+            ],
           ),
-        ],
-      ),
+        ),
+        SizedBox(height: 8),
+        Text(
+          "La publication est soumise à validation.",
+          style: TextStyle(
+            color: Colors.grey[500],
+            fontSize: 12,
+            fontStyle: FontStyle.italic,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
+
 
   // =============================================
   // WIDGETS DE BASE HARMONISÉS
@@ -3428,7 +3782,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     FocusNode? focusNode,
     FocusNode? nextFocusNode,
     String? errorText,
-    required String? Function(String?) validator,
+    String? Function(String?)? validator,
     String? fieldKey, // Clé unique pour identifier le champ
   }) {
     // Afficher l'erreur seulement si nécessaire
@@ -3588,11 +3942,13 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     required Color color,
     required Color iconColor,
     bool readOnly = false,
+    VoidCallback? onTap,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: TextInputType.number,
       readOnly: readOnly,
+      onTap: onTap,
       onChanged: (value) {
         _validateStep1();
         _saveDraft();
@@ -4465,6 +4821,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       final isFestive = typeName.contains('fête') || typeName.contains('festive');
       final isFuneraire = typeName.contains('funéra') || typeName.contains('deuil');
       final isBureau = typeName.contains('bureau') || (_selectedPropertyTypeId == 4);
+      final isVacances = typeName.contains('vacance');
+      final isTerrain = typeName.contains('terrain');
 
       // Prepare Images (Base64)
       final imagesData = await _prepareImagesData();
@@ -4472,29 +4830,34 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       
       // Collect all images for flat arrays if it's a Map structure
       if (imagesData is Map) {
-        if (imagesData['propertyImage'] != null) {
-          allImagesBase64.addAll(
-            (imagesData['propertyImage'] as List).map((e) => (e['image'] as String)).toList()
-          );
-        }
-        if (imagesData['propertyImageRoom'] != null) {
-          allImagesBase64.addAll(
-            (imagesData['propertyImageRoom'] as List).map((e) => (e['image'] as String)).toList()
-          );
-        }
-        if (imagesData['propertyImageLivingRoom'] != null) {
-          allImagesBase64.addAll(
-            (imagesData['propertyImageLivingRoom'] as List).map((e) => (e['image'] as String)).toList()
-          );
-        }
-        if (imagesData['propertyImageKitchen'] != null) {
-          allImagesBase64.addAll(
-            (imagesData['propertyImageKitchen'] as List).map((e) => (e['image'] as String)).toList()
-          );
-        }
+         void addImages(String key) {
+            if (imagesData[key] != null) {
+              allImagesBase64.addAll(
+                (imagesData[key] as List).map((e) {
+                   String b64 = e['image'] as String;
+                   // Nettoyage préventif
+                   if (b64.contains(',')) {
+                      b64 = b64.split(',').last; // Enlever data:image/png;base64,...
+                   }
+                   return b64.replaceAll(RegExp(r'\s+'), ''); // Enlever espaces/retours ligne
+                }).toList()
+              );
+            }
+         }
+         addImages('propertyImage');
+         addImages('propertyImageRoom');
+         addImages('propertyImageLivingRoom');
+         addImages('propertyImageKitchen');
+
       } else if (imagesData is List) {
          // For festive/funeraire types - already a List<String>
-         allImagesBase64 = (imagesData as List).map((e) => e.toString()).toList();
+         allImagesBase64 = (imagesData as List).map((e) {
+             String b64 = e.toString();
+             if (b64.contains(',')) {
+                b64 = b64.split(',').last;
+             }
+             return b64.replaceAll(RegExp(r'\s+'), '');
+         }).toList();
       }
 
       HttpResponse res;
@@ -4520,6 +4883,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0,
             "price": price,
             "address": address,
+            "transactionType": _isForRent ? "location" : "vente",
+            "propertyTypeId": _selectedPropertyTypeId ?? 8,
             "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
             "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
             "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
@@ -4531,6 +4896,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             "latitude": _selectedLocation?.latitude ?? 0.1,
             "longitude": _selectedLocation?.longitude ?? 0.1,
             "isAvailable": true,
+            "isActive": true,
+            "isVerified": false,
+            "isFeatured": false,
+            "sold": false,
             "isDecore": _isDecore,
             "pisteDanse": _pisteDanse,
             "available": true,
@@ -4550,6 +4919,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             "title": title,
             "description": description,
             "capacityPeople": int.tryParse(_capacityController.text) ?? 0,
+            "transactionType": _isForRent ? "location" : "vente",
+            "propertyTypeId": _selectedPropertyTypeId ?? 7,
             "price": price,
             "address": address,
             "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
@@ -4570,6 +4941,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           "images": allImagesBase64.map((b64) => {"image": b64}).toList(),
           "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList()
         };
+        
+        print("⚰️ PAYLOAD FUNERAIRE:");
+        print("📦 Funeraire Data: ${jsonEncode(funeraireData)}");
+        
         res = await ctrl.createFuneraire(funeraireData);
 
       } else if (isBureau) {
@@ -4590,8 +4965,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             "electric": electric,
             "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0,
             "numberPiece": int.tryParse(_numberPieceController.text) ?? 0,
-            "isEquip": _isEquip,
-            "floor": _hasFloor ? 1 : 0,
+            "equip": _isEquip, // Corrected field name (was isEquip)
             "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
             "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
             "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
@@ -4602,12 +4976,238 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             "countryValue": "RDC",
             "latitude": _selectedLocation?.latitude ?? 0.1,
             "longitude": _selectedLocation?.longitude ?? 0.1,
-            "address": address
+            "address": address,
+            "available": true,
+            "isAvailable": true,
+            "sold": false
           },
           "images": imagesList,
           "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList()
         };
+        
+        try {
+           print("📦 ACTIVE PAYLOAD BUREAU: ${jsonEncode(bureauData)}");
+        } catch(e) {
+           print("❌ Error printing payload: $e");
+        }
         res = await ctrl.createBureau(bureauData);
+
+      } else if (isVacances) {
+        print("🏖️ Création de Vacances");
+        
+        // Fetch Agence ID
+        final agenceCtrl = context.read<AgenceController>();
+        if (agenceCtrl.agences.isEmpty && uId != 0) {
+            print("🔄 Récupération des agences pour l'utilisateur $uId...");
+            await agenceCtrl.fetchAgencesByUser(uId);
+        }
+        print("📊 Nombre d'agences trouvées: ${agenceCtrl.agences.length}");
+        if (agenceCtrl.agences.isNotEmpty) {
+           print("🏢 Première agence: ID=${agenceCtrl.agences.first.id}, Nom=${agenceCtrl.agences.first.name}");
+        }
+        
+        final agenceId = (agenceCtrl.agences.isNotEmpty) ? agenceCtrl.agences.first.id : 0; // Utiliser first.id car c'est un modèle AgenceModel qui contient id
+
+        // Fallback safety if agenceId is 0 (should be caught by checkAgencyRequirement but just in case)
+        if (agenceId == 0 || agenceId == null) {
+            print("⚠️ Aucune agence trouvée pour l'utilisateur, impossible de créer Vacance");
+            FancyNotification.show(
+                context, 
+                "Erreur: Compte Agence requis pour cette catégorie.", 
+                isError: true
+            );
+            setState(() => _isLoading = false);
+            return;
+        }
+
+        final vacancesData = {
+           "agenceId": agenceId,
+           "userId": uId,
+           "title": title,
+           "description": description,
+           "note": _noteController.text,
+           "dateVacance": _dateVacanceController.text,
+           "heureVacance": _heureVacanceController.text,
+           "price": price,
+           "priceCombo": _selectedPriceCombo ?? "Par Nuit",
+           "offre": _offreController.text,
+           "capacity": int.tryParse(_capacityController.text) ?? 0,
+           "address": address,
+           "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
+           "countryValue": "RDC",
+           "isAvailable": true,
+           "available": true,
+           "images": allImagesBase64.map((b64) => {
+             "name": b64
+           }).toList()
+        };
+        
+        print("🚀 Envoi de la création Vacance...");
+        res = await ctrl.createVacance(vacancesData);
+        print("🏁 Retour CreateVacance - Status: ${res.status}");
+        print("📄 Data: ${res.data}");
+        if (res.errorMsg != null) print("❌ ErrorMsg: ${res.errorMsg}");
+
+      } else if (isTerrain) {
+        print("🏞️ Création de Terrain (FLAT)");
+        
+        final terrainData = {
+          "userId": uId,
+          "title": title,
+          "description": description,
+          "deviseId": _selectedDeviseId ?? 1,
+          "price": price,
+          "surface": _areaController.text.trim().isNotEmpty ? _areaController.text.trim() : "0",
+          "address": address,
+          "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+          "quartierValue": quartierValue,
+          "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? "Kinshasa") : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
+          "countryValue": "RDC",
+          "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
+          "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
+          "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
+          "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
+          "transactionType": _isForRent ? "Location" : "Vente",
+          "propertyTypeId": _selectedPropertyTypeId,
+          "isAvailable": true,
+          "latitude": _selectedLocation?.latitude ?? 0.0,
+          "longitude": _selectedLocation?.longitude ?? 0.0,
+          "images": allImagesBase64.map((b64) => {"image": b64}).toList(),
+          "available": true
+        };
+        
+        print("🚀 Envoi de la création Terrain...");
+        res = await ctrl.createTerrain(terrainData);
+        print("🏁 Retour CreateTerrain - Status: ${res.status}");
+        print("📄 Data: ${res.data}");
+        if (res.errorMsg != null) print("❌ ErrorMsg: ${res.errorMsg}");
+
+
+
+      } else if (isFuneraire) {
+         Map<String, dynamic> localAddress = {};
+         if (_isKinshasaSelected) {
+            localAddress = {
+              "city": {"cityId": _selectedCity?.cityId ?? 0, "name": _selectedCity?.name ?? ""},
+              "commune": {
+                "communeId": _selectedCommune?.communeId ?? 0, 
+                "district": 0,
+                "quartiers": [{"quartierId": _selectedQuartier?.quartierId ?? 0, "name": _selectedQuartier?.name ?? ""}],
+                "name": _selectedCommune?.name ?? ""
+              },
+              "quartier": {"quartierId": _selectedQuartier?.quartierId ?? 0, "name": _selectedQuartier?.name ?? ""}
+            };
+         }
+
+         final funeraireData = {
+              "id": 0,
+              "userId": uId,
+              "deviseId": 1, 
+              "title": title,
+              "description": description,
+              "capacityPeople": _capacityController.text,
+              "transactionType": _isForRent ? "For Rent" : "For Sale",
+              "propertyTypeId": _selectedPropertyTypeId,
+              "price": price,
+              "sold": false,
+              "address": address,
+              "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? '') : _communeTextController.text,
+              "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? '') : _quartierTextController.text,
+              "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : _cityTextController.text,
+              "electric": _selectedElectric == 'Oui' ? 1 : 0,
+              "water": _selectedWater == 'Oui' ? 1 : 0,
+              "countryValue": "RDC",
+              "cityId": _selectedCity?.cityId ?? 0,
+              "postalCode": _postalCodeController.text.isNotEmpty ? _postalCodeController.text : "0000",
+              "communeId": _selectedCommune?.communeId ?? 0,
+              "quartierId": _selectedQuartier?.quartierId ?? 0,
+              "latitude": 0.1,
+              "longitude": 0.1,
+              "isAvailable": true,
+              "createdAt": DateTime.now().toIso8601String(),
+              "updatedAt": DateTime.now().toIso8601String()
+          };
+
+          final payload = {
+            "funeraire": funeraireData,
+            "devise": {"id": 1, "name": "Dollars Américain", "code": "USD", "tauxLocal": 2800.0},
+            "postBy": "owner",
+            "images": allImagesBase64.map((b64) => {
+              "id": 0,
+              "salleFuneraireId": 0,
+              "name": "image_${DateTime.now().millisecondsSinceEpoch}", 
+              "path": b64, 
+              "isAvailable": true, 
+              "createdAt": DateTime.now().toIso8601String()
+            }).toList(),
+            "feature": _selectedAmenities.map((f) => {"featureId": 0, "name": f}).toList(),
+            "address": {
+               "address": address,
+               "communeValue": funeraireData["communeValue"],
+               "quartierValue": funeraireData["quartierValue"],
+               "cityValue": funeraireData["cityValue"],
+               "countryValue": "RDC",
+               "postalCode": funeraireData["postalCode"]
+            },
+            "geoZone": {"lat": 0.1, "lng": 0.1},
+            "localAddress": localAddress,
+            "typeProperty": {"propertyTypeId": _selectedPropertyTypeId, "name": _selectedCategory}
+          };
+          
+          print("⚰️ Envoi de la création Funeraire...");
+          
+          res = await ctrl.createFuneraire(payload);
+
+      } else if (isBureau) {
+        print("🏢 Création de Bureau");
+        
+        final bureauData = {
+          "bureau": {
+            "userId": uId,
+            "deviseId": _selectedDeviseId ?? 1,
+            "title": title,
+            "description": description,
+            "price": price,
+            "transactionType": _isForRent ? "Location" : "Vente",
+            "propertyTypeId": 4, // Bureau type ID
+            "roomMeet": int.tryParse(_roomMeetController.text) ?? 0,
+            "electric": electric,
+            "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0,
+            "numberPiece": int.tryParse(_numberPieceController.text) ?? 0,
+            "equip": _isEquip, // Renamed from isEquip to match GET response
+            "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
+            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
+            "isAvailable": true,
+            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
+            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+            "quartierValue": quartierValue,
+            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? "Kinshasa") : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
+            "countryValue": "RDC",
+            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
+            "latitude": _selectedLocation?.latitude ?? 0.0,
+            "longitude": _selectedLocation?.longitude ?? 0.0,
+            "address": address,
+            "available": true,
+            "sold": false
+          },
+          "images": allImagesBase64.map((b64) => {"image": b64}).toList(),
+          // "feature": _selectedFeatureIds.map((id) => {"featureId": id}).toList(),
+        };
+        
+        print("🚀 Envoi de la création Bureau...");
+        try {
+          print("DEBUG: isEquip=${_isEquip} (${_isEquip.runtimeType})");
+          print("DEBUG: isAvailable=true");
+          print("DEBUG: available=true");
+          print("📦 PAYLOAD BUREAU: ${jsonEncode(bureauData)}");
+        } catch (e) {
+          print("❌ ERREUR LORS DU LOGGING DU PAYLOAD: $e");
+        }
+        
+        res = await ctrl.createBureau(bureauData);
+        print("🏁 Retour CreateBureau - Status: ${res.status}");
+        print("📄 Data: ${res.data}");
+        if (res.errorMsg != null) print("❌ ErrorMsg: ${res.errorMsg}");
 
       } else {
         print("🏠 Création Standard (Résidentiel/Autre)");
@@ -4633,8 +5233,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             "title": title,
             "description": description,
             "price": price,
-            "deviseId": _selectedDeviseId,
-            "surface": double.tryParse(_areaController.text) ?? 0.1,
+            "deviseId": _selectedDeviseId ?? 1, // Default to 1 (usually USD or FC)
+            "surface": double.tryParse(_areaController.text) ?? 0.0,
             "rooms": _calculateTotalRooms(),
             "bedrooms": int.tryParse(_bedroomsController.text) ?? 1,
             "kitchen": int.tryParse(_kitchensController.text) ?? 1,
@@ -4644,7 +5244,13 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             "electric": electric,
             "water": _selectedWater != null ? int.tryParse(_selectedWater!) : 0,
             "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",
-            "sold": false,
+            "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",
+            "sold": false, // Explicit boolean
+            "isActive": true,
+            "isVerified": false,
+            "isFeatured": false,
+            "isAvailable": true, // Add isAvailable for consistency
+            "available": true,
             "transactionType": _isForRent ? "location" : "vente",
             "address": address,
             "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
@@ -4718,6 +5324,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           errorMessage = res.errorMsg!;
         } else if (res.data != null && res.data is Map) {
           errorMessage = res.data['detailMessage'] ?? res.data['message'] ?? res.data['error'] ?? "Erreur lors de la publication de l'annonce";
+        }
+        
+        // Sanitize technical errors
+        if (errorMessage.toLowerCase().contains("internal server error") || 
+            errorMessage.toLowerCase().contains("socketexception") ||
+            errorMessage.toLowerCase().contains("connection timed out") ||
+            errorMessage.toLowerCase().contains("impossible de se connecter")) {
+              errorMessage = "Connexion instable ou service indisponible. Veuillez réessayer.";
         }
         
         print("📢 Message d'erreur final: $errorMessage");

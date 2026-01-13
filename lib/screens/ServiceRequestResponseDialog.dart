@@ -117,7 +117,7 @@ class _ServiceRequestResponseDialogState extends State<ServiceRequestResponseDia
                         ),
                         style: GoogleFonts.inter(
                           fontSize: 14,
-                          color: _textPrimary,
+                          color: Colors.black87, // Force black text on white background
                           height: 1.5,
                         ),
                       ),
@@ -165,7 +165,7 @@ class _ServiceRequestResponseDialogState extends State<ServiceRequestResponseDia
                         ),
                         style: GoogleFonts.inter(
                           fontSize: 14,
-                          color: _textPrimary,
+                          color: Colors.black87, // Force black text on white background
                         ),
                       ),
                     ),

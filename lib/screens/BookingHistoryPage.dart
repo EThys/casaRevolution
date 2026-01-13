@@ -412,41 +412,6 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
             },
           ),
         ),
-        Tooltip(
-          message: 'Actualiser',
-          child: Stack(
-            children: [
-              IconButton(
-                icon: Icon(_isRefreshing ? Icons.refresh : Icons.refresh, color: Colors.white),
-                onPressed: _isRefreshing ? null : _loadReservations,
-              ),
-              if (_isRefreshing)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    padding: EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    constraints: BoxConstraints(
-                      minWidth: 16,
-                      minHeight: 16,
-                    ),
-                    child: SizedBox(
-                      width: 12,
-                      height: 12,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
       ],
       bottom: PreferredSize(
         preferredSize: Size.fromHeight(1),
@@ -516,7 +481,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
   List<ReservationModel> _filterReservations(List<ReservationModel> reservations, String status) {
-    final filtered = reservations.where((reservation) => reservation.status == status).toList();
+    final normalizedStatus = status.toUpperCase();
+    final filtered = reservations.where((reservation) => reservation.status?.toUpperCase() == normalizedStatus).toList();
 
     // Trier par date (les plus récentes en premier)
     filtered.sort((a, b) {
@@ -875,11 +841,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
   Widget _buildReservationCard(ReservationModel reservation) {
-    final isPending = reservation.status == 'PENDING';
-    final isCancelled = reservation.status == 'CANCELLED';
-    final isConfirmed = reservation.status == 'CONFIRMED';
-    final isCompleted = reservation.status == 'COMPLETED';
-    final isCancelling = _cancellingIds.contains(reservation.reservationId);
+    final status = reservation.status?.toUpperCase() ?? '';
+    final isPending = status == 'PENDING';
+    final isCancelled = status == 'CANCELLED';
+    final isConfirmed = status == 'CONFIRMED';
+    final isCompleted = status == 'COMPLETED';
+    final isCancelling = _cancellingIds.contains(reservation.reservationId!.toString());
     final imageUrl = _getImageUrl(reservation);
 
     return InkWell(
@@ -1343,12 +1310,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     }
   }
 
-  Future<void> _cancelReservation(ReservationModel reservation, String reason) async {
-    if (!mounted || _isLoading) return;
+  Future<bool> _cancelReservation(ReservationModel reservation, String reason) async {
+    if (!mounted || _isLoading) return false;
 
     setState(() {
       _isLoading = true;
-      _cancellingIds.add(reservation.reservationId! as String);
+      _cancellingIds.add(reservation.reservationId!.toString());
     });
 
     FocusScope.of(context).unfocus();
@@ -1358,9 +1325,9 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       FancyNotification.show(context, "Pas de connexion internet");
       setState(() {
         _isLoading = false;
-        _cancellingIds.remove(reservation.reservationId!);
+        _cancellingIds.remove(reservation.reservationId!.toString());
       });
-      return;
+      return false;
     }
 
     try {
@@ -1370,33 +1337,39 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         reason,
       );
 
-      if (!mounted) return;
+      if (!mounted) return false;
 
       if (response.status == true) {
-        FancyNotification.show(context, "Réservation annulée avec succès", type: NotificationType.success);
+        FancyNotification.show(context, "Réservation annulée", type: NotificationType.success);
 
         // Recharger les données
         await _loadReservations();
+        
+        // Redirection vers le tab des réservations annulées (index 3)
+        _tabController.animateTo(3);
 
-        if (mounted) {
-          Navigator.of(context).pop(); // Fermer le bottom sheet des détails
-        }
+        setState(() {
+          _isLoading = false;
+          _cancellingIds.remove(reservation.reservationId!.toString());
+        });
+        return true;
       } else {
-        String errorMsg = response.errorMsg ?? "Échec de l'annulation";
-        FancyNotification.show(context, errorMsg);
+        FancyNotification.show(context, response.errorMsg ?? "Erreur lors de l'annulation");
       }
     } catch (e) {
-      print("❌ Erreur d'annulation: $e");
-      FancyNotification.show(context, "Erreur technique lors de l'annulation");
+      print("❌ Erreur lors de l'annulation: $e");
+      FancyNotification.show(context, "Une erreur est survenue");
     } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _cancellingIds.remove(reservation.reservationId!);
+          _cancellingIds.remove(reservation.reservationId!.toString());
         });
       }
     }
+    return false;
   }
+
 
   void _showReservationDetails(ReservationModel reservation) {
     showModalBottomSheet(
@@ -1408,9 +1381,10 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
   Widget _buildReservationDetails(ReservationModel reservation) {
-    final isPending = reservation.status == 'PENDING';
-    final isCancelled = reservation.status == 'CANCELLED';
-    final isCompleted = reservation.status == 'COMPLETED';
+    final status = reservation.status?.toUpperCase() ?? '';
+    final isPending = status == 'PENDING';
+    final isCancelled = status == 'CANCELLED';
+    final isCompleted = status == 'COMPLETED';
     final imageUrl = _getImageUrl(reservation);
 
     return DraggableScrollableSheet(
@@ -1838,121 +1812,209 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
   void _showCancelConfirmationDialog(ReservationModel reservation) {
     final reasonController = TextEditingController();
+    bool isDialogLoading = false;
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20)),
-          child: Padding(
-            padding: EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 20,
+                      offset: Offset(0, 10),
+                    )
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Header avec icône Warning
                     Container(
-                      width: 40,
-                      height: 40,
+                      padding: EdgeInsets.symmetric(vertical: 24),
                       decoration: BoxDecoration(
-                        color: _warningColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10),
+                        color: Color(0xFFFFEBEE),
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                       ),
-                      child: Icon(Icons.warning_amber_rounded, color: _warningColor, size: 24),
-                    ),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Annuler la visite',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: _darkColor,
+                      child: Center(
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(0xFFFFEBEE).withOpacity(0.5),
+                                blurRadius: 10,
+                                spreadRadius: 5,
+                              )
+                            ],
+                          ),
+                          child: Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 36),
                         ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Annuler la visite ?',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1A1A1A),
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          Container(
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Color(0xFFFFF9C4).withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Color(0xFFFBC02D).withOpacity(0.2)),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.info_outline, color: Color(0xFFFBC02D), size: 20),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Attention : Cette action est définitive. Vous ne pourrez pas revenir en arrière.',
+                                    style: TextStyle(
+                                      color: Color(0xFF5D4037),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 20),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Pourquoi souhaitez-vous annuler ?',
+                              style: TextStyle(
+                                color: Color(0xFF666666),
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          TextField(
+                            controller: reasonController,
+                            enabled: !isDialogLoading,
+                            maxLines: 3,
+                            style: TextStyle(fontSize: 14),
+                            decoration: InputDecoration(
+                              hintText: 'Ex: empêchement de dernière minute, j\'ai trouvé ailleurs...',
+                              hintStyle: TextStyle(color: Color(0xFFAAAAAA), fontSize: 14),
+                              fillColor: Color(0xFFF5F5F5),
+                              filled: true,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: EdgeInsets.all(16),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: isDialogLoading 
+                                  ? null 
+                                  : () async {
+                                      if (reasonController.text.trim().isNotEmpty) {
+                                        setDialogState(() {
+                                          isDialogLoading = true;
+                                        });
+                                        
+                                        final success = await _cancelReservation(reservation, reasonController.text);
+                                        
+                                        if (success) {
+                                          reasonController.dispose();
+                                          if (mounted) Navigator.pop(context);
+                                        } else {
+                                          setDialogState(() {
+                                            isDialogLoading = false;
+                                          });
+                                        }
+                                      } else {
+                                        FancyNotification.show(context, "Veuillez entrer une raison simple");
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Color(0xFFD32F2F),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: isDialogLoading
+                                  ? SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : Text(
+                                      'Confirmer l\'annulation',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                    ),
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: TextButton(
+                              onPressed: isDialogLoading 
+                                  ? null 
+                                  : () {
+                                      reasonController.dispose();
+                                      Navigator.pop(context);
+                                    },
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              child: Text(
+                                'Garder ma réservation',
+                                style: TextStyle(
+                                  color: Color(0xFF666666),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: 15),
-                Text(
-                  'Veuillez indiquer le motif de l\'annulation :',
-                  style: TextStyle(
-                    color: _mediumGrey,
-                    fontSize: 15,
-                  ),
-                ),
-                SizedBox(height: 15),
-                TextField(
-                  controller: reasonController,
-                  decoration: InputDecoration(
-                    hintText: 'Motif de l\'annulation...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.grey[300]!),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: _primaryColor),
-                    ),
-                    contentPadding: EdgeInsets.all(15),
-                  ),
-                  maxLines: 3,
-                ),
-                SizedBox(height: 25),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () {
-                        reasonController.dispose();
-                        Navigator.pop(context);
-                      },
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      ),
-                      child: Text(
-                        'Retour',
-                        style: TextStyle(
-                          color: _mediumGrey,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    SizedBox(width: 10),
-                    ElevatedButton(
-                      onPressed: () async {
-                        if (reasonController.text.trim().isNotEmpty) {
-                          Navigator.pop(context);
-                          await _cancelReservation(reservation, reasonController.text);
-                          reasonController.dispose();
-                        } else {
-                          FancyNotification.show(context, "Veuillez indiquer un motif d\'annulation");
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _errorColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      ),
-                      child: Text(
-                        'Confirmer',
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );
@@ -2141,9 +2203,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     final publisher = property?.user;
     
     // Infos propriétaire/commissionnaire
-    final publisherName = publisher?.username?.toString() ?? 
-        publisher?.email?.toString()?.split('@').first ?? 
-        'Non renseigné';
+    final publisherName = publisher?.username?.toString() ?? 'Non renseigné';
     final publisherPhone = publisher?.phone?.toString() ?? 'Non renseigné';
     final publisherEmail = publisher?.email?.toString() ?? 'Non renseigné';
     final typeAccountName = publisher?.typeAccount?.name?.toString()?.toLowerCase() ?? '';
@@ -2183,9 +2243,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       }
     }
 
-    final userName = reservation.user?.username?.toString() ?? 
-        reservation.user?.email?.toString()?.split('@').first ?? 
-        'Client';
+    final userName = reservation.user?.username?.toString() ?? 'Client';
     final userPhone = reservation.user?.phone?.toString() ?? '';
     final userEmail = reservation.user?.email?.toString() ?? '';
 
@@ -2288,7 +2346,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     try {
       // Sur Android, utiliser directement le chemin du stockage externe public
       if (Platform.isAndroid) {
-        final dir = Directory('/storage/emulated/0/casaNayo/documents');
+        final dir = Directory('/storage/emulated/0/casa');
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
@@ -2307,7 +2365,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
           base = ext.path;
         }
         if (base.isEmpty) base = '/storage/emulated/0';
-        final dir = Directory('$base/casaNayo/documents');
+        final dir = Directory('$base/casa');
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
@@ -2319,7 +2377,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
     // Fallback: répertoire documents applicatif
     final docs = await getApplicationDocumentsDirectory();
-    final fallbackDir = Directory('${docs.path}/casaNayo/documents');
+    final fallbackDir = Directory('${docs.path}/casa');
     if (!await fallbackDir.exists()) {
       await fallbackDir.create(recursive: true);
     }
@@ -2330,9 +2388,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     try {
       final bytes = await _buildReservationPdfBytes(reservation);
       final dir = await _getExportDir();
-      final userName = reservation.user?.username?.toString() ?? 
-          reservation.user?.email?.toString()?.split('@').first ?? 
-          'Client';
+      final userName = reservation.user?.username?.toString() ?? 'Client';
       final dateStr = reservation.startDate != null 
           ? DateFormat('dd-MM-yyyy').format(DateTime.parse(reservation.startDate!))
           : 'date';
@@ -2355,9 +2411,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   Future<void> _shareReservationPdf(ReservationModel reservation) async {
     try {
       final bytes = await _buildReservationPdfBytes(reservation);
-      final userName = reservation.user?.username?.toString() ?? 
-          reservation.user?.email?.toString()?.split('@').first ?? 
-          'Client';
+      final userName = reservation.user?.username?.toString() ?? 'Client';
       final dateStr = reservation.startDate != null 
           ? DateFormat('dd-MM-yyyy').format(DateTime.parse(reservation.startDate!))
           : 'date';

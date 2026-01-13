@@ -1,17 +1,22 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart'; // Added for date formatting
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:share_plus/share_plus.dart';
-import '../models/ServiceModel.dart';
+import '../models/PrestationModel.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/Routes.dart';
 import 'ServiceFullScreenImageViewer.dart';
 import 'RequestInterventionPage.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/screens/auth/LoginScreen.dart';
 
 class ServiceDetailPage extends StatefulWidget {
-  final ServiceModel service;
+  final PrestationModel service;
 
   const ServiceDetailPage({
     Key? key,
@@ -26,7 +31,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   static const Color primaryColor = Color(0xFF1976D2);
   static const Color accentColor = Color(0xFF64B5F6);
   static const Color darkBlue = Color(0xFF0D47A1);
-  
+
   late PageController _imageController;
   int _currentImageIndex = 0;
   Timer? _autoScrollTimer;
@@ -34,9 +39,10 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   @override
   void initState() {
     super.initState();
+    initializeDateFormatting('fr_FR', null);
     final images = widget.service.images ?? [];
     _imageController = PageController(initialPage: 0);
-    
+
     // Démarrage du défilement automatique si plusieurs images
     if (images.length > 1) {
       _startAutoScroll();
@@ -46,14 +52,14 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   void _startAutoScroll() {
     final images = widget.service.images ?? [];
     if (images.length <= 1) return;
-    
+
     _autoScrollTimer?.cancel();
     _autoScrollTimer = Timer.periodic(Duration(seconds: 4), (timer) {
       if (!mounted || !_imageController.hasClients) {
         timer.cancel();
         return;
       }
-      
+
       final nextIndex = (_currentImageIndex + 1) % images.length;
       _imageController.animateToPage(
         nextIndex,
@@ -77,7 +83,6 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
 🔧 ${widget.service.title ?? 'Service professionnel'} - ${widget.service.address ?? ''}
 
 💰 ${priceText}
-⭐ ${widget.service.rating?.toStringAsFixed(1) ?? 'N/A'} / 5.0
 ${widget.service.description != null ? '\n${widget.service.description}\n' : ''}
 Découvrez ce service sur Casa!
 ''';
@@ -87,13 +92,13 @@ Découvrez ce service sur Casa!
       if (box != null) {
         await Share.share(
           shareText,
-          subject: 'Service ${widget.service.serviceType?.displayName ?? ''}',
+          subject: 'Service ${widget.service.title ?? ''}',
           sharePositionOrigin: box.localToGlobal(Offset.zero) & box.size,
         );
       } else {
         await Share.share(
           shareText,
-          subject: 'Service ${widget.service.serviceType?.displayName ?? ''}',
+          subject: 'Service ${widget.service.title ?? ''}',
         );
       }
     } catch (e) {
@@ -151,7 +156,7 @@ Découvrez ce service sur Casa!
                             errorWidget: (context, url, error) => Container(
                               color: primaryColor.withOpacity(0.1),
                               child: Icon(
-                                widget.service.serviceType?.icon ?? Icons.build,
+                                Icons.build,
                                 size: 64,
                                 color: primaryColor.withOpacity(0.3),
                               ),
@@ -168,7 +173,7 @@ Découvrez ce service sur Casa!
                           ),
                           child: Center(
                             child: Icon(
-                              widget.service.serviceType?.icon ?? Icons.build,
+                              Icons.build,
                               size: 64,
                               color: Colors.white.withOpacity(0.8),
                             ),
@@ -191,9 +196,8 @@ Découvrez ce service sur Casa!
               Container(
                 margin: EdgeInsets.only(right: 8),
                 child: FavoriteHeartIcon(
-                  propertyId: 'service_${widget.service.serviceId}',
+                  propertyId: widget.service.id.toString(),
                   size: 24,
-                  splashRadius: 20,
                   activeColor: Colors.red,
                   inactiveColor: Colors.white,
                 ),
@@ -210,30 +214,6 @@ Découvrez ce service sur Casa!
                 ),
                 onPressed: _shareService,
               ),
-              if (widget.service.isVerified == true)
-                Container(
-                  margin: EdgeInsets.only(right: 16),
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.green,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.verified, color: Colors.white, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        'Vérifié',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
             ],
           ),
 
@@ -244,6 +224,32 @@ Découvrez ce service sur Casa!
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Badge Vérifié
+                  if (widget.service.isCertified == true)
+                    Container(
+                      margin: EdgeInsets.only(bottom: 16),
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.verified, color: Colors.white, size: 16),
+                          SizedBox(width: 4),
+                          Text(
+                            'Vérifié',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   // Titre et note
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -261,63 +267,38 @@ Découvrez ce service sur Casa!
                               ),
                             ),
                             SizedBox(height: 8),
-                            if (widget.service.serviceType != null)
-                              Container(
-                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: primaryColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      widget.service.serviceType!.icon,
-                                      size: 16,
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: primaryColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.build,
+                                    size: 16,
+                                    color: primaryColor,
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Prestation',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
                                       color: primaryColor,
                                     ),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      widget.service.serviceType!.displayName,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: primaryColor,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
+                            ),
                           ],
                         ),
                       ),
-                      if (widget.service.rating != null)
-                        Column(
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.star, color: Colors.amber, size: 24),
-                                SizedBox(width: 4),
-                                Text(
-                                  widget.service.rating!.toStringAsFixed(1),
-                                  style: GoogleFonts.inter(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: darkBlue,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (widget.service.reviewCount != null && widget.service.reviewCount! > 0)
-                              Text(
-                                '${widget.service.reviewCount} avis',
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                          ],
-                        ),
+                      // if (widget.service.rating != null) ...[
+                      //   // Rating removed as it is not present in PrestationModel
+                      // ],
                     ],
                   ),
                   SizedBox(height: 24),
@@ -362,7 +343,7 @@ Découvrez ce service sur Casa!
                             ),
                           ],
                         ),
-                        if (widget.service.experienceYears != null)
+                        if (widget.service.experience != null)
                           Container(
                             padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
@@ -372,7 +353,7 @@ Découvrez ce service sur Casa!
                             child: Column(
                               children: [
                                 Text(
-                                  '${widget.service.experienceYears}',
+                                  '${widget.service.experience}',
                                   style: GoogleFonts.inter(
                                     fontSize: 20,
                                     fontWeight: FontWeight.bold,
@@ -380,7 +361,7 @@ Découvrez ce service sur Casa!
                                   ),
                                 ),
                                 Text(
-                                  'ans exp.',
+                                  'Expérience',
                                   style: GoogleFonts.inter(
                                     fontSize: 10,
                                     color: Colors.white.withOpacity(0.9),
@@ -416,6 +397,10 @@ Découvrez ce service sur Casa!
                     SizedBox(height: 24),
                   ],
 
+                  // Informations du publicateur
+                  _buildPublicationInfoSection(),
+                  SizedBox(height: 24),
+
                   // Informations de contact
                   Container(
                     padding: EdgeInsets.all(16),
@@ -442,7 +427,7 @@ Découvrez ce service sur Casa!
                           ),
                         ),
                         SizedBox(height: 16),
-                        if (widget.service.address != null)
+                        if (widget.service.address != null && widget.service.address!.isNotEmpty)
                           _buildInfoRow(
                             Icons.location_on,
                             widget.service.address!,
@@ -461,7 +446,8 @@ Découvrez ce service sur Casa!
                   SizedBox(height: 24),
 
                   // Disponibilité
-                  if (widget.service.availableDays != null || widget.service.availableHours != null)
+                  if (widget.service.plageJourPrestation != null ||
+                      widget.service.plageHeurePrestation != null)
                     Container(
                       padding: EdgeInsets.all(16),
                       decoration: BoxDecoration(
@@ -487,19 +473,23 @@ Découvrez ce service sur Casa!
                             ),
                           ),
                           SizedBox(height: 12),
-                          if (widget.service.availableDays != null)
+                          if (widget.service.plageJourPrestation != null &&
+                              widget.service.plageJourPrestation!.isNotEmpty)
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
-                              children: widget.service.availableDays!.map((day) {
+                              children: widget.service.plageJourPrestation!
+                                  .split(',')
+                                  .map((day) {
                                 return Container(
-                                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 6),
                                   decoration: BoxDecoration(
                                     color: primaryColor.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    day,
+                                    day.trim(),
                                     style: GoogleFonts.inter(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
@@ -509,14 +499,16 @@ Découvrez ce service sur Casa!
                                 );
                               }).toList(),
                             ),
-                          if (widget.service.availableHours != null) ...[
+                          if (widget.service.plageHeurePrestation != null &&
+                              widget.service.plageHeurePrestation!.isNotEmpty) ...[
                             SizedBox(height: 12),
                             Row(
                               children: [
-                                Icon(Icons.access_time, size: 16, color: primaryColor),
+                                Icon(Icons.access_time,
+                                    size: 16, color: primaryColor),
                                 SizedBox(width: 8),
                                 Text(
-                                  widget.service.availableHours!,
+                                  widget.service.plageHeurePrestation!,
                                   style: GoogleFonts.inter(
                                     fontSize: 14,
                                     color: Colors.grey[700],
@@ -588,11 +580,13 @@ Découvrez ce service sur Casa!
                                     child: Center(
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                            primaryColor),
                                       ),
                                     ),
                                   ),
-                                  errorWidget: (context, url, error) => Container(
+                                  errorWidget: (context, url, error) =>
+                                      Container(
                                     color: primaryColor.withOpacity(0.1),
                                     child: Icon(
                                       Icons.image,
@@ -645,21 +639,24 @@ Découvrez ce service sur Casa!
                   _buildReviewCard(
                     name: 'Patrick K.',
                     rating: 4.8,
-                    comment: 'Travail propre et rapide, très professionnel. Je recommande.',
+                    comment:
+                        'Travail propre et rapide, très professionnel. Je recommande.',
                     datePosted: DateTime.now().subtract(Duration(days: 5)),
                   ),
                   SizedBox(height: 8),
                   _buildReviewCard(
                     name: 'Mireille N.',
                     rating: 4.7,
-                    comment: 'Ponctuel et soigneux, les finitions sont impeccables.',
+                    comment:
+                        'Ponctuel et soigneux, les finitions sont impeccables.',
                     datePosted: DateTime.now().subtract(Duration(days: 12)),
                   ),
                   SizedBox(height: 8),
                   _buildReviewCard(
                     name: 'Arnaud T.',
                     rating: 4.9,
-                    comment: 'Très bonne communication et respect des délais.',
+                    comment:
+                        'Très bonne communication et respect des délais.',
                     datePosted: DateTime.now().subtract(Duration(days: 3)),
                   ),
 
@@ -669,14 +666,29 @@ Découvrez ce service sur Casa!
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => RequestInterventionPage(
-                              service: widget.service,
+                        final storage = GetStorage();
+                        final token = storage.read(StockageKeys.tokenKey);
+                        
+                        if (token == null) {
+                          FancyNotification.show(
+                            context, 
+                            "Vous devez être connecté pour demander une intervention",
+                            type: NotificationType.info
+                          );
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => LoginScreen()),
+                          );
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => RequestInterventionPage(
+                                service: widget.service,
+                              ),
                             ),
-                          ),
-                        );
+                          );
+                        }
                       },
                       icon: Icon(Icons.handshake),
                       label: Text('Demander une intervention'),
@@ -750,7 +762,7 @@ Découvrez ce service sur Casa!
                   errorWidget: (context, url, error) => Container(
                     color: primaryColor.withOpacity(0.1),
                     child: Icon(
-                      widget.service.serviceType?.icon ?? Icons.build,
+                      Icons.build,
                       size: 64,
                       color: primaryColor.withOpacity(0.3),
                     ),
@@ -788,7 +800,8 @@ Découvrez ce service sur Casa!
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String text, Color color, {VoidCallback? onTap}) {
+  Widget _buildInfoRow(IconData icon, String text, Color color,
+      {VoidCallback? onTap}) {
     return InkWell(
       onTap: onTap,
       child: Row(
@@ -821,25 +834,21 @@ Découvrez ce service sur Casa!
   String _formatPrice(num price) {
     if (price >= 1000000) {
       return '${(price / 1000000).toStringAsFixed(1)}M';
-    } else if (price >= 1000) {
-      return '${(price / 1000).toStringAsFixed(0)}K';
-    }
+    } 
+    // Logic for 'K' removed as per request
     return price.toStringAsFixed(0);
   }
 
-  String _getPriceRange(ServiceModel service) {
-    if (service.price == null) return 'Prix sur demande';
+  String _getPriceRange(PrestationModel service) {
+    if (service.minPrice == null)
+      return 'Prix sur demande';
 
-    final double basePrice = service.price!;
-    // Calculer une plage de prix (±20%)
-    final double minPrice = basePrice * 0.8;
-    final double maxPrice = basePrice * 1.2;
+    final double minPrice = service.minPrice!;
+    // Max price ignored for display as per request ("À partir de")
 
-    if (minPrice.round() == maxPrice.round()) {
-      return '${_formatPrice(basePrice)} \$';
-    }
+    final displayCurrency = service.currency;
 
-    return '${_formatPrice(minPrice)} - ${_formatPrice(maxPrice)} \$';
+    return 'À partir de ${_formatPrice(minPrice)} $displayCurrency';
   }
 
   void _makePhoneCall(BuildContext context, String phone) {
@@ -919,7 +928,8 @@ Découvrez ce service sur Casa!
                 backgroundColor: primaryColor.withOpacity(0.1),
                 child: Text(
                   name.isNotEmpty ? name[0].toUpperCase() : '?',
-                  style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: primaryColor, fontWeight: FontWeight.bold),
                 ),
               ),
               SizedBox(width: 10),
@@ -977,5 +987,156 @@ Découvrez ce service sur Casa!
       ),
     );
   }
-}
 
+  Widget _buildPublicationInfoSection() {
+    // Modified to use properties available in PrestationModel only
+    final String? username = widget.service.username;
+    final String? postBy = widget.service.postBy;
+    final String? profilePicture = widget.service.profile;
+
+    String publisherName = '';
+    
+    // Essayer postBy d'abord car souvent plus fiable (ex: @LéaReckiel)
+    if (postBy != null && postBy.isNotEmpty && postBy != 'null') {
+      publisherName = postBy.replaceAll('@', '').trim();
+    } 
+    // Sinon essayer username
+    else if (username != null && username.isNotEmpty && username != 'null') {
+      publisherName = username.replaceAll('@', '').trim();
+    }
+    
+    if (publisherName.isEmpty) publisherName = 'Prestataire';
+
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Publié par',
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: darkBlue,
+            ),
+          ),
+          SizedBox(height: 16),
+          Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      primaryColor.withOpacity(0.2),
+                      accentColor.withOpacity(0.2)
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(25),
+                  border: Border.all(
+                      color: primaryColor.withOpacity(0.3), width: 2),
+                ),
+                  child: GestureDetector(
+                    onTap: () {
+                      if (profilePicture != null && profilePicture.isNotEmpty) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ServiceFullScreenImageViewer(
+                              imageUrls: [profilePicture],
+                              initialIndex: 0,
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    child: Hero(
+                      tag: 'service_profile_${widget.service.id}',
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(23),
+                        child: profilePicture != null &&
+                                profilePicture.isNotEmpty
+                            ? CachedNetworkImage(
+                                imageUrl: profilePicture,
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => Center(
+                                    child: CircularProgressIndicator(strokeWidth: 2)),
+                                errorWidget: (context, url, error) => Center(
+                                    child: Text(
+                                  publisherName.isNotEmpty
+                                      ? publisherName[0].toUpperCase()
+                                      : 'A',
+                                  style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: primaryColor),
+                                )),
+                              )
+                            : Center(
+                                child: Text(
+                                  publisherName.isNotEmpty
+                                      ? publisherName[0].toUpperCase()
+                                      : 'A',
+                                  style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: primaryColor),
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+              ),
+              SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            publisherName,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 17,
+                              color: Colors.black87,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        SizedBox(width: 6),
+                        if (widget.service.isCertified ?? false)
+                          Icon(Icons.verified, size: 16, color: Colors.blue),
+                      ],
+                    ),
+                    if (widget.service.dateCreated != null)
+                      Text(
+                        'Publié le ${DateFormat('dd MMM yyyy', 'fr_FR').format(widget.service.dateCreated!)}',
+                        style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}

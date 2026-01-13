@@ -7,6 +7,7 @@ import 'package:casa/models/CityModel.dart';
 import 'package:casa/models/CommuneModel.dart';
 import 'package:casa/models/DistrictModel.dart';
 import 'package:casa/models/QuartierModel.dart';
+import 'package:casa/models/DeviseModel.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
@@ -23,6 +24,7 @@ import 'package:provider/provider.dart';
 import 'package:casa/utils/requetes.dart';
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/screens/auth/IdentityVerificationPage.dart';
+import 'camera/SelfieCameraScreen.dart'; // FIX: path was incorrect
 import '../utils/StockageKeys.dart';
 
 class CreateServicePostPage extends StatefulWidget {
@@ -71,7 +73,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   
   // Country code for phone
   String _selectedCountryCode = '+243'; // RDC par défaut
-  String _selectedCurrency = 'CDF'; // Devise par défaut : Franc Congolais
+  DeviseModel? _selectedDevise; // Devise sélectionnée
   File? _selectedCvFile; // Fichier CV sélectionné (PDF ou DOC)
   final Map<String, String> _countryFlags = Map<String, String>.from(countryFlags);
   final Map<String, String> _countryNames = Map<String, String>.from(countryNames);
@@ -130,6 +132,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkUserVerification();
       _loadLocationData();
+      context.read<ServiceController>().fetchDevises();
     });
   }
 
@@ -420,8 +423,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               ],
             ),
           ),
-          _buildNavigationButtons(),
         ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: _buildNavigationButtons(),
       ),
     );
   }
@@ -636,49 +641,21 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           ),
           SizedBox(height: _mediumSpace),
           
-          // Prix Min et Max en ligne
-          Row(
-            children: [
-              Expanded(
-                child: _buildModernTextField(
-                  controller: _priceMinController,
-                  label: 'Prix minimum',
-                  hint: '0',
-                  icon: Icons.trending_down_rounded,
-                  keyboardType: TextInputType.number,
-                  fieldKey: 'price_min',
-                  helperText: 'Le prix le plus bas pour votre service',
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Prix minimum requis';
-                    if (double.tryParse(v) == null) return 'Nombre invalide';
-                    return null;
-                  },
-                ),
-              ),
-              SizedBox(width: _smallSpace),
-              Expanded(
-                child: _buildModernTextField(
-                  controller: _priceMaxController,
-                  label: 'Prix maximum',
-                  hint: '0',
-                  icon: Icons.trending_up_rounded,
-                  keyboardType: TextInputType.number,
-                  fieldKey: 'price_max',
-                  helperText: 'Le prix le plus élevé pour votre service',
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Prix maximum requis';
-                    if (double.tryParse(v) == null) return 'Nombre invalide';
-                    final minPrice = double.tryParse(_priceMinController.text);
-                    final maxPrice = double.tryParse(v);
-                    if (minPrice != null && maxPrice != null && maxPrice < minPrice) {
-                      return 'Le prix max doit être >= au prix min';
-                    }
-                    return null;
-                  },
-                ),
-              ),
-            ],
-          ),
+            // Prix Min uniquement (Max Price retiré de l'UI)
+             _buildModernTextField(
+               controller: _priceMinController,
+               label: 'Prix (à partir de)',
+               hint: '0',
+               icon: Icons.attach_money_rounded,
+               keyboardType: TextInputType.number,
+               fieldKey: 'price_min',
+               helperText: 'Le prix de départ pour votre service',
+               validator: (v) {
+                 if (v == null || v.trim().isEmpty) return 'Prix requis';
+                 if (double.tryParse(v) == null) return 'Nombre invalide';
+                 return null;
+               },
+             ),
           
           SizedBox(height: _largeSpace),
           
@@ -1233,6 +1210,28 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       
       if (!mounted) return;
 
+      if (!mounted) return;
+      
+      // AJOUT : Utiliser SelfieCameraScreen pour la photo de profil via caméra pour éviter les crashs
+      if (isProfile && source == ImageSource.camera) {
+        final imagePath = await Navigator.push<String>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SelfieCameraScreen(
+              onImageCaptured: (path) {},
+            ),
+          ),
+        );
+        
+        if (mounted && imagePath != null && imagePath.isNotEmpty) {
+          setState(() {
+            _profileImage = XFile(imagePath);
+            _validateStep(0);
+          });
+        }
+        return;
+      }
+
       final XFile? image = await _picker.pickImage(
         source: source,
         imageQuality: 85,
@@ -1478,16 +1477,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Widget _buildNavigationButtons() {
-    // Obtenir la hauteur de la barre de navigation système
-    final bottomPadding = MediaQuery.of(context).viewPadding.bottom;
-    
     return Container(
-      padding: EdgeInsets.only(
-        left: _mediumSpace,
-        right: _mediumSpace,
-        top: _mediumSpace,
-        bottom: _mediumSpace + bottomPadding, // Ajouter le padding pour la barre de navigation
-      ),
+      padding: EdgeInsets.all(_mediumSpace),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -1633,22 +1624,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         }
         
         if (priceMin.isEmpty) {
-          _setFieldError(1, 'price_min', 'Prix minimum requis');
+          _setFieldError(1, 'price_min', 'Prix requis');
         } else if (double.tryParse(priceMin) == null || double.parse(priceMin) < 1) {
-          _setFieldError(1, 'price_min', 'Prix minimum invalide');
+          _setFieldError(1, 'price_min', 'Prix invalide');
         }
         
-        if (priceMax.isEmpty) {
-          _setFieldError(1, 'price_max', 'Prix maximum requis');
-        } else if (double.tryParse(priceMax) == null || double.parse(priceMax) < 1) {
-          _setFieldError(1, 'price_max', 'Prix maximum invalide');
-        } else {
-          final minPrice = double.tryParse(priceMin);
-          final maxPrice = double.tryParse(priceMax);
-          if (minPrice != null && maxPrice != null && maxPrice < minPrice) {
-            _setFieldError(1, 'price_max', 'Prix maximum doit être supérieur au minimum');
-          }
-        }
+        // Validation removed for priceMax as it is no longer in UI
         
         if (phone.isEmpty) {
           _setFieldError(1, 'phone', 'Téléphone requis');
@@ -1831,7 +1812,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         "prestation": {
           "userId": storedUserId,
           "serviceId": _serviceId!,
-          "deviseId": _selectedCurrency == 'USD' ? 2 : 1,
+          "serviceId": _serviceId!,
+          "deviseId": _selectedDevise?.id ?? 1,
           "title": _titleController.text.trim(), // Utilise le titre manuel
           "profile": profileBase64 ?? "", // Photo de profil en base64 (obligatoire)
           "description": _descriptionController.text.trim(),
@@ -1839,7 +1821,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           "plageJourPrestation": selectedDaysString,
           "plageHeurePrestation": _plageHeureController.text.trim(),
           "minPrice": double.tryParse(_priceMinController.text) ?? 0.0,
-          "maxPrice": double.tryParse(_priceMaxController.text) ?? 0.0,
+          "maxPrice": double.tryParse(_priceMinController.text) ?? 0.0, // Fake value (same as min)
           "address": _addressController.text.trim(),
           "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
           "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
@@ -1887,7 +1869,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         if (res.data != null) {
           print("❌ [CreateService] Response data: ${res.data}");
         }
-        FancyNotification.show(context, errorMessage, type: NotificationType.error);
+        FancyNotification.show(context, _sanitizeError(errorMessage), type: NotificationType.error);
       }
     } catch (e, stackTrace) {
       print("❌ [CreateService] EXCEPTION: $e");
@@ -2255,6 +2237,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
   
   Widget _buildCurrencyDropdown() {
+    final devises = context.watch<ServiceController>().devisesList;
+    
     return Container(
       margin: EdgeInsets.only(bottom: _mediumSpace),
       child: Column(
@@ -2277,30 +2261,31 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             ),
             padding: EdgeInsets.symmetric(horizontal: _mediumSpace),
             child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedCurrency,
+              child: DropdownButton<DeviseModel>(
+                value: _selectedDevise,
                 isExpanded: true,
+                hint: Text("Sélectionner la devise"),
                 icon: Icon(Icons.currency_exchange_rounded, color: _primaryColor),
                 style: TextStyle(
                   color: Colors.black87,
                   fontSize: _bodySize,
                 ),
                 dropdownColor: Colors.white,
-                items: [
-                  DropdownMenuItem(
-                    value: 'CDF',
-                    child: Row(
+                items: devises.map((DeviseModel d) {
+                  return DropdownMenuItem<DeviseModel>(
+                    value: d,
+                     child: Row(
                       children: [
                         Text(
-                          'Franc Congolais (CDF)',
+                          d.code ?? "",
                           style: TextStyle(
                             fontSize: _bodySize,
                             color: Colors.black87,
                           ),
                         ),
                         SizedBox(width: 8),
-                        Text(
-                          'FC',
+                         Text(
+                          d.name ?? "",
                           style: TextStyle(
                             fontSize: _captionSize,
                             color: _greyColor,
@@ -2308,35 +2293,14 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                         ),
                       ],
                     ),
-                  ),
-                  DropdownMenuItem(
-                    value: 'USD',
-                    child: Row(
-                      children: [
-                        Text(
-                          'Dollar Américain (USD)',
-                          style: TextStyle(
-                            fontSize: _bodySize,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          '\$',
-                          style: TextStyle(
-                            fontSize: _captionSize,
-                            color: _greyColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                onChanged: (value) {
+                  );
+                }).toList(),
+                onChanged: (DeviseModel? value) {
                   if (value != null && mounted) {
                     setState(() {
                       _markFieldTouched('currency');
-                      _selectedCurrency = value;
+                      _selectedDevise = value;
+                      //_deviseId = value.id;
                       _validateStep(1);
                     });
                   }
@@ -2781,5 +2745,16 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         ],
       ),
     );
+  }
+  String _sanitizeError(String? error) {
+    if (error == null || error.isEmpty) return "Une erreur est survenue. Veuillez réessayer.";
+    final lower = error.toLowerCase();
+    
+    if (lower.contains("internal server error") || 
+        lower.contains("exception") || 
+        lower.contains("status")) {
+      return "Une erreur est survenue. Veuillez réessayer.";
+    }
+    return error; 
   }
 }
