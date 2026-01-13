@@ -16,11 +16,11 @@ class ServerHealthService {
   final ConnectivityService _connectivityService = ConnectivityService();
 
   // URLs des serveurs
-  final String _primaryUrl = "https://server.casanayo.com";
-  final String _backupUrl = "http://91.99.168.226:8083/";
+  final String _primaryUrl = "http://91.99.168.226:8083";
+  final String _backupUrl = "https://server.casanayo.com";
   
   // État des serveurs
-  String _activeServerUrl = "https://server.casanayo.com";
+  String _activeServerUrl = "http://91.99.168.226:8083";
   bool _isPrimaryDown = false;
   bool _isBackupDown = false;
   bool _isUsingBackup = false;
