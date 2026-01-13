@@ -5,6 +5,7 @@ import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/requetes.dart';
 import '../utils/DraftHelper.dart';
+import '../utils/AgenceDatabaseHelper.dart';
 
 class AuthentificationCtrl with ChangeNotifier {
   AuthentificationCtrl({this.stockage});
@@ -493,6 +494,14 @@ class AuthentificationCtrl with ChangeNotifier {
         print("⚠️ Erreur lors de la suppression des brouillons: $e");
       }
 
+      // Supprimer les agences en cache local (SQL database)
+      try {
+        await AgenceDatabaseHelper.instance.clearAgencies();
+        print("✅ Agences locales supprimées");
+      } catch (e) {
+        print("⚠️ Erreur lors de la suppression des agences locales: $e");
+      }
+
       print("✅ Données d'authentification locales supprimées");
     } catch (e) {
       print("❌ Erreur lors du nettoyage des données locales: $e");
@@ -862,6 +871,39 @@ class AuthentificationCtrl with ChangeNotifier {
       notifyListeners();
       print("❌ Erreur updateProfilePicture: $e");
       return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
+    }
+  }
+
+  bool hasAgence = false;
+
+  // Vérifier si l'utilisateur a une agence
+  Future<bool> checkUserAgency(int userId) async {
+    try {
+      final url = "agences/owner/$userId";
+      print("🔍 Vérification agence pour user $userId: $url");
+      
+      // getData retourne le body JSON décodé (Map ou List) si 200, sinon null
+      final response = await getData(url, token: token);
+      
+      if (response != null && response is Map && response['data'] != null) {
+        final data = response['data'];
+        if (data is List && data.isNotEmpty) {
+           print("✅ Agence trouvée: ${data.length} agence(s)");
+           hasAgence = true;
+           notifyListeners();
+           return true; 
+        }
+      }
+      
+      print("ℹ️ Réponse valide mais aucune agence trouvée (data vide).");
+      hasAgence = false;
+      notifyListeners();
+      return false;
+    } catch (e) {
+      print("ℹ️ Erreur checkUserAgency (User $userId): $e");
+      hasAgence = false;
+      notifyListeners();
+      return false;
     }
   }
 }

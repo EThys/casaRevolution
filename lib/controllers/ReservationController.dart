@@ -429,18 +429,19 @@ class ReservationController with ChangeNotifier {
 
       // Vérifier si la mise à jour a réussi
       if (response.status == true) {
-        // Mettre à jour localement
-        final index = reservations.indexWhere((r) => r.reservationId == reservationId);
-        if (index != -1) {
-          reservations[index].status = status;
-        }
-        if (currentReservation?.reservationId == reservationId) {
-          currentReservation?.status = status;
-        }
-
         // Mettre à jour en base locale
         final db = ReservationDatabaseHelper.instance;
-        await db.updateReservationStatus(reservationId.toString(), status);
+        final normalizedStatus = status.toUpperCase();
+        await db.updateReservationStatus(reservationId.toString(), normalizedStatus);
+
+        // Mettre à jour localement avec le statut normalisé
+        final index = reservations.indexWhere((r) => r.reservationId == reservationId);
+        if (index != -1) {
+          reservations[index].status = normalizedStatus;
+        }
+        if (currentReservation?.reservationId == reservationId) {
+          currentReservation?.status = normalizedStatus;
+        }
 
         notifyListeners();
         print("✅ Statut réservation $reservationId mis à jour: $status");
@@ -466,14 +467,14 @@ class ReservationController with ChangeNotifier {
       loading = true;
       notifyListeners();
 
-      final url = "${Endpoints.reservations}/$reservationId/cancel";
+      final url = "${Endpoints.reservations}/delete/$reservationId";
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
       Map<String, dynamic> cancelData = {
         'cancellationReason': reason,
       };
 
-      HttpResponse response = await postData(url, cancelData, token: tkn);
+      HttpResponse response = await deleteData(url, data: cancelData, token: tkn);
 
       if (response.status == true) {
         // Mettre à jour localement
@@ -516,18 +517,20 @@ class ReservationController with ChangeNotifier {
     reservation.user?.userId.toString() == userId
     ).toList();
 
-    // Compter par statut
-    final pendingCount = userReservations.where((r) => r.status == 'PENDING').length;
-    final confirmedCount = userReservations.where((r) => r.status == 'CONFIRMED').length;
-    final cancelledCount = userReservations.where((r) => r.status == 'CANCELLED').length;
+    // Compter par statut (normalisé en majuscules)
+    final pendingCount = userReservations.where((r) => r.status?.toUpperCase() == 'PENDING').length;
+    final confirmedCount = userReservations.where((r) => r.status?.toUpperCase() == 'CONFIRMED').length;
+    final cancelledCount = userReservations.where((r) => r.status?.toUpperCase() == 'CANCELLED').length;
+    final completedCount = userReservations.where((r) => r.status?.toUpperCase() == 'COMPLETED').length;
 
-    print("📊 Compteurs réservations user $userId: PENDING=$pendingCount, CONFIRMED=$confirmedCount, CANCELLED=$cancelledCount");
+    print("📊 Compteurs réservations user $userId: PENDING=$pendingCount, CONFIRMED=$confirmedCount, CANCELLED=$cancelledCount, COMPLETED=$completedCount");
 
     return {
       'all': userReservations.length,
       'pending': pendingCount,
       'confirmed': confirmedCount,
       'cancelled': cancelledCount,
+      'completed': completedCount,
     };
   }
 

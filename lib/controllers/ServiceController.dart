@@ -3,8 +3,11 @@ import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/ServiceModel.dart';
 import '../models/PrestationModel.dart';
+import '../models/SollicitationModel.dart';
+import '../models/DeviseModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
+import '../utils/Constantes.dart';
 import '../utils/requetes.dart' show getData, postData, patchData, deleteData, HttpResponse;
 import '../utils/database/PrestationDatabaseHelper.dart';
 
@@ -49,6 +52,9 @@ class ServiceController with ChangeNotifier {
           })
               .where((service) => service.serviceId != null)
               .toList();
+          
+          // Trier par serviceId décroissant (plus récent en premier)
+          services.sort((a, b) => (b.serviceId ?? 0).compareTo(a.serviceId ?? 0));
         }
       }
     } catch (e) {
@@ -396,6 +402,8 @@ class ServiceController with ChangeNotifier {
 
   // Liste des prestations
   List<PrestationModel> prestations = [];
+  List<SollicitationModel> solicitations = [];
+  List<DeviseModel> devisesList = [];
   
   // Récupérer les prestations de l'utilisateur connecté (avec cache SQLite)
   Future<List<PrestationModel>> getMyPrestations() async {
@@ -457,6 +465,10 @@ class ServiceController with ChangeNotifier {
                 
                 if (e is Map<String, dynamic> && e.containsKey('prestation')) {
                   prestationData = e['prestation'] as Map<String, dynamic>;
+                  // Injecter postBy dans les données de prestation si présent à la racine
+                  if (e.containsKey('postBy')) {
+                    prestationData['postBy'] = e['postBy'];
+                  }
                   if (e.containsKey('image') && e['image'] is List) {
                     images = (e['image'] as List).map((img) {
                       if (img is String) return img;
@@ -550,6 +562,10 @@ class ServiceController with ChangeNotifier {
               
               if (e is Map<String, dynamic> && e.containsKey('prestation')) {
                 prestationData = e['prestation'] as Map<String, dynamic>;
+                // Injecter postBy dans les données de prestation si présent à la racine
+                if (e.containsKey('postBy')) {
+                  prestationData['postBy'] = e['postBy'];
+                }
                 // Extraire les images
                 if (e.containsKey('image') && e['image'] is List) {
                   images = (e['image'] as List).map((img) {
@@ -638,6 +654,10 @@ class ServiceController with ChangeNotifier {
               
               if (e is Map<String, dynamic> && e.containsKey('prestation')) {
                 prestationData = e['prestation'] as Map<String, dynamic>;
+                 // Injecter postBy dans les données de prestation si présent à la racine
+                if (e.containsKey('postBy')) {
+                  prestationData['postBy'] = e['postBy'];
+                }
                 // Extraire les images
                 if (e.containsKey('image') && e['image'] is List) {
                   images = (e['image'] as List).map((img) {
@@ -738,6 +758,12 @@ class ServiceController with ChangeNotifier {
       ..quartierValue = prestation.quartierValue ?? ''
       ..isAvailable = prestation.isActive ?? true
       ..isVerified = prestation.isCertified ?? false
+      ..username = prestation.username // AJOUT
+      ..createdAt = prestation.dateCreated?.toIso8601String() // AJOUT
+      ..availableDays = prestation.plageJourPrestation != null && prestation.plageJourPrestation!.isNotEmpty
+          ? prestation.plageJourPrestation!.split(',').map((e) => e.trim()).toList()
+          : null // AJOUT
+      ..availableHours = prestation.plageHeurePrestation // AJOUT
       ..images = imagesList; // Transférer les images (profil en premier)
   }
 
@@ -748,6 +774,110 @@ class ServiceController with ChangeNotifier {
     // Cette méthode sera complétée avec le mapping depuis user_accounts
     // Pour l'instant, on retourne null et on laissera HomePage faire le mapping
     return null;
+  }
+
+  // =============================================
+  // SERVICE SOLICITATION
+  // =============================================
+
+  Future<HttpResponse> createSolicitation(Map<String, dynamic> data) async {
+    loading = true;
+    notifyListeners();
+    
+    try {
+      print("📤 Création de sollicitation...");
+      String? token = stockage?.read(StockageKeys.tokenKey);
+      final response = await postData(Endpoints.sollicitation, data, token: token);
+      
+      print("📥 Réponse sollicitation: ${response.status} - ${response.data}");
+      
+      if (response.status) {
+        // Success logic if needed
+      }
+      
+      return response;
+    } catch (e) {
+      print("❌ Erreur lors de la création de la sollicitation: $e");
+      return HttpResponse(status: false, errorMsg: "Une erreur est survenue: $e");
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  // Récupérer les sollicitations de l'utilisateur
+  Future<List<SollicitationModel>> fetchUserSollicitations() async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final userData = stockage?.read(StockageKeys.userKey);
+      String? userId;
+      
+      if (userData is Map) {
+        if (userData.containsKey('user') && userData['user'] is Map && userData['user']?['userId'] != null) {
+          userId = userData['user']?['userId']?.toString();
+        } else if (userData.containsKey('userId') && userData['userId'] != null) {
+          userId = userData['userId']?.toString();
+        }
+      }
+
+      if (userId == null) {
+        print("❌ [ServiceController] UserId non trouvé pour récupérer les sollicitations");
+        return [];
+      }
+
+      final url = "${Endpoints.sollicitationsByUser}$userId";
+      print("🔍 [ServiceController] Récupération des sollicitations depuis: $url");
+      
+      String? token = stockage?.read(StockageKeys.tokenKey);
+      var response = await getData(url, token: token);
+
+      if (response != null && response is Map<String, dynamic>) {
+        dynamic data;
+        if (response.containsKey('data')) {
+          data = response['data'];
+        } else {
+           data = response;
+        }
+
+        if (data is List) {
+           solicitations = data.map((e) => SollicitationModel.fromJson(e)).toList();
+           print("✅ [ServiceController] ${solicitations.length} sollicitations récupérées");
+        }
+      }
+      
+      return solicitations;
+
+    } catch (e) {
+      print("❌ [ServiceController] Erreur lors de la récupération des sollicitations: $e");
+      return [];
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<List<DeviseModel>> fetchDevises() async {
+    try {
+      final localData = stockage?.read(StockageKeys.devisesKey);
+      if (localData != null && localData is Map && localData['devises'] != null) {
+          devisesList = (localData['devises'] as List).map((e) => DeviseModel.fromJson(e)).toList();
+          notifyListeners();
+      }
+
+      final token = stockage?.read(StockageKeys.tokenKey);
+      var response = await getData("${Constantes.URL_BASE}${Endpoints.devises}", token: token);
+      if (response != null && response is Map && response['devises'] != null) {
+          devisesList = (response['devises'] as List).map((e) => DeviseModel.fromJson(e)).toList();
+          stockage?.write(StockageKeys.devisesKey, response);
+          notifyListeners();
+      }
+      return devisesList;
+    } catch (e) {
+      print("Error fetching devises: $e");
+      return devisesList;
+    }
   }
 
   // Supprimer une prestation
