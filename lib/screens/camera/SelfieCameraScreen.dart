@@ -14,6 +14,7 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
   CameraController? _controller;
   Future<void>? _initializeControllerFuture;
   bool _isCameraInitialized = false;
+  bool _isTorchOn = false;
 
   @override
   void initState() {
@@ -51,6 +52,29 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
     super.dispose();
   }
 
+  Future<void> _toggleTorch() async {
+    if (_controller == null || !_isCameraInitialized) return;
+    
+    try {
+      if (_isTorchOn) {
+        await _controller!.setFlashMode(FlashMode.off);
+        setState(() {
+          _isTorchOn = false;
+        });
+      } else {
+        await _controller!.setFlashMode(FlashMode.torch);
+        setState(() {
+          _isTorchOn = true;
+        });
+      }
+    } catch (e) {
+      print("Error toggling torch: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossible d\'activer le flash sur cet appareil')),
+      );
+    }
+  }
+
   Future<void> _takePicture() async {
     try {
       if (_controller == null || !_controller!.value.isInitialized) {
@@ -60,13 +84,19 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
       await _initializeControllerFuture;
       final image = await _controller!.takePicture();
 
-      widget.onImageCaptured(image.path);
-      Navigator.pop(context); // Close camera screen
+      // Close camera screen first and pass the image path back
+      if (mounted) {
+        Navigator.pop(context, image.path);
+        // Call the callback after navigation to avoid setState on unmounted widget
+        widget.onImageCaptured(image.path);
+      }
     } catch (e) {
       print('Error taking picture: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur lors de la capture: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur lors de la capture: $e')),
+        );
+      }
     }
   }
 
@@ -154,6 +184,20 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
             child: IconButton(
               icon: Icon(Icons.arrow_back, color: Colors.white, size: 30),
               onPressed: () => Navigator.pop(context),
+            ),
+          ),
+          
+          // Torch Button
+          Positioned(
+            top: 40,
+            right: 20,
+            child: IconButton(
+              icon: Icon(
+                _isTorchOn ? Icons.flash_on : Icons.flash_off,
+                color: Colors.white,
+                size: 30,
+              ),
+              onPressed: _toggleTorch,
             ),
           ),
         ],
