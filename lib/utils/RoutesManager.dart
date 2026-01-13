@@ -30,8 +30,11 @@ import '../screens/MyServiceRequestsPage.dart';
 import '../screens/ServiceRequestsForProvidersPage.dart';
 import '../screens/RequestInterventionPage.dart';
 import '../screens/NotificationPage.dart';
+import '../screens/ServiceDetailPage.dart';
+import '../screens/CreateAgencePage.dart';
 import '../models/ServiceModel.dart';
 import '../models/ServiceRequestModel.dart';
+import '../models/PrestationModel.dart';
 import 'Routes.dart';
 
 
@@ -126,10 +129,15 @@ class RoutesManager {
       case Routes.serviceRequestsForProvidersRoute:
         return MaterialPageRoute(builder: (_)=>ServiceRequestsForProvidersPage());
       case Routes.requestInterventionRoute:
-        final ServiceModel service = r.arguments as ServiceModel;
+        final PrestationModel service = r.arguments as PrestationModel;
         return MaterialPageRoute(builder: (_)=>RequestInterventionPage(service: service));
       case Routes.notificationPageRoute:
         return MaterialPageRoute(builder: (_)=>NotificationsPage());
+      case Routes.serviceDetail:
+        final PrestationModel service = r.arguments as PrestationModel;
+        return MaterialPageRoute(builder: (_)=>ServiceDetailPage(service: service));
+      case Routes.createAgenceRoute:
+        return MaterialPageRoute(builder: (_)=>CreateAgencePage());
       // case Routes.visitPageRoute:
       //   final PropertyModel property = r.arguments as PropertyModel;
       //   return MaterialPageRoute(builder: (_)=>BookingVisitPage(property: property));

@@ -34,4 +34,6 @@ class Routes {
   static const String serviceRequestsForProvidersRoute = "serviceRequestsForProviders";
   static const String requestInterventionRoute = "requestIntervention";
   static const String notificationPageRoute = "notificationPage";
+  static const String serviceDetail = "serviceDetail";
+  static const String createAgenceRoute = "createAgence";
 }

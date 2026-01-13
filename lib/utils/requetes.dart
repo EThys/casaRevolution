@@ -13,7 +13,8 @@ class HttpResponse {
 
 Future<dynamic> getData(String url_api, {String? token}) async {
   try {
-    var url = Uri.parse('${Constantes.BASE_URL}$url_api');
+    var urlStr = url_api.startsWith("http") ? url_api : '${Constantes.BASE_URL}$url_api';
+    var url = Uri.parse(urlStr);
     var tkn = token ?? Constantes.DefaultToken;
     var headers = {
       "Content-Type": "application/json",
@@ -21,15 +22,19 @@ Future<dynamic> getData(String url_api, {String? token}) async {
     if (tkn.isNotEmpty) {
       headers["Authorization"] = "Bearer $tkn";
     }
-    var reponse = await http.get(url, headers: headers).timeout(Duration(seconds: 10));
+    var reponse = await http.get(url, headers: headers).timeout(Duration(seconds: 30));
 
     if (reponse.statusCode == 200) {
       return jsonDecode(reponse.body);
     }
     return null;
   } catch (e, trace) {
-    print(e.toString());
-    print(trace.toString());
+    if (e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
+      print("⚠️ [getData] Erreur réseau (pas de connexion ?): ${e.toString().split('\n').first}");
+    } else {
+      print("❌ [getData] Exception: $e");
+      print(trace.toString());
+    }
     return null;
   }
 }
@@ -118,7 +123,7 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
       }
 
       print("🌐 [postData] Envoi de la requête POST...");
-      var response = await http.post(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
+      var response = await http.post(url, body: dataStr, headers: headers).timeout(Duration(seconds: 60));
       
       print("🌐 [postData] Réponse reçue - Status Code: ${response.statusCode}");
       print("🌐 [postData] Headers: ${response.headers}");
@@ -187,10 +192,16 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
       print("🌐 [postData] ========== FIN postData ==========");
       return HttpResponse(status: st, data: msg, errorMsg: errorMsg);
     } catch (e, trace) {
-      print("❌ [postData] ========== EXCEPTION dans postData ==========");
-      print("❌ [postData] Exception: $e");
-      print("📋 [postData] Stack trace: $trace");
-      print("🌐 [postData] ========== FIN postData (avec erreur) ==========");
+      // Suppress verbose logging for network errors but show exact error info
+      if (e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
+        print("⚠️ [postData] Erreur réseau: $e");
+      } else {
+        print("❌ [postData] ========== EXCEPTION dans postData ==========");
+        print("❌ [postData] Exception: $e");
+        print("📋 [postData] Stack trace: $trace");
+        print("🌐 [postData] ========== FIN postData (avec erreur) ==========");
+      }
+      
       String errorMessage = "Erreur inattendue";
       
       if (e.toString().contains('TimeoutException')) {

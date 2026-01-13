@@ -35,6 +35,11 @@ class FavoriteDatabaseHelper {
     );
   }
 
+  // NOUVELLE TABLE POUR LA FILE D'ATTENTE
+  static const tableQueue = 'favorite_queue';
+  static const columnAction = 'action'; // 'ADD' or 'REMOVE'
+  static const columnTimestamp = 'timestamp';
+
   Future _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE $table (
@@ -47,7 +52,63 @@ class FavoriteDatabaseHelper {
     await db.execute('''
       CREATE INDEX idx_favorite_user ON $table ($columnUserId)
     ''');
+    
+    // Création de la table de file d'attente
+    await db.execute('''
+      CREATE TABLE $tableQueue (
+        $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
+        $columnUserId INTEGER NOT NULL,
+        propertyId TEXT NOT NULL,
+        $columnAction TEXT NOT NULL,
+        $columnTimestamp INTEGER NOT NULL
+      )
+    ''');
   }
+
+  // MÉTHODES POUR LA FILE D'ATTENTE (QUEUE)
+  
+  Future<int> enqueueAction(String userId, String propertyId, String action) async {
+    final db = await database;
+    return await db.insert(
+      tableQueue,
+      {
+        columnUserId: int.tryParse(userId) ?? 0,
+        'propertyId': propertyId,
+        columnAction: action,
+        columnTimestamp: DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getQueue(String userId) async {
+    final db = await database;
+    return await db.query(
+      tableQueue,
+      where: '$columnUserId = ?',
+      whereArgs: [userId],
+      orderBy: '$columnTimestamp ASC',
+    );
+  }
+
+  Future<int> removeFromQueue(int id) async {
+    final db = await database;
+    return await db.delete(
+      tableQueue,
+      where: '$columnId = ?',
+      whereArgs: [id],
+    );
+  }
+  
+  Future<int> clearQueue(String userId) async {
+    final db = await database;
+    return await db.delete(
+      tableQueue,
+      where: '$columnUserId = ?',
+      whereArgs: [userId],
+    );
+  }
+
   Future<int> clearAllFavorites() async {
     final db = await database;
     return await db.delete(table);
@@ -57,6 +118,7 @@ class FavoriteDatabaseHelper {
   Future<void> clearDatabase() async {
     final db = await database;
     await db.delete(table);
+    await db.delete(tableQueue); // Vidage de la queue aussi
   }
 
 
@@ -67,7 +129,8 @@ class FavoriteDatabaseHelper {
     final int userIdInt = int.tryParse(userId) ?? 0;
     if (userIdInt == 0) {
       print('❌ ERROR: Invalid userId: $userId');
-      throw Exception('Invalid User ID');
+      // On ne lance pas d'exception pour éviter de crasher l'app en prod, juste log
+      return 0; 
     }
 
     // Convertir le property en JSON pour le stocker

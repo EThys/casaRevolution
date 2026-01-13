@@ -13,6 +13,6 @@ class StockageKeys{
   static const String userVisits="userVisits";
   static const String firstLaunchKey="FIRSTLAUNCH";
   static const String themeModeKey="themeMode";
-
+  static const String devisesKey="devises";
 
 }
