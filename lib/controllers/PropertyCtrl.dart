@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:casa/utils/database/DatabaseHelper.dart';
+import 'package:casa/utils/TerrainDatabaseHelper.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart';
@@ -9,6 +10,7 @@ import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/Constantes.dart';
 import '../utils/requetes.dart' show getData, postData, patchData, deleteData, putData, HttpResponse;
+import '../models/DeviseModel.dart';
 
 class PropertyController with ChangeNotifier {
   PropertyController({this.stockage});
@@ -30,7 +32,33 @@ class PropertyController with ChangeNotifier {
   List<PropertyModel> bureaux = [];
   List<PropertyModel> festives = [];
   List<PropertyModel> funeraires = [];
+  List<Map<String, dynamic>> terrains = [];
   bool loadingSpecial = false;
+
+  // Devises
+  List<DeviseModel> devisesList = [];
+
+  Future<List<DeviseModel>> fetchDevises() async {
+    try {
+      final localData = stockage?.read(StockageKeys.devisesKey);
+      if (localData != null && localData is Map && localData['devises'] != null) {
+          devisesList = (localData['devises'] as List).map((e) => DeviseModel.fromJson(e)).toList();
+          notifyListeners();
+      }
+
+      String? token = stockage?.read(StockageKeys.tokenKey);
+      var response = await getData("${Constantes.URL_BASE}${Endpoints.devises}", token: token);
+      if (response != null && response is Map && response['devises'] != null) {
+          devisesList = (response['devises'] as List).map((e) => DeviseModel.fromJson(e)).toList();
+          stockage?.write(StockageKeys.devisesKey, response);
+          notifyListeners();
+      }
+      return devisesList;
+    } catch (e) {
+      print("Error fetching devises: $e");
+      return devisesList;
+    }
+  }
 
   Future<void> syncProperties() async {
     syncing = true;
@@ -136,29 +164,48 @@ class PropertyController with ChangeNotifier {
       }
     } catch (e) {
       print("⚠️ Erreur lors de la sync des types de propriété: $e");
+      // Fallback: Si erreur (ex: timeout), on s'assure que les types locaux sont dispos
+      if (propertyTypes.isEmpty) {
+         final localTypes = await db.getAllPropertyTypes();
+         if (localTypes.isNotEmpty) {
+            propertyTypes = List<Map<String, dynamic>>.from(localTypes);
+            print("📦 Fallback: Utilisation des types locaux suite à une erreur réseau");
+         }
+      }
     } finally {
       loadingTypes = false;
       notifyListeners();
     }
   }
 
-  /// Charge toutes les catégories spéciales de manière séquencée pour optimiser la charge
+  /// Charge toutes les catégories spéciales avec une stratégie "Local First" pour un affichage instantané
   Future<void> syncAllSpecialCategories() async {
-    loadingSpecial = true;
-    notifyListeners();
+    // 1. Charger d'abord tout depuis le SQL local pour un affichage instantané
+    await _loadSpecialFromCache();
+    
+    // Fusionner les données locales dans la liste principale immédiatement
+    _mergeIntoMainProperties(bureaux);
+    _mergeIntoMainProperties(festives);
+    _mergeIntoMainProperties(funeraires);
+    
+    // Si on a des données locales, on affiche tout de suite (pas de loader bloquant)
+    if (bureaux.isNotEmpty || festives.isNotEmpty || funeraires.isNotEmpty) {
+       notifyListeners();
+    } else {
+       // Sinon on montre le loader
+       loadingSpecial = true;
+       notifyListeners();
+    }
 
     try {
-      // 1. Charger d'abord tout depuis le SQL local pour un affichage instantané
-      await _loadSpecialFromCache();
-
-      // 2. Synchronisation séquencée avec l'API (avec de légers délais pour ne pas saturer)
-      await _syncSpecialCategory(Endpoints.propertyBureaux, DatabaseHelper.tableBureaux, (list) => bureaux = list);
-      await Future.delayed(Duration(milliseconds: 300));
-      
-      await _syncSpecialCategory(Endpoints.propertyFestives, DatabaseHelper.tableFestives, (list) => festives = list);
-      await Future.delayed(Duration(milliseconds: 300));
-
-      await _syncSpecialCategory(Endpoints.propertyFuneraires, DatabaseHelper.tableFuneraires, (list) => funeraires = list);
+      // 2. Synchronisation en arrière-plan (sans bloquer l'UI)
+      // On lance les appels en parallèle pour aller plus vite, ou séquentiel si on veut limiter la charge
+      await Future.wait([
+        _syncSpecialCategory(Endpoints.propertyBureaux, DatabaseHelper.tableBureaux, (list) => bureaux = list),
+        _syncSpecialCategory(Endpoints.propertyFestives, DatabaseHelper.tableFestives, (list) => festives = list),
+        _syncSpecialCategory(Endpoints.propertyFuneraires, DatabaseHelper.tableFuneraires, (list) => funeraires = list),
+        _syncTerrainCategory(),
+      ]);
       
       print("🎯 Synchronisation des catégories spéciales terminée");
     } catch (e) {
@@ -174,50 +221,95 @@ class PropertyController with ChangeNotifier {
     bureaux = await db.getFromCategory(DatabaseHelper.tableBureaux);
     festives = await db.getFromCategory(DatabaseHelper.tableFestives);
     funeraires = await db.getFromCategory(DatabaseHelper.tableFuneraires);
-    print("📦 Local: ${bureaux.length} bureaux, ${festives.length} fêtes, ${funeraires.length} funéraires");
+    
+    // Load terrains from TerrainDatabaseHelper
+    await _loadTerrainsFromCache();
+    // print("📦 Local: ${bureaux.length} bureaux, ${festives.length} fêtes, ${funeraires.length} funéraires, ${terrains.length} terrains");
   }
 
   Future<void> _syncSpecialCategory(String endpoint, String tableName, Function(List<PropertyModel>) updateList) async {
     try {
       final response = await getData(endpoint);
       if (response != null && response is Map<String, dynamic>) {
-        // Déterminer la clé de données (bureaux, festives, funeraires ou data)
         dynamic rawData;
         if (response.containsKey('bureaux')) rawData = response['bureaux'];
         else if (response.containsKey('festives')) rawData = response['festives'];
         else if (response.containsKey('funeraires')) rawData = response['funeraires'];
         else rawData = response['data'];
 
+        print("📡 [$tableName] Response keys: ${response.keys}");
         if (rawData != null && rawData is List) {
-          final List<PropertyModel> onlineList = rawData.map((e) {
-            final p = PropertyModel.fromJson(e);
-            
-            // Garantir que la catégorie est correctement settée pour le filtrage
-            if (tableName == DatabaseHelper.tableBureaux) {
-               p.propertyTypeId = 4;
-               p.propertyType = PropertyTypeModel(propertyTypeId: 4, name: 'Bureau');
-            } else if (tableName == DatabaseHelper.tableFestives) {
-               p.propertyTypeId = 8;
-               p.propertyType = PropertyTypeModel(propertyTypeId: 8, name: 'Salle de fête');
-            } else if (tableName == DatabaseHelper.tableFuneraires) {
-               p.propertyTypeId = 7;
-               p.propertyType = PropertyTypeModel(propertyTypeId: 7, name: 'Salle funéraires');
+          print("📦 [$tableName] Raw items found: ${rawData.length}");
+          final List<PropertyModel> onlineList = [];
+          for (var e in rawData) {
+            try {
+              final p = PropertyModel.fromJson(e);
+              
+              if (tableName == DatabaseHelper.tableBureaux) {
+                 p.propertyTypeId = 4;
+                 p.propertyType = PropertyTypeModel(propertyTypeId: 4, name: 'Bureau');
+              } else if (tableName == DatabaseHelper.tableFestives) {
+                 p.propertyTypeId = 8;
+                 p.propertyType = PropertyTypeModel(propertyTypeId: 8, name: 'Salle de fête');
+              } else if (tableName == DatabaseHelper.tableFuneraires) {
+                 p.propertyTypeId = 7;
+                 p.propertyType = PropertyTypeModel(propertyTypeId: 7, name: 'Salle funéraires');
+              }
+              
+              if (p.propertyId != null) {
+                onlineList.add(p);
+              }
+            } catch (err) {
+              print("⚠️ Error parsing item in $tableName: $err");
             }
-            
-            return p;
-          }).toList();
-
-          // Mettre à jour la base locale
-          final db = DatabaseHelper.instance;
-          await db.clearCategory(tableName);
-          for (var p in onlineList) {
-            await db.insertOrUpdateInCategory(tableName, p);
           }
 
-          updateList(onlineList);
+          // SMART SYNC LOGIC
+          final db = DatabaseHelper.instance;
+          final localList = await db.getFromCategory(tableName);
           
-          // Optionnel: Fusionner dans la liste principale si ce n'est pas déjà présent
-          _mergeIntoMainProperties(onlineList);
+          bool hasChanges = false;
+          
+          // 1. Check counts
+          if (localList.length != onlineList.length) {
+            hasChanges = true;
+            print("🔄 [$tableName] Count mismatch (Local: ${localList.length}, Online: ${onlineList.length}) -> Sync required");
+          } else {
+            // 2. Check IDs and Content
+            final localIds = localList.map((p) => p.propertyId).toSet();
+            final onlineIds = onlineList.map((p) => p.propertyId).toSet();
+            
+            if (localIds.difference(onlineIds).isNotEmpty || onlineIds.difference(localIds).isNotEmpty) {
+               hasChanges = true;
+               print("🔄 [$tableName] ID mismatch -> Sync required");
+            } else {
+               // Deep comparison only if IDs match
+               for (var onlineItem in onlineList) {
+                  final localItem = localList.firstWhere((l) => l.propertyId == onlineItem.propertyId);
+                  if (_hasPropertyChanged(localItem, onlineItem)) {
+                     hasChanges = true;
+                     print("🔄 [$tableName] Item ${onlineItem.propertyId} changed -> Sync required");
+                     break;
+                  }
+               }
+            }
+          }
+
+          if (hasChanges) {
+             print("🚀 [$tableName] Updating local database with fresh data...");
+             await db.clearCategory(tableName);
+             for (var p in onlineList) {
+               await db.insertOrUpdateInCategory(tableName, p);
+             }
+             updateList(onlineList);
+             _mergeIntoMainProperties(onlineList); // Update main memory list too
+          } else {
+             print("✅ [$tableName] Local data is up-to-date. Using local.");
+             updateList(localList); // Ensure memory uses the (verified valid) local list
+             _mergeIntoMainProperties(localList);
+          }
+        } else {
+             print("⚠️ [$tableName] Raw data is null or not a list");
         }
       }
     } catch (e) {
@@ -234,10 +326,50 @@ class PropertyController with ChangeNotifier {
     }
   }
 
+  /// Load terrains from local cache
+  Future<void> _loadTerrainsFromCache() async {
+    try {
+      final db = TerrainDatabaseHelper.instance;
+      final cachedTerrains = await db.getAllTerrains();
+      terrains = cachedTerrains;
+      print("📦 [PropertyCtrl] ${terrains.length} terrains chargés depuis le cache local");
+    } catch (e) {
+      print("⚠️ [PropertyCtrl] Erreur lors du chargement des terrains depuis le cache: $e");
+      terrains = [];
+    }
+  }
+
+  /// Sync terrains with API and local database
+  Future<void> _syncTerrainCategory() async {
+    try {
+      final response = await getData(Endpoints.propertyTerrains);
+      if (response != null && response is Map<String, dynamic>) {
+        final rawData = response['terrain'];
+        if (rawData != null && rawData is List) {
+          final List<Map<String, dynamic>> terrainList = rawData.cast<Map<String, dynamic>>();
+          
+          // Store in local database
+          final db = TerrainDatabaseHelper.instance;
+          await db.insertTerrains(terrainList);
+          
+          // Update in-memory list
+          terrains = terrainList;
+          
+          print("✅ [PropertyCtrl] ${terrains.length} terrains synchronisés depuis l'API");
+        } else {
+          print("⚠️ [PropertyCtrl] Aucune donnée terrain dans la réponse API");
+        }
+      } else {
+        print("⚠️ [PropertyCtrl] Réponse API terrain invalide");
+      }
+    } catch (e) {
+      print("⚠️ [PropertyCtrl] Erreur sync terrains: $e");
+      // En cas d'erreur, on garde les données du cache
+    }
+  }
+
   Future<bool> _detectTypeChanges(List<Map<String, dynamic>> local, List<Map<String, dynamic>> online) async {
     if (local.length != online.length) return true;
-    
-    // Simplistic check: compare IDs and names
     for (int i = 0; i < online.length; i++) {
       final o = online[i];
       final exists = local.any((l) => l['propertyTypeId'] == o['propertyTypeId'] && l['name'] == o['name']);
@@ -246,29 +378,18 @@ class PropertyController with ChangeNotifier {
     return false;
   }
 
-
-  // Méthode pour synchroniser les données en ligne avec le cache local
   Future<void> _syncWithLocalDatabase(List<PropertyModel> onlineProperties) async {
     final db = DatabaseHelper.instance;
-
-    // Récupérer toutes les propriétés locales
     final localProperties = await db.getAllProperties();
-
-    // Identifier les propriétés supprimées en ligne
     final onlineIds = onlineProperties.map((p) => p.propertyId).toSet();
     final localIds = localProperties.map((p) => p.propertyId).toSet();
-
-    // Supprimer les propriétés qui n'existent plus en ligne
     final deletedIds = localIds.difference(onlineIds);
     for (final id in deletedIds) {
-      await db.deleteProperty(id!);
+      if (id != null) await db.deleteProperty(id);
     }
-
-    // Mettre à jour/insérer les propriétés en ligne
     for (var property in onlineProperties) {
       await db.insertOrUpdateProperty(property);
     }
-
     print("Synchronisation terminée: ${onlineProperties.length} propriétés en ligne, ${deletedIds.length} supprimées localement");
   }
 
@@ -282,41 +403,39 @@ class PropertyController with ChangeNotifier {
 
       if (response != null && response is Map<String, dynamic>) {
         dynamic propertiesData;
+        if (response.containsKey('properties')) propertiesData = response['properties'];
+        else if (response.containsKey('data')) propertiesData = response['data'];
+        else propertiesData = response;
 
-        if (response.containsKey('properties')) {
-          propertiesData = response['properties'];
-        } else if (response.containsKey('data')) {
-          propertiesData = response['data'];
-        } else {
-          propertiesData = response;
-        }
-
-        // Cas API paginée: properties -> content
         if (propertiesData is Map && propertiesData.containsKey('content')) {
           propertiesData = propertiesData['content'];
         }
 
         if (propertiesData is List) {
-          List<PropertyModel> onlineProperties = propertiesData
+           List<PropertyModel> onlineProperties = propertiesData
               .where((e) => e != null)
               .map<PropertyModel>((e) {
             try {
               return PropertyModel.fromJson(e);
             } catch (e) {
-              print("Erreur parsing: $e");
               return PropertyModel();
             }
-          }).where((property) => property.propertyId != null).toList();
+          })
+              .where((property) => property.propertyId != null)
+              .toList();
 
-          // Synchronisation intelligente basée sur le contenu
-          await _smartSyncByContent(onlineProperties, forceSync: forceSync);
+          await _syncWithLocalDatabase(onlineProperties);
+          properties = onlineProperties;
         } else {
-          print("Aucune donnée valide en ligne");
+          print("⚠️ Réponse properties vide ou invalide");
+          if (!forceSync) await _loadFromCache();
         }
+      } else {
+         if (!forceSync) await _loadFromCache();
       }
     } catch (e) {
-      print("Erreur lors du refresh: $e");
-      _showErrorNotification("Impossible de rafraîchir les données");
+      print("Erreur during refresh: $e");
+      if (properties.isEmpty) await _loadFromCache();
     } finally {
       syncing = false;
       notifyListeners();
@@ -430,9 +549,12 @@ class PropertyController with ChangeNotifier {
     final toDelete = localIds.difference(onlineIds);
 
     // Supprimer les propriétés absentes en ligne
+    // Supprimer les propriétés absentes en ligne
     for (final id in toDelete) {
-      await db.deleteProperty(id!);
-      print("🗑️ Propriété $id supprimée");
+      if (id != null) {
+        await db.deleteProperty(id);
+        print("🗑️ Propriété $id supprimée");
+      }
     }
 
     // Mettre à jour/insérer les propriétés
@@ -747,6 +869,42 @@ class PropertyController with ChangeNotifier {
     }
   }
 
+  Future<HttpResponse> createFuneraire(Map<String, dynamic> funeraireData) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      print("⚰️ Envoi de la requête createFuneraire...");
+      print("📊 Données envoyées: ${funeraireData.keys.toList()}");
+
+      final url = Endpoints.propertyFuneraires; 
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      HttpResponse response = await postData(url, funeraireData, token: tkn);
+
+      print("📊 Réponse reçue - Status: ${response.status}, Data: ${response.data != null ? 'présent' : 'null'}, Error: ${response.errorMsg}");
+
+      if (response.status == true) {
+         print("✅ Salle funéraire créée avec succès");
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+
+    } catch (e) {
+      print("❌ Erreur critique dans createFuneraire: $e");
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+          status: false,
+          errorMsg: "Erreur lors de la création de la salle funéraire: ${e.toString()}",
+          isException: true,
+          data: {'error': e.toString()}
+      );
+    }
+  }
+
   Future<HttpResponse> createFestive(Map<String, dynamic> festiveData) async {
     try {
       loading = true;
@@ -783,23 +941,23 @@ class PropertyController with ChangeNotifier {
     }
   }
 
-  Future<HttpResponse> createFuneraire(Map<String, dynamic> funeraireData) async {
+  Future<HttpResponse> createVacance(Map<String, dynamic> vacancesData) async {
     try {
       loading = true;
       notifyListeners();
 
-      print("🚀 Envoi de la requête createFuneraire...");
-      print("📊 Données envoyées: ${funeraireData.keys.toList()}");
+      print("🚀 Envoi de la requête createVacance...");
+      print("📊 Données envoyées: ${vacancesData.keys.toList()}");
 
-      final url = Endpoints.propertyFuneraires;
+      final url = Endpoints.propertyVacances;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
-      HttpResponse response = await postData(url, funeraireData, token: tkn);
+      HttpResponse response = await postData(url, vacancesData, token: tkn);
 
       print("📊 Réponse reçue - Status: ${response.status}, Data: ${response.data != null ? 'présent' : 'null'}, Error: ${response.errorMsg}");
 
       if (response.status == true) {
-         print("✅ Salle funéraire créée avec succès");
+         print("✅ Vacance créée avec succès");
       }
 
       loading = false;
@@ -807,12 +965,48 @@ class PropertyController with ChangeNotifier {
       return response;
 
     } catch (e) {
-      print("❌ Erreur critique dans createFuneraire: $e");
+      print("❌ Erreur critique dans createVacance: $e");
       loading = false;
       notifyListeners();
       return HttpResponse(
           status: false,
-          errorMsg: "Erreur lors de la création funéraire: ${e.toString()}",
+          errorMsg: "Erreur lors de la création de la vacance: ${e.toString()}",
+          isException: true,
+          data: {'error': e.toString()}
+      );
+    }
+  }
+
+  Future<HttpResponse> createTerrain(Map<String, dynamic> terrainData) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      print("🚀 Envoi de la requête createTerrain...");
+      print("📊 Données envoyées: ${terrainData.keys.toList()}");
+
+      final url = Endpoints.propertyTerrains;
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      HttpResponse response = await postData(url, terrainData, token: tkn);
+
+      print("📊 Réponse reçue - Status: ${response.status}, Data: ${response.data != null ? 'présent' : 'null'}, Error: ${response.errorMsg}");
+
+      if (response.status == true) {
+         print("✅ Terrain créé avec succès");
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+
+    } catch (e) {
+      print("❌ Erreur critique dans createTerrain: $e");
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+          status: false,
+          errorMsg: "Erreur lors de la création du terrain: ${e.toString()}",
           isException: true,
           data: {'error': e.toString()}
       );

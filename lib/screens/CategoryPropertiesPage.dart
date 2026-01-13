@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/utils/Constantes.dart';
@@ -11,6 +12,11 @@ import '../models/PropertyModel.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/Routes.dart';
+import '../controllers/AuthentificationCtrl.dart';
+import '../controllers/provider/FavoriteProvider.dart';
+import '../controllers/AgenceController.dart';
+import '../models/AgenceModel.dart';
+import 'AgenceDetailsPage.dart';
 
 class CategoryPropertiesPage extends StatefulWidget {
   final String category;
@@ -34,16 +40,36 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   final RefreshController _refreshController = RefreshController();
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.category == 'Vacances') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Provider.of<AgenceController>(context, listen: false).fetchAgences();
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final propertyCtrl = context.watch<PropertyController>();
     
     // Récupérer les propriétés de base + les spécialisées si nécessaire
-    List<PropertyModel> allRelevantProperties = List.from(propertyCtrl.properties);
+    // D'abord les listes spécialisées (prioritaires car plus fraîches)
+    List<PropertyModel> allRelevantProperties = [];
     
-    // Si on est dans une catégorie spécifique, s'assurer que sa liste dédiée est incluse
     if (widget.category == 'Bureau') allRelevantProperties.addAll(propertyCtrl.bureaux);
-    if (widget.category == 'Salle de fête') allRelevantProperties.addAll(propertyCtrl.festives);
-    if (widget.category == 'Salle funéraires') allRelevantProperties.addAll(propertyCtrl.funeraires);
+    else if (widget.category == 'Salle de fête') allRelevantProperties.addAll(propertyCtrl.festives);
+    else if (widget.category == 'Salle funéraires') allRelevantProperties.addAll(propertyCtrl.funeraires);
+    
+    // Ensuite ajouter le reste des propriétés (doublons gérés plus bas)
+    allRelevantProperties.addAll(propertyCtrl.properties);
+    
+    // Handle terrains - convert Map to PropertyModel for display
+    if (widget.category == 'Terrain') {
+      // Terrains are stored as Map<String, dynamic>, we need to convert them for display
+      // For now, we'll handle them separately in the display logic
+      print("🏞️ [CategoryPropertiesPage] ${propertyCtrl.terrains.length} terrains disponibles");
+    }
 
     // Supprimer les doublons éventuels par ID
     final seenIds = <int>{};
@@ -57,18 +83,17 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
     final filteredProperties = _applyFilter(properties, _selectedFilter);
 
-    // DEBUG: Afficher les propriétés filtrées
-    if (propertyCtrl.properties.isNotEmpty) {
-      print("=== DEBUG CATEGORY FILTER ===");
-      print("Catégorie sélectionnée: ${widget.category}");
-      print("Total propriétés: ${propertyCtrl.properties.length}");
-      print("Propriétés filtrées: ${properties.length}");
-      print("Types de propriétés disponibles:");
-      propertyCtrl.properties.forEach((p) {
-        print("- ${p.propertyType?.name} (ID: ${p.propertyType?.propertyTypeId})");
-      });
-      print("=============================");
+    // Combine agencies and properties if category is Vacances
+    final List<dynamic> displayItems = [];
+    if (widget.category == 'Vacances') {
+      final agenceCtrl = context.watch<AgenceController>();
+      displayItems.addAll(agenceCtrl.agences);
     }
+    displayItems.addAll(filteredProperties);
+
+    // DEBUG: Afficher les propriétés filtrées avec le filtre actif
+    print("🔍 [CategoryPropertiesPage] Build - Filtre actif: $_selectedFilter");
+    print("📊 [CategoryPropertiesPage] Items: ${displayItems.length} (Propriétés: ${properties.length})");
 
     return Scaffold(
       backgroundColor: _lightColor,
@@ -77,26 +102,9 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         controller: _refreshController,
         enablePullDown: true,
         enablePullUp: false,
-        header: ClassicHeader(
-          height: 60,
-          releaseText: 'Relâchez pour actualiser',
-          refreshingText: 'Mise à jour...',
-          completeText: 'Actualisation terminée',
-          failedText: 'Échec de l\'actualisation',
-          idleText: 'Tirez pour actualiser',
-          textStyle: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-          refreshingIcon: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
-            ),
-          ),
+        header: WaterDropMaterialHeader(
+          backgroundColor: _primaryColor,
+          color: Colors.white,
         ),
         onRefresh: () async {
           await _handlePullToRefresh(propertyCtrl);
@@ -112,9 +120,9 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
             Expanded(
               child: propertyCtrl.loading
                   ? _buildShimmerLoading()
-                  : filteredProperties.isEmpty
+                  : displayItems.isEmpty
                   ? _buildEmptyState()
-                  : _buildPropertyListOrGrid(filteredProperties),
+                  : _buildPropertyListOrGrid(displayItems),
             ),
           ],
         ),
@@ -152,19 +160,45 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   }
 
   Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
+    // Sauvegarder le filtre actuel avant le refresh
+    final currentFilter = _selectedFilter;
+    print("🔄 [CategoryPropertiesPage] Début du refresh - Filtre actuel: $currentFilter");
+    
     try {
+      // Sync Favorites
+      if (mounted) {
+        final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
+        final favProvider = Provider.of<FavoriteProvider>(context, listen: false);
+        if (authCtrl.token.isNotEmpty && authCtrl.user.userId != null) {
+          favProvider.syncFavorites(authCtrl.user.userId.toString());
+        }
+      }
+
       await propertyCtrl.refreshProperties();
+      await propertyCtrl.syncAllSpecialCategories();
+      
+      if (widget.category == 'Vacances' && mounted) {
+        await Provider.of<AgenceController>(context, listen: false).fetchAgences();
+      }
+
       _refreshController.refreshCompleted();
-      SnackbarForCasa.success(context, "Liste actualisée");
+      
+      // Vérifier que le filtre est toujours le même après le refresh
+      if (_selectedFilter != currentFilter) {
+        print("⚠️ [CategoryPropertiesPage] Le filtre a changé! Avant: $currentFilter, Après: $_selectedFilter");
+      }
+      // Suppression du snackbar de succès demandé par l'utilisateur
     } catch (e) {
       print("❌ Erreur refresh: $e");
       _refreshController.refreshFailed();
+      // On garde le snackbar d'erreur pour informer l'utilisateur d'un problème réel
       SnackbarForCasa.error(context, "Erreur de connexion");
     }
   }
 
   bool _matchesCategory(PropertyModel property, String category) {
     if (category == 'Tous') return true;
+    if (property.title?.toLowerCase() == 'string') return false;
 
     // Récupérer l'ID du type de propriété
     final propertyTypeId = property.propertyType?.propertyTypeId?.toString();
@@ -329,6 +363,11 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       'Nouveautés': Icons.fiber_new_rounded,
     };
 
+    // Filter logic specific for 'Vacances'
+    final activeFilters = widget.category == 'Vacances'
+        ? _filters.where((f) => !['Location', 'Vente'].contains(f)).toList()
+        : _filters;
+
     return Container(
       height: 66,
       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -344,10 +383,10 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       ),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: _filters.length,
+        itemCount: activeFilters.length,
         separatorBuilder: (_, __) => SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final filter = _filters[index];
+          final filter = activeFilters[index];
           final isSelected = _selectedFilter == filter;
 
           return GestureDetector(
@@ -400,7 +439,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     );
   }
 
-  Widget _buildPropertyListOrGrid(List<PropertyModel> properties) {
+  Widget _buildPropertyListOrGrid(List<dynamic> items) {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 16),
       child: _isGridView
@@ -409,19 +448,27 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
           crossAxisCount: 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 0.72, // Légèrement ajusté pour mieux afficher le texte
+          childAspectRatio: 0.72,
         ),
-        itemCount: properties.length,
+        itemCount: items.length,
         itemBuilder: (context, index) {
-          final property = properties[index];
+          final item = items[index];
+          if (item is AgenceModel) {
+            return _buildAgenceCard(item);
+          }
+          final property = item as PropertyModel;
           final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
           return _buildPropertyCard(property, isForRent);
         },
       )
           : ListView.builder(
-        itemCount: properties.length,
+        itemCount: items.length,
         itemBuilder: (context, index) {
-          final property = properties[index];
+          final item = items[index];
+          if (item is AgenceModel) {
+            return _buildAgenceListItem(item);
+          }
+          final property = item as PropertyModel;
           final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
           return _buildPropertyListItem(property, isForRent);
         },
@@ -429,11 +476,261 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     );
   }
 
+  // --- AGENCY WIDGETS ---
+
+  Widget _buildAgenceListItem(AgenceModel agence) {
+    ImageProvider? imageProvider;
+    if (agence.logo != null && agence.logo!.isNotEmpty) {
+      if (agence.logo!.startsWith('http')) {
+        imageProvider = CachedNetworkImageProvider(agence.logo!);
+      } else if (agence.logo!.startsWith('data:image')) {
+        try {
+          final base64String = agence.logo!.split(',').last;
+          imageProvider = MemoryImage(base64Decode(base64String));
+        } catch (e) {
+          print('Error decoding base64: $e');
+        }
+      }
+    }
+
+    return InkWell(
+      onTap: () {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => AgenceDetailsPage(agency: agence)));
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+          border: Border.all(color: _primaryColor.withOpacity(0.1)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Logo Section
+            Container(
+              width: 100,
+              height: 100,
+              margin: EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.grey[50],
+                image: imageProvider != null ? DecorationImage(
+                  image: imageProvider,
+                  fit: BoxFit.cover,
+                ) : null,
+              ),
+              child: imageProvider == null ? Icon(Icons.business, color: Colors.grey[300], size: 40) : null,
+            ),
+
+            // Content Section
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(top: 12, right: 12, bottom: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'AGENCE',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: _primaryColor,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      agence.name ?? 'Agence',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: _darkColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.location_on_outlined, size: 14, color: _greyColor),
+                        SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            agence.address ?? '',
+                            style: TextStyle(color: _greyColor, fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.phone_outlined, size: 14, color: _primaryColor),
+                        SizedBox(width: 4),
+                        Text(
+                          agence.phone1 ?? '',
+                          style: TextStyle(
+                            color: _primaryColor, 
+                            fontSize: 13, 
+                            fontWeight: FontWeight.w500
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAgenceCard(AgenceModel agence) {
+    // Similar logic for Grid View
+    final hasLogo = agence.logo != null && agence.logo!.isNotEmpty;
+    ImageProvider? imageProvider;
+    
+    if (hasLogo) {
+       if (agence.logo!.startsWith('http')) {
+         imageProvider = CachedNetworkImageProvider(agence.logo!);
+       } else if (agence.logo!.startsWith('data:image')) {
+         try {
+           final base64String = agence.logo!.split(',').last;
+           imageProvider = MemoryImage(base64Decode(base64String));
+         } catch (e) {
+           print('Error decoding base64 image: $e');
+         }
+       }
+    }
+    
+    return InkWell(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AgenceDetailsPage(agency: agence))),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                  color: Colors.grey[50],
+                  image: imageProvider != null ? DecorationImage(
+                    image: imageProvider,
+                    fit: BoxFit.cover,
+                  ) : null,
+                ),
+                child: Stack(
+                  children: [
+                    if (imageProvider == null)
+                      Center(child: Icon(Icons.business, color: Colors.grey[300], size: 40)),
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'AGENCE',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: _primaryColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      agence.name ?? 'Agence',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: _darkColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Row(
+                      children: [
+                        Icon(Icons.location_on_outlined, size: 12, color: _greyColor),
+                        SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            agence.address ?? '',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _greyColor,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+
   // Carte en mode liste - Design moderne avec superposition
   Widget _buildPropertyListItem(PropertyModel property, bool isForRent) {
     final priceText = isForRent
-        ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
+        ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+        : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
 
     // Utilisation des vraies images du modèle PropertyModel
     final firstImage = property.propertyImage?.isNotEmpty ?? false
@@ -484,31 +781,34 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                   // Image principale
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: imageUrl != null
-                        ? CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: double.infinity,
-                      placeholder: (context, url) => Container(
-                        color: Colors.grey[200],
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                    child: Hero(
+                      tag: 'category-list-${property.propertyId}',
+                      child: imageUrl != null
+                          ? CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey[200],
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                            ),
                           ),
                         ),
+                        errorWidget: (context, url, error) {
+                          return Container(
+                            color: Colors.grey[200],
+                            child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
+                          );
+                        },
+                      )
+                          : Container(
+                        color: Colors.grey[200],
+                        child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
                       ),
-                      errorWidget: (context, url, error) {
-                        return Container(
-                          color: Colors.grey[200],
-                          child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
-                        );
-                      },
-                    )
-                        : Container(
-                      color: Colors.grey[200],
-                      child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
                     ),
                   ),
 
@@ -690,25 +990,94 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     SizedBox(height: 12),
 
                     // Caractéristiques
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildFeatureItem(
-                          icon: FontAwesomeIcons.bed,
-                          value: '${property.bedrooms ?? 0}',
-                          label: 'Chambres',
-                        ),
-                        _buildFeatureItem(
-                          icon: FontAwesomeIcons.bath,
-                          value: '${property.bathroom ?? 0}',
-                          label: 'SDB',
-                        ),
-                        _buildFeatureItem(
-                          icon: FontAwesomeIcons.rulerCombined,
-                          value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
-                          label: 'm²',
-                        ),
-                      ],
+                    Builder(
+                      builder: (context) {
+                        final typeId = property.propertyType?.propertyTypeId;
+                        final isBureau = typeId == 4;
+                        final isFuneraire = typeId == 7;
+                        final isFestive = typeId == 8;
+
+                        if (isBureau) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.handshake,
+                                value: '${property.roomMeet ?? 0}',
+                                label: 'Réunion',
+                              ),
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.chair,
+                                value: property.isEquip == true ? 'Oui' : 'Non',
+                                label: 'Équipé',
+                              ),
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.rulerCombined,
+                                value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
+                                label: 'm²',
+                              ),
+                            ],
+                          );
+                        } else if (isFestive) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.users,
+                                value: '${property.capacityPeople ?? 0}',
+                                label: 'Pers.',
+                              ),
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.music,
+                                value: property.pisteDanse == true ? 'Oui' : 'Non',
+                                label: 'Piste',
+                              ),
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.paintRoller,
+                                value: property.isDecore == true ? 'Oui' : 'Non',
+                                label: 'Décoré',
+                              ),
+                            ],
+                          );
+                        } else if (isFuneraire) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.users,
+                                value: '${property.capacityPeople ?? 0}',
+                                label: 'Pers.',
+                              ),
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.rulerCombined,
+                                value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
+                                label: 'm²',
+                              ),
+                            ],
+                          );
+                        }
+
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _buildFeatureItem(
+                              icon: FontAwesomeIcons.bed,
+                              value: '${property.bedrooms ?? 0}',
+                              label: 'Chambres',
+                            ),
+                            _buildFeatureItem(
+                              icon: FontAwesomeIcons.bath,
+                              value: '${property.bathroom ?? 0}',
+                              label: 'SDB',
+                            ),
+                            _buildFeatureItem(
+                              icon: FontAwesomeIcons.rulerCombined,
+                              value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
+                              label: 'm²',
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -744,8 +1113,8 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
   Widget _buildPropertyCard(PropertyModel property, bool isForRent) {
     final priceText = isForRent
-        ? '${property.price?.toStringAsFixed(0) ?? '0'}\$/mois'
-        : '${property.price?.toStringAsFixed(0) ?? '0'}\$';
+        ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+        : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
 
     // Utilisation des vraies images du modèle PropertyModel
     final firstImage = property.propertyImage?.isNotEmpty ?? false
@@ -795,31 +1164,34 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     // Image principale
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: imageUrl != null
-                          ? CachedNetworkImage(
-                        imageUrl: imageUrl,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                        placeholder: (context, url) => Container(
-                          color: Colors.grey[200],
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                      child: Hero(
+                        tag: 'category-grid-${property.propertyId}',
+                        child: imageUrl != null
+                            ? CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: double.infinity,
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey[200],
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
+                              ),
                             ),
                           ),
+                          errorWidget: (context, url, error) {
+                            return Container(
+                              color: Colors.grey[200],
+                              child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
+                            );
+                          },
+                        )
+                            : Container(
+                          color: Colors.grey[200],
+                          child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
                         ),
-                        errorWidget: (context, url, error) {
-                          return Container(
-                            color: Colors.grey[200],
-                            child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
-                          );
-                        },
-                      )
-                          : Container(
-                        color: Colors.grey[200],
-                        child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
                       ),
                     ),
 
@@ -996,13 +1368,50 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     ),
 
                     // Caractéristiques
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _buildMiniFeatureItem(FontAwesomeIcons.bed, '${property.bedrooms ?? 0}'),
-                        _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bathroom ?? 0}'),
-                        _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
-                      ],
+                    Builder(
+                      builder: (context) {
+                        final typeId = property.propertyType?.propertyTypeId;
+                        final isBureau = typeId == 4;
+                        final isFuneraire = typeId == 7;
+                        final isFestive = typeId == 8;
+
+                        if (isBureau) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildMiniFeatureItem(FontAwesomeIcons.handshake, '${property.roomMeet ?? 0}'),
+                              _buildMiniFeatureItem(FontAwesomeIcons.chair, property.isEquip == true ? 'Oui' : 'Non'),
+                              _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
+                            ],
+                          );
+                        } else if (isFestive) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildMiniFeatureItem(FontAwesomeIcons.users, '${property.capacityPeople ?? 0}'),
+                              _buildMiniFeatureItem(FontAwesomeIcons.music, property.pisteDanse == true ? 'Oui' : 'Non'),
+                              _buildMiniFeatureItem(FontAwesomeIcons.paintRoller, property.isDecore == true ? 'Oui' : 'Non'),
+                            ],
+                          );
+                        } else if (isFuneraire) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildMiniFeatureItem(FontAwesomeIcons.users, '${property.capacityPeople ?? 0}'),
+                              _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
+                            ],
+                          );
+                        }
+
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _buildMiniFeatureItem(FontAwesomeIcons.bed, '${property.bedrooms ?? 0}'),
+                            _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bathroom ?? 0}'),
+                            _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -1074,9 +1483,14 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     Navigator.pushNamed(
       context,
       Routes.detailPageRoute,
-      arguments: property,
+      arguments: {
+        'property': property,
+        'heroTag': _isGridView ? 'category-grid-${property.propertyId}' : 'category-list-${property.propertyId}',
+      },
     );
   }
+
+
 
   Widget _buildShimmerLoading() {
     return Padding(
