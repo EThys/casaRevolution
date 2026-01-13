@@ -41,3 +41,26 @@
 # Votre code applicatif
 -keep class com.casa.casa.casa.** { *; }
 
+# Optimisations supplémentaires
+-optimizationpasses 5
+-dontusemixedcaseclassnames
+-dontskipnonpubliclibraryclasses
+-verbose
+
+# Supprimer les logs en production
+-assumenosideeffects class android.util.Log {
+    public static *** d(...);
+    public static *** v(...);
+    public static *** i(...);
+}
+
+# Optimiser les ressources
+-keepattributes *Annotation*
+-keepattributes Signature
+-keepattributes Exceptions
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod
+
+# Réduire la taille du code
+-optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*
+

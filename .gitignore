@@ -41,3 +41,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Android Keystore files (sensitive)
+android/key.properties
+android/*.jks
+android/*.keystore
+android/upload-keystore.jks
