@@ -51,6 +51,8 @@ class PrestationModel {
   bool? isCertified;
   bool? isActive;
   DateTime? dateCreated;
+  String? username; // Nom du publicateur
+  String? postBy; // Champ explicite pour postBy
   List<String>? images; // Pour stocker les images
 
   PrestationModel({
@@ -77,6 +79,8 @@ class PrestationModel {
     this.isCertified,
     this.isActive,
     this.dateCreated,
+    this.username,
+    this.postBy,
     this.images,
   });
 
@@ -104,6 +108,8 @@ class PrestationModel {
     isCertified: json["certified"] == null ? (json["isCertified"] == null ? true : _parseBool(json["isCertified"])) : _parseBool(json["certified"]),
     isActive: json["active"] == null ? (json["isActive"] == null ? true : _parseBool(json["isActive"])) : _parseBool(json["active"]),
     dateCreated: json["dateCreated"] != null ? DateTime.tryParse(json["dateCreated"]) : DateTime.now(),
+    username: (json["username"] != null && json["username"].toString().isNotEmpty) ? json["username"] : json["postBy"],
+    postBy: json["postBy"],
     images: json["images"] != null 
         ? (json["images"] is List 
             ? List<String>.from(json["images"].map((img) => img is String ? img : (img["path"] ?? img["url"] ?? "")))
@@ -135,6 +141,11 @@ class PrestationModel {
     "isCertified": isCertified,
     "isActive": isActive,
     "dateCreated": dateCreated?.toIso8601String(),
+    "username": username,
+    "postBy": postBy,
     "images": images,
   };
+  
+  // Currency getter similar to PropertyModel and ServiceModel
+  String get currency => (deviseId == 1) ? "FC" : "\$";
 }

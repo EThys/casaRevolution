@@ -1,377 +1,333 @@
 import 'dart:convert';
 
 TerrainModel terrainModelFromJson(String str) => TerrainModel.fromJson(json.decode(str));
+
 String terrainModelToJson(TerrainModel data) => json.encode(data.toJson());
 
-// Méthodes helpers pour le parsing sécurisé
-int? _parseInt(dynamic value) {
-  if (value == null) return null;
-  if (value is int) return value;
-  if (value is String) return int.tryParse(value);
-  if (value is double) return value.toInt();
-  return null;
-}
-
-double? _parseDouble(dynamic value) {
-  if (value == null) return null;
-  if (value is double) return value;
-  if (value is int) return value.toDouble();
-  if (value is String) return double.tryParse(value);
-  return null;
-}
-
-String? _parseString(dynamic value) {
-  if (value == null) return null;
-  if (value is String) return value;
-  return value.toString();
-}
-
-bool _parseBool(dynamic value) {
-  if (value == null) return false;
-  if (value is bool) return value;
-  if (value is String) return value.toLowerCase() == 'true';
-  if (value is int) return value == 1;
-  return false;
-}
-
 class TerrainModel {
-  int? terrainId;
-  int? propertyId;
-  
-  // Dimensions et superficie
-  double? landArea;
-  double? width;
-  double? length;
-  double? perimeter;
-  String? shape; // "rectangular", "square", "irregular", etc.
-  
-  // Type et usage
-  String? landType; // "residential", "commercial", "agricultural", "industrial", "mixed"
-  String? zoning; // "R1", "R2", "C1", "A1", etc.
-  String? permittedUse;
-  bool? allowsConstruction;
-  bool? allowsFarming;
-  bool? allowsParking;
-  bool? allowsEvents;
-  
-  // Caractéristiques du terrain
-  List<String>? landFeatures;
-  String? soilType; // "clay", "sandy", "loamy", "rocky"
-  String? topography; // "flat", "sloping", "hilly", "mountainous"
-  double? elevation;
-  bool? hasTrees;
-  bool? hasWaterAccess;
-  bool? hasElectricity;
-  bool? hasWaterSupply;
-  bool? hasSewerConnection;
-  bool? hasRoadAccess;
-  String? roadType; // "paved", "gravel", "dirt"
-  
-  // Clôture et sécurité
-  bool? isFenced;
-  String? fenceType; // "chain-link", "wood", "concrete", "none"
-  double? fenceHeight;
-  bool? hasGate;
-  bool? hasSecurity;
-  
-  // Prix et disponibilité
-  double? rentalPrice;
-  double? monthlyRate;
-  double? annualRate;
-  String? rentalUnit; // "month", "year", "day"
-  int? minimumRentalMonths;
-  int? maximumRentalMonths;
-  String? availabilityStatus; // "available", "rented", "maintenance"
-  String? availableFrom;
-  String? availableUntil;
-  
-  // Conditions de location
-  String? cancellationPolicy;
-  double? depositAmount;
-  double? securityDeposit;
-  int? advanceBookingDays;
-  String? restrictions;
-  bool? requiresInsurance;
-  String? insuranceRequirements;
-  
-  // Accès et infrastructure
-  bool? hasParking;
-  int? parkingSpaces;
-  bool? hasLoadingDock;
-  bool? hasStorage;
-  double? storageArea;
-  bool? hasBuildings;
-  int? numberOfBuildings;
-  double? buildingArea;
-  List<String>? buildingTypes;
-  
-  // Services et utilitaires
-  bool? hasInternet;
-  bool? hasPhoneLine;
-  bool? hasGasConnection;
-  String? waterSource; // "municipal", "well", "none"
-  String? electricitySource; // "grid", "generator", "solar", "none"
-  
-  // Environnement
-  String? nearbyFacilities; // "schools", "hospitals", "shopping", etc.
-  double? distanceToCity;
-  double? distanceToHighway;
-  String? environmentalFactors;
-  bool? isFloodZone;
-  bool? isProtectedArea;
-  
-  // Métadonnées
-  String? createdAt;
-  String? updatedAt;
-  bool? isActive;
-  bool? isVerified;
-  String? notes;
+    final TerrainData? terrain;
+    final Devise? devise;
+    final String? postBy;
+    final Address? address;
+    final LocalAddress? localAddress;
+    final GeoZone? geoZone;
+    final List<TerrainImage>? images;
+    final TypeProperty? typeProperty;
+    final String? publisherImage;
 
-  TerrainModel({
-    this.terrainId,
-    this.propertyId,
-    this.landArea,
-    this.width,
-    this.length,
-    this.perimeter,
-    this.shape,
-    this.landType,
-    this.zoning,
-    this.permittedUse,
-    this.allowsConstruction,
-    this.allowsFarming,
-    this.allowsParking,
-    this.allowsEvents,
-    this.landFeatures,
-    this.soilType,
-    this.topography,
-    this.elevation,
-    this.hasTrees,
-    this.hasWaterAccess,
-    this.hasElectricity,
-    this.hasWaterSupply,
-    this.hasSewerConnection,
-    this.hasRoadAccess,
-    this.roadType,
-    this.isFenced,
-    this.fenceType,
-    this.fenceHeight,
-    this.hasGate,
-    this.hasSecurity,
-    this.rentalPrice,
-    this.monthlyRate,
-    this.annualRate,
-    this.rentalUnit,
-    this.minimumRentalMonths,
-    this.maximumRentalMonths,
-    this.availabilityStatus,
-    this.availableFrom,
-    this.availableUntil,
-    this.cancellationPolicy,
-    this.depositAmount,
-    this.securityDeposit,
-    this.advanceBookingDays,
-    this.restrictions,
-    this.requiresInsurance,
-    this.insuranceRequirements,
-    this.hasParking,
-    this.parkingSpaces,
-    this.hasLoadingDock,
-    this.hasStorage,
-    this.storageArea,
-    this.hasBuildings,
-    this.numberOfBuildings,
-    this.buildingArea,
-    this.buildingTypes,
-    this.hasInternet,
-    this.hasPhoneLine,
-    this.hasGasConnection,
-    this.waterSource,
-    this.electricitySource,
-    this.nearbyFacilities,
-    this.distanceToCity,
-    this.distanceToHighway,
-    this.environmentalFactors,
-    this.isFloodZone,
-    this.isProtectedArea,
-    this.createdAt,
-    this.updatedAt,
-    this.isActive,
-    this.isVerified,
-    this.notes,
-  });
+    TerrainModel({
+        this.terrain,
+        this.devise,
+        this.postBy,
+        this.address,
+        this.localAddress,
+        this.geoZone,
+        this.images,
+        this.typeProperty,
+        this.publisherImage,
+    });
 
-  factory TerrainModel.fromJson(Map<String, dynamic> json) => TerrainModel(
-    terrainId: _parseInt(json["terrainId"]) ?? _parseInt(json["id"]),
-    propertyId: _parseInt(json["propertyId"]),
-    landArea: _parseDouble(json["landArea"]),
-    width: _parseDouble(json["width"]),
-    length: _parseDouble(json["length"]),
-    perimeter: _parseDouble(json["perimeter"]),
-    shape: _parseString(json["shape"]),
-    landType: _parseString(json["landType"]),
-    zoning: _parseString(json["zoning"]),
-    permittedUse: _parseString(json["permittedUse"]),
-    allowsConstruction: _parseBool(json["allowsConstruction"]),
-    allowsFarming: _parseBool(json["allowsFarming"]),
-    allowsParking: _parseBool(json["allowsParking"]),
-    allowsEvents: _parseBool(json["allowsEvents"]),
-    landFeatures: json["landFeatures"] is List
-        ? List<String>.from(json["landFeatures"])
-        : null,
-    soilType: _parseString(json["soilType"]),
-    topography: _parseString(json["topography"]),
-    elevation: _parseDouble(json["elevation"]),
-    hasTrees: _parseBool(json["hasTrees"]),
-    hasWaterAccess: _parseBool(json["hasWaterAccess"]),
-    hasElectricity: _parseBool(json["hasElectricity"]),
-    hasWaterSupply: _parseBool(json["hasWaterSupply"]),
-    hasSewerConnection: _parseBool(json["hasSewerConnection"]),
-    hasRoadAccess: _parseBool(json["hasRoadAccess"]),
-    roadType: _parseString(json["roadType"]),
-    isFenced: _parseBool(json["isFenced"]),
-    fenceType: _parseString(json["fenceType"]),
-    fenceHeight: _parseDouble(json["fenceHeight"]),
-    hasGate: _parseBool(json["hasGate"]),
-    hasSecurity: _parseBool(json["hasSecurity"]),
-    rentalPrice: _parseDouble(json["rentalPrice"]),
-    monthlyRate: _parseDouble(json["monthlyRate"]),
-    annualRate: _parseDouble(json["annualRate"]),
-    rentalUnit: _parseString(json["rentalUnit"]),
-    minimumRentalMonths: _parseInt(json["minimumRentalMonths"]),
-    maximumRentalMonths: _parseInt(json["maximumRentalMonths"]),
-    availabilityStatus: _parseString(json["availabilityStatus"]) ?? "available",
-    availableFrom: _parseString(json["availableFrom"]),
-    availableUntil: _parseString(json["availableUntil"]),
-    cancellationPolicy: _parseString(json["cancellationPolicy"]),
-    depositAmount: _parseDouble(json["depositAmount"]),
-    securityDeposit: _parseDouble(json["securityDeposit"]),
-    advanceBookingDays: _parseInt(json["advanceBookingDays"]),
-    restrictions: _parseString(json["restrictions"]),
-    requiresInsurance: _parseBool(json["requiresInsurance"]),
-    insuranceRequirements: _parseString(json["insuranceRequirements"]),
-    hasParking: _parseBool(json["hasParking"]),
-    parkingSpaces: _parseInt(json["parkingSpaces"]),
-    hasLoadingDock: _parseBool(json["hasLoadingDock"]),
-    hasStorage: _parseBool(json["hasStorage"]),
-    storageArea: _parseDouble(json["storageArea"]),
-    hasBuildings: _parseBool(json["hasBuildings"]),
-    numberOfBuildings: _parseInt(json["numberOfBuildings"]),
-    buildingArea: _parseDouble(json["buildingArea"]),
-    buildingTypes: json["buildingTypes"] is List
-        ? List<String>.from(json["buildingTypes"])
-        : null,
-    hasInternet: _parseBool(json["hasInternet"]),
-    hasPhoneLine: _parseBool(json["hasPhoneLine"]),
-    hasGasConnection: _parseBool(json["hasGasConnection"]),
-    waterSource: _parseString(json["waterSource"]),
-    electricitySource: _parseString(json["electricitySource"]),
-    nearbyFacilities: _parseString(json["nearbyFacilities"]),
-    distanceToCity: _parseDouble(json["distanceToCity"]),
-    distanceToHighway: _parseDouble(json["distanceToHighway"]),
-    environmentalFactors: _parseString(json["environmentalFactors"]),
-    isFloodZone: _parseBool(json["isFloodZone"]),
-    isProtectedArea: _parseBool(json["isProtectedArea"]),
-    createdAt: _parseString(json["createdAt"]),
-    updatedAt: _parseString(json["updatedAt"]),
-    isActive: _parseBool(json["isActive"]) ?? true,
-    isVerified: _parseBool(json["isVerified"]) ?? false,
-    notes: _parseString(json["notes"]),
-  );
+    factory TerrainModel.fromJson(Map<String, dynamic> json) => TerrainModel(
+        terrain: json["terrain"] == null ? null : TerrainData.fromJson(json["terrain"]),
+        devise: json["devise"] == null ? null : Devise.fromJson(json["devise"]),
+        postBy: json["postBy"],
+        address: json["address"] == null ? null : Address.fromJson(json["address"]),
+        localAddress: json["localAddress"] == null ? null : LocalAddress.fromJson(json["localAddress"]),
+        geoZone: json["geoZone"] == null ? null : GeoZone.fromJson(json["geoZone"]),
+        images: json["images"] == null ? [] : List<TerrainImage>.from(json["images"]!.map((x) => TerrainImage.fromJson(x))),
+        typeProperty: json["typeProperty"] == null ? null : TypeProperty.fromJson(json["typeProperty"]),
+        publisherImage: json["image"],
+    );
 
-  Map<String, dynamic> toJson() => {
-    "terrainId": terrainId,
-    "propertyId": propertyId,
-    "landArea": landArea,
-    "width": width,
-    "length": length,
-    "perimeter": perimeter,
-    "shape": shape,
-    "landType": landType,
-    "zoning": zoning,
-    "permittedUse": permittedUse,
-    "allowsConstruction": allowsConstruction,
-    "allowsFarming": allowsFarming,
-    "allowsParking": allowsParking,
-    "allowsEvents": allowsEvents,
-    "landFeatures": landFeatures,
-    "soilType": soilType,
-    "topography": topography,
-    "elevation": elevation,
-    "hasTrees": hasTrees,
-    "hasWaterAccess": hasWaterAccess,
-    "hasElectricity": hasElectricity,
-    "hasWaterSupply": hasWaterSupply,
-    "hasSewerConnection": hasSewerConnection,
-    "hasRoadAccess": hasRoadAccess,
-    "roadType": roadType,
-    "isFenced": isFenced,
-    "fenceType": fenceType,
-    "fenceHeight": fenceHeight,
-    "hasGate": hasGate,
-    "hasSecurity": hasSecurity,
-    "rentalPrice": rentalPrice,
-    "monthlyRate": monthlyRate,
-    "annualRate": annualRate,
-    "rentalUnit": rentalUnit,
-    "minimumRentalMonths": minimumRentalMonths,
-    "maximumRentalMonths": maximumRentalMonths,
-    "availabilityStatus": availabilityStatus,
-    "availableFrom": availableFrom,
-    "availableUntil": availableUntil,
-    "cancellationPolicy": cancellationPolicy,
-    "depositAmount": depositAmount,
-    "securityDeposit": securityDeposit,
-    "advanceBookingDays": advanceBookingDays,
-    "restrictions": restrictions,
-    "requiresInsurance": requiresInsurance,
-    "insuranceRequirements": insuranceRequirements,
-    "hasParking": hasParking,
-    "parkingSpaces": parkingSpaces,
-    "hasLoadingDock": hasLoadingDock,
-    "hasStorage": hasStorage,
-    "storageArea": storageArea,
-    "hasBuildings": hasBuildings,
-    "numberOfBuildings": numberOfBuildings,
-    "buildingArea": buildingArea,
-    "buildingTypes": buildingTypes,
-    "hasInternet": hasInternet,
-    "hasPhoneLine": hasPhoneLine,
-    "hasGasConnection": hasGasConnection,
-    "waterSource": waterSource,
-    "electricitySource": electricitySource,
-    "nearbyFacilities": nearbyFacilities,
-    "distanceToCity": distanceToCity,
-    "distanceToHighway": distanceToHighway,
-    "environmentalFactors": environmentalFactors,
-    "isFloodZone": isFloodZone,
-    "isProtectedArea": isProtectedArea,
-    "createdAt": createdAt,
-    "updatedAt": updatedAt,
-    "isActive": isActive,
-    "isVerified": isVerified,
-    "notes": notes,
-  };
-
-  // Méthodes utilitaires
-  String get formattedRentalPrice {
-    if (rentalPrice == null) return "Prix sur demande";
-    if (rentalUnit == "month") {
-      return "${rentalPrice!.toStringAsFixed(0)}\$/mois";
-    } else if (rentalUnit == "year") {
-      return "${rentalPrice!.toStringAsFixed(0)}\$/an";
-    } else {
-      return "${rentalPrice!.toStringAsFixed(0)}\$/jour";
-    }
-  }
-
-  String get formattedArea {
-    if (landArea == null) return "0 m²";
-    return "${landArea!.toStringAsFixed(2)} m²";
-  }
-
-  bool get isAvailable {
-    return availabilityStatus == "available" && (isActive ?? true);
-  }
+    Map<String, dynamic> toJson() => {
+        "terrain": terrain?.toJson(),
+        "devise": devise?.toJson(),
+        "postBy": postBy,
+        "address": address?.toJson(),
+        "localAddress": localAddress?.toJson(),
+        "geoZone": geoZone?.toJson(),
+        "images": images == null ? [] : List<dynamic>.from(images!.map((x) => x.toJson())),
+        "typeProperty": typeProperty?.toJson(),
+        "image": publisherImage,
+    };
 }
 
+class TerrainData {
+    final int? id;
+    final int? userId;
+    final String? title;
+    final String? description;
+    final double? price;
+    final String? surface;
+    final String? transactionType;
+    final bool? isAvailable;
+    final String? createdAt;
+
+    TerrainData({
+        this.id,
+        this.userId,
+        this.title,
+        this.description,
+        this.price,
+        this.surface,
+        this.transactionType,
+        this.isAvailable,
+        this.createdAt,
+    });
+
+    factory TerrainData.fromJson(Map<String, dynamic> json) => TerrainData(
+        id: json["id"],
+        userId: json["userId"],
+        title: json["title"],
+        description: json["description"],
+        price: (json["price"] as num?)?.toDouble(),
+        surface: json["surface"],
+        transactionType: json["transactionType"],
+        isAvailable: json["available"] ?? json["isAvailable"],
+        createdAt: json["createdAt"],
+    );
+
+    Map<String, dynamic> toJson() => {
+        "id": id,
+        "userId": userId,
+        "title": title,
+        "description": description,
+        "price": price,
+        "surface": surface,
+        "transactionType": transactionType,
+        "available": isAvailable,
+        "createdAt": createdAt,
+    };
+}
+
+class Devise {
+    final int? id;
+    final String? name;
+    final String? code;
+    final double? tauxLocal;
+
+    Devise({
+        this.id,
+        this.name,
+        this.code,
+        this.tauxLocal,
+    });
+
+    factory Devise.fromJson(Map<String, dynamic> json) => Devise(
+        id: json["id"],
+        name: json["name"],
+        code: json["code"],
+        tauxLocal: (json["tauxLocal"] as num?)?.toDouble(),
+    );
+
+    Map<String, dynamic> toJson() => {
+        "id": id,
+        "name": name,
+        "code": code,
+        "tauxLocal": tauxLocal,
+    };
+}
+
+class Address {
+    final String? address;
+    final String? communeValue;
+    final String? quartierValue;
+    final String? cityValue;
+    final String? countryValue;
+    final String? postalCode;
+
+    Address({
+        this.address,
+        this.communeValue,
+        this.quartierValue,
+        this.cityValue,
+        this.countryValue,
+        this.postalCode,
+    });
+
+    factory Address.fromJson(Map<String, dynamic> json) => Address(
+        address: json["address"],
+        communeValue: json["communeValue"],
+        quartierValue: json["quartierValue"],
+        cityValue: json["cityValue"],
+        countryValue: json["countryValue"],
+        postalCode: json["postalCode"],
+    );
+
+    Map<String, dynamic> toJson() => {
+        "address": address,
+        "communeValue": communeValue,
+        "quartierValue": quartierValue,
+        "cityValue": cityValue,
+        "countryValue": countryValue,
+        "postalCode": postalCode,
+    };
+}
+
+class LocalAddress {
+    final City? city;
+    final Commune? commune;
+    final Quartier? quartier;
+
+    LocalAddress({
+        this.city,
+        this.commune,
+        this.quartier,
+    });
+
+    factory LocalAddress.fromJson(Map<String, dynamic> json) => LocalAddress(
+        city: json["city"] == null ? null : City.fromJson(json["city"]),
+        commune: json["commune"] == null ? null : Commune.fromJson(json["commune"]),
+        quartier: json["quartier"] == null ? null : Quartier.fromJson(json["quartier"]),
+    );
+
+    Map<String, dynamic> toJson() => {
+        "city": city?.toJson(),
+        "commune": commune?.toJson(),
+        "quartier": quartier?.toJson(),
+    };
+}
+
+class City {
+    final int? cityId;
+    final String? name;
+
+    City({
+        this.cityId,
+        this.name,
+    });
+
+    factory City.fromJson(Map<String, dynamic> json) => City(
+        cityId: json["cityId"],
+        name: json["name"],
+    );
+
+    Map<String, dynamic> toJson() => {
+        "cityId": cityId,
+        "name": name,
+    };
+}
+
+class Commune {
+    final int? communeId;
+    final int? district;
+    final List<Quartier>? quartiers;
+    final String? name;
+
+    Commune({
+        this.communeId,
+        this.district,
+        this.quartiers,
+        this.name,
+    });
+
+    factory Commune.fromJson(Map<String, dynamic> json) => Commune(
+        communeId: json["communeId"],
+        district: json["district"],
+        quartiers: json["quartiers"] == null ? [] : List<Quartier>.from(json["quartiers"]!.map((x) => Quartier.fromJson(x))),
+        name: json["name"],
+    );
+
+    Map<String, dynamic> toJson() => {
+        "communeId": communeId,
+        "district": district,
+        "quartiers": quartiers == null ? [] : List<dynamic>.from(quartiers!.map((x) => x.toJson())),
+        "name": name,
+    };
+}
+
+class Quartier {
+    final int? quartierId;
+    final String? name;
+
+    Quartier({
+        this.quartierId,
+        this.name,
+    });
+
+    factory Quartier.fromJson(Map<String, dynamic> json) => Quartier(
+        quartierId: json["quartierId"],
+        name: json["name"],
+    );
+
+    Map<String, dynamic> toJson() => {
+        "quartierId": quartierId,
+        "name": name,
+    };
+}
+
+class GeoZone {
+    final double? lat;
+    final double? lng;
+
+    GeoZone({
+        this.lat,
+        this.lng,
+    });
+
+    factory GeoZone.fromJson(Map<String, dynamic> json) => GeoZone(
+        lat: (json["lat"] as num?)?.toDouble(),
+        lng: (json["lng"] as num?)?.toDouble(),
+    );
+
+    Map<String, dynamic> toJson() => {
+        "lat": lat,
+        "lng": lng,
+    };
+}
+
+class TerrainImage {
+    final int? id;
+    final int? terrainId;
+    final String? name;
+    final String? path;
+    final bool? isAvailable;
+    final String? createdAt;
+
+    TerrainImage({
+        this.id,
+        this.terrainId,
+        this.name,
+        this.path,
+        this.isAvailable,
+        this.createdAt,
+    });
+
+    factory TerrainImage.fromJson(Map<String, dynamic> json) => TerrainImage(
+        id: json["id"],
+        terrainId: json["terrainId"],
+        name: json["name"],
+        path: json["path"],
+        isAvailable: json["available"] ?? json["isAvailable"],
+        createdAt: json["createdAt"],
+    );
+
+    Map<String, dynamic> toJson() => {
+        "id": id,
+        "terrainId": terrainId,
+        "name": name,
+        "path": path,
+        "available": isAvailable,
+        "createdAt": createdAt,
+    };
+}
+
+class TypeProperty {
+    final int? propertyTypeId;
+    final String? name;
+
+    TypeProperty({
+        this.propertyTypeId,
+        this.name,
+    });
+
+    factory TypeProperty.fromJson(Map<String, dynamic> json) => TypeProperty(
+        propertyTypeId: json["propertyTypeId"],
+        name: json["name"],
+    );
+
+    Map<String, dynamic> toJson() => {
+        "propertyTypeId": propertyTypeId,
+        "name": name,
+    };
+}

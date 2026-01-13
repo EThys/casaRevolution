@@ -18,6 +18,8 @@ class UserModel {
   bool? isCertified;
   CityModel? cityModel;
   String? createdStart;
+  String? profilePicture;
+  String? fullName;
 
   UserModel({
     this.userId,
@@ -32,6 +34,8 @@ class UserModel {
     this.isCertified,
     this.cityModel,
     this.createdStart,
+    this.profilePicture,
+    this.fullName,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -54,6 +58,8 @@ class UserModel {
         isCertified: _safeParseBool(source["isCertified"] ?? source["certified"] ?? json["isCertified"] ?? json["certified"]),
         cityModel: _safeParseCityModel(source["cityModel"] ?? json["cityModel"]),
         createdStart: _safeParseString(json["createdStart"] ?? json["createdAt"]),
+        profilePicture: _safeParseString(source["profilePicture"] ?? source["avatar"] ?? json["profilePicture"] ?? json["avatar"]),
+        fullName: _safeParseString(source["fullName"] ?? source["fullname"] ?? json["fullName"] ?? json["fullname"]),
       );
     } catch (e, stack) {
       print("❌ Erreur dans UserModel.fromJson: $e");
@@ -132,10 +138,16 @@ class UserModel {
     "isCertified": isCertified,
     "cityModel": cityModel?.toJson(),
     "createdStart": createdStart,
+    "profilePicture": profilePicture,
+    "fullName": fullName,
   };
 
   String get displayName {
     return username ?? email?.split('@').first ?? 'Utilisateur';
+  }
+
+  String get displayFullName {
+    return fullName ?? username ?? email?.split('@').first ?? 'Utilisateur';
   }
 
   String get formattedLocation {
@@ -173,6 +185,8 @@ class UserModel {
     bool? isCertified,
     CityModel? cityModel,
     String? createdStart,
+    String? profilePicture,
+    String? fullName,
   }) {
     return UserModel(
       userId: userId ?? this.userId,
@@ -187,6 +201,8 @@ class UserModel {
       isCertified: isCertified ?? this.isCertified,
       cityModel: cityModel ?? this.cityModel,
       createdStart: createdStart ?? this.createdStart,
+      profilePicture: profilePicture ?? this.profilePicture,
+      fullName: fullName ?? this.fullName,
     );
   }
 }

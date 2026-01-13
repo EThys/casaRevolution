@@ -333,7 +333,8 @@ extension ServiceTypeExtension on ServiceType {
       case 'sallefuneraire':
       case 'salle funéraire':
         return ServiceType.salleFuneraire;
-      case 'terrain':
+      case 'terrain'
+          :
         return ServiceType.terrain;
       case 'entrepot':
       case 'entrepôt':
@@ -443,6 +444,9 @@ class ServiceModel {
   // Status
   String? status;
   String? rejectionReason;
+  
+  // Currency
+  int? deviseId; // 1 for FC, 2 for USD
 
   ServiceModel({
     this.serviceId,
@@ -511,6 +515,7 @@ class ServiceModel {
     this.updatedAt,
     this.status,
     this.rejectionReason,
+    this.deviseId,
   });
 
   factory ServiceModel.fromJson(Map<String, dynamic> json) {
@@ -541,8 +546,10 @@ class ServiceModel {
       isAvailable: _parseBool(json["isAvailable"]),
       availableDays: json["availableDays"] is List
           ? List<String>.from(json["availableDays"])
-          : null,
-      availableHours: _parseString(json["availableHours"]),
+          : (json["plageJourPrestation"] is String 
+              ? (json["plageJourPrestation"] as String).split(',').map((e) => e.trim()).toList()
+              : null),
+      availableHours: _parseString(json["availableHours"]) ?? _parseString(json["plageHeurePrestation"]),
       experienceYears: _parseInt(json["experienceYears"]),
       specialties: json["specialties"] is List
           ? List<String>.from(json["specialties"])
@@ -591,7 +598,7 @@ class ServiceModel {
       user: json["user"] is Map<String, dynamic>
           ? UserModel.fromJson(json["user"])
           : null,
-      username: _parseString(json["username"]),
+      username: _parseString(json["username"]) ?? _parseString(json["postBy"]),
       isActive: _parseBool(json["isActive"]),
       isVerified: _parseBool(json["isVerified"]),
       rating: _parseDouble(json["rating"]),
@@ -599,10 +606,11 @@ class ServiceModel {
       viewCount: _parseInt(json["viewCount"]),
       favoriteCount: _parseInt(json["favoriteCount"]),
       isFavorite: _parseBool(json["isFavorite"]),
-      createdAt: _parseString(json["createdAt"]),
+      createdAt: _parseString(json["createdAt"]) ?? _parseString(json["dateCreated"]),
       updatedAt: _parseString(json["updatedAt"]),
       status: _parseString(json["status"]),
       rejectionReason: _parseString(json["rejectionReason"]),
+      deviseId: _parseInt(json["deviseId"]) ?? _parseInt(json["devise"]?["id"]),
     );
   }
 
@@ -672,6 +680,7 @@ class ServiceModel {
     "updatedAt": updatedAt,
     "status": status,
     "rejectionReason": rejectionReason,
+    "deviseId": deviseId,
   };
 
   // Méthode pour créer une copie du modèle
@@ -742,6 +751,7 @@ class ServiceModel {
     String? updatedAt,
     String? status,
     String? rejectionReason,
+    int? deviseId,
   }) {
     return ServiceModel(
       serviceId: serviceId ?? this.serviceId,
@@ -810,7 +820,11 @@ class ServiceModel {
       updatedAt: updatedAt ?? this.updatedAt,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
+      deviseId: deviseId ?? this.deviseId,
     );
   }
+  
+  // Currency getter similar to PropertyModel
+  String get currency => (deviseId == 1) ? "FC" : "\$";
 }
 

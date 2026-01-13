@@ -47,6 +47,7 @@ class PropertyModel {
   String? title;
   String? username;
   String? postBy; // Publisher name from API
+  String? image; // Profile picture from API
   String? description;
   double? price;
   double? surface;
@@ -122,6 +123,7 @@ class PropertyModel {
     this.description,
     this.username,
     this.postBy,
+    this.image,
     this.price,
     this.surface,
     this.rooms,
@@ -207,6 +209,11 @@ class PropertyModel {
     final Map<String, dynamic> geoNode = json["geoZone"] is Map ? json["geoZone"] : json;
     final Map<String, dynamic> typeNode = json["typeProperty"] is Map ? json["typeProperty"] : json;
     
+    // Helper pour chercher dans propertyNode PUIS dans json root
+    dynamic _getVal(String key) {
+       return propertyNode[key] ?? json[key];
+    }
+    
     // Debug logging
     print('🔍 Parsing PropertyModel (detected structure: ${json["property"] != null ? 'NESTED' : (json["bureau"] != null ? 'BUREAU' : 'FLAT')})');
 
@@ -216,6 +223,7 @@ class PropertyModel {
       title: _parseString(propertyNode["title"]),
       description: _parseString(propertyNode["description"]),
       postBy: _parseString(json["postBy"]), // Extract postBy from root
+      image: _parseString(json["image"]), // Extract profile picture from root
       username: _parseString(json["postBy"]) ?? _parseString(propertyNode["username"]) ?? _parseString(json["username"]),
       price: _parseDouble(propertyNode["price"]) ?? 0.0,
       surface: _parseDouble(propertyNode["surface"]) ?? 0.0,
@@ -261,19 +269,19 @@ class PropertyModel {
           : null,
       latitude: _parseDouble(geoNode["lat"]) ?? _parseDouble(propertyNode["latitude"]) ?? 0.0,
       longitude: _parseDouble(geoNode["lng"]) ?? _parseDouble(propertyNode["longitude"]) ?? 0.0,
-      createdStart: _parseString(propertyNode["createdStart"]) ?? _parseString(propertyNode["createdAt"]) ?? _parseString(json["createdAt"]),
+      createdStart: _parseString(propertyNode["createdStart"]) ?? _parseString(_getVal("createdAt")) ?? _parseString(json["createdAt"]),
       updatedAt: _parseString(propertyNode["updatedAt"]) ?? _parseString(json["updatedAt"]),
-      createdAt: _parseString(propertyNode["createdAt"]) ?? _parseString(json["createdAt"]),
+      createdAt: _parseString(_getVal("createdAt")) ?? _parseString(json["createdAt"]),
       electric: _parseInt(propertyNode["electric"]) ?? 0,
       water: _parseInt(propertyNode["water"]) ?? 0,
 
       // CHAMPS SPÉCIFIQUES
-      roomMeet: _parseInt(propertyNode["roomMeet"]),
-      numberPiece: _parseInt(propertyNode["numberPiece"]),
-      isEquip: _parseBool(propertyNode["isEquip"]) || _parseBool(propertyNode["equipped"]),
-      capacityPeople: _parseInt(propertyNode["capacityPeople"]),
-      isDecore: _parseBool(propertyNode["isDecore"]) || _parseBool(propertyNode["decore"]),
-      pisteDanse: _parseBool(propertyNode["pisteDanse"]),
+      roomMeet: _parseInt(_getVal("roomMeet")),
+      numberPiece: _parseInt(_getVal("numberPiece")),
+      isEquip: _parseBool(_getVal("isEquip")) || _parseBool(_getVal("equipped")),
+      capacityPeople: _parseInt(_getVal("capacityPeople")),
+      isDecore: _parseBool(_getVal("isDecore")) || _parseBool(_getVal("decore")),
+      pisteDanse: _parseBool(_getVal("pisteDanse")),
 
       // NOUVELLES PROPRIÉTES STATISTIQUES
       viewCount: _parseInt(json["viewCount"]) ?? 0,
@@ -291,9 +299,9 @@ class PropertyModel {
       rejectionReason: _parseString(propertyNode["rejectionReason"]),
       deviseId: _parseInt(propertyNode["deviseId"]) ?? _parseInt(json["deviseId"]) ?? _parseInt(json["devise"]?["id"]),
 
-      features: (json["features"] ?? propertyNode["features"]) is List
+      features: (json["features"] ?? json["feature"] ?? propertyNode["features"]) is List
           ? List<PropertyFeatureModel>.from(
-          ((json["features"] ?? propertyNode["features"]) as List).where((x) => x != null).map((x) => PropertyFeatureModel.fromJson(x)))
+          ((json["features"] ?? json["feature"] ?? propertyNode["features"]) as List).where((x) => x != null).map((x) => PropertyFeatureModel.fromJson(x)))
           : <PropertyFeatureModel>[],
           
       propertyImage: (imagesNode is List)
@@ -340,6 +348,7 @@ class PropertyModel {
     "description": description,
     "username": username,
     "postBy": postBy,
+    "image": image,
     "price": price,
     "surface": surface,
     "rooms": rooms,
@@ -504,6 +513,8 @@ class PropertyModel {
     if (features == null) return [];
     return features!.map((feature) => feature.name ?? "").where((name) => name.isNotEmpty).toList();
   }
+
+  String get currency => (deviseId == 1) ? "FC" : "\$";
 
   @override
   String toString() {
