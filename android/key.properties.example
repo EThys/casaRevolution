@@ -1,0 +1,12 @@
+# Exemple de fichier key.properties
+# Copiez ce fichier vers key.properties et remplissez les valeurs réelles
+# 
+# Pour créer un keystore, utilisez cette commande :
+# keytool -genkey -v -keystore ~/upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+
+storePassword=votre_mot_de_passe_keystore
+keyPassword=votre_mot_de_passe_key
+keyAlias=upload
+storeFile=../upload-keystore.jks
+
+
