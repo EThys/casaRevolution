@@ -43,6 +43,7 @@ import 'QuickServiceRequestPage.dart';
 import 'MyAgencyPage.dart';
 import 'package:casa/services/ServerHealthService.dart';
 import 'package:casa/controllers/NotificationController.dart';
+import 'package:casa/controllers/TypeAccountController.dart';
 import '../utils/PulseBadge.dart';
 
 class HomePage extends StatefulWidget {
@@ -838,6 +839,9 @@ class _HomePageState extends State<HomePage> {
       await propertyCtrl.refreshProperties();
       await propertyCtrl.syncAllSpecialCategories(); // Charger bureaux, festives, funeraires
       
+      // Refresh prestations (services)
+      await _loadPrestationsFromAPI();
+      
       _refreshController.refreshCompleted();
       //SnackbarForCasa.success(context, "Liste actualisée");
     } catch (e) {
@@ -1304,7 +1308,7 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             children: [
               Container(
-                height: 215,
+                height: 230,
                 width: double.infinity,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -1347,88 +1351,88 @@ class _HomePageState extends State<HomePage> {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(24, 50, 24, 20),
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          GestureDetector(
-                            onTap: () {
-                              _animateAvatar();
-                            },
-                            child: AnimatedContainer(
-                              duration: Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                              padding: EdgeInsets.all(3),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  colors: [Colors.white, Colors.grey[200]!],
+                          // Photo de profil (sans possibilité de modification)
+                          AnimatedContainer(
+                            duration: Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                            padding: EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                colors: [Colors.white, Colors.grey[200]!],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.white.withOpacity(0.4),
+                                  blurRadius: 15,
+                                  spreadRadius: 2,
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.white.withOpacity(0.4),
-                                    blurRadius: 15,
-                                    spreadRadius: 2,
+                              ],
+                            ),
+                            child: Builder(
+                              builder: (context) {
+                                // Récupérer l'URL de la photo depuis le profil
+                                String? imageUrl;
+                                if (profile != null && profile is Map) {
+                                  imageUrl = profile['image']?.toString() ?? profile['images']?.toString();
+                                }
+                                
+                                // Déterminer si on a une URL valide
+                                final hasValidUrl = imageUrl != null && imageUrl.isNotEmpty && !imageUrl.startsWith('/');
+                                
+                                return CircleAvatar(
+                                  radius: 40,
+                                  backgroundColor: Colors.white,
+                                  backgroundImage: hasValidUrl ? NetworkImage(imageUrl!) : null,
+                                  child: hasValidUrl ? null : Icon(
+                                    Icons.person,
+                                    size: 42,
+                                    color: primaryColor,
                                   ),
-                                ],
-                              ),
-                              child: CircleAvatar(
-                                radius: 40,
-                                backgroundColor: Colors.white,
-                                child: Icon(
-                                  Icons.person,
-                                  size: 42,
-                                  color: primaryColor,
-                                ),
-                              ),
+                                );
+                              },
                             ),
                           ),
-                          SizedBox(height: 8),
+                          SizedBox(height: 12),
+                          // Texte "Bienvenue"
+                          Text(
+                            'Bienvenue',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          // Nom d'utilisateur
                           AnimatedSwitcher(
                             duration: Duration(milliseconds: 300),
                             child: isLoggedIn
-                                ? Container(
-                              constraints: BoxConstraints(
-                                maxWidth: 200, // Limite la largeur maximale
+                                ? Text(
+                              (safeUsername ?? 'Utilisateur'),
+                              key: ValueKey('user'),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: 4,
+                                    offset: Offset(0, 1),
+                                  ),
+                                ],
                               ),
-                              child: Text(
-                                (safeUsername ?? 'Utilisateur'),
-                                key: ValueKey('user'),
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.5,
-                                  shadows: [
-                                    Shadow(
-                                      color: Colors.black.withOpacity(0.1),
-                                      blurRadius: 4,
-                                      offset: Offset(0, 1),
-                                    ),
-                                  ],
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
                             )
                                 : Column(
                               key: ValueKey('welcome'),
                               children: [
-                                Text(
-                                  'Bienvenue 👋',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
-                                    shadows: [
-                                      Shadow(
-                                        color: Colors.black.withOpacity(0.1),
-                                        blurRadius: 4,
-                                        offset: Offset(0, 1),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                SizedBox(height: 4),
                                 Container(
                                   constraints: BoxConstraints(
                                     maxWidth: 200, // Limite la largeur maximale

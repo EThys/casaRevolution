@@ -86,9 +86,9 @@ class TypeAccountController with ChangeNotifier {
   }
   
   // Backward compatibility method
-  void fetchTypeAccounts() {
+  Future<void> fetchTypeAccounts() async {
      // Rediriger vers la méthode locale par défaut pour éviter les appels réseaux superflus
-     loadFromLocalDb();
+     await loadFromLocalDb();
   }
 
   // Legacy GetStorage cache (fallback)
