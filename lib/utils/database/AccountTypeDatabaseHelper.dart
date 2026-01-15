@@ -20,8 +20,9 @@ class AccountTypeDatabaseHelper {
 
     return await openDatabase(
       path, 
-      version: 1, 
+      version: 2, 
       onCreate: _createDB,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -29,9 +30,17 @@ class AccountTypeDatabaseHelper {
     await db.execute('''
     CREATE TABLE account_types (
       typeAccountId INTEGER PRIMARY KEY,
-      name TEXT NOT NULL
+      name TEXT NOT NULL,
+      categoryId INTEGER
     )
     ''');
+  }
+
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('DROP TABLE IF EXISTS account_types');
+      await _createDB(db, newVersion);
+    }
   }
 
   Future<void> insertAccountTypes(List<TypeAccountModel> accountTypes) async {
