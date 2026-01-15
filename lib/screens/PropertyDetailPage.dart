@@ -216,6 +216,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       backgroundColor: _lightColor,
       extendBody: true,
       body: CustomScrollView(
+        physics: ClampingScrollPhysics(), // Empêche l'effet de rebond blanc
         slivers: [
           SliverToBoxAdapter(
             child: _buildImageCarousel(allImages),
