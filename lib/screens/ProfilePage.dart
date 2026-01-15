@@ -1113,18 +1113,27 @@ class _ProfilePageState extends State<ProfilePage> {
         body: _isLoading
             ? Center(child: CircularProgressIndicator(color: _primaryColor))
             : SingleChildScrollView(
+          physics: ClampingScrollPhysics(),
+          padding: EdgeInsets.only(bottom: 80), // Padding pour éviter que le contenu soit caché par la navbar
           child: Column(
             children: [
               _buildProfileHeader(),
-              SizedBox(height: 16),
-              _buildProfileCompletionCard(),
-              _buildStatsCard(),
-              SizedBox(height: 16),
-              _buildProfileInfoCard(),
-              _buildAuthOptions(),
-              _buildDarkModeSection(),
-              _buildSettingsSection(),
-              SizedBox(height: 20),
+              // Remonter légèrement les cartes pour chevaucher header
+              Transform.translate(
+                offset: Offset(0, -30),
+                child: Column(
+                  children: [
+                    _buildProfileCompletionCard(),
+                    _buildStatsCard(),
+                    SizedBox(height: 16),
+                    _buildProfileInfoCard(),
+                    _buildAuthOptions(),
+                    _buildDarkModeSection(),
+                    _buildSettingsSection(),
+                    SizedBox(height: 20),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
