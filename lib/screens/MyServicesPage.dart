@@ -630,6 +630,8 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
               ),
             ],
           ),
+          // Fix: Enforce height in ListView so Expanded works inside Column
+          height: isGrid ? null : 280, 
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -664,6 +666,53 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                       right: 8,
                       child: _buildStatusBadge(prestation, isGrid: isGrid),
                     ),
+                    if (prestation.minPrice != null)
+                      Positioned(
+                        bottom: 8,
+                        left: 8,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.7),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${NumberFormat('#,###').format(prestation.minPrice)} ${prestation.currency ?? "CDF"}',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (prestation.cityValue != null && prestation.cityValue!.isNotEmpty)
+                       Positioned(
+                         top: 8,
+                         left: 8,
+                         child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.location_on, size: 12, color: Colors.white),
+                              SizedBox(width: 4),
+                              ConstrainedBox(
+                                constraints: BoxConstraints(maxWidth: 100),
+                                child: Text(
+                                  prestation.cityValue!,
+                                  style: TextStyle( color: Colors.white, fontSize: 10, fontWeight: FontWeight.w500),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              )
+                            ],
+                          ),
+                         ),
+                       ),
                   ],
                 ),
               ),
@@ -686,43 +735,81 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                         overflow: TextOverflow.ellipsis,
                       ),
                       SizedBox(height: 4),
-                      if (prestation.cityValue != null && prestation.cityValue!.isNotEmpty)
-                        Row(
-                          children: [
-                            Icon(Icons.location_on, size: 14, color: _mediumGrey),
-                            SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                prestation.cityValue!,
-                                style: TextStyle(
-                                  fontSize: isGrid ? 11 : 12,
-                                  color: _mediumGrey,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      Spacer(),
+                      SizedBox(height: 8),
+                      // Action Buttons
+                      if (!isGrid) // Use buttons primarily in List View where there is space
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          if (prestation.minPrice != null)
-                            Text(
-                              '${NumberFormat('#,###').format(prestation.minPrice)} CDF',
-                              style: GoogleFonts.inter(
-                                fontSize: isGrid ? 12 : 14,
-                                fontWeight: FontWeight.w600,
-                                color: _primaryColor,
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                 // Modifier logic - navigate to edit (reuse create route with args if supported or show details)
+                                 // For now, redirect to detail which usually has edit
+                                 if (prestation.id != null) {
+                                   Navigator.push(context, MaterialPageRoute(builder: (c) => ServiceDetailPage(service: prestation)));
+                                 }
+                              }, 
+                              icon: Icon(Icons.edit, size: 14, color: _primaryColor),
+                              label: Text("Modifier", style: TextStyle(fontSize: 12, color: _primaryColor)),
+                              style: OutlinedButton.styleFrom(
+                                alignment: Alignment.center,
+                                padding: EdgeInsets.symmetric(vertical: 0, horizontal: 8),
+                                side: BorderSide(color: _primaryColor.withOpacity(0.5)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
                             ),
-                          IconButton(
-                            icon: Icon(Icons.more_vert, size: 20, color: _mediumGrey),
-                            onPressed: () => _showOptionsMenu(prestation),
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _deletePrestation(prestation), 
+                              icon: Icon(Icons.delete, size: 14, color: _errorColor),
+                              label: Text("Supprimer", style: TextStyle(fontSize: 12, color: _errorColor)),
+                              style: OutlinedButton.styleFrom(
+                                alignment: Alignment.center,
+                                padding: EdgeInsets.symmetric(vertical: 0, horizontal: 8),
+                                side: BorderSide(color: _errorColor.withOpacity(0.5)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
                           ),
                         ],
-                      ),
+                      )
+                      else // In Grid View, keep simple menu or IconButtons
+                        Row(
+                           mainAxisAlignment: MainAxisAlignment.end,
+                           children: [
+                              InkWell(
+                                onTap: () {
+                                   if (prestation.id != null) {
+                                      Navigator.push(context, MaterialPageRoute(builder: (c) => ServiceDetailPage(service: prestation)));
+                                   }
+                                },
+                                child: Container(
+                                  padding: EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: _primaryColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(Icons.edit, size: 16, color: _primaryColor),
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              InkWell(
+                                onTap: () => _deletePrestation(prestation),
+                                child: Container(
+                                  padding: EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: _errorColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(Icons.delete, size: 16, color: _errorColor),
+                                ),
+                              ),
+                           ],
+                        ),
                     ],
                   ),
                 ),
