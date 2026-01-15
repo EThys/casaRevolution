@@ -17,9 +17,11 @@ import 'package:pdf/widgets.dart' as pw;
 import 'dart:io';
 import 'dart:typed_data';
 import '../controllers/ReservationController.dart';
+import '../controllers/TypeAccountController.dart';
 import '../models/PropertyModel.dart';
 import '../utils/networkCheck.dart';
 import '../utils/FavoriteEartIcon.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class BookingHistoryPage extends StatefulWidget {
   const BookingHistoryPage({Key? key}) : super(key: key);
@@ -38,6 +40,11 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   bool _isLoading = false;
   List<String> _cancellingIds = [];
   bool _isGridView = false; // Toggle pour vue liste/grille
+
+  // Host Logic
+  bool _isHostView = false;
+  bool _isHost = false;
+  List<ReservationModel> _hostReservations = [];
 
   // Couleurs modernes
   final Color _primaryColor = Color(0xFF1976D2);
@@ -58,10 +65,74 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   @override
   void initState() {
     super.initState();
+    _checkUserRole();
     _tabController = TabController(length: 4, vsync: this);
     _loadLogo();
-    _loadReservations();
-    _loadReservationCounts();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+       _loadReservations();
+       _loadReservationCounts();
+    });
+  }
+
+  void _checkUserRole() {
+    final userAccounts = _storage.read('user_accounts');
+    if (userAccounts != null && userAccounts is List) {
+      // Vérification initiale basée sur les données stockées
+      bool foundHost = userAccounts.any((acc) {
+         // Vérifier si categoryId == 2 (Owner)
+         final catId = acc['categoryId']; 
+         if (catId != null && catId.toString() == '2') return true;
+         
+         final typeAccount = acc['typeAccount'];
+         if (typeAccount != null && typeAccount is Map) {
+            final nestedCat = typeAccount['categoryId'];
+             if (nestedCat != null && nestedCat.toString() == '2') return true;
+         }
+         return false;
+      });
+
+      if (foundHost) {
+        setState(() => _isHost = true);
+      } else {
+        // Vérification via le TypeAccountController pour être sûr
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+            try {
+              final typeCtrl = Provider.of<TypeAccountController>(context, listen: false);
+              // On s'assure que les types sont chargés
+              if (typeCtrl.ownerTypes.isEmpty) {
+                 typeCtrl.fetchTypeAccounts().then((_) {
+                    _verifyHostWithController(userAccounts, typeCtrl);
+                 });
+              } else {
+                 _verifyHostWithController(userAccounts, typeCtrl);
+              }
+            } catch(e) {
+              print("Erreur check role controller: $e");
+            }
+        });
+      }
+    }
+  }
+
+  void _verifyHostWithController(List userAccounts, TypeAccountController typeCtrl) {
+      final ownerTypeIds = typeCtrl.ownerTypes.map((e) {
+         // Gérer Map ou Model
+         if (e is Map) return (e['typeAccountId'] ?? e['TypeAccountId'] ?? e['id']).toString();
+         return e.typeAccountId.toString();
+      }).toList();
+      
+      final hasOwnerAccount = userAccounts.any((acc) {
+          final id = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']))?.toString();
+          return ownerTypeIds.contains(id);
+      });
+      
+      if (hasOwnerAccount != _isHost) {
+          setState(() {
+            _isHost = hasOwnerAccount;
+          });
+          // Si on devient host et qu'on a déjà chargé, on recharge pour avoir les données host
+          if (_isHost) _loadReservations();
+      }
   }
 
   Future<void> _loadLogo() async {
@@ -144,9 +215,17 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       });
 
       final reservationCtrl = Provider.of<ReservationController>(context, listen: false);
-      await reservationCtrl.getMyReservations();
+      
+      if (_isHost) {
+        await Future.wait([
+          reservationCtrl.getMyReservations(),
+          _loadHostReservations(reservationCtrl),
+        ]);
+      } else {
+        await reservationCtrl.getMyReservations();
+      }
 
-      print("📊 Réservations chargées: ${reservationCtrl.reservations.length}");
+      print("📊 Réservations chargées: ${reservationCtrl.reservations.length} (Host: ${_hostReservations.length})");
 
       // Recharger les compteurs après le chargement
       await _loadReservationCounts();
@@ -194,7 +273,6 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       appBar: _buildAppBar(),
       body: Column(
         children: [
-          // Carte de statistiques
           _buildTabBar(),
           Expanded(
             child:             TabBarView(
@@ -414,10 +492,81 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         ),
       ],
       bottom: PreferredSize(
-        preferredSize: Size.fromHeight(1),
-        child: Container(
-          height: 1,
-          color: Colors.white.withOpacity(0.2),
+        preferredSize: Size.fromHeight(_isHost ? 60 : 1),
+        child: Column(
+          children: [
+            if (_isHost) _buildViewToggle(),
+            Container(
+              height: 1,
+              color: Colors.white.withOpacity(0.2),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilteredListView() {
+      final reservationCtrl = Provider.of<ReservationController>(context);
+      final List<ReservationModel> sourceList = _isHostView ? _hostReservations : reservationCtrl.reservations;
+      
+      return TabBarView(
+        controller: _tabController,
+        children: [
+          _buildReservationList(_filterReservations(sourceList, 'PENDING')),
+          _buildReservationList(_filterReservations(sourceList, 'CONFIRMED')),
+          _buildReservationList(_filterReservations(sourceList, 'COMPLETED')),
+          _buildReservationList(_filterReservations(sourceList, 'CANCELLED')),
+        ],
+      );
+  }
+
+  Widget _buildViewToggle() {
+    if (!_isHost) return SizedBox.shrink();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: EdgeInsets.all(4),
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildToggleButton("Mes réservations", !_isHostView, () {
+              setState(() => _isHostView = false);
+            }),
+          ),
+          Expanded(
+             child: _buildToggleButton("Réservations reçues", _isHostView, () {
+              setState(() => _isHostView = true);
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleButton(String text, bool isSelected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isSelected ? [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))] : [],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          text,
+          style: TextStyle(
+            color: isSelected ? _primaryColor : Colors.white.withOpacity(0.8),
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
         ),
       ),
     );
@@ -426,12 +575,13 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   Widget _buildTabBar() {
     // Calculer les compteurs depuis les données actuelles
     final reservationCtrl = Provider.of<ReservationController>(context, listen: false);
-    final userReservations = reservationCtrl.reservations;
+    // Choix de la source selon la vue
+    final currentList = _isHostView ? _hostReservations : reservationCtrl.reservations;
 
-    final pendingCount = _filterReservations(userReservations, 'PENDING').length;
-    final confirmedCount = _filterReservations(userReservations, 'CONFIRMED').length;
-    final completedCount = _filterReservations(userReservations, 'COMPLETED').length;
-    final cancelledCount = _filterReservations(userReservations, 'CANCELLED').length;
+    final pendingCount = _filterReservations(currentList, 'PENDING').length;
+    final confirmedCount = _filterReservations(currentList, 'CONFIRMED').length;
+    final completedCount = _filterReservations(currentList, 'COMPLETED').length;
+    final cancelledCount = _filterReservations(currentList, 'CANCELLED').length;
 
     return Container(
       color: Colors.white,
@@ -818,6 +968,26 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                             ],
                           ),
                         ],
+                        if (_isHostView && isPending) ...[
+                           SizedBox(height: 8),
+                           Row(
+                             children: [
+                               _buildActionButton(
+                                 icon: Icons.close,
+                                 color: Colors.red,
+                                 label: "Refuser",
+                                 onTap: () => _handleReservationAction(reservation, 'CANCELLED')
+                               ),
+                               SizedBox(width: 8),
+                               _buildActionButton(
+                                 icon: Icons.check,
+                                 color: Colors.green,
+                                 label: "Valider",
+                                 onTap: () => _handleReservationAction(reservation, 'CONFIRMED')
+                               ),
+                             ],
+                           )
+                        ],
                       ],
                     ),
                   ),
@@ -1080,6 +1250,46 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                             ),
                           ),
                           if (isPending)
+                            if (_isHostView) 
+                               Row(
+                                 mainAxisSize: MainAxisSize.min,
+                                 children: [
+                                     InkWell(
+                                      onTap: () => _handleReservationAction(reservation, 'CANCELLED'),
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Container(
+                                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        margin: EdgeInsets.only(right: 8),
+                                        decoration: BoxDecoration(
+                                          color: _errorColor.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: _errorColor.withOpacity(0.3)),
+                                        ),
+                                        child: Icon(Icons.close, size: 16, color: _errorColor),
+                                      ),
+                                    ),
+                                    InkWell(
+                                      onTap: () => _handleReservationAction(reservation, 'CONFIRMED'),
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Container(
+                                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: _successColor.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: _successColor.withOpacity(0.3)),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.check, size: 16, color: _successColor),
+                                            SizedBox(width: 4),
+                                            Text("Valider", style: TextStyle(color: _successColor, fontWeight: FontWeight.bold, fontSize: 12))
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                 ],
+                               )
+                            else
                             isCancelling
                                 ? SizedBox(
                               width: 20,
@@ -2340,6 +2550,117 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
 
     return doc.save();
+  }
+
+
+  Future<void> _loadHostReservations(ReservationController ctrl) async {
+     try {
+       final hosts = await ctrl.getHostReservations();
+       if (mounted) {
+         setState(() {
+           _hostReservations = hosts;
+         });
+       }
+     } catch(e) {
+       print("Erreur loading host reservations: $e");
+     }
+  }
+
+  Widget _buildActionButton({required IconData icon, required Color color, required String label, required VoidCallback onTap}) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withOpacity(0.5)),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, size: 18, color: color),
+              Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold))
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleReservationAction(ReservationModel reservation, String action) async {
+      final ctrl = Provider.of<ReservationController>(context, listen: false);
+      if (reservation.reservationId == null) return;
+      
+      bool confirm = false;
+      String? reason;
+      
+      if (action == 'CANCELLED') {
+        final reasonController = TextEditingController();
+        confirm = await showDialog<bool>(
+          context: context, 
+          builder: (ctx) => AlertDialog(
+            title: Text("Refuser la réservation"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text("Voulez-vous vraiment refuser cette réservation ?"),
+                SizedBox(height: 10),
+                TextField(
+                  controller: reasonController,
+                  decoration: InputDecoration(
+                    hintText: "Motif (optionnel)",
+                    border: OutlineInputBorder(),
+                  ),
+                )
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text("Annuler")),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true), 
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: Text("Refuser", style: TextStyle(color: Colors.white))
+              ),
+            ],
+          )
+        ) ?? false;
+        reason = reasonController.text.isEmpty ? "Refusé par l'hôte" : reasonController.text;
+      } else {
+         confirm = await showDialog<bool>(
+          context: context, 
+          builder: (ctx) => AlertDialog(
+            title: Text("Valider la réservation"),
+            content: Text("Confirmer la validation de cette réservation ?"),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text("Annuler")),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true), 
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                child: Text("Valider", style: TextStyle(color: Colors.white))
+              ),
+            ],
+          )
+        ) ?? false;
+      }
+      
+      if (confirm) {
+         setState(() => _isLoading = true);
+         try {
+           if (action == 'CANCELLED') {
+              await ctrl.cancelReservation(reservation.reservationId!, reason ?? "Cancelled");
+           } else {
+              await ctrl.updateReservationStatus(reservation.reservationId!, action);
+           }
+           // Reload logic
+           await _loadReservations();
+           FancyNotification.show(context, "Action effectuée avec succès", type: NotificationType.success);
+         } catch(e) {
+           FancyNotification.show(context, "Erreur: $e");
+         } finally {
+           setState(() => _isLoading = false);
+         }
+      }
   }
 
   Future<Directory> _getExportDir() async {
