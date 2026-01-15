@@ -622,7 +622,7 @@ class _HomePageState extends State<HomePage> {
               if (propertyCtrl.syncing && !_isManualRefresh)
                 Padding(
                   padding: EdgeInsets.only(bottom: 16),
-                  child: _buildMinimalSyncIndicator(),
+                  child: _buildMinimalSyncIndicator(message: "Tirez pour actualiser et corriger les erreurs"),
                 ),
 
               if (_isManualRefresh && propertyCtrl.syncing)
@@ -799,7 +799,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildMinimalSyncIndicator() {
+  Widget _buildMinimalSyncIndicator({String? message}) {
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 24, vertical: 4),
       padding: EdgeInsets.all(8),
@@ -816,7 +816,7 @@ class _HomePageState extends State<HomePage> {
           ),
           SizedBox(width: 8),
           Text(
-            'Chargement...',
+            message ?? 'Chargement...',
             style: TextStyle(
               color: Colors.grey[600],
               fontSize: 12,
@@ -849,9 +849,11 @@ class _HomePageState extends State<HomePage> {
       _refreshController.refreshFailed();
       SnackbarForCasa.error(context, "Erreur de connexion");
     } finally {
-      setState(() {
-        _isManualRefresh = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isManualRefresh = false;
+        });
+      }
     }
   }
 
