@@ -67,57 +67,54 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+
     return Scaffold(
       body: PageStorage(
         child: _screens[_currentIndex],
         bucket: _bucket,
       ),
-      floatingActionButton: Visibility(
-        visible: !_isKeyboardVisible && _shouldShowFab(),
-        child: Container(
-          width: 60,
-          height: 60,
-          child: FloatingActionButton(
-            heroTag: "bottom_nav_bar_fab",
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            highlightElevation: 0,
-            splashColor: Colors.transparent,
-            child: Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [
-                    Color(0xFF1976D2),
-                    Color(0xFF2196F3),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0xFF1976D2).withOpacity(0.4),
-                    spreadRadius: 1,
-                    blurRadius: 8,
-                    offset: Offset(0, 3),
+      // Android: FAB flottant classique
+      floatingActionButton: (!isIOS && !_isKeyboardVisible && _shouldShowFab())
+          ? Container(
+              width: 60,
+              height: 60,
+              child: FloatingActionButton(
+                heroTag: "bottom_nav_bar_fab",
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                highlightElevation: 0,
+                splashColor: Colors.transparent,
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF1976D2), Color(0xFF2196F3)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Color(0xFF1976D2).withOpacity(0.4),
+                        spreadRadius: 1,
+                        blurRadius: 8,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
                   ),
-                ],
+                  child: Icon(Icons.add, color: Colors.white, size: 26),
+                ),
+                onPressed: _handleFabPress,
               ),
-              child: Icon(
-                Icons.add,
-                color: Colors.white,
-                size: 26,
-              ),
-            ),
-            onPressed: _handleFabPress,
-          ),
-        ),
-      ),
+            )
+          : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
+          color: AppColors.surfaceColor(context),
           boxShadow: [
             BoxShadow(
               color: AppColors.shadowColor(context),
@@ -126,45 +123,30 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
               offset: Offset(0, -2),
             )
           ],
-        ),
-        child: ClipRRect(
           borderRadius: BorderRadius.only(
             topLeft: Radius.circular(20),
             topRight: Radius.circular(20),
           ),
-          child: BottomAppBar(
-            shape: CircularNotchedRectangle(),
-            notchMargin: 6, // Réduit de 8 à 6 pour un creux plus petit
-            color: AppColors.surfaceColor(context),
-            child: Container(
-              height: 70, // Réduit de 85 à 70 (suffisant avec les ajustements)
-              padding: EdgeInsets.zero, // Supprimé tout padding horizontal
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildNavItem(
-                    icon: Icons.home_rounded,
-                    label: 'Accueil',
-                    index: 0,
-                  ),
-                  _buildNavItem(
-                    icon: Icons.search_rounded,
-                    label: 'Recherche',
-                    index: 1,
-                  ),
-                  SizedBox(width: 36), // Espace réduit pour le FAB (40 → 36)
-                  _buildNavItem(
-                    icon: Icons.favorite_rounded,
-                    label: 'Favoris',
-                    index: 2,
-                  ),
-                  _buildNavItem(
-                    icon: Icons.person_rounded,
-                    label: 'Profil',
-                    index: 3,
-                  ),
-                ],
-              ),
+        ),
+        child: SafeArea(
+          child: Container(
+            height: isIOS ? 65 : 70, // Ajustement hauteur selon OS
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildNavItem(icon: Icons.home_rounded, label: 'Accueil', index: 0),
+                _buildNavItem(icon: Icons.search_rounded, label: 'Recherche', index: 1),
+                
+                // Centre: Espace pour FAB Android OU Bouton intégré pour iOS
+                if (isIOS)
+                   _buildAddButton()
+                else
+                  SizedBox(width: 40), // Espace réservé pour le FAB Android
+                
+                _buildNavItem(icon: Icons.favorite_rounded, label: 'Favoris', index: 2),
+                _buildNavItem(icon: Icons.person_rounded, label: 'Profil', index: 3),
+              ],
             ),
           ),
         ),
@@ -172,27 +154,45 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
     );
   }
 
+  Widget _buildAddButton() {
+    return GestureDetector(
+      onTap: _handleFabPress,
+      child: Container(
+        width: 50,
+        height: 50,
+        margin: EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFF1976D2),
+              Color(0xFF2196F3),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0xFF1976D2).withOpacity(0.4),
+              spreadRadius: 1,
+              blurRadius: 8,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Icon(
+          Icons.add,
+          color: Colors.white,
+          size: 26,
+        ),
+      ),
+    );
+  }
+
   bool _shouldShowFab() {
-    var token = _stockage.read(StockageKeys.tokenKey);
-    if (token == null) return true; // Montrer pour permettre la connexion
-
-    // Lire les comptes depuis 'user_accounts' (Liste)
-    List<dynamic>? userAccounts = _stockage.read('user_accounts');
-    
-    if (userAccounts == null || userAccounts.isEmpty) {
-      return false;
-    }
-
-    // Vérifier si au moins un compte permet de publier (ID 2 ou 3)
-    bool canPublish = userAccounts.any((acc) {
-      var typeAcc = acc['typeAccount'];
-      var id = typeAcc is Map 
-          ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'])
-          : (acc['typeAccountId'] ?? acc['TypeAccountId']);
-      return id == 2 || id == 3;
-    });
-
-    return canPublish;
+    // On affiche toujours le bouton, la logique de restriction (Client vs Owner) 
+    // se fera au clic dans _handleFabPress pour donner un feedback à l'utilisateur
+    return true; 
   }
 
   void _handleFabPress() {
