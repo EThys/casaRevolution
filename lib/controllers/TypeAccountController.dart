@@ -35,8 +35,16 @@ class TypeAccountController with ChangeNotifier {
                final id = item['typeAccountId'] ?? item['TypeAccountId'] ?? item['id'];
                final name = item['name'] ?? item['Name'] ?? item['libelle'];
                
+               final categoryId = (item['typeAccount'] != null && item['typeAccount'] is Map)
+                   ? (item['typeAccount']['typeAccountId'] ?? item['typeAccount']['TypeAccountId'])
+                   : null;
+
                if (id != null) {
-                  models.add(TypeAccountModel(typeAccountId: int.tryParse(id.toString()), name: name));
+                  models.add(TypeAccountModel(
+                    typeAccountId: int.tryParse(id.toString()), 
+                    name: name,
+                    categoryId: categoryId != null ? int.tryParse(categoryId.toString()) : null
+                  ));
                }
              }
           } catch (e) {
@@ -69,8 +77,23 @@ class TypeAccountController with ChangeNotifier {
       
       if (types.isNotEmpty) {
         // Convertir en format dynamique pour compatibilité existante
-        allAccounts = types.map((e) => e.toJson()).toList();
-        print("📂 [TypeAccountController] Chargé depuis SQL: ${allAccounts.length}");
+        allAccounts = types.map((e) {
+          var json = e.toJson();
+          json['id'] = json['typeAccountId']; // Compatibilité avec RegisterScreen qui attend 'id'
+          return json;
+        }).toList();
+        print("📂 [TypeAccountController] Chargé depuis SQL: ${allAccounts.length} types.");
+        if (allAccounts.isNotEmpty) {
+           print("DATA SAMPLE: ${allAccounts.first}");
+           
+           // Check V1 vs V2 data
+           bool isV1 = allAccounts.any((a) => a['categoryId'] == null);
+           if (isV1) {
+             print("⚠️ [TypeAccountController] Données V1 détectées (sans categoryId). Forçage nettoyage SQL.");
+             allAccounts = []; // Force refresh
+             await _dbHelper.insertAccountTypes([]); // Vide la table via helper (j'ai ajouté delete avant insert dans helper)
+           }
+        }
         _populateLists();
       } else {
         print("⚠️ [TypeAccountController] SQL vide, fallback sur cache legacy");
@@ -87,8 +110,14 @@ class TypeAccountController with ChangeNotifier {
   
   // Backward compatibility method
   Future<void> fetchTypeAccounts() async {
-     // Rediriger vers la méthode locale par défaut pour éviter les appels réseaux superflus
+     // D'abord charger localement
      await loadFromLocalDb();
+     
+     // Si vide OU si une des listes obligatoires est vide, charger depuis l'API
+     if (allAccounts.isEmpty || ownerTypes.isEmpty || serviceTypes.isEmpty) {
+       print("⚠️ [TypeAccountController] Données incomplètes (Owners: ${ownerTypes.length}, Services: ${serviceTypes.length})... Force API Refresh.");
+       await fetchAndCacheAccountTypes();
+     }
   }
 
   // Legacy GetStorage cache (fallback)
@@ -115,12 +144,18 @@ class TypeAccountController with ChangeNotifier {
   bool _isAccountType(dynamic account, int typeId) {
     if (account == null || account is! Map) return false;
     
-    // Check nested structure
-    if (account['typeAccount'] != null && account['typeAccount'] is Map) {
-      if (account['typeAccount']['typeAccountId'] == typeId) return true;
+    // 1. Check direct categoryId (from SQL/Model)
+    if (account['categoryId'] != null) {
+      return account['categoryId'].toString() == typeId.toString();
     }
     
-    // Check flat structure (fallback & SQL)
+    // 2. Check nested structure (Raw API)
+    if (account['typeAccount'] != null && account['typeAccount'] is Map) {
+      final nestedId = account['typeAccount']['typeAccountId'] ?? account['typeAccount']['TypeAccountId'];
+      if (nestedId != null && nestedId.toString() == typeId.toString()) return true;
+    }
+    
+    // 3. Fallback: try to guess if the ID itself matches (rarely correct for sub-types but kept for legacy)
     final accId = account['typeAccountId'] ?? account['TypeAccountId'];
     if (accId != null && accId.toString() == typeId.toString()) return true;
     
