@@ -7,19 +7,5 @@ class AssetsRes {
   AssetsRes._();
 
   static const String PROJECT_NAME = 'casa';
-  static const String PROJECT_VERSION = '1.0.1+2';
-  static const String ENTREPOT = 'assets/images/Entrepot.png';
-  static const String TERRAIN = 'assets/images/Terrain.png';
-  static const String BACKGROUNDONE = 'assets/images/backgroundOne.png';
-
-  static const String BACKGROUNDTHREE = 'assets/images/backgroundThree.png';
-  
-  static const String BACKGROUNDTWO = 'assets/images/backgroundTwo.png';
-  static const String FETE = 'assets/images/fete.png';
-  static const String FUNEBRE = 'assets/images/funebre.png';
-  static const String ILLUSTRATIONONE = 'assets/images/illustrationOne.png';
-  static const String ILLUSTRATIONTHREE = 'assets/images/illustrationThree.png';
-
-  static const String ILLUSTRATIONTWO = 'assets/images/illustrationTwo.png';
-  static const String LOGOCASA = 'assets/images/logoCasa.png';
+  static const String PROJECT_VERSION = '1.0.7+8';
 }
