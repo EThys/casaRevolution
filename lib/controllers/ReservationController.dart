@@ -144,24 +144,19 @@ class ReservationController with ChangeNotifier {
                 final itemMap = Map<String, dynamic>.from(item);
                 print("📋 [ReservationController] Structure item: ${itemMap.keys.toList()}");
                 
-                // Extraire userId depuis reservation.userId pour vérifier
                 final reservationData = itemMap['reservation'] as Map<String, dynamic>?;
-                if (reservationData != null) {
-                  final itemUserId = reservationData['userId']?.toString();
-                  print("📋 [ReservationController] userId dans réservation: $itemUserId, userId recherché: $userId");
-                  
-                  // Filtrer par userId si nécessaire (mais normalement l'API devrait déjà filtrer)
-                  if (itemUserId == userId) {
-                    final reservation = ReservationModel.fromJson(itemMap);
-                    userReservations.add(reservation);
-                  } else {
-                    print("⚠️ [ReservationController] Réservation ignorée: userId $itemUserId != $userId");
-                  }
-                } else {
-                  // Structure plate, pas de filtre nécessaire
-                  final reservation = ReservationModel.fromJson(itemMap);
-                  userReservations.add(reservation);
+                final itemUserId = reservationData?['userId']?.toString();
+                
+                print("📋 [ReservationController] userId dans réservation: $itemUserId, userId recherché: $userId");
+                
+                // On accepte la réservation même si userId est null (car l'endpoint API filtre déjà par user)
+                // On ne loggue un warning que si userId est présent ET différent
+                if (itemUserId != null && itemUserId != userId) {
+                  print("⚠️ [ReservationController] Warning: userId $itemUserId != $userId (mais ajouté car retourné par l'API)");
                 }
+                
+                final reservation = ReservationModel.fromJson(itemMap);
+                userReservations.add(reservation);
               }
             } catch (e, stack) {
               print("❌ [ReservationController] Erreur parsing réservation: $e");
@@ -541,6 +536,66 @@ class ReservationController with ChangeNotifier {
 
     final db = ReservationDatabaseHelper.instance;
     return await db.getUpcomingReservations(userId);
+  }
+
+  // Récupérer les réservations reçues en tant qu'hôte (sur mes propriétés)
+  Future<List<ReservationModel>> getHostReservations() async {
+    final userId = _getCurrentUserId();
+    if (userId == null) {
+      print("❌ Aucun user ID trouvé pour récupérer les réservations hôte");
+      return [];
+    }
+
+    print("🔍 Récupération des réservations hôte pour user: $userId");
+    
+    loading = true;
+    notifyListeners();
+
+    try {
+      // Construction de l'URL: reservations/user/host/{userId}
+      final url = "${Endpoints.reservations}/${Endpoints.reservationsByUser}/host/$userId";
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      
+      print("🌐 Requête réservations hôte: $url");
+      var response = await getData(url, token: tkn);
+
+      if (response != null && (response['reservations'] != null || response['data'] != null)) {
+        List<dynamic> reservationsData = response['reservations'] ?? response['data'];
+        
+        print("📋 [ReservationController] Nombre de réservations hôte: ${reservationsData.length}");
+
+        if (reservationsData is List && reservationsData.isNotEmpty) {
+          List<ReservationModel> hostReservations = [];
+          
+          for (var item in reservationsData) {
+            try {
+              if (item is Map) {
+                final itemMap = Map<String, dynamic>.from(item);
+                final reservation = ReservationModel.fromJson(itemMap);
+                hostReservations.add(reservation);
+              }
+            } catch (e, stack) {
+              print("❌ [ReservationController] Erreur parsing réservation hôte: $e");
+              print("🔍 Stack: $stack");
+            }
+          }
+
+          print("👤 Réservations hôte récupérées: ${hostReservations.length}");
+          
+          loading = false;
+          notifyListeners();
+          return hostReservations;
+        }
+      } else {
+         print("⚠️ Aucune réservation hôte trouvée ou format réponse invalide");
+      }
+    } catch (e) {
+      print("❌ Erreur réseau réservations hôte: $e");
+    }
+
+    loading = false;
+    notifyListeners();
+    return [];
   }
 
   // Vider le cache local des réservations de l'utilisateur
