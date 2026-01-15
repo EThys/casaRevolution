@@ -9,11 +9,13 @@ import '../utils/requetes.dart' show getData, postData, putData, deleteData, Htt
 class ServiceRequestController with ChangeNotifier {
   ServiceRequestController({this.stockage});
 
+
   GetStorage? stockage;
   bool loading = false;
   List<ServiceRequestModel> requests = [];
   List<ServiceRequestModel> providerRequests = [];
   ServiceRequestModel? currentRequest;
+
 
   // Récupérer les demandes de l'utilisateur connecté (demandeur)
   Future<void> fetchUserRequests() async {
