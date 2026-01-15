@@ -123,12 +123,40 @@ class NotificationController with ChangeNotifier {
       title: json['title'],
       description: json['description'],
       timestamp: ts,
-      icon: IconData(json['iconCode'], fontFamily: json['iconFontFamily']),
+      icon: _getIconForType(NotificationType.values[json['typeIndex'] ?? 5]),
       iconColor: Color(json['iconColorValue']),
       isRead: json['isRead'],
       category: json['category'],
       type: NotificationType.values[json['typeIndex'] ?? 5],
       data: json['data'],
     );
+  }
+
+  IconData _getIconForType(NotificationType type) {
+    switch (type) {
+      case NotificationType.message:
+        return Icons.message_rounded;
+      case NotificationType.appointment:
+        return Icons.event_rounded;
+      case NotificationType.payment:
+        return Icons.payment_rounded;
+      case NotificationType.security:
+        return Icons.security_rounded;
+      case NotificationType.promotion:
+        return Icons.local_offer_rounded;
+      case NotificationType.serviceRequest:
+        return Icons.build_circle_rounded;
+      case NotificationType.serviceResponse:
+        return Icons.reply_rounded;
+      case NotificationType.serviceAccepted:
+        return Icons.check_circle_rounded;
+      case NotificationType.serviceCompleted:
+        return Icons.task_alt_rounded;
+      case NotificationType.warning:
+        return Icons.warning_rounded;
+      case NotificationType.system:
+      default:
+        return Icons.notifications_rounded;
+    }
   }
 }
