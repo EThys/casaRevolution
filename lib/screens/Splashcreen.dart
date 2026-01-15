@@ -335,13 +335,13 @@ class _SplashScreenState extends State<SplashScreen>
                         child: Padding(
                           padding: EdgeInsets.symmetric(horizontal: 40),
                           child: Text(
-                            'Trouvez la maison qui vous ressemble',
+                            'Simple. Utile. Fiable.',
                             style: GoogleFonts.poppins(
                               fontSize: 16,
                               height: 1.5,
                               color: Colors.white.withOpacity(0.9),
-                              fontWeight: FontWeight.w400,
-                              letterSpacing: 0.5,
+                              fontWeight: FontWeight.w500, // Légèrement plus épais pour l'impact
+                              letterSpacing: 2.0, // Espacement augmenté pour le style épuré
                             ),
                             textAlign: TextAlign.center,
                           ),
