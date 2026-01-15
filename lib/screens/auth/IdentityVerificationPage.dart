@@ -28,6 +28,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   // Controllers
   final _addressController = TextEditingController();
   final _cardNumberController = TextEditingController();
+  final _phoneController = TextEditingController();
   
   // State
   int? _selectedCardTypeId; // ID du type de carte depuis l'API
@@ -37,12 +38,49 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   File? _imageBack;
   bool _isLoading = false;
   bool _isLoadingCards = false;
+  bool _isPhoneRequired = false;
   
   // Liste des types de cartes depuis l'API
   List<Map<String, dynamic>> _cardTypes = [];
   
   // Map pour suivre quels champs ont été touchés
   final Map<String, bool> _touchedFields = {};
+  
+  // Phone Logic from LoginScreen
+  String _selectedCountryCode = '+243'; // RDC par défaut
+  final Map<String, String> _countryFlags = {
+    '+243': '🇨🇩', // RDC
+    '+1': '🇺🇸', // USA
+    '+33': '🇫🇷', // France
+    '+32': '🇧🇪', // Belgique
+    '+242': '🇨🇬', // Congo Brazzaville
+    '+41': '🇨🇭', // Suisse
+    '+44': '🇬🇧', // UK
+    '+49': '🇩🇪', // Allemagne
+    '+20': '🇪🇬', // Égypte
+    '+27': '🇿🇦', // Afrique du Sud
+    '+212': '🇲🇦', // Maroc
+    '+213': '🇩🇿', // Algérie
+    '+216': '🇹🇳', // Tunisie
+    '+221': '🇸🇳', // Sénégal
+    '+225': '🇨🇮', // Côte d'Ivoire
+    '+237': '🇨🇲', // Cameroun
+    '+241': '🇬🇦', // Gabon
+    '+229': '🇧🇯', // Bénin
+    '+228': '🇹🇬', // Togo
+    '+223': '🇲🇱', // Mali
+    '+224': '🇬🇳', // Guinée
+    '+227': '🇳🇪', // Niger
+    '+226': '🇧🇫', // Burkina Faso
+    '+257': '🇧🇮', // Burundi
+    '+250': '🇷🇼', // Rwanda
+    '+256': '🇺🇬', // Ouganda
+    '+254': '🇰🇪', // Kenya
+    '+255': '🇹🇿', // Tanzanie
+    '+244': '🇦🇴', // Angola
+    '+234': '🇳🇬', // Nigeria
+    '+233': '🇬🇭', // Ghana
+  };
   
   final ImagePicker _picker = ImagePicker();
 
@@ -52,6 +90,17 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     // Pré-remplir avec les infos utilisateur si disponibles
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authCtrl = context.read<AuthentificationCtrl>();
+      
+      // Check phone logic
+      final userData = authCtrl.stockage?.read(StockageKeys.userKey);
+      final storedPhone = userData?['phone']?.toString();
+      
+      if (storedPhone == null || storedPhone.isEmpty || storedPhone == "null") {
+        setState(() {
+          _isPhoneRequired = true;
+        });
+      }
+      
       if (authCtrl.user.city != null) {
         _addressController.text = authCtrl.user.city ?? "";
       }
@@ -104,6 +153,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   void dispose() {
     _addressController.dispose();
     _cardNumberController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -174,6 +224,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     // Marquer tous les champs comme touchés lors de la soumission
     _touchedFields['address'] = true;
     _touchedFields['cardType'] = true;
+    if (_isPhoneRequired) _touchedFields['phone'] = true;
     // _touchedFields['cardNumber'] = true; // Numéro facultatif
 
     if (!_formKey.currentState!.validate()) {
@@ -282,7 +333,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         "numberCard": _cardNumberController.text, // Peut être vide
         "user": {
           "email": (userData['email']?.toString() ?? "").isEmpty ? "string" : userData['email']?.toString() ?? "",
-          "phone": userData['phone']?.toString() ?? "",
+          "phone": _isPhoneRequired ? _formatPhoneNumberForSubmit() : (userData['phone']?.toString() ?? ""),
           "city": userData['city']?.toString() ?? "",
           "country": userData['country']?.toString() ?? "",
         },
@@ -402,6 +453,11 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                   _touchedFields['address'] = true;
                 },
               ),
+              
+              if (_isPhoneRequired) ...[
+                SizedBox(height: 16),
+                _buildPhoneField(),
+              ],
               
               SizedBox(height: 24),
               _buildSectionTitle("Document d'Identité"),
@@ -636,5 +692,111 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       return "Une erreur est survenue. Veuillez réessayer.";
     }
     return error; 
+  }
+
+  // --- Phone Utilities adapted from LoginScreen ---
+
+  Widget _buildPhoneField() {
+    return TextFormField(
+      controller: _phoneController,
+      style: TextStyle(
+        color: Colors.black87,
+        fontSize: 16,
+      ),
+      keyboardType: TextInputType.phone,
+      decoration: InputDecoration(
+        labelText: 'Numéro de téléphone',
+        labelStyle: TextStyle(color: Colors.black87),
+        hintText: '810000000',
+        hintStyle: TextStyle(color: Colors.grey[600]),
+        prefixIcon: _buildCountryCodeDropdown(),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.primaryBlue, width: 2)),
+        filled: true,
+        fillColor: Colors.grey[50], 
+      ),
+      validator: (val) {
+        if (!_isPhoneRequired) return null;
+        if (!_touchedFields.containsKey('phone') && _formKey.currentState?.validate() != false) {
+           return null;
+        }
+        if (val == null || val.isEmpty) return "Veuillez entrer votre numéro";
+        
+        final cleaned = val.replaceAll(RegExp(r'[^\d]'), '');
+        
+        if (_selectedCountryCode == '+243') {
+           if (cleaned.length != 9) return "Le numéro RDC doit avoir 9 chiffres";
+           if (!RegExp(r'^[89]').hasMatch(cleaned)) return "Le numéro doit commencer par 8 ou 9";
+        } else {
+           if (cleaned.length < 8) return "Numéro invalide";
+        }
+        return null;
+      },
+      onChanged: (value) {
+         _touchedFields['phone'] = true;
+         // Clean leading zero
+         String cleaned = value.replaceAll(RegExp(r'[^\d]'), '');
+         if (cleaned.startsWith('0') && cleaned.length > 1) {
+            cleaned = cleaned.substring(1);
+             _phoneController.value = TextEditingValue(
+                text: cleaned,
+                selection: TextSelection.collapsed(offset: cleaned.length),
+             );
+         }
+      }
+    );
+  }
+
+  Widget _buildCountryCodeDropdown() {
+    return Container(
+      width: 110,
+      margin: EdgeInsets.only(right: 8),
+      padding: EdgeInsets.only(left: 12),
+      decoration: BoxDecoration(
+         border: Border(right: BorderSide(color: Colors.grey[300]!))
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedCountryCode,
+          isExpanded: true,
+          icon: Icon(Icons.arrow_drop_down_rounded, color: AppColors.primaryBlue, size: 20),
+          style: TextStyle(color: Colors.black87, fontSize: 13, fontWeight: FontWeight.w500),
+          items: _countryFlags.entries.map((entry) {
+            return DropdownMenuItem(
+              value: entry.key,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(entry.value, style: TextStyle(fontSize: 14)),
+                  SizedBox(width: 4),
+                  Text(entry.key, style: TextStyle(fontSize: 13)),
+                ],
+              ),
+            );
+          }).toList(),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              setState(() {
+                _selectedCountryCode = newValue;
+              });
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  String _formatPhoneNumberForSubmit() {
+     String raw = _phoneController.text.trim();
+     String cleaned = raw.replaceAll(RegExp(r'[^\d]'), '');
+     if (cleaned.startsWith('0')) {
+       cleaned = cleaned.substring(1);
+     }
+     // Si l'utilisateur n'a pas déjà mis l'indicatif (ce qui est probable vu l'UI)
+     if (!cleaned.startsWith(_selectedCountryCode.replaceAll('+', ''))) {
+        return "$_selectedCountryCode$cleaned";
+     }
+     return "+$cleaned";
   }
 }
