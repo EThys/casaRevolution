@@ -25,7 +25,7 @@ Future<dynamic> getData(String url_api, {String? token}) async {
     var reponse = await http.get(url, headers: headers).timeout(Duration(seconds: 30));
 
     if (reponse.statusCode == 200) {
-      return jsonDecode(reponse.body);
+      return jsonDecode(utf8.decode(reponse.bodyBytes));
     }
     return null;
   } catch (e, trace) {
