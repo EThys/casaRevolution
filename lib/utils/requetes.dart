@@ -27,6 +27,12 @@ Future<dynamic> getData(String url_api, {String? token}) async {
     if (reponse.statusCode == 200) {
       return jsonDecode(utf8.decode(reponse.bodyBytes));
     }
+    print("⚠️ [getData] Erreur API - Status: ${reponse.statusCode} - URL: $url");
+    try {
+      print("📄 [getData] Body: ${reponse.body}");
+    } catch (e) {
+      print("📄 [getData] Body (non-printable): ${reponse.bodyBytes.length} bytes");
+    }
     return null;
   } catch (e, trace) {
     if (e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
