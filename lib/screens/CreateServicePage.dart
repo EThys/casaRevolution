@@ -2744,6 +2744,7 @@ class _CreateServicePageState extends State<CreateServicePage> {
             context,
             Routes.bottomPageRoute,
             (route) => false,
+            arguments: {'shouldRefresh': true},
           );
         }
       } else {
