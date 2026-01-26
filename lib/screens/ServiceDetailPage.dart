@@ -40,7 +40,14 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   void initState() {
     super.initState();
     initializeDateFormatting('fr_FR', null);
-    final images = widget.service.images ?? [];
+    
+    // Ensure images list includes profile if images is empty or null
+    List<String> images = widget.service.images ?? [];
+    if (images.isEmpty && widget.service.profile != null && widget.service.profile!.isNotEmpty) {
+      images = [widget.service.profile!];
+      widget.service.images = images; // Update the service model
+    }
+    
     _imageController = PageController(initialPage: 0);
 
     // Démarrage du défilement automatique si plusieurs images
@@ -305,6 +312,7 @@ Découvrez ce service sur Casa!
 
                   // Prix
                   Container(
+                    width: double.infinity,
                     padding: EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -319,57 +327,25 @@ Découvrez ce service sur Casa!
                         ),
                       ],
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Prix',
-                              style: GoogleFonts.inter(
-                                fontSize: 14,
-                                color: Colors.white.withOpacity(0.9),
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              _getPriceRange(widget.service),
-                              style: GoogleFonts.inter(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (widget.service.experience != null)
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  '${widget.service.experience}',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                Text(
-                                  'Expérience',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 10,
-                                    color: Colors.white.withOpacity(0.9),
-                                  ),
-                                ),
-                              ],
-                            ),
+                        Text(
+                          'Prix',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            color: Colors.white.withOpacity(0.9),
                           ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          _getPriceRange(widget.service),
+                          style: GoogleFonts.inter(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -392,6 +368,68 @@ Découvrez ce service sur Casa!
                         fontSize: 15,
                         color: Colors.grey[700],
                         height: 1.6,
+                      ),
+                    ),
+                    SizedBox(height: 24),
+                  ],
+
+                  // Expérience professionnelle
+                  if (widget.service.experience != null && widget.service.experience!.isNotEmpty) ...[
+                    Container(
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [primaryColor.withOpacity(0.1), accentColor.withOpacity(0.1)],
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              Icons.work_history,
+                              color: primaryColor,
+                              size: 28,
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Expérience professionnelle',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                 Text(
+                                  _formatExperience(widget.service.experience),
+                                  style: GoogleFonts.inter(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: darkBlue,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     SizedBox(height: 24),
@@ -1138,5 +1176,13 @@ Découvrez ce service sur Casa!
         ],
       ),
     );
+  }
+
+  String _formatExperience(String? experience) {
+    if (experience == null || experience.isEmpty) return 'Non précisée';
+    final n = int.tryParse(experience);
+    if (n == null) return experience; // Return original if not a pure number
+    if (n == 1) return '1 an';
+    return '$n ans';
   }
 }
