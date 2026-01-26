@@ -1861,6 +1861,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             context,
             Routes.bottomPageRoute,
             (route) => false,
+            arguments: {'shouldRefresh': true},
           );
         }
       } else {
