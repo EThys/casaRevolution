@@ -28,7 +28,7 @@ import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 
 import '../utils/StockageKeys.dart';
-import '../utils/requetes.dart' show HttpResponse;
+import '../utils/requetes.dart' show HttpResponse, getData;
 import 'package:casa/controllers/AgenceController.dart';
 import 'package:casa/screens/forms/TerrainFormFields.dart';
 import 'package:casa/screens/forms/BureauFormFields.dart';
@@ -143,6 +143,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   bool _loadingFeatures = false;
   int _selectedDeviseId = 2; // Par défaut USD (2), FC (1)
 
+
   // Location variables
   CityModel? _selectedCity;
   DistrictModel? _selectedDistrict;
@@ -151,11 +152,24 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   bool get _isKinshasaSelected =>
       (_selectedCity?.name?.toLowerCase().trim() ?? '') == 'kinshasa' ||
       (_cityTextController.text.toLowerCase().trim() == 'kinshasa');
+  
+  bool get _isMatadiSelected =>
+      (_selectedCity?.name?.toLowerCase().trim() ?? '') == 'matadi' ||
+      (_cityTextController.text.toLowerCase().trim() == 'matadi');
 
   List<CityModel> _availableCities = [];
   List<DistrictModel> _availableDistricts = [];
   List<CommuneModel> _availableCommunes = [];
   List<QuartierModel> _availableQuartiers = [];
+  
+  // Kinshasa quartiers from API
+  List<Map<String, dynamic>> _kinshasaQuartiers = [];
+  Map<String, dynamic>? _selectedKinshasaQuartier;
+  bool _isLoadingQuartiers = false;
+  
+  // Matadi communes
+  final List<String> _matadiCommunes = ['Matadi', 'Nzanza', 'Mvuzi'];
+
 
   // Validation errors storage - PAR ÉTAPE ET PAR CHAMP
   Map<String, String> _fieldErrors = {};
@@ -658,6 +672,33 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         _selectedQuartier = null;
       }
     });
+  }
+
+  Future<void> _loadKinshasaQuartiers() async {
+    if (_isLoadingQuartiers || _kinshasaQuartiers.isNotEmpty) return;
+    
+    setState(() => _isLoadingQuartiers = true);
+    
+    try {
+      final response = await getData('quartiers'); // Endpoint corrigé, getData ajoute déjà /api
+      
+      if (response != null && response is Map) {
+        if (mounted) {
+          setState(() {
+            _kinshasaQuartiers = List<Map<String, dynamic>>.from(response['quartiers'] ?? []);
+          });
+          print('✅ ${_kinshasaQuartiers.length} quartiers de Kinshasa chargés depuis l\'API');
+        }
+      } else {
+        print('⚠️ Erreur API quartiers: réponse null ou invalide');
+      }
+    } catch (e) {
+      print('❌ Erreur chargement quartiers Kinshasa: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingQuartiers = false);
+      }
+    }
   }
 
   void _updateTotalRooms() {
@@ -2959,7 +3000,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           SizedBox(height: _mediumSpace),
 
           if (_isKinshasaSelected) ...[
-            // Dropdowns premium pour la localisation
+            // Dropdowns premium pour la localisation Kinshasa
             LayoutBuilder(
               builder: (context, constraints) {
                 return Row(
@@ -3025,24 +3066,41 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                 );
               },
             ),
-            _buildPremiumQuartierDropdown(),
-            SizedBox(height: _mediumSpace), // Espace entre quartier et adresse
+            SizedBox(height: _smallSpace),
+            // Quartier dropdown avec données de l'API
+            _buildKinshasaQuartierDropdown(),
+            SizedBox(height: _mediumSpace),
+          ] else if (_isMatadiSelected) ...[
+            // Mode Matadi : dropdown pour communes spécifiques
+            _buildMatadiCommuneDropdown(),
+            SizedBox(height: _smallSpace),
+            // Champ texte libre pour quartier
+            _buildModernTextField(
+              controller: _quartierTextController,
+              label: 'Quartier',
+              hint: 'Entrez le quartier',
+              icon: Icons.location_city,
+              fieldKey: 'quartier',
+            ),
+            SizedBox(height: _mediumSpace),
           ] else ...[
-            // Mode hors Kinshasa : champs avec suggestions/autocomplete
-            _buildSuggestionTextField(
-              label: 'Commune',
+            // Mode autres villes : champs texte libres
+            _buildModernTextField(
               controller: _communeTextController,
+              label: 'Commune',
+              hint: 'Entrez la commune',
+              icon: Icons.place_rounded,
               fieldKey: 'commune',
-              suggestions: _availableCommunes.map((c) => c.name ?? '').where((n) => n.isNotEmpty).toList(),
             ),
             SizedBox(height: _smallSpace),
-            _buildSuggestionTextField(
-              label: 'Quartier',
+            _buildModernTextField(
               controller: _quartierTextController,
+              label: 'Quartier',
+              hint: 'Entrez le quartier',
+              icon: Icons.location_city,
               fieldKey: 'quartier',
-              suggestions: _availableQuartiers.map((q) => q.name ?? '').where((n) => n.isNotEmpty).toList(),
             ),
-            SizedBox(height: _mediumSpace), // Espace entre quartier et adresse
+            SizedBox(height: _mediumSpace),
           ],
 
           _buildModernTextField(
@@ -3590,11 +3648,15 @@ Widget _buildStep3() {
               if (selection.toLowerCase().trim() == 'kinshasa') {
                 _selectedCity = kin.name == null ? _selectedCity : kin;
                 _updateDistrictsForCity();
+                // Charger les quartiers de Kinshasa depuis l'API
+                _loadKinshasaQuartiers();
               } else {
                 _selectedCity = null;
                 _selectedDistrict = null;
                 _selectedCommune = null;
                 _selectedQuartier = null;
+                _selectedKinshasaQuartier = null;
+                _kinshasaQuartiers = [];
               }
               _removeFieldError(1, 'city');
               _validateStep1();
@@ -3655,6 +3717,242 @@ Widget _buildStep3() {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildKinshasaQuartierDropdown() {
+    final hasError = _getFieldError(1, 'quartier') != null;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: _smallSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(bottom: 6, left: 4),
+            child: Row(
+              children: [
+                Text(
+                  'Quartier',
+                  style: TextStyle(
+                    fontSize: _bodySize,
+                    fontWeight: FontWeight.w600,
+                    color: hasError ? _errorColor : _darkColor,
+                  ),
+                ),
+                Text(
+                  '*',
+                  style: TextStyle(
+                    color: _errorColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Autocomplete<Map<String, dynamic>>(
+            optionsBuilder: (TextEditingValue textEditingValue) {
+              if (textEditingValue.text.isEmpty) {
+                return const Iterable<Map<String, dynamic>>.empty();
+              }
+              return _kinshasaQuartiers.where((option) {
+                return (option['name'] ?? '').toString().toLowerCase()
+                    .contains(textEditingValue.text.toLowerCase());
+              });
+            },
+            displayStringForOption: (option) => option['name'] ?? '',
+            onSelected: (selection) {
+              _markFieldTouched('quartier');
+              _clickCount++;
+              setState(() {
+                _selectedKinshasaQuartier = selection;
+                _quartierTextController.text = selection['name'] ?? '';
+                _removeFieldError(1, 'quartier');
+                _validateStep1();
+                _saveDraft();
+              });
+              _trackSelection('quartier', selection['name'] ?? 'unknown');
+            },
+            fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+              // Préremplir si une sélection existe déjà
+              if (_selectedKinshasaQuartier != null && controller.text.isEmpty) {
+                controller.text = _selectedKinshasaQuartier!['name'];
+              }
+              
+              return TextField(
+                controller: controller,
+                focusNode: focusNode,
+                style: TextStyle(fontSize: _bodySize),
+                decoration: InputDecoration(
+                  hintText: _isLoadingQuartiers ? 'Chargement...' : 'Rechercher un quartier...',
+                  prefixIcon: Icon(Icons.search, color: hasError ? _errorColor : _primaryColor),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: hasError ? _errorColor : _borderColor,
+                      width: hasError ? 1.5 : 1,
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: hasError ? _errorColor : _borderColor,
+                      width: hasError ? 1.5 : 1,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: hasError ? _errorColor : _primaryColor,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                onChanged: (val) {
+                  // Si l'utilisateur efface, on invalide la sélection
+                  if (val.isEmpty && _selectedKinshasaQuartier != null) {
+                    setState(() {
+                      _selectedKinshasaQuartier = null;
+                    });
+                  }
+                },
+                onSubmitted: (val) => onFieldSubmitted(),
+              );
+            },
+          ),
+          if (hasError)
+            Padding(
+              padding: EdgeInsets.only(top: 6, left: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                  SizedBox(width: 6),
+                  Text(
+                    _getFieldError(1, 'quartier')!,
+                    style: TextStyle(
+                      color: _errorColor,
+                      fontSize: _captionSize,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMatadiCommuneDropdown() {
+    final hasError = _getFieldError(1, 'commune') != null;
+    final currentValue = _communeTextController.text.isNotEmpty ? _communeTextController.text : null;
+
+    return Container(
+      margin: EdgeInsets.only(bottom: _smallSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: EdgeInsets.only(bottom: 6, left: 4),
+            child: Row(
+              children: [
+                Text(
+                  'Commune',
+                  style: TextStyle(
+                    fontSize: _bodySize,
+                    fontWeight: FontWeight.w600,
+                    color: hasError ? _errorColor : _darkColor,
+                  ),
+                ),
+                Text(
+                  '*',
+                  style: TextStyle(
+                    color: _errorColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          DropdownButtonFormField<String>(
+            value: _matadiCommunes.contains(currentValue) ? currentValue : null,
+            decoration: InputDecoration(
+              hintText: 'Sélectionnez une commune',
+              hintStyle: TextStyle(fontSize: _bodySize, color: Colors.grey.shade500),
+              prefixIcon: Icon(
+                Icons.place_rounded,
+                color: hasError ? _errorColor : _primaryColor,
+                size: 20,
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: hasError ? _errorColor : _borderColor,
+                  width: hasError ? 1.5 : 1,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: hasError ? _errorColor : _borderColor,
+                  width: hasError ? 1.5 : 1,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: hasError ? _errorColor : _primaryColor,
+                  width: 2,
+                ),
+              ),
+            ),
+            items: _matadiCommunes.map((commune) {
+              return DropdownMenuItem<String>(
+                value: commune,
+                child: Text(
+                  commune,
+                  style: TextStyle(fontSize: _bodySize),
+                ),
+              );
+            }).toList(),
+            onChanged: (String? newValue) {
+              _markFieldTouched('commune');
+              _clickCount++;
+              setState(() {
+                _communeTextController.text = newValue ?? '';
+                _removeFieldError(1, 'commune');
+                _validateStep1();
+                _saveDraft();
+              });
+              _trackSelection('commune', newValue ?? 'unknown');
+            },
+          ),
+          if (hasError)
+            Padding(
+              padding: EdgeInsets.only(top: 6, left: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                  SizedBox(width: 6),
+                  Text(
+                    _getFieldError(1, 'commune')!,
+                    style: TextStyle(
+                      color: _errorColor,
+                      fontSize: _captionSize,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -4795,11 +5093,14 @@ Widget _buildStep3() {
       String quartier;
       
       if (_isKinshasaSelected) {
-        quartierValue = _selectedQuartier?.name ?? 
+        // Pour Kinshasa, utiliser le quartier sélectionné depuis l'API
+        quartierValue = _selectedKinshasaQuartier?['name'] ?? 
+                       _selectedQuartier?.name ?? 
                        (_addressController.text.split(',').isNotEmpty ? _addressController.text.split(',').last.trim() : "") ?? 
                        "Non spécifié";
         quartier = quartierValue;
       } else {
+        // Pour autres villes, utiliser le champ texte
         quartierValue = _quartierTextController.text.trim().isNotEmpty 
             ? _quartierTextController.text.trim() 
             : (_addressController.text.split(',').isNotEmpty ? _addressController.text.split(',').last.trim() : "") ?? 
@@ -5311,6 +5612,7 @@ Widget _buildStep3() {
             context,
             Routes.bottomPageRoute,
                 (route) => false,
+            arguments: {'shouldRefresh': true},
           );
         }
       } else {
