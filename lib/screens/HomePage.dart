@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
@@ -45,8 +46,13 @@ import 'package:casa/services/ServerHealthService.dart';
 import 'package:casa/controllers/NotificationController.dart';
 import 'package:casa/controllers/TypeAccountController.dart';
 import '../utils/PulseBadge.dart';
+import '../widgets/OfflineBanner.dart';
 
 class HomePage extends StatefulWidget {
+  final bool shouldRefresh;
+
+  HomePage({this.shouldRefresh = false});
+
   @override
   _HomePageState createState() => _HomePageState();
 }
@@ -91,6 +97,12 @@ class _HomePageState extends State<HomePage> {
       
       ServerHealthService().startMonitoring(context, notifCtrl);
     });
+
+    if (widget.shouldRefresh) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _refreshController.requestRefresh();
+      });
+    }
   }
 
   @override
@@ -594,20 +606,22 @@ class _HomePageState extends State<HomePage> {
       backgroundColor: Colors.grey[50],
       drawer: _buildDrawer(),
       appBar: _buildAppBar(),
-      body: SmartRefresher(
-        controller: _refreshController,
-        enablePullDown: true,
-        enablePullUp: false,
-        header: WaterDropMaterialHeader(
-          backgroundColor: primaryColor,
-          color: Colors.white,
-        ),
-        onRefresh: () async {
-          await _handlePullToRefresh(propertyCtrl);
-        },
-        child: SingleChildScrollView(
-          physics: NeverScrollableScrollPhysics(),
-          child: Column(
+      body: Stack(
+        children: [
+          SmartRefresher(
+            controller: _refreshController,
+            enablePullDown: true,
+            enablePullUp: false,
+            header: WaterDropMaterialHeader(
+              backgroundColor: primaryColor,
+              color: Colors.white,
+            ),
+            onRefresh: () async {
+              await _handlePullToRefresh(propertyCtrl);
+            },
+            child: SingleChildScrollView(
+              physics: NeverScrollableScrollPhysics(),
+              child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // ============================================
@@ -622,7 +636,7 @@ class _HomePageState extends State<HomePage> {
               if (propertyCtrl.syncing && !_isManualRefresh)
                 Padding(
                   padding: EdgeInsets.only(bottom: 16),
-                  child: _buildMinimalSyncIndicator(message: "Tirez pour actualiser et corriger les erreurs"),
+                child: _buildMinimalSyncIndicator(message: "Mise à jour des données..."),
                 ),
 
               if (_isManualRefresh && propertyCtrl.syncing)
@@ -781,6 +795,9 @@ class _HomePageState extends State<HomePage> {
             ],
           ),
         ),
+      ),
+          OfflineBanner(),
+        ],
       ),
       // floatingActionButton: FloatingActionButton(
       //   heroTag: "home_page_fab", // Tag unique pour éviter les conflits Hero
@@ -2762,26 +2779,19 @@ class _HomePageState extends State<HomePage> {
 
     final double? minP = service.minPrice != null ? service.minPrice!.toDouble() : null;
     final double? maxP = service.maxPrice != null ? service.maxPrice!.toDouble() : null;
+    final String currency = service.currency;
 
-    if (minP != null && maxP != null) {
-      if (minP == maxP) return '${_formatServicePrice(minP)} \$';
-      return '${_formatServicePrice(minP)} - ${_formatServicePrice(maxP)} \$';
-    } else if (minP != null) {
-      return 'À partir de ${_formatServicePrice(minP)} \$';
+    if (minP != null) {
+      return 'A partir de ${_formatServicePrice(minP)} $currency';
     } else if (maxP != null) {
-      return 'Jusqu\'à ${_formatServicePrice(maxP)} \$';
+      return 'Jusqu\'à ${_formatServicePrice(maxP)} $currency';
     }
     
     return 'Prix sur demande';
   }
 
   String _formatServicePrice(num price) {
-    if (price >= 1000000) {
-      return '${(price / 1000000).toStringAsFixed(1)}M';
-    } else if (price >= 1000) {
-      return (price / 1000).toStringAsFixed(0) + 'K';
-    }
-    return price.toStringAsFixed(0);
+    return NumberFormat('#,###').format(price);
   }
 
   Widget _buildOtherServicesGrid({
@@ -2810,23 +2820,23 @@ class _HomePageState extends State<HomePage> {
     // Filtrer et trier les services par priorité
     final List<ServiceType> availableServiceTypes = priorityServiceTypes
         .where((type) => groupedServices.containsKey(type) && groupedServices[type]!.isNotEmpty)
-        .take(6) // Limiter à 6 services pour la grille 2x3
+        .take(4) // Limiter à 4 services pour la grille 2x2
         .toList();
 
     if (isLoading || availableServiceTypes.isEmpty) {
       return Container(
-        height: 200,
+        height: 380, // Augmenté pour 2 rangées plus hautes
         margin: EdgeInsets.symmetric(horizontal: 24),
         child: GridView.builder(
           shrinkWrap: true,
           physics: NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
+            crossAxisCount: 2, // 2 colonnes
+            crossAxisSpacing: 16, // Espacement un peu plus large
+            mainAxisSpacing: 16,
             childAspectRatio: 0.85,
           ),
-          itemCount: 6,
+          itemCount: 4,
           itemBuilder: (context, index) {
             return Shimmer.fromColors(
               baseColor: Colors.grey[300]!,
@@ -2849,11 +2859,10 @@ class _HomePageState extends State<HomePage> {
         shrinkWrap: true,
         physics: NeverScrollableScrollPhysics(),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          // Un ratio plus petit pour donner plus de hauteur et éviter l'overflow
-          childAspectRatio: 0.72,
+          crossAxisCount: 2, // 2 colonnes au lieu de 3
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+          childAspectRatio: 1.1, // Ratio plus large pour laisser de la place au titre
         ),
         itemCount: availableServiceTypes.length,
         itemBuilder: (context, index) {
