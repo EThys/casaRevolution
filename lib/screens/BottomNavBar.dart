@@ -14,7 +14,8 @@ import '../utils/AppColors.dart';
 import 'package:casa/screens/auth/IdentityVerificationPage.dart';
 
 class BottomNavBar extends StatefulWidget {
-  const BottomNavBar({Key? key}) : super(key: key);
+  final bool shouldRefresh;
+  const BottomNavBar({Key? key, this.shouldRefresh = false}) : super(key: key);
 
   @override
   State<BottomNavBar> createState() => _BottomNavBarState();
@@ -27,7 +28,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
   bool _isKeyboardVisible = false;
 
   late final List<Widget> _screens = [
-    HomePage(),
+    HomePage(shouldRefresh: widget.shouldRefresh),
     PropertySearchPage(),
     FavoritesPage(),
     ProfilePage()
