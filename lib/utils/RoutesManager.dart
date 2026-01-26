@@ -64,7 +64,9 @@ class RoutesManager {
       case Routes.splashRoute:
         return MaterialPageRoute(builder: (_)=>SplashScreen());
       case Routes.bottomPageRoute:
-        return MaterialPageRoute(builder: (_)=>BottomNavBar());
+        final args = r.arguments as Map<String, dynamic>?;
+        final bool shouldRefresh = args?['shouldRefresh'] ?? false;
+        return MaterialPageRoute(builder: (_)=>BottomNavBar(shouldRefresh: shouldRefresh));
       case Routes.commissionnaireDashboardPageRoute:
         return MaterialPageRoute(builder: (_)=>CommissionDashboardPage());
       case Routes.bookingVisitPageRoute:
