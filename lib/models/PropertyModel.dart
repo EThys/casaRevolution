@@ -196,13 +196,22 @@ class PropertyModel {
 
   factory PropertyModel.fromJson(Map<String, dynamic> json) {
     // Détection de la nouvelle structure imbriquée
-    final Map<String, dynamic> propertyNode = json["property"] is Map 
-        ? json["property"] 
-        : (json["bureau"] is Map 
-            ? json["bureau"] 
-            : (json["festive"] is Map 
-                ? json["festive"] 
-                : (json["funeraire"] is Map ? json["funeraire"] : json)));
+    Map<String, dynamic> propertyNode = json["property"] is Map ? json["property"] : json;
+    
+    // Si "property" n'est pas trouvé, chercher les clés spécialisées
+    if (json["property"] == null) {
+      final specializedKeys = [
+        "terrain", "bureau", "bureaux", "vacance", "vacances", 
+        "festive", "festives", "funeraire", "funeraires", "hotel", "salle"
+      ];
+      
+      for (final key in specializedKeys) {
+        if (json[key] is Map) {
+          propertyNode = json[key];
+          break;
+        }
+      }
+    }
                 
     final dynamic imagesNode = json["images"];
     final Map<String, dynamic> addressNode = json["address"] is Map ? json["address"] : json;
@@ -304,40 +313,13 @@ class PropertyModel {
           ((json["features"] ?? json["feature"] ?? propertyNode["features"]) as List).where((x) => x != null).map((x) => PropertyFeatureModel.fromJson(x)))
           : <PropertyFeatureModel>[],
           
-      propertyImage: (imagesNode is List)
-          ? List<PropertyImageModel>.from(
-          (imagesNode as List).where((x) => x != null).map((x) => PropertyImageModel.fromJson(x)))
-          : ((imagesNode is Map && imagesNode["main"] is List)
-              ? List<PropertyImageModel>.from(
-              (imagesNode["main"] as List).where((x) => x != null).map((x) => PropertyImageModel.fromJson(x)))
-              : (json["propertyImage"] is List
-                  ? List<PropertyImageModel>.from(
-                  (json["propertyImage"] as List).where((x) => x != null).map((x) => PropertyImageModel.fromJson(x)))
-                  : <PropertyImageModel>[])),
-          
-      propertyImageRoom: (imagesNode is Map && imagesNode["room"] is List)
-          ? List<PropertyImageRoomModel>.from(
-          (imagesNode["room"] as List).where((x) => x != null).map((x) => PropertyImageRoomModel.fromJson(x)))
-          : ((json["propertyImageRoom"] ?? propertyNode["propertyImageRoom"]) is List
-              ? List<PropertyImageRoomModel>.from(
-              ((json["propertyImageRoom"] ?? propertyNode["propertyImageRoom"]) as List).where((x) => x != null).map((x) => PropertyImageRoomModel.fromJson(x)))
-              : <PropertyImageRoomModel>[]),
-          
-      propertyImageLivingRoom: (imagesNode is Map && imagesNode["living"] is List)
-          ? List<PropertyImageLivingRoomModel>.from(
-          (imagesNode["living"] as List).where((x) => x != null).map((x) => PropertyImageLivingRoomModel.fromJson(x)))
-          : ((json["propertyImageLivingRoom"] ?? propertyNode["propertyImageLivingRoom"]) is List
-              ? List<PropertyImageLivingRoomModel>.from(
-              ((json["propertyImageLivingRoom"] ?? propertyNode["propertyImageLivingRoom"]) as List).where((x) => x != null).map((x) => PropertyImageLivingRoomModel.fromJson(x)))
-              : <PropertyImageLivingRoomModel>[]),
-          
-      propertyImageKitchen: (imagesNode is Map && imagesNode["kitchen"] is List)
-          ? List<PropertyImageKitchenModel>.from(
-          (imagesNode["kitchen"] as List).where((x) => x != null).map((x) => PropertyImageKitchenModel.fromJson(x)))
-          : ((json["propertyImageKitchen"] ?? propertyNode["propertyImageKitchen"]) is List
-              ? List<PropertyImageKitchenModel>.from(
-              ((json["propertyImageKitchen"] ?? propertyNode["propertyImageKitchen"]) as List).where((x) => x != null).map((x) => PropertyImageKitchenModel.fromJson(x)))
-              : <PropertyImageKitchenModel>[]),
+      propertyImage: _parseImages(json['images'] ?? json['propertyImage']),
+      
+      propertyImageRoom: _parseRoomImages(json['images'] ?? json['propertyImageRoom']),
+      
+      propertyImageLivingRoom: _parseLivingRoomImages(json['images'] ?? json['propertyImageLivingRoom']),
+      
+      propertyImageKitchen: _parseKitchenImages(json['images'] ?? json['propertyImageKitchen']),
 
     );
   }
@@ -665,5 +647,68 @@ class PropertyModel {
       propertyImageLivingRoom: propertyImageLivingRoom ?? this.propertyImageLivingRoom,
       propertyImageKitchen: propertyImageKitchen ?? this.propertyImageKitchen,
     );
+  }
+
+  static List<PropertyImageModel> _parseImages(dynamic data) {
+    if (data == null) return [];
+    try {
+      if (data is List) {
+        return List<PropertyImageModel>.from(data.where((x) => x != null).map((x) {
+             if (x is String) return PropertyImageModel(path: x);
+             return PropertyImageModel.fromJson(x);
+        }));
+      }
+      if (data is Map && data['main'] is List) {
+        return List<PropertyImageModel>.from((data['main'] as List).where((x) => x != null).map((x) => PropertyImageModel.fromJson(x)));
+      }
+    } catch (e) {
+      print("⚠️ Error parsing images: $e");
+    }
+    return [];
+  }
+
+  static List<PropertyImageRoomModel> _parseRoomImages(dynamic data) {
+    if (data == null) return [];
+    try {
+      if (data is List) {
+        return List<PropertyImageRoomModel>.from(data.where((x) => x != null).map((x) => PropertyImageRoomModel.fromJson(x)));
+      }
+      if (data is Map && data['room'] is List) {
+         return List<PropertyImageRoomModel>.from((data['room'] as List).where((x) => x != null).map((x) => PropertyImageRoomModel.fromJson(x)));
+      }
+    } catch (e) {
+      print("⚠️ Error parsing room images: $e");
+    }
+    return [];
+  }
+
+  static List<PropertyImageLivingRoomModel> _parseLivingRoomImages(dynamic data) {
+     if (data == null) return [];
+    try {
+      if (data is List) {
+        return List<PropertyImageLivingRoomModel>.from(data.where((x) => x != null).map((x) => PropertyImageLivingRoomModel.fromJson(x)));
+      }
+      if (data is Map && data['living'] is List) {
+         return List<PropertyImageLivingRoomModel>.from((data['living'] as List).where((x) => x != null).map((x) => PropertyImageLivingRoomModel.fromJson(x)));
+      }
+    } catch (e) {
+      print("⚠️ Error parsing living room images: $e");
+    }
+    return [];
+  }
+
+  static List<PropertyImageKitchenModel> _parseKitchenImages(dynamic data) {
+    if (data == null) return [];
+    try {
+      if (data is List) {
+        return List<PropertyImageKitchenModel>.from(data.where((x) => x != null).map((x) => PropertyImageKitchenModel.fromJson(x)));
+      }
+      if (data is Map && data['kitchen'] is List) {
+         return List<PropertyImageKitchenModel>.from((data['kitchen'] as List).where((x) => x != null).map((x) => PropertyImageKitchenModel.fromJson(x)));
+      }
+    } catch (e) {
+      print("⚠️ Error parsing kitchen images: $e");
+    }
+    return [];
   }
 }
