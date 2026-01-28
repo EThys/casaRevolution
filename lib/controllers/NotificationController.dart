@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import '../screens/NotificationPage.dart'; // Pour NotificationItem et NotificationType
+import '../utils/StompService.dart';
 
 class NotificationController with ChangeNotifier {
   final GetStorage _storage = GetStorage();
@@ -20,12 +21,67 @@ class NotificationController with ChangeNotifier {
       _storageKey = 'user_notifications_$_currentUserId';
     }
     _loadNotifications();
+    _initStompListener();
+  }
+
+  void _initStompListener() {
+    StompService().messages.listen((data) {
+      print("🔔 [NotificationController] Message reçu via WebSocket: $data");
+      
+      final newItem = NotificationItem(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        title: data['title'] ?? 'Nouvelle notification',
+        description: data['message'] ?? data['body'] ?? '',
+        timestamp: DateTime.now(),
+        icon: _getIconForType(_parseType(data['type'])),
+        iconColor: _getColorForType(_parseType(data['type'])),
+        isRead: false,
+        category: data['category'] ?? 'Système',
+        type: _parseType(data['type']),
+        data: data,
+      );
+
+      addNotification(newItem);
+    });
+  }
+
+  NotificationType _parseType(String? type) {
+    if (type == null) return NotificationType.system;
+    switch (type.toLowerCase()) {
+      case 'message': return NotificationType.message;
+      case 'appointment': return NotificationType.appointment;
+      case 'payment': return NotificationType.payment;
+      case 'security': return NotificationType.security;
+      case 'promotion': return NotificationType.promotion;
+      case 'service_request': return NotificationType.serviceRequest;
+      case 'service_response': return NotificationType.serviceResponse;
+      case 'service_accepted': return NotificationType.serviceAccepted;
+      case 'service_completed': return NotificationType.serviceCompleted;
+      case 'warning': return NotificationType.warning;
+      default: return NotificationType.system;
+    }
+  }
+
+  Color _getColorForType(NotificationType type) {
+    switch (type) {
+      case NotificationType.warning: return Colors.orange;
+      case NotificationType.security: return Colors.red;
+      case NotificationType.promotion: return Colors.purple;
+      case NotificationType.message: return Colors.blue;
+      default: return Color(0xFF2196F3);
+    }
   }
 
   void loadForUser(String userId) {
     _currentUserId = userId;
     _storageKey = 'user_notifications_$userId';
     _loadNotifications();
+    
+    // Connect Stomp if token available
+    final token = _storage.read('token_key'); // StockageKeys.tokenKey
+    if (token != null) {
+      StompService().connect(token);
+    }
   }
 
   void clearForLogout() {
