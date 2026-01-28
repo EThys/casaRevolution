@@ -334,7 +334,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
 
   Widget _buildLocationPreview() {
     final addr = widget.terrain.address;
-    final locationText = addr?.cityValue ?? addr?.communeValue ?? addr?.address ?? 'Localisation inconnue';
+    final locationText = "${addr?.cityValue}, ${addr?.communeValue}";
 
     return Container(
       padding: EdgeInsets.all(16),
@@ -553,23 +553,26 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
       children: [
         ElevatedButton(
           onPressed: () {
-             if (isAvailable) {
-               // Navigation logic here. Assuming a general booking page or Contact page
-               // Since we don't have a specific TerrainBookingPage, we check Routes.
-               // For now, let's show a feature not available or navigate if possible.
-               // User asked to put the button like PropertyDetails.
-               // We will try to navigate to 'Routes.bookingVisitPageRoute' but we need to check if it accepts TerrainModel.
-               // It likely accepts PropertyModel.
-               final token = storage.read(StockageKeys.tokenKey);
-               if (token == null) {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => LoginScreen()));
-               } else {
-                  // TODO: Implement terrain specific booking or adapt current booking
-                  SnackbarForCasa.info(context, "Fonctionnalité de réservation de terrain bientôt disponible");
-               }
-             } else {
-               SnackbarForCasa.error(context, "Ce terrain n'est pas disponible.");
-             }
+            if (!isAvailable) {
+              SnackbarForCasa.error(context, "Ce terrain n'est pas disponible.");
+              return;
+            }
+
+            final token = storage.read(StockageKeys.tokenKey);
+            if (token == null) {
+              FancyNotification.show(
+                context, 
+                "Vous devez être connecté pour planifier une visite",
+                type: NotificationType.info
+              );
+              Navigator.push(context, MaterialPageRoute(builder: (_) => LoginScreen()));
+            } else {
+              Navigator.pushNamed(
+                context,
+                Routes.bookingVisitPageRoute,
+                arguments: widget.terrain,
+              );
+            }
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: isAvailable ? _primaryColor : _greyColor,
