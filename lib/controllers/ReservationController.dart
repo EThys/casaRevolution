@@ -115,77 +115,87 @@ class ReservationController with ChangeNotifier {
       return [];
     }
 
-    print("🔍 Récupération des réservations pour user: $userId");
+    print("🔍 Récupération complète des réservations pour user: $userId (Standard + Spécialisées)");
     
     loading = true;
     notifyListeners();
 
+    final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+    List<ReservationModel> allUserReservations = [];
+
+    // Liste des endpoints à interroger pour obtenir toutes les réservations de l'utilisateur
+    final endpointsToFetch = [
+      "${Endpoints.reservations}/${Endpoints.reservationsByUser}/$userId",
+      "${Endpoints.reservationsVacanceByUser}$userId",
+      "${Endpoints.reservationsTerrainByUser}$userId",
+      "${Endpoints.reservationsFuneraireByUser}$userId",
+      "${Endpoints.reservationsFestiveByUser}$userId",
+      "${Endpoints.reservationsBureauByUser}$userId",
+      "${Endpoints.reservationsHotelByUser}$userId",
+    ];
+
     try {
-      // Construction de l'URL spécifique: reservations/user/{userId}
-      // Utilisation de Endpoints.reservations (reservations) et Endpoints.reservationsByUser (user)
-      final url = "${Endpoints.reservations}/${Endpoints.reservationsByUser}/$userId";
-      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-      
-      print("🌐 Requête mes réservations: $url");
-      var response = await getData(url, token: tkn);
+      // Exécuter toutes les requêtes en parallèle pour plus de performance
+      await Future.wait(endpointsToFetch.map((url) async {
+        try {
+          print("🌐 Requête réservations: $url");
+          var response = await getData(url, token: tkn);
 
-      if (response != null && (response['reservation'] != null || response['data'] != null)) {
-        List<dynamic> reservationsData = response['reservation'] ?? response['data'];
-        
-        print("📋 [ReservationController] Nombre d'éléments dans reservation: ${reservationsData.length}");
-
-        if (reservationsData is List && reservationsData.isNotEmpty) {
-          List<ReservationModel> userReservations = [];
-          
-          for (var item in reservationsData) {
-            try {
-              // Vérifier la structure de l'élément et caster en Map<String, dynamic>
-              if (item is Map) {
-                final itemMap = Map<String, dynamic>.from(item);
-                print("📋 [ReservationController] Structure item: ${itemMap.keys.toList()}");
-                
-                final reservationData = itemMap['reservation'] as Map<String, dynamic>?;
-                final itemUserId = reservationData?['userId']?.toString();
-                
-                print("📋 [ReservationController] userId dans réservation: $itemUserId, userId recherché: $userId");
-                
-                // On accepte la réservation même si userId est null (car l'endpoint API filtre déjà par user)
-                // On ne loggue un warning que si userId est présent ET différent
-                if (itemUserId != null && itemUserId != userId) {
-                  print("⚠️ [ReservationController] Warning: userId $itemUserId != $userId (mais ajouté car retourné par l'API)");
+          if (response != null && (response['reservation'] != null || response['data'] != null)) {
+            List<dynamic> reservationsData = response['reservation'] ?? response['data'];
+            
+            if (reservationsData is List) {
+              for (var item in reservationsData) {
+                if (item is Map) {
+                  try {
+                    final reservation = ReservationModel.fromJson(Map<String, dynamic>.from(item));
+                    allUserReservations.add(reservation);
+                  } catch (e) {
+                    print("❌ Error parsing reservation from $url: $e");
+                  }
                 }
-                
-                final reservation = ReservationModel.fromJson(itemMap);
-                userReservations.add(reservation);
               }
-            } catch (e, stack) {
-              print("❌ [ReservationController] Erreur parsing réservation: $e");
-              print("🔍 Stack: $stack");
             }
           }
-
-          print("👤 Mes réservations récupérées: ${userReservations.length}");
-
-          // Sauvegarder en local
-          final db = ReservationDatabaseHelper.instance;
-          await db.clearUserReservations(userId); // Vider avant de remplir
-          for (var reservation in userReservations) {
-            await db.insertOrUpdateReservation(reservation, userId);
-          }
-
-          this.reservations = userReservations;
-          loading = false;
-          notifyListeners();
-          return userReservations;
+        } catch (e) {
+          print("⚠️ Échec de récupération depuis l'endpoint $url: $e");
         }
-      } else {
-         print("⚠️ Aucune réservation trouvée ou format réponse invalide");
+      }));
+
+      // Supprimer les doublons potentiels si certains endpoints retournent la même chose
+      final seenIds = <int>{};
+      allUserReservations = allUserReservations.where((r) {
+        if (r.reservationId == null) return true;
+        return seenIds.add(r.reservationId!);
+      }).toList();
+
+      if (allUserReservations.isNotEmpty) {
+        // Trier par date de création (la plus récente en premier)
+        allUserReservations.sort((a, b) {
+           final dateA = a.createdAt ?? "";
+           final dateB = b.createdAt ?? "";
+           return dateB.compareTo(dateA);
+        });
+
+        print("👤 Total des réservations récupérées (tous types confondus): ${allUserReservations.length}");
+
+        // Sauvegarder en local pour le mode hors-ligne
+        final db = ReservationDatabaseHelper.instance;
+        await db.clearUserReservations(userId); // Vider le cache pour cet utilisateur avant de rafraîchir
+        for (var reservation in allUserReservations) {
+          await db.insertOrUpdateReservation(reservation, userId);
+        }
+
+        this.reservations = allUserReservations;
+        loading = false;
+        notifyListeners();
+        return allUserReservations;
       }
     } catch (e) {
-      print("❌ Erreur réseau mes réservations: $e");
+      print("❌ Erreur lors de la récupération des réservations: $e");
     }
 
-    // Fallback vers le cache local
+    // Fallback vers le cache local en cas d'erreur ou si aucune donnée n'est renvoyée par l'API
     final db = ReservationDatabaseHelper.instance;
     final cachedReservations = await db.getReservationsByUser(userId);
 
@@ -301,6 +311,7 @@ class ReservationController with ChangeNotifier {
   Future<HttpResponse> createReservation(
     Map<String, dynamic> reservationData, {
     int? propertyOwnerId,
+    String? endpoint,
   }) async {
     try {
       loading = true;
@@ -323,28 +334,46 @@ class ReservationController with ChangeNotifier {
         }
 
         // Empêcher la duplication d'une réservation en attente pour le même bien
-        final propertyId = reservationData['propertyId']?.toString();
-        final hasPending = reservations.any(
-          (r) =>
-              r.user?.userId?.toString() == userId &&
-              r.property?.propertyId?.toString() == propertyId &&
-              (r.status?.toUpperCase() == 'PENDING'),
-        );
+        // On essaie de trouver un ID de propriété (standard ou spécial)
+        final propertyId = (reservationData['propertyId'] ?? 
+                           reservationData['terrainId'] ?? 
+                           reservationData['bureauId'] ?? 
+                           reservationData['vacanceId'] ?? 
+                           reservationData['festiveId'] ?? 
+                           reservationData['funeraireId'] ?? 
+                           reservationData['hotelId'])?.toString();
 
-        if (hasPending) {
-          loading = false;
-          notifyListeners();
-          const errorMsg =
-              "You already have a pending reservation with this property";
-          return HttpResponse(
-            status: false,
-            data: {'error': errorMsg},
-            errorMsg: errorMsg,
+        if (propertyId != null) {
+          final hasPending = reservations.any(
+            (r) {
+              final rPropertyId = (r.property?.propertyId ?? 
+                                  r.terrainId ?? 
+                                  r.bureauId ?? 
+                                  r.vacanceId ?? 
+                                  r.festiveId ?? 
+                                  r.funeraireId ?? 
+                                  r.hotelId)?.toString();
+              return r.user?.userId?.toString() == userId &&
+                     rPropertyId == propertyId &&
+                     (r.status?.toUpperCase() == 'PENDING');
+            }
           );
+
+          if (hasPending) {
+            loading = false;
+            notifyListeners();
+            const errorMsg =
+                "You already have a pending reservation with this property";
+            return HttpResponse(
+              status: false,
+              data: {'error': errorMsg},
+              errorMsg: errorMsg,
+            );
+          }
         }
       }
 
-      final url = Endpoints.addReservations;
+      final url = endpoint ?? Endpoints.addReservations;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
       print("URL: $url");
       print("TOKEN: $tkn");
@@ -559,8 +588,9 @@ class ReservationController with ChangeNotifier {
       print("🌐 Requête réservations hôte: $url");
       var response = await getData(url, token: tkn);
 
-      if (response != null && (response['reservations'] != null || response['data'] != null)) {
-        List<dynamic> reservationsData = response['reservations'] ?? response['data'];
+      // L'API retourne {"reservation": [...]} (liste d'objets imbriqués)
+      if (response != null && (response['reservation'] != null || response['reservations'] != null || response['data'] != null)) {
+        List<dynamic> reservationsData = response['reservation'] ?? response['reservations'] ?? response['data'];
         
         print("📋 [ReservationController] Nombre de réservations hôte: ${reservationsData.length}");
 
@@ -571,6 +601,7 @@ class ReservationController with ChangeNotifier {
             try {
               if (item is Map) {
                 final itemMap = Map<String, dynamic>.from(item);
+                // ReservationModel.fromJson gère déjà la structure imbriquée {"reservation": ..., "property": ...}
                 final reservation = ReservationModel.fromJson(itemMap);
                 hostReservations.add(reservation);
               }
@@ -610,5 +641,46 @@ class ReservationController with ChangeNotifier {
     reservations.clear();
     notifyListeners();
     print("🗑️ Cache réservations vidé pour user: $userId");
+  }
+
+  // Valider une réservation et envoyer une notification
+  Future<HttpResponse> validateReservation(int reservationId, bool isValid) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      final url = "${Endpoints.validateReservationNotification}$reservationId/$isValid";
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      print("🌐 [ReservationController] Validation réservation: $url");
+      
+      // La requête est spécifiée comme PUT par l'utilisateur
+      HttpResponse response = await putData(url, {}, token: tkn);
+
+      if (response.status == true) {
+        print("✅ [ReservationController] Réservation $reservationId validée avec succès");
+        
+        // Mettre à jour localement si nécessaire
+        final index = reservations.indexWhere((r) => r.reservationId == reservationId);
+        if (index != -1) {
+          reservations[index].status = isValid ? 'CONFIRMED' : 'REJECTED';
+        }
+        
+        await getAllReservations(); // Rafraîchir la liste
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      print("❌ [ReservationController] Erreur validation réservation: $e");
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: "Échec de la validation: $e",
+        isException: true,
+      );
+    }
   }
 }
