@@ -18,6 +18,56 @@ class ServiceController with ChangeNotifier {
   bool loading = false;
   List<ServiceModel> services = [];
   ServiceModel? currentService;
+  Map<int, String> serviceIdToNameMap = {};
+
+  // Récupérer le nom du service depuis son ID (ex: 16 -> "Plombier")
+  String getServiceName(int? serviceId) {
+    if (serviceId == null) return 'Prestation';
+    final name = serviceIdToNameMap[serviceId];
+    if (name != null && name.isNotEmpty) {
+      // Capitalize first letter
+      return name[0].toUpperCase() + name.substring(1);
+    }
+    // Fallback: try to find generic name if map is empty (maybe reload?)
+    return 'Prestation';
+  }
+
+  // Charger les comptes de service (API accounts)
+  Future<void> fetchServiceAccounts() async {
+    try {
+      final url = Endpoints.accounts; // Ensure this endpoint exists in Endpoints.dart
+      // If Endpoints.accounts is not defined, use specific string or define it. 
+      // Assuming it maps to /api/accounts or similar as per user request context.
+      // Based on user provided JSON, it's likely just 'accounts' if using base URL.
+      // Checking HomePage uses Endpoints.accounts.
+      
+      var response = await getData(url);
+      
+      if (response != null && response is Map<String, dynamic>) {
+        final accounts = response['accounts'] as List<dynamic>?;
+        
+        if (accounts != null) {
+          serviceIdToNameMap.clear();
+          for (var acc in accounts) {
+            final id = acc['id'];
+            final name = acc['name'];
+            final typeAccount = acc['typeAccount'];
+            // Check typeAccountId (can be nested or flat depending on parsing, user showed nested)
+            final typeAccountId = typeAccount is Map ? typeAccount['typeAccountId'] : null;
+            
+            // Filter: typeAccountId == 3 (Prestataire de service)
+            if (id != null && name != null && typeAccountId == 3) {
+              serviceIdToNameMap[id] = name.toString();
+            }
+          }
+          print("✅ [ServiceController] Mapping services chargé: ${serviceIdToNameMap.length} entrées");
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      print("❌ [ServiceController] Erreur chargement comptes services: $e");
+    }
+  }
 
   // Récupérer tous les services
   Future<void> fetchServices() async {
@@ -492,6 +542,16 @@ class ServiceController with ChangeNotifier {
                 .toList();
 
             // Mettre à jour le cache SQLite
+            // IMPORTANT: Pour garantir la sync (cas suppression de compte), on vide le cache spécifique avant d'insérer
+            // Cependant, deleteByOwnerId n'existe pas, donc on utilise clearAll ou on remplace tout
+            // Dans getMyPrestations, on peut filtrer par userId en mémoire et supprimer ceux qui ne sont plus là
+            final existing = await dbHelper.getAllPrestations();
+            for(var p in existing) {
+              if (p.userId?.toString() == userId && !apiPrestations.any((a) => a.id == p.id)) {
+                await dbHelper.deletePrestation(p.id!);
+              }
+            }
+            
             await dbHelper.insertOrUpdatePrestations(apiPrestations);
             
             loading = false;
@@ -598,10 +658,10 @@ class ServiceController with ChangeNotifier {
               .toList();
           
           // Mettre à jour le cache
-          if (apiPrestations.isNotEmpty) {
-            await dbHelper.insertOrUpdatePrestations(apiPrestations);
-            return apiPrestations;
-          }
+          // Pour assurer la disparition des éléments supprimés (compte supprimé), on vide le cache spécifique
+          await dbHelper.clearPrestationsByServiceId(serviceId);
+          await dbHelper.insertOrUpdatePrestations(apiPrestations);
+          return apiPrestations;
         }
       }
       
@@ -630,7 +690,8 @@ class ServiceController with ChangeNotifier {
       
       // Ensuite, charger depuis l'API et mettre à jour le cache
       final url = Endpoints.prestations;
-      var response = await getData(url);
+      String? token = stockage?.read(StockageKeys.tokenKey);
+      var response = await getData(url, token: token);
 
       if (response != null && response is Map<String, dynamic>) {
         dynamic prestationsData;
@@ -643,6 +704,8 @@ class ServiceController with ChangeNotifier {
           prestationsData = response;
         }
 
+        print("📊 [ServiceController] fetchAllPrestations - Type de données: ${prestationsData.runtimeType}");
+        
         if (prestationsData is List) {
           final apiPrestations = prestationsData
               .where((e) => e != null)
@@ -689,17 +752,22 @@ class ServiceController with ChangeNotifier {
               .where((prestation) => prestation.id != null)
               .toList();
           
-          // Mettre à jour le cache
-          if (apiPrestations.isNotEmpty) {
-            await dbHelper.insertOrUpdatePrestations(apiPrestations);
-            prestations = apiPrestations;
-            notifyListeners();
-            return apiPrestations;
-          }
+          print("🔄 [ServiceController] NETTOYAGE du cache - ${cachedPrestations.length} prestations en cache");
+          // Mettre à jour le cache - TOUJOURS vider le cache avant de réinsérer
+          await dbHelper.clearAllPrestations();
+          print("✅ [ServiceController] Cache vidé, insertion de ${apiPrestations.length} nouvelles prestations");
+          await dbHelper.insertOrUpdatePrestations(apiPrestations);
+          prestations = apiPrestations;
+          notifyListeners();
+          return apiPrestations;
+        } else {
+          print("⚠️ [ServiceController] prestationsData n'est pas une List, type: ${prestationsData.runtimeType}");
         }
+      } else {
+        print("⚠️ [ServiceController] Response null ou format invalide");
       }
       
-      // Retourner le cache si l'API n'a pas retourné de données
+      // Retourner le cache si l'API n'a pas retourné de données valides
       prestations = cachedPrestations;
       notifyListeners();
       return cachedPrestations;
@@ -908,6 +976,90 @@ class ServiceController with ChangeNotifier {
         errorMsg: e.toString(),
         isException: true,
       );
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  // Récupérer les sollicitations reçues par le propriétaire (host)
+  Future<List<SollicitationModel>> fetchHostSollicitations() async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final userData = stockage?.read(StockageKeys.userKey);
+      String? userId;
+      
+      if (userData is Map) {
+        if (userData.containsKey('user') && userData['user'] is Map && userData['user']?['userId'] != null) {
+          userId = userData['user']?['userId']?.toString();
+        } else if (userData.containsKey('userId') && userData['userId'] != null) {
+          userId = userData['userId']?.toString();
+        }
+      }
+
+      if (userId == null) {
+        print("❌ [ServiceController] UserId non trouvé pour récupérer les sollicitations host");
+        return [];
+      }
+
+      final url = "${Endpoints.sollicitationsByHost}$userId";
+      print("🔍 [ServiceController] Récupération des sollicitations host depuis: $url");
+      
+      String? token = stockage?.read(StockageKeys.tokenKey);
+      var response = await getData(url, token: token);
+
+      if (response != null && response is Map<String, dynamic>) {
+        dynamic data;
+        
+        // The API returns {reservation: [...]}
+        if (response.containsKey('reservation')) {
+          data = response['reservation'];
+        } else if (response.containsKey('data')) {
+          data = response['data'];
+        } else {
+          data = response;
+        }
+
+        if (data is List) {
+           final hostSolicitations = data.map((e) => SollicitationModel.fromJson(e)).toList();
+           print("✅ [ServiceController] ${hostSolicitations.length} sollicitations host récupérées");
+           return hostSolicitations;
+        }
+      }
+      
+      return [];
+
+    } catch (e) {
+      print("❌ [ServiceController] Erreur lors de la récupération des sollicitations host: $e");
+      return [];
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  // Mettre à jour le statut d'une sollicitation (ACCEPT ou REJECT)
+  Future<HttpResponse> updateSollicitationStatus(int sollicitationId, String status) async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      print("📤 Mise à jour sollicitation $sollicitationId vers $status");
+      String? token = stockage?.read(StockageKeys.tokenKey);
+      
+      final url = "${Endpoints.updateSollicitation}$sollicitationId";
+      final data = {'status': status};
+      
+      final response = await patchData(url, data, token: token);
+      
+      print("📥 Réponse mise à jour sollicitation: ${response.status}");
+      
+      return response;
+    } catch (e) {
+      print("❌ Erreur lors de la mise à jour de la sollicitation: $e");
+      return HttpResponse(status: false, errorMsg: "Une erreur est survenue: $e");
     } finally {
       loading = false;
       notifyListeners();
