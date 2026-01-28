@@ -19,7 +19,7 @@ class Endpoints {
   static const String updateProfile = "profile";
   static const String logout = "logout";
   static const String changePassword = "change-password";
-  static const String deleteAccount = "delete-account";
+  static const String deleteAccount = "delete/user";
   static const String accounts = "accounts";
 
   static const String bailleur = "bailleurs";
@@ -100,6 +100,21 @@ class Endpoints {
   // Visit Endpoints
   static const String allReservations = "reservations/";
   static const String addReservations= "reservations";
+  static const String addReservationVacance = "reservations/vacance";
+  static const String addReservationTerrain = "reservations/terrain";
+  static const String addReservationFuneraire = "reservations/funeraire";
+  static const String addReservationFestive = "reservations/festive";
+  static const String addReservationBureau = "reservations/bureau";
+  static const String addReservationHotel = "reservations/hotel";
+  static const String validateReservationNotification = "reservations/notification/state/"; // {reservationId}/true
+
+  // Get specialized reservations by user
+  static const String reservationsVacanceByUser = "reservations/vacance/user/";
+  static const String reservationsTerrainByUser = "reservations/terrain/user/";
+  static const String reservationsFuneraireByUser = "reservations/funeraire/user/";
+  static const String reservationsFestiveByUser = "reservations/festive/user/";
+  static const String reservationsBureauByUser = "reservations/bureau/user/";
+  static const String reservationsHotelByUser = "reservations/hotel/user/";
 
   // Search Endpoints
   static const String propertyFilter = "property/filter";
@@ -132,6 +147,8 @@ class Endpoints {
 
   static const String sollicitation = "sollicitation"; // For creating service solicitations
   static const String sollicitationsByUser = "sollicitation/user/";
+  static const String sollicitationsByHost = "sollicitation/user/host/"; // For service providers
+  static const String updateSollicitation = "sollicitation/"; // PATCH /{id} with status
 
   // Notifications Endpoints
   static const String notifications = "notifications";
