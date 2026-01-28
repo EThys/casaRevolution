@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:casa/utils/database/DatabaseHelper.dart';
+import 'package:casa/utils/database/PropertyDatabaseHelper.dart';
 import 'package:casa/utils/TerrainDatabaseHelper.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
@@ -1246,6 +1247,18 @@ class PropertyController with ChangeNotifier {
         return (p.userId?.toString() == userId) || (p.userId == 0);
       }).toList();
           
+      // Sauvegarder dans le cache utilisateur (PropertyDatabaseHelper)
+      try {
+        final userDb = PropertyDatabaseHelper.instance;
+        // Pour une sync parfaite (cas suppression), on vide le cache personnel avant d'insérer
+        await userDb.clearMyProperties(userId);
+        await userDb.insertOrUpdateProperties(myProperties, userId);
+        print("✅ ${myProperties.length} propriétés sauvegardées dans le cache utilisateur");
+      } catch (e) {
+        print("⚠️ Erreur sauvegarde cache utilisateur: $e");
+      }
+
+      // Sauvegarder aussi dans DatabaseHelper (cache général)
       final db = DatabaseHelper.instance;
       final localProperties = await db.getAllProperties();
       final userLocalIds = localProperties
@@ -1269,6 +1282,38 @@ class PropertyController with ChangeNotifier {
       return myProperties;
     } catch (e) {
       print("❌ Erreur lors de la récupération des propriétés: $e");
+      
+      // En cas d'erreur réseau, charger depuis le cache utilisateur
+      try {
+        final userData = stockage?.read(StockageKeys.userKey);
+        final profileData = stockage?.read(StockageKeys.profileKey);
+        String? userId;
+        
+        if (userData is Map || profileData is Map) {
+          if (userData is Map) {
+            if (userData.containsKey('user') && userData['user'] is Map && userData['user']?['userId'] != null) {
+              userId = userData['user']?['userId']?.toString();
+            } else if (userData.containsKey('userId') && userData['userId'] != null) {
+              userId = userData['userId']?.toString();
+            }
+          }
+        }
+        
+        if (userId != null && userId.isNotEmpty) {
+          final userDb = PropertyDatabaseHelper.instance;
+          final cachedProperties = await userDb.getMyProperties(userId);
+          
+          if (cachedProperties.isNotEmpty) {
+            print("📦 ${cachedProperties.length} propriétés chargées depuis le cache hors ligne");
+            loading = false;
+            notifyListeners();
+            return cachedProperties;
+          }
+        }
+      } catch (cacheError) {
+        print("❌ Erreur chargement cache: $cacheError");
+      }
+      
       loading = false;
       notifyListeners();
       return [];
