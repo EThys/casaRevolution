@@ -20,7 +20,9 @@ import '../controllers/ReservationController.dart';
 import '../controllers/TypeAccountController.dart';
 import '../models/PropertyModel.dart';
 import '../utils/networkCheck.dart';
+import '../utils/database/DatabaseHelper.dart';
 import '../utils/FavoriteEartIcon.dart';
+import '../utils/UserInfoBottomSheet.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class BookingHistoryPage extends StatefulWidget {
@@ -35,6 +37,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   late TabController _tabController;
   bool _isLoadingData = true;
   bool _isRefreshing = false;
+  final Set<int> _loadedTabs = {}; // Suivi des onglets/vues chargés via API
   final DateFormat _dateFormat = DateFormat('dd MMM yyyy', 'fr_FR');
   final GetStorage _storage = GetStorage();
   bool _isLoading = false;
@@ -205,17 +208,44 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  Future<void> _loadReservations() async {
+  Future<void> _loadReservations({bool forceRefresh = false}) async {
     try {
       if (!mounted) return;
 
-      setState(() {
-        _isLoadingData = true;
-        _isRefreshing = true;
-      });
+      final currentViewIndex = _isHostView ? 1 : 0;
+      if (_loadedTabs.contains(currentViewIndex) && !forceRefresh) {
+        return;
+      }
+
+      // 1. Charger le cache d'abord pour une réponse instantanée
+      final db = DatabaseHelper.instance;
+      final cachedUserReservations = await db.getAllUserReservations();
+      final cachedHostReservations = await db.getAllHostReservations();
 
       final reservationCtrl = Provider.of<ReservationController>(context, listen: false);
       
+      if (mounted) {
+        setState(() {
+          if (cachedUserReservations.isNotEmpty) {
+            reservationCtrl.reservations = cachedUserReservations;
+          }
+          if (cachedHostReservations.isNotEmpty) {
+            _hostReservations = cachedHostReservations;
+          }
+          
+          // Si on a des données, on peut déjà arrêter le shimmer si ce n'est pas un premier chargement ou force refresh
+          if (!forceRefresh && (cachedUserReservations.isNotEmpty || cachedHostReservations.isNotEmpty)) {
+            _isLoadingData = false;
+          }
+        });
+      }
+
+      setState(() {
+        _isRefreshing = true;
+        if (forceRefresh) _isLoadingData = true;
+      });
+
+      // 2. Appel API en parallèle
       if (_isHost) {
         await Future.wait([
           reservationCtrl.getMyReservations(),
@@ -225,19 +255,31 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         await reservationCtrl.getMyReservations();
       }
 
-      print("📊 Réservations chargées: ${reservationCtrl.reservations.length} (Host: ${_hostReservations.length})");
+      // 3. Mettre à jour le cache et notifier si changement
+      if (mounted) {
+        await db.clearUserReservations();
+        await db.insertMultipleUserReservations(reservationCtrl.reservations);
+        
+        await db.clearHostReservations();
+        await db.insertMultipleHostReservations(_hostReservations);
+        
+        print("💾 [BookingHistoryPage] Cache des réservations mis à jour");
+      }
+
+      print("📊 Réservations synchronisées: ${reservationCtrl.reservations.length} (Host: ${_hostReservations.length})");
 
       // Recharger les compteurs après le chargement
       await _loadReservationCounts();
 
     } catch (e) {
       print("❌ Erreur lors du chargement des réservations: $e");
-      FancyNotification.show(context, "Erreur lors du chargement des réservations");
+      if (mounted) FancyNotification.show(context, "Erreur lors du chargement des réservations");
     } finally {
       if (mounted) {
         setState(() {
           _isLoadingData = false;
           _isRefreshing = false;
+          _loadedTabs.add(_isHostView ? 1 : 0); // Marquer comme chargé selon la vue actuelle
         });
       }
     }
@@ -275,13 +317,13 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         children: [
           _buildTabBar(),
           Expanded(
-            child:             TabBarView(
+            child: TabBarView(
               controller: _tabController,
               children: [
-                _buildReservationList(_filterReservations(reservationCtrl.reservations, 'PENDING')),
-                _buildReservationList(_filterReservations(reservationCtrl.reservations, 'CONFIRMED')),
-                _buildReservationList(_filterReservations(reservationCtrl.reservations, 'COMPLETED')),
-                _buildReservationList(_filterReservations(reservationCtrl.reservations, 'CANCELLED')),
+                _buildReservationList(_filterReservations(_isHostView ? _hostReservations : reservationCtrl.reservations, 'PENDING')),
+                _buildReservationList(_filterReservations(_isHostView ? _hostReservations : reservationCtrl.reservations, 'CONFIRMED')),
+                _buildReservationList(_filterReservations(_isHostView ? _hostReservations : reservationCtrl.reservations, 'COMPLETED')),
+                _buildReservationList(_filterReservations(_isHostView ? _hostReservations : reservationCtrl.reservations, 'CANCELLED')),
               ],
             ),
           ),
@@ -411,7 +453,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   Widget _buildFloatingActionButton() {
     return FloatingActionButton(
       heroTag: "booking_history_fab", // Tag unique pour éviter les conflits Hero
-      onPressed: _isRefreshing ? null : _loadReservations,
+      onPressed: _isRefreshing ? null : () => _loadReservations(forceRefresh: true),
       backgroundColor: _primaryColor,
       foregroundColor: Colors.white,
       elevation: 4,
@@ -535,12 +577,18 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         children: [
           Expanded(
             child: _buildToggleButton("Mes réservations", !_isHostView, () {
-              setState(() => _isHostView = false);
+              if (_isHostView) {
+                setState(() => _isHostView = false);
+                _loadReservations();
+              }
             }),
           ),
           Expanded(
              child: _buildToggleButton("Réservations reçues", _isHostView, () {
-              setState(() => _isHostView = true);
+              if (!_isHostView) {
+                setState(() => _isHostView = true);
+                _loadReservations();
+              }
             }),
           ),
         ],
@@ -762,7 +810,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     return RefreshIndicator(
       color: _primaryColor,
       backgroundColor: Colors.white,
-      onRefresh: _loadReservations,
+      onRefresh: () => _loadReservations(forceRefresh: true),
       child: _isGridView
           ? _buildReservationGridContent(reservations)
           : ListView.separated(
@@ -1128,6 +1176,29 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                         ),
                       ),
                     ),
+                    if (_isHostView && reservation.user != null)
+                      Positioned(
+                        bottom: 15,
+                        right: 15,
+                        child: GestureDetector(
+                          onTap: () => UserInfoBottomSheet.show(context, reservation.user!),
+                          child: Container(
+                            padding: EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.9),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.1),
+                                  blurRadius: 10,
+                                  offset: Offset(0, 4),
+                                )
+                              ],
+                            ),
+                            child: Icon(Icons.person_pin_rounded, color: _primaryColor, size: 24),
+                          ),
+                        ),
+                      ),
                     Positioned(
                       top: 15,
                       right: 15,
@@ -1582,11 +1653,172 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
 
   void _showReservationDetails(ReservationModel reservation) {
+    if (_isHostView) {
+      _showHostManagementBottomSheet(reservation);
+    } else {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => _buildReservationDetails(reservation),
+      );
+    }
+  }
+
+  void _showHostManagementBottomSheet(ReservationModel reservation) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _buildReservationDetails(reservation),
+      builder: (context) => _buildHostManagementContent(reservation),
+    );
+  }
+
+  Widget _buildHostManagementContent(ReservationModel reservation) {
+    final status = reservation.status?.toUpperCase() ?? '';
+    final isPending = status == 'PENDING';
+    final imageUrl = _getImageUrl(reservation);
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + MediaQuery.of(context).padding.bottom),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          SizedBox(height: 24),
+          Row(
+             children: [
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: _primaryColor.withOpacity(0.1), shape: BoxShape.circle),
+                  child: Icon(Icons.manage_accounts_rounded, color: _primaryColor, size: 28),
+                ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Gérer la réservation", style: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.bold, color: _darkColor)),
+                      Text("Action sur la demande de visite", style: TextStyle(color: _mediumGrey, fontSize: 13)),
+                    ],
+                  ),
+                ),
+             ],
+          ),
+          SizedBox(height: 24),
+          
+          if (reservation.user != null) ...[
+             Text("Client", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: _darkColor)),
+             SizedBox(height: 12),
+             InkWell(
+               onTap: () => UserInfoBottomSheet.show(context, reservation.user!),
+               borderRadius: BorderRadius.circular(12),
+               child: Container(
+                 padding: EdgeInsets.all(12),
+                 decoration: BoxDecoration(color: _lightGrey, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
+                 child: Row(
+                   children: [
+                     CircleAvatar(
+                       radius: 20,
+                       backgroundColor: _primaryColor.withOpacity(0.2),
+                       child: Icon(Icons.person, color: _primaryColor),
+                     ),
+                     SizedBox(width: 12),
+                     Expanded(
+                       child: Column(
+                         crossAxisAlignment: CrossAxisAlignment.start,
+                         children: [
+                           Text(reservation.user!.username ?? "Client", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                           Text(reservation.user!.phone ?? "Pas de téléphone", style: TextStyle(color: _mediumGrey, fontSize: 12)),
+                         ],
+                       ),
+                     ),
+                     Icon(Icons.chevron_right, color: _mediumGrey),
+                   ],
+                 ),
+               ),
+             ),
+             SizedBox(height: 20),
+          ],
+
+          Text("Bien immobilier", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: _darkColor)),
+          SizedBox(height: 8),
+          Text(reservation.property?.title ?? "Propriété", style: TextStyle(fontSize: 16, color: _darkColor, fontWeight: FontWeight.w500)),
+          SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(Icons.calendar_today_rounded, size: 14, color: _primaryColor),
+              SizedBox(width: 6),
+              Text(
+                'Visite prévue: ${_formatDate(reservation.startDate)} à ${reservation.reservationHeure ?? "N/A"}',
+                style: TextStyle(fontSize: 13, color: _mediumGrey),
+              ),
+            ],
+          ),
+          
+          if (reservation.message != null && reservation.message!.isNotEmpty) ...[
+            SizedBox(height: 16),
+            Text("Message du client", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: _mediumGrey)),
+            SizedBox(height: 4),
+            Text(reservation.message!, style: TextStyle(color: _darkColor, height: 1.4)),
+          ],
+
+          SizedBox(height: 32),
+          if (isPending) ...[
+             Row(
+               children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _handleReservationAction(reservation, 'CANCELLED'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _errorColor.withOpacity(0.1),
+                        foregroundColor: _errorColor,
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: _errorColor.withOpacity(0.2))),
+                      ),
+                      child: Text("REFUSER", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.1)),
+                    ),
+                  ),
+                  SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => _handleReservationAction(reservation, 'CONFIRMED'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _successColor,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        elevation: 4,
+                        shadowColor: _successColor.withOpacity(0.4),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      child: Text("VALIDER", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.1)),
+                    ),
+                  ),
+               ],
+             ),
+          ] else ...[
+             Center(
+               child: Text(
+                 "Statut actuel: ${status}",
+                 style: TextStyle(color: _getStatusColor(reservation.status), fontWeight: FontWeight.bold),
+               ),
+             ),
+          ],
+          SizedBox(height: 12),
+        ],
+      ),
     );
   }
 
@@ -2588,6 +2820,342 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
+  // Dialog pour refuser une réservation (Host)
+  Future<Map<String, dynamic>?> _showHostRefuseDialog(ReservationModel reservation) async {
+    final reasonController = TextEditingController();
+    bool isDialogLoading = false;
+
+    return await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 20,
+                      offset: Offset(0, 10),
+                    )
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header avec icône Warning
+                    Container(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      decoration: BoxDecoration(
+                        color: Color(0xFFFFEBEE),
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                      ),
+                      child: Center(
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(0xFFFFEBEE).withOpacity(0.5),
+                                blurRadius: 10,
+                                spreadRadius: 5,
+                              )
+                            ],
+                          ),
+                          child: Icon(Icons.cancel_outlined, color: Color(0xFFD32F2F), size: 36),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Refuser la réservation ?',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1A1A1A),
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          Container(
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Color(0xFFFFF9C4).withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Color(0xFFFBC02D).withOpacity(0.2)),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.info_outline, color: Color(0xFFFBC02D), size: 20),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Cette action refusera définitivement la demande de visite du client.',
+                                    style: TextStyle(
+                                      color: Color(0xFF5D4037),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 20),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Motif du refus (optionnel)',
+                              style: TextStyle(
+                                color: Color(0xFF666666),
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          TextField(
+                            controller: reasonController,
+                            enabled: !isDialogLoading,
+                            maxLines: 3,
+                            style: TextStyle(fontSize: 14),
+                            decoration: InputDecoration(
+                              hintText: 'Ex: propriété déjà louée, dates non disponibles...',
+                              hintStyle: TextStyle(color: Color(0xFFAAAAAA), fontSize: 14),
+                              fillColor: Color(0xFFF5F5F5),
+                              filled: true,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: EdgeInsets.all(16),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: isDialogLoading 
+                                  ? null 
+                                  : () {
+                                      reasonController.dispose();
+                                      Navigator.pop(context, {
+                                        'confirmed': true,
+                                        'reason': reasonController.text.isEmpty 
+                                            ? "Refusé par l'hôte" 
+                                            : reasonController.text
+                                      });
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Color(0xFFD32F2F),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: Text(
+                                'Confirmer le refus',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: TextButton(
+                              onPressed: isDialogLoading 
+                                  ? null 
+                                  : () {
+                                      reasonController.dispose();
+                                      Navigator.pop(context, null);
+                                    },
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              child: Text(
+                                'Annuler',
+                                style: TextStyle(
+                                  color: Color(0xFF666666),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Dialog pour valider une réservation (Host)
+  Future<bool?> _showHostValidateDialog(ReservationModel reservation) async {
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: EdgeInsets.symmetric(horizontal: 20),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 20,
+                  offset: Offset(0, 10),
+                )
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header avec icône Success
+                Container(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  decoration: BoxDecoration(
+                    color: Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Color(0xFFE8F5E9).withOpacity(0.5),
+                            blurRadius: 10,
+                            spreadRadius: 5,
+                          )
+                        ],
+                      ),
+                      child: Icon(Icons.check_circle_outline, color: Color(0xFF00B894), size: 36),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Valider la réservation ?',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1A1A1A),
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      Container(
+                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Color(0xFFE8F5E9).withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Color(0xFF00B894).withOpacity(0.2)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline, color: Color(0xFF00B894), size: 20),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Le client recevra une notification de confirmation et pourra procéder à la visite.',
+                                style: TextStyle(
+                                  color: Color(0xFF2D5016),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Color(0xFF00B894),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: Text(
+                            'Confirmer la validation',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.symmetric(vertical: 16),
+                          ),
+                          child: Text(
+                            'Annuler',
+                            style: TextStyle(
+                              color: Color(0xFF666666),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _handleReservationAction(ReservationModel reservation, String action) async {
       final ctrl = Provider.of<ReservationController>(context, listen: false);
       if (reservation.reservationId == null) return;
@@ -2596,71 +3164,112 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       String? reason;
       
       if (action == 'CANCELLED') {
-        final reasonController = TextEditingController();
-        confirm = await showDialog<bool>(
-          context: context, 
-          builder: (ctx) => AlertDialog(
-            title: Text("Refuser la réservation"),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text("Voulez-vous vraiment refuser cette réservation ?"),
-                SizedBox(height: 10),
-                TextField(
-                  controller: reasonController,
-                  decoration: InputDecoration(
-                    hintText: "Motif (optionnel)",
-                    border: OutlineInputBorder(),
-                  ),
-                )
-              ],
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text("Annuler")),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true), 
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                child: Text("Refuser", style: TextStyle(color: Colors.white))
-              ),
-            ],
-          )
-        ) ?? false;
-        reason = reasonController.text.isEmpty ? "Refusé par l'hôte" : reasonController.text;
+        final result = await _showHostRefuseDialog(reservation);
+        if (result != null && result['confirmed'] == true) {
+          confirm = true;
+          reason = result['reason'];
+        }
       } else {
-         confirm = await showDialog<bool>(
-          context: context, 
-          builder: (ctx) => AlertDialog(
-            title: Text("Valider la réservation"),
-            content: Text("Confirmer la validation de cette réservation ?"),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text("Annuler")),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx, true), 
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                child: Text("Valider", style: TextStyle(color: Colors.white))
-              ),
-            ],
-          )
-        ) ?? false;
+        final result = await _showHostValidateDialog(reservation);
+        confirm = result ?? false;
       }
       
       if (confirm) {
+         if (mounted) Navigator.pop(context); // Fermer le management BottomSheet
          setState(() => _isLoading = true);
          try {
+           bool success = false;
            if (action == 'CANCELLED') {
-              await ctrl.cancelReservation(reservation.reservationId!, reason ?? "Cancelled");
+              final resp = await ctrl.cancelReservation(reservation.reservationId!, reason ?? "Cancelled");
+              success = resp.status == true;
            } else {
-              await ctrl.updateReservationStatus(reservation.reservationId!, action);
+              final resp = await ctrl.updateReservationStatus(reservation.reservationId!, action);
+              success = resp.status == true;
            }
-           // Reload logic
-           await _loadReservations();
-           FancyNotification.show(context, "Action effectuée avec succès", type: NotificationType.success);
+           
+           if (success) {
+             await _loadReservations();
+             if (mounted) {
+                if (action == 'CONFIRMED') {
+                  _showHostActionSuccessDialog(reservation);
+                } else {
+                  FancyNotification.show(context, "Action effectuée avec succès", type: NotificationType.success);
+                }
+             }
+           }
          } catch(e) {
-           FancyNotification.show(context, "Erreur: $e");
+           if (mounted) FancyNotification.show(context, "Erreur: $e");
          } finally {
-           setState(() => _isLoading = false);
+           if (mounted) setState(() => _isLoading = false);
          }
       }
+  }
+
+  void _showHostActionSuccessDialog(ReservationModel reservation) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+               Container(
+                 padding: EdgeInsets.all(16),
+                 decoration: BoxDecoration(color: _successColor.withOpacity(0.1), shape: BoxShape.circle),
+                 child: Icon(Icons.check_circle_rounded, color: _successColor, size: 60),
+               ),
+               SizedBox(height: 24),
+               Text("Réservation validée", style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.bold)),
+               SizedBox(height: 12),
+               Text(
+                 "Vous avez confirmé cette demande de visite. Le client a été notifié. Vous pouvez partager le bon de visite maintenant.",
+                 textAlign: TextAlign.center,
+                 style: TextStyle(color: _mediumGrey, height: 1.5),
+               ),
+               SizedBox(height: 32),
+               Row(
+                 children: [
+                   Expanded(
+                     child: OutlinedButton.icon(
+                       onPressed: () => _shareReservationPdf(reservation),
+                       icon: Icon(Icons.share_rounded, size: 18),
+                       label: Text("PARTAGER"),
+                       style: OutlinedButton.styleFrom(
+                         padding: EdgeInsets.symmetric(vertical: 14),
+                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                       ),
+                     ),
+                   ),
+                   SizedBox(width: 12),
+                   Expanded(
+                     child: ElevatedButton.icon(
+                       onPressed: () => _downloadReservationPdf(reservation),
+                       icon: Icon(Icons.download_rounded, size: 18),
+                       label: Text("TÉLÉCHARGER"),
+                       style: ElevatedButton.styleFrom(
+                         backgroundColor: _primaryColor,
+                         foregroundColor: Colors.white,
+                         padding: EdgeInsets.symmetric(vertical: 14),
+                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                         elevation: 0,
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
+               SizedBox(height: 16),
+               TextButton(
+                 onPressed: () => Navigator.pop(context),
+                 child: Text("FERMER", style: TextStyle(color: _mediumGrey, fontWeight: FontWeight.bold)),
+               ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<Directory> _getExportDir() async {
