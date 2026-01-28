@@ -138,6 +138,69 @@ extension ServiceTypeExtension on ServiceType {
     }
   }
 
+  String get description {
+    switch (this) {
+      case ServiceType.majordhomme:
+        return 'Entretien de maison, cuisine et plus';
+      case ServiceType.demenagement:
+        return 'Déménagement sécurisé et rapide';
+      case ServiceType.nettoyage:
+        return 'Services de nettoyage professionnels';
+      case ServiceType.jardinage:
+        return 'Entretien d\'espaces verts et jardins';
+      case ServiceType.plomberie:
+        return 'Installation et réparation plomberie';
+      case ServiceType.electricite:
+        return 'Travaux et dépannage électrique';
+      case ServiceType.peinture:
+        return 'Peinture intérieure et extérieure';
+      case ServiceType.reparation:
+        return 'Réparations diverses à domicile';
+      case ServiceType.securite:
+        return 'Systèmes de sécurité et gardiennage';
+      case ServiceType.gardiennage:
+        return 'Surveillance de biens et personnes';
+      case ServiceType.menage:
+        return 'Ménage quotidien ou ponctuel';
+      case ServiceType.cuisine:
+        return 'Cuisine à domicile et traiteur';
+      case ServiceType.livraison:
+        return 'Livraison de colis et courses';
+      case ServiceType.transport:
+        return 'Déplacements urbains et logistique';
+      case ServiceType.installation:
+        return 'Installation d\'équipements divers';
+      case ServiceType.renovation:
+        return 'Rénovation complète ou partielle';
+      case ServiceType.decoration:
+        return 'Conseil et aménagement intérieur';
+      case ServiceType.climatisation:
+        return 'Pose et entretien clim et froid';
+      case ServiceType.chauffage:
+        return 'Chauffage central et chauffe-eau';
+      case ServiceType.serrurerie:
+        return 'Dépannage et sécurité serrures';
+      case ServiceType.vitrerie:
+        return 'Pose et remplacement de vitres';
+      case ServiceType.carrelage:
+        return 'Pose de carrelage et revêtements';
+      case ServiceType.hotel:
+        return 'Séjours hôteliers confortables';
+      case ServiceType.bureau:
+        return 'Espaces de travail et bureaux';
+      case ServiceType.vacances:
+        return 'Locations saisonnières de rêve';
+      case ServiceType.salleFete:
+        return 'Espaces pour vos célébrations';
+      case ServiceType.salleFuneraire:
+        return 'Services funéraires dignes';
+      case ServiceType.terrain:
+        return 'Vente et achat de terrains';
+      case ServiceType.entrepot:
+        return 'Stockage et logistique entrepôt';
+    }
+  }
+
   String get displayName {
     switch (this) {
       case ServiceType.majordhomme:
