@@ -1,6 +1,8 @@
 import 'package:casa/controllers/ReservationController.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/models/TerrainModel.dart';
+import 'package:casa/utils/Endpoints.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/networkCheck.dart';
@@ -19,7 +21,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 class BookingVisitPage extends StatefulWidget {
-  final PropertyModel property;
+  final dynamic property;
 
   const BookingVisitPage({Key? key, required this.property}) : super(key: key);
 
@@ -90,6 +92,73 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         normalized.contains("a ete creee avec succes") ||
         normalized.contains("a ete creer avec succes") ||
         normalized.contains("a ete creee avec succes");
+  }
+
+  // Helper pour normaliser l'accès aux données entre PropertyModel et TerrainModel
+  dynamic get _rawProperty => widget.property;
+  bool get _isTerrain => _rawProperty is TerrainModel;
+
+  int? get _propertyId {
+    if (_isTerrain) return (_rawProperty as TerrainModel).terrain?.id;
+    return (_rawProperty as PropertyModel).propertyId;
+  }
+
+  String get _propertyTitle {
+    if (_isTerrain) return (_rawProperty as TerrainModel).terrain?.title ?? "";
+    return (_rawProperty as PropertyModel).title ?? "";
+  }
+
+  String get _propertyAddress {
+    if (_isTerrain) {
+      final t = _rawProperty as TerrainModel;
+      return "${t.address?.cityValue ?? ''}, ${t.address?.communeValue ?? ''}";
+    }
+    final p = _rawProperty as PropertyModel;
+    return "${p.cityValue ?? ''}, ${p.communeValue ?? ''}";
+  }
+
+  int? get _propertyOwnerId {
+    if (_isTerrain) return (_rawProperty as TerrainModel).terrain?.userId;
+    final p = _rawProperty as PropertyModel;
+    return p.userId ?? p.user?.userId;
+  }
+
+  String? get _propertyImageUrl {
+    if (_isTerrain) {
+      final t = _rawProperty as TerrainModel;
+      return t.images?.isNotEmpty == true ? t.images!.first.path : null;
+    }
+    final p = _rawProperty as PropertyModel;
+    return p.propertyImage?.isNotEmpty == true ? p.propertyImage!.first.path : null;
+  }
+
+  String get _propertyType {
+    if (_isTerrain) return "Terrain";
+    return (_rawProperty as PropertyModel).propertyType?.name ?? "Propriété";
+  }
+
+  String get _reservationEndpoint {
+    if (_isTerrain) return Endpoints.addReservationTerrain;
+    if (_rawProperty is! PropertyModel) return Endpoints.addReservations;
+    final p = _rawProperty as PropertyModel;
+    final typeId = p.propertyType?.propertyTypeId;
+    if (typeId == 4) return Endpoints.addReservationBureau;
+    if (typeId == 7) return Endpoints.addReservationFuneraire;
+    if (typeId == 8) return Endpoints.addReservationFestive;
+    if (typeId == 6) return Endpoints.addReservationVacance;
+    if (typeId == 5) return Endpoints.addReservationHotel;
+    return Endpoints.addReservations;
+  }
+
+  String get _propertyPriceText {
+    if (_isTerrain) {
+       final t = _rawProperty as TerrainModel;
+       return "${t.terrain?.price?.toInt() ?? 0} ${t.devise?.code ?? 'USD'}";
+    }
+    final p = _rawProperty as PropertyModel;
+    final isForRent = p.transactionType?.toLowerCase().contains('location') ?? false;
+    final price = p.price?.toInt() ?? 0;
+    return isForRent ? '${price} ${p.currency} / mois' : '${price} ${p.currency}';
   }
 
   Future<Uint8List> _buildReservationPdfBytes() async {
@@ -549,6 +618,8 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
   Future<void> _handleBooking() async {
     final userId = _getUserId();
+    final safeUsername = _userName.isNotEmpty ? _userName : "Utilisateur";
+
     if (userId == null) {
       FancyNotification.show(
         context, 
@@ -583,8 +654,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
     try {
       final reservationCtrl = context.read<ReservationController>();
-      final propertyOwnerId =
-          widget.property.userId ?? widget.property.user?.userId;
+      final propertyOwnerId = _propertyOwnerId;
 
       // L'utilisateur tente de réserver son propre bien
       if (propertyOwnerId != null &&
@@ -597,11 +667,12 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
       // Vérifier localement une réservation en attente déjà existante
       final hasPendingForSameProperty = reservationCtrl.reservations.any(
-        (r) =>
-            r.user?.userId?.toString() == userId &&
-            r.property?.propertyId?.toString() ==
-                widget.property.propertyId.toString() &&
-            (r.status?.toUpperCase() == 'PENDING'),
+        (r) {
+          final rId = (_isTerrain ? r.terrainId : r.property?.propertyId)?.toString();
+          return r.user?.userId?.toString() == userId &&
+                 rId == _propertyId?.toString() &&
+                 (r.status?.toUpperCase() == 'PENDING');
+        }
       );
 
       if (hasPendingForSameProperty) {
@@ -633,19 +704,31 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       final now = DateTime.now();
       final formattedCreatedAt = DateFormat('yyyy-MM-ddTHH:mm:ss').format(now);
 
-      final reservationData = {
-        "propertyId": widget.property.propertyId,
+      final Map<String, dynamic> reservationData = {
         "userId": userId,
         "message": _notesController.text.isNotEmpty
             ? _notesController.text
-            : "Intéressé par la propriété ${widget.property.title}",
+            : "Intéressé par ${_propertyType.toLowerCase()} $_propertyTitle",
         "status": "PENDING",
         "type": "STANDARD",
-        "reservationHeure": formattedTime, // Maintenant au format HH:mm:ss
+        "reservationHeure": formattedTime,
         "startDate": formattedDate,
         "endDate": formattedEndDate,
         "createdAt": formattedCreatedAt,
       };
+
+      if (_isTerrain) {
+        reservationData["terrainId"] = _propertyId;
+      } else {
+        final p = _rawProperty as PropertyModel;
+        final typeId = p.propertyType?.propertyTypeId;
+        if (typeId == 4) reservationData["bureauId"] = _propertyId;
+        else if (typeId == 7) reservationData["funeraireId"] = _propertyId;
+        else if (typeId == 8) reservationData["festiveId"] = _propertyId;
+        else if (typeId == 6) reservationData["vacanceId"] = _propertyId;
+        else if (typeId == 5) reservationData["hotelId"] = _propertyId;
+        else reservationData["propertyId"] = _propertyId;
+      }
 
       print("Données de réservation: $reservationData");
       print("Détails de la visite:");
@@ -656,6 +739,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       final response = await reservationCtrl.createReservation(
         reservationData,
         propertyOwnerId: propertyOwnerId,
+        endpoint: _reservationEndpoint,
       );
 
       if (!mounted) return;
@@ -685,8 +769,8 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         
         setState(() {
           _lastReservationSummary = {
-            'propertyTitle': widget.property.title ?? 'Propriété',
-            'address': widget.property.address ?? '',
+            'propertyTitle': _propertyTitle,
+            'address': _propertyAddress,
             'startDate': formattedStartDate,
             'startTime': formattedTime,
             'endDate': formattedEndDateDisplay,
@@ -1032,15 +1116,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   }
 
   Widget _buildPropertyHeader() {
-    // Utilisation des vraies images du modèle PropertyModel
-    final firstImage = widget.property.propertyImage?.isNotEmpty ?? false
-        ? widget.property.propertyImage!.first
-        : null;
-    final imageUrl = firstImage?.path != null && firstImage!.path!.isNotEmpty
-        ? (firstImage.path!.startsWith('http') 
-            ? firstImage.path 
-            : "${Constantes.URL_IMAGES}${firstImage.path}")
-        : null;
+    final imageUrl = _propertyImageUrl;
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1095,7 +1171,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.property.title ?? "Sans titre",
+                  _propertyTitle,
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 16,
@@ -1129,7 +1205,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                             children: [
                               // Texte flouté
                               Text(
-                                widget.property.address ?? "Adresse non disponible",
+                                _propertyAddress,
                                 style: TextStyle(
                                   color: Colors.transparent,
                                   fontSize: 13,
@@ -1179,7 +1255,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    _getPriceText(),
+                    _propertyPriceText,
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       color: _primaryColor,
@@ -1195,12 +1271,6 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     );
   }
 
-  String _getPriceText() {
-    final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
-    final price = widget.property.price?.toInt() ?? 0;
-
-    return isForRent ? '${price} ${widget.property.currency} / mois' : '${price} ${widget.property.currency}';
-  }
 
   void _showAddressVerification() {
     showDialog(
