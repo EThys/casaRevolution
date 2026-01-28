@@ -974,7 +974,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            property.address ?? 'Adresse non disponible',
+                            "${property.cityValue}, ${property.communeValue}",
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 13,
@@ -1353,7 +1353,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                             SizedBox(width: 2),
                             Expanded(
                               child: Text(
-                                property.address ?? 'Adresse non disponible',
+                                "${property.cityValue}, ${property.communeValue}",
                                 style: TextStyle(
                                   color: _greyColor,
                                   fontSize: 10,
