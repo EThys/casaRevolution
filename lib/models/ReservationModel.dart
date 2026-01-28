@@ -19,6 +19,14 @@ class ReservationModel {
   String? createdAt;
   bool? active;
 
+  // Champs pour propriétés spéciales
+  int? terrainId;
+  int? bureauId;
+  int? vacanceId;
+  int? festiveId;
+  int? funeraireId;
+  int? hotelId;
+
   ReservationModel({
     this.reservationId,
     this.user,
@@ -32,6 +40,12 @@ class ReservationModel {
     this.endDate,
     this.createdAt,
     this.active,
+    this.terrainId,
+    this.bureauId,
+    this.vacanceId,
+    this.festiveId,
+    this.funeraireId,
+    this.hotelId,
   });
 
   factory ReservationModel.fromJson(Map<String, dynamic> json) {
@@ -56,9 +70,7 @@ class ReservationModel {
       user: json["user"] == null
           ? null
           : UserModel.fromJson(json["user"]),
-      property: propertyData == null
-          ? null
-          : PropertyModel.fromJson(propertyData),
+      property: PropertyModel.fromJson(json),
       message: reservationData?["message"],
       status: reservationData?["status"],
       type: reservationData?["type"],
@@ -68,6 +80,12 @@ class ReservationModel {
       endDate: reservationData?["endDate"],
       createdAt: reservationData?["createdAt"],
       active: reservationData?["active"] ?? false,
+      terrainId: reservationData?["terrainId"],
+      bureauId: reservationData?["bureauId"],
+      vacanceId: reservationData?["vacanceId"],
+      festiveId: reservationData?["festiveId"],
+      funeraireId: reservationData?["funeraireId"],
+      hotelId: reservationData?["hotelId"],
     );
   }
 
@@ -84,6 +102,12 @@ class ReservationModel {
     "endDate": endDate,
     "createdAt": createdAt,
     "active": active,
+    "terrainId": terrainId,
+    "bureauId": bureauId,
+    "vacanceId": vacanceId,
+    "festiveId": festiveId,
+    "funeraireId": funeraireId,
+    "hotelId": hotelId,
   };
 
   @override
