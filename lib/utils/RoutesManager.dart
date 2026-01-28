@@ -21,7 +21,7 @@ import '../screens/auth/RegisterScreen.dart';
 import '../screens/auth/ForgotPasswordScreen.dart';
 import '../screens/auth/OTPVerificationScreen.dart';
 import '../screens/auth/ResetPasswordScreen.dart';
-import '../screens/CreateServicePage.dart';
+
 import '../screens/CreateServicePostPage.dart';
 import '../screens/QuickServiceRequestPage.dart';
 import '../screens/AllReviewsPage.dart';
@@ -70,7 +70,7 @@ class RoutesManager {
       case Routes.commissionnaireDashboardPageRoute:
         return MaterialPageRoute(builder: (_)=>CommissionDashboardPage());
       case Routes.bookingVisitPageRoute:
-        final PropertyModel property = r.arguments as PropertyModel;
+        final dynamic property = r.arguments;
         return MaterialPageRoute(builder: (_)=>BookingVisitPage(property: property));
       case Routes.bookingHistoryPageRoute:
         return MaterialPageRoute(builder: (_)=>BookingHistoryPage());
@@ -111,11 +111,7 @@ class RoutesManager {
           return MaterialPageRoute(builder: (_)=>ForgotPasswordScreen());
         }
       case Routes.createServiceRoute:
-        ServiceType? initialServiceType;
-        if (r.arguments != null && r.arguments is ServiceType) {
-          initialServiceType = r.arguments as ServiceType;
-        }
-        return MaterialPageRoute(builder: (_)=>CreateServicePage(initialServiceType: initialServiceType));
+        return MaterialPageRoute(builder: (_)=>CreateServicePostPage());
       case Routes.createServicePostRoute:
         return MaterialPageRoute(builder: (_)=>CreateServicePostPage());
       case Routes.quickServiceRequestRoute:
