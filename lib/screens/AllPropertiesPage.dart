@@ -626,7 +626,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            property.address ?? 'Adresse non disponible',
+                            "${property.cityValue}, ${property.communeValue}",
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 13,
@@ -938,7 +938,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                             SizedBox(width: 2),
                             Expanded(
                               child: Text(
-                                property.address ?? 'Adresse non disponible',
+                                "${property.cityValue}, ${property.communeValue}",
                                 style: TextStyle(
                                   color: _greyColor,
                                   fontSize: 10,
