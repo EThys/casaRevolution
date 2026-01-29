@@ -86,6 +86,7 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
+        iconTheme: IconThemeData(color: Colors.white),
         title: Text("Mon Agence", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: Color(0xFF1976D2),
         elevation: 0,
