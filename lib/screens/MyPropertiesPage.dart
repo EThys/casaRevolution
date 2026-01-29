@@ -300,6 +300,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
+      iconTheme: IconThemeData(color: Colors.white),
       elevation: 0,
       flexibleSpace: Container(
         decoration: BoxDecoration(
@@ -641,8 +642,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
     final imageUrl = firstImage?.path;
 
     final priceText = isForRent
-        ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$/mois'
-        : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$';
+        ? 'A partir de ${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
+        : 'A partir de ${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -759,7 +760,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                             SizedBox(width: 4),
                             Expanded(
                               child: Text(
-                                property.address ?? 'Adresse non renseignée',
+                                "${property.cityValue}, ${property.communeValue}",
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: _mediumGrey,
@@ -825,8 +826,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
     final imageUrl = firstImage?.path;
 
     final priceText = isForRent
-        ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$/mois'
-        : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)}\$';
+        ? 'A partir de ${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
+        : 'A partir de ${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
 
     return InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -995,7 +996,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                           SizedBox(width: 5),
                           Expanded(
                             child: Text(
-                              "${property.address ?? 'Adresse non disponible'}",
+                              "${property.cityValue}, ${property.communeValue}",
                               style: TextStyle(
                                 color: _mediumGrey,
                                 fontSize: 14,
