@@ -215,33 +215,39 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   void _handleNotificationTap(NotificationItem notification) {
     // Marquer comme lu
-    if (!notification.isRead) {
-      Provider.of<NotificationController>(context, listen: false).markAsRead(notification.id);
-    }
+    Provider.of<NotificationController>(context, listen: false).markAsRead(notification.id);
 
-    // Navigation selon le type
-    switch (notification.type) {
-      case NotificationType.serviceRequest:
-      case NotificationType.serviceResponse:
-      case NotificationType.serviceAccepted:
-      case NotificationType.serviceCompleted:
-        if (notification.data != null && notification.data!['requestId'] != null) {
-          final requestId = notification.data!['requestId'];
-          // TODO: Charger la demande depuis l'API ou passer l'objet complet
-          // Pour l'instant, on simule avec un objet minimal
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ServiceRequestDetailPage(
-                request: ServiceRequestModel(requestId: requestId),
+    // Navigation unifiée
+    final data = notification.data ?? {};
+    final propertyId = data['propertyId'] ?? data['property_id'];
+    
+    if (propertyId != null) {
+      Navigator.pushNamed(
+        context, 
+        Routes.detailPageRoute, 
+        arguments: {'propertyId': propertyId}
+      );
+    } else {
+      // Navigation par défaut selon le type si pas de propertyId
+      switch (notification.type) {
+        case NotificationType.serviceRequest:
+        case NotificationType.serviceResponse:
+        case NotificationType.serviceAccepted:
+        case NotificationType.serviceCompleted:
+          if (data['requestId'] != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ServiceRequestDetailPage(
+                  request: ServiceRequestModel(requestId: data['requestId']),
+                ),
               ),
-            ),
-          );
-        }
-        break;
-      default:
-        // Autres types de notifications - pas de navigation spéciale
-        break;
+            );
+          }
+          break;
+        default:
+          break;
+      }
     }
   }
 
