@@ -4,14 +4,16 @@ import 'package:casa/utils/Constantes.dart';
 import 'package:flutter/material.dart';
 
 class FullScreenImageViewer extends StatefulWidget {
-  final List<PropertyImageModel> images;
-  final int initialIndex;
-  final String? categoryName; // Rend le paramètre optionnel
+  final List<PropertyImageModel>? images;
+  final int? initialIndex;
+  final String? imagePath; // Ajout pour supporter une image unique
+  final String? categoryName;
 
   const FullScreenImageViewer({
-    required this.images,
-    required this.initialIndex,
-    this.categoryName, // Paramètre optionnel
+    this.images,
+    this.initialIndex,
+    this.imagePath,
+    this.categoryName,
     Key? key,
   }) : super(key: key);
 
@@ -26,8 +28,8 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialIndex;
-    _pageController = PageController(initialPage: widget.initialIndex);
+    _currentIndex = widget.initialIndex ?? 0;
+    _pageController = PageController(initialPage: _currentIndex);
   }
 
   @override
@@ -38,20 +40,24 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.imagePath != null) {
+      return _buildSingleImageView();
+    }
+    
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
           PageView.builder(
             controller: _pageController,
-            itemCount: widget.images.length,
+            itemCount: widget.images?.length ?? 0,
             onPageChanged: (index) {
               setState(() {
                 _currentIndex = index;
               });
             },
             itemBuilder: (context, index) {
-              final image = widget.images[index];
+              final image = widget.images![index];
               final imagePath = image.path ?? '';
               final correctedPath = imagePath.startsWith('/')
                   ? imagePath.substring(1)
@@ -62,7 +68,7 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
                 onTap: () => Navigator.pop(context),
                 child: Center(
                   child: Hero(
-                    tag: 'property_image_${widget.images[index].propertyImageId}_$index',
+                    tag: 'property_image_${widget.images![index].propertyImageId}_$index',
                     child: CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.contain,
@@ -101,7 +107,7 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    '${_currentIndex + 1} / ${widget.images.length}',
+                    '${_currentIndex + 1} / ${widget.images?.length ?? 0}',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.8),
                       fontSize: 14,
@@ -129,14 +135,14 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
           ),
 
           // Indicateur de page en bas
-          if (widget.images.length > 1)
+          if ((widget.images?.length ?? 0) > 1)
             Positioned(
               bottom: 30,
               left: 0,
               right: 0,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(widget.images.length, (index) {
+                children: List.generate(widget.images!.length, (index) {
                   return Container(
                     width: 8,
                     height: 8,
@@ -151,6 +157,50 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
                 }),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSingleImageView() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Center(
+              child: CachedNetworkImage(
+                imageUrl: widget.imagePath!,
+                fit: BoxFit.contain,
+                placeholder: (context, url) => Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                errorWidget: (context, url, error) => Icon(
+                  Icons.broken_image,
+                  color: Colors.white,
+                  size: 50,
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 40,
+            right: 20,
+            child: IconButton(
+              icon: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.close, color: Colors.white, size: 24),
+              ),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
         ],
       ),
     );
