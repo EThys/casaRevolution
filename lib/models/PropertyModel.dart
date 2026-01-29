@@ -195,80 +195,84 @@ class PropertyModel {
   });
 
   factory PropertyModel.fromJson(Map<String, dynamic> json) {
-    // Détection de la nouvelle structure imbriquée
-    Map<String, dynamic> propertyNode = json["property"] is Map ? json["property"] : json;
-    
-    // Si "property" n'est pas trouvé, chercher les clés spécialisées
-    if (json["property"] == null) {
+    // 1. Identifier le conteneur principal (qui contient images, address, etc.)
+    Map<String, dynamic> container = json;
+    if (json["property"] is Map) {
+      container = json["property"];
+    } else {
       final specializedKeys = [
         "terrain", "bureau", "bureaux", "vacance", "vacances", 
         "festive", "festives", "funeraire", "funeraires", "hotel", "salle"
       ];
-      
       for (final key in specializedKeys) {
         if (json[key] is Map) {
-          propertyNode = json[key];
+          container = json[key];
           break;
         }
       }
     }
+
+    // 2. Identifier le noeud de données plates (title, price, price, etc.)
+    Map<String, dynamic> dataNode = container;
+    if (container["property"] is Map) {
+      dataNode = container["property"];
+    }
+
+    // Debug logging pour le support technique
+    print('🔍 Parsing PropertyModel [ID: ${dataNode["propertyId"] ?? dataNode["id"]}] - Structure: ${json["property"] != null ? (container["property"] != null ? 'DOUBLE_NESTED' : 'NESTED') : 'FLAT'}');
                 
-    final dynamic imagesNode = json["images"];
-    final Map<String, dynamic> addressNode = json["address"] is Map ? json["address"] : json;
-    final Map<String, dynamic> geoNode = json["geoZone"] is Map ? json["geoZone"] : json;
-    final Map<String, dynamic> typeNode = json["typeProperty"] is Map ? json["typeProperty"] : json;
+    final dynamic imagesNode = container["images"] ?? json["images"] ?? container["propertyImage"];
+    final Map<String, dynamic> addressNode = container["address"] is Map ? container["address"] : (json["address"] is Map ? json["address"] : dataNode);
+    final Map<String, dynamic> geoNode = container["geoZone"] is Map ? container["geoZone"] : (json["geoZone"] is Map ? json["geoZone"] : dataNode);
+    final Map<String, dynamic> typeNode = container["typeProperty"] is Map ? container["typeProperty"] : (json["typeProperty"] is Map ? json["typeProperty"] : dataNode);
     
-    // Helper pour chercher dans propertyNode PUIS dans json root
+    // Helper pour chercher dans les différentes couches de données
     dynamic _getVal(String key) {
-       return propertyNode[key] ?? json[key];
+       return dataNode[key] ?? container[key] ?? json[key];
     }
     
-    // Debug logging
-    print('🔍 Parsing PropertyModel (detected structure: ${json["property"] != null ? 'NESTED' : (json["bureau"] != null ? 'BUREAU' : 'FLAT')})');
-
-
     return PropertyModel(
-      propertyId: _parseInt(propertyNode["propertyId"]) ?? _parseInt(propertyNode["id"]),
-      title: _parseString(propertyNode["title"]),
-      description: _parseString(propertyNode["description"]),
-      postBy: _parseString(json["postBy"]), // Extract postBy from root
-      image: _parseString(json["image"]), // Extract profile picture from root
-      username: _parseString(json["postBy"]) ?? _parseString(propertyNode["username"]) ?? _parseString(json["username"]),
-      price: _parseDouble(propertyNode["price"]) ?? 0.0,
-      surface: _parseDouble(propertyNode["surface"]) ?? 0.0,
-      rooms: _parseInt(propertyNode["rooms"]) ?? 0,
-      bedrooms: _parseInt(propertyNode["bedrooms"]) ?? 0,
-      kitchen: _parseInt(propertyNode["kitchen"]) ?? 0,
-      livingRoom: _parseInt(propertyNode["livingRoom"]) ?? 0,
-      bathroom: _parseInt(propertyNode["bathroom"]) ?? 0,
-      floor: _parseInt(propertyNode["floor"]) ?? 0,
-      address: _parseString(addressNode["address"]) ?? _parseString(propertyNode["address"]),
+      propertyId: _parseInt(dataNode["propertyId"]) ?? _parseInt(dataNode["id"]),
+      title: _parseString(dataNode["title"]),
+      description: _parseString(dataNode["description"]),
+      postBy: _parseString(container["postBy"]) ?? _parseString(json["postBy"]),
+      image: _parseString(container["image"]) ?? _parseString(json["image"]),
+      username: _parseString(container["postBy"]) ?? _parseString(dataNode["username"]) ?? _parseString(json["username"]),
+      price: _parseDouble(dataNode["price"]) ?? 0.0,
+      surface: _parseDouble(dataNode["surface"]) ?? 0.0,
+      rooms: _parseInt(dataNode["rooms"]) ?? 0,
+      bedrooms: _parseInt(dataNode["bedrooms"]) ?? 0,
+      kitchen: _parseInt(dataNode["kitchen"]) ?? 0,
+      livingRoom: _parseInt(dataNode["livingRoom"]) ?? 0,
+      bathroom: _parseInt(dataNode["bathroom"]) ?? 0,
+      floor: _parseInt(dataNode["floor"]) ?? 0,
+      address: _parseString(addressNode["address"]) ?? _parseString(dataNode["address"]),
 
       // NOUVELLES PROPRIÉTES
-      guarantee: _parseString(propertyNode["guarantee"]),
-      communeValue: _parseString(addressNode["communeValue"]) ?? _parseString(propertyNode["communeValue"]),
-      cityValue: _parseString(addressNode["cityValue"]) ?? _parseString(propertyNode["cityValue"]),
-      countryValue: _parseString(addressNode["countryValue"]) ?? _parseString(propertyNode["countryValue"]),
-      districtValue: _parseString(addressNode["districtValue"]) ?? _parseString(propertyNode["districtValue"]),
-      quartierValue: _parseString(addressNode["quartierValue"]) ?? _parseString(propertyNode["quartierValue"]),
+      guarantee: _parseString(dataNode["guarantee"]),
+      communeValue: _parseString(addressNode["communeValue"]) ?? _parseString(dataNode["communeValue"]),
+      cityValue: _parseString(addressNode["cityValue"]) ?? _parseString(dataNode["cityValue"]),
+      countryValue: _parseString(addressNode["countryValue"]) ?? _parseString(dataNode["countryValue"]),
+      districtValue: _parseString(addressNode["districtValue"]) ?? _parseString(dataNode["districtValue"]),
+      quartierValue: _parseString(addressNode["quartierValue"]) ?? _parseString(dataNode["quartierValue"]),
 
-      cityId: _parseInt(addressNode["cityId"]) ?? _parseInt(propertyNode["cityId"]) ?? 0,
-      communeId: _parseInt(addressNode["communeId"]) ?? _parseInt(propertyNode["communeId"]) ?? 0,
-      quartierId: _parseInt(addressNode["quartierId"]) ?? _parseInt(propertyNode["quartierId"]) ?? 0,
-      districtId: _parseInt(addressNode["districtId"]) ?? _parseInt(propertyNode["districtId"]) ?? 0,
-      postalCode: _parseString(addressNode["postalCode"]) ?? _parseString(propertyNode["postalCode"]),
-      quartier: _parseString(addressNode["quartier"]) ?? _parseString(propertyNode["quartier"]),
-      sold: _parseBool(propertyNode["sold"]),
-      transactionType: _parseString(propertyNode["transactionType"]),
-      propertyTypeId: _parseInt(typeNode["propertyTypeId"]) ?? _parseInt(propertyNode["propertyTypeId"]) ?? 0,
+      cityId: _parseInt(addressNode["cityId"]) ?? _parseInt(dataNode["cityId"]) ?? 0,
+      communeId: _parseInt(addressNode["communeId"]) ?? _parseInt(dataNode["communeId"]) ?? 0,
+      quartierId: _parseInt(addressNode["quartierId"]) ?? _parseInt(dataNode["quartierId"]) ?? 0,
+      districtId: _parseInt(addressNode["districtId"]) ?? _parseInt(dataNode["districtId"]) ?? 0,
+      postalCode: _parseString(addressNode["postalCode"]) ?? _parseString(dataNode["postalCode"]),
+      quartier: _parseString(addressNode["quartier"]) ?? _parseString(dataNode["quartier"]),
+      sold: _parseBool(dataNode["sold"]),
+      transactionType: _parseString(dataNode["transactionType"]),
+      propertyTypeId: _parseInt(typeNode["propertyTypeId"]) ?? _parseInt(dataNode["propertyTypeId"]) ?? 0,
       
       propertyType: typeNode.isNotEmpty && typeNode["propertyTypeId"] != null
           ? PropertyTypeModel.fromJson(typeNode)
-          : (propertyNode["propertyType"] is Map<String, dynamic>
-              ? PropertyTypeModel.fromJson(propertyNode["propertyType"])
+          : (dataNode["propertyType"] is Map<String, dynamic>
+              ? PropertyTypeModel.fromJson(dataNode["propertyType"])
               : null),
 
-      userId: _parseInt(propertyNode["userId"]) ?? 
+      userId: _parseInt(dataNode["userId"]) ?? 
               _parseInt(json["userId"]) ?? 
               (json["user"] is Map && json["user"]["userId"] != null 
                 ? _parseInt(json["user"]["userId"]) 
@@ -276,13 +280,13 @@ class PropertyModel {
       user: json["user"] is Map<String, dynamic>
           ? UserModel.fromJson(json["user"])
           : null,
-      latitude: _parseDouble(geoNode["lat"]) ?? _parseDouble(propertyNode["latitude"]) ?? 0.0,
-      longitude: _parseDouble(geoNode["lng"]) ?? _parseDouble(propertyNode["longitude"]) ?? 0.0,
-      createdStart: _parseString(propertyNode["createdStart"]) ?? _parseString(_getVal("createdAt")) ?? _parseString(json["createdAt"]),
-      updatedAt: _parseString(propertyNode["updatedAt"]) ?? _parseString(json["updatedAt"]),
+      latitude: _parseDouble(geoNode["lat"]) ?? _parseDouble(dataNode["latitude"]) ?? 0.0,
+      longitude: _parseDouble(geoNode["lng"]) ?? _parseDouble(dataNode["longitude"]) ?? 0.0,
+      createdStart: _parseString(dataNode["createdStart"]) ?? _parseString(_getVal("createdAt")) ?? _parseString(json["createdAt"]),
+      updatedAt: _parseString(dataNode["updatedAt"]) ?? _parseString(json["updatedAt"]),
       createdAt: _parseString(_getVal("createdAt")) ?? _parseString(json["createdAt"]),
-      electric: _parseInt(propertyNode["electric"]) ?? 0,
-      water: _parseInt(propertyNode["water"]) ?? 0,
+      electric: _parseInt(dataNode["electric"]) ?? 0,
+      water: _parseInt(dataNode["water"]) ?? 0,
 
       // CHAMPS SPÉCIFIQUES
       roomMeet: _parseInt(_getVal("roomMeet")),
@@ -300,26 +304,26 @@ class PropertyModel {
       reviewCount: _parseInt(json["reviewCount"]) ?? 0,
 
       // NOUVELLES PROPRIÉTES MÉTADONNÉES
-      isActive: _parseBool(propertyNode["isActive"]) ?? true,
-      isVerified: _parseBool(propertyNode["isVerified"]) ?? false,
-      isFeatured: _parseBool(propertyNode["isFeatured"]) ?? false,
-      available: _parseBool(propertyNode["available"]) ?? _parseBool(json["available"]) ?? true,
-      status: _parseString(propertyNode["status"]) ?? "active",
-      rejectionReason: _parseString(propertyNode["rejectionReason"]),
-      deviseId: _parseInt(propertyNode["deviseId"]) ?? _parseInt(json["deviseId"]) ?? _parseInt(json["devise"]?["id"]),
+      isActive: _parseBool(dataNode["isActive"]) ?? true,
+      isVerified: _parseBool(dataNode["isVerified"]) ?? false,
+      isFeatured: _parseBool(dataNode["isFeatured"]) ?? false,
+      available: _parseBool(dataNode["available"]) ?? _parseBool(json["available"]) ?? true,
+      status: _parseString(dataNode["status"]) ?? "active",
+      rejectionReason: _parseString(dataNode["rejectionReason"]),
+      deviseId: _parseInt(dataNode["deviseId"]) ?? _parseInt(json["deviseId"]) ?? _parseInt(json["devise"]?["id"]),
 
-      features: (json["features"] ?? json["feature"] ?? propertyNode["features"]) is List
+      features: (json["features"] ?? json["feature"] ?? dataNode["features"]) is List
           ? List<PropertyFeatureModel>.from(
-          ((json["features"] ?? json["feature"] ?? propertyNode["features"]) as List).where((x) => x != null).map((x) => PropertyFeatureModel.fromJson(x)))
+          ((json["features"] ?? json["feature"] ?? dataNode["features"]) as List).where((x) => x != null).map((x) => PropertyFeatureModel.fromJson(x)))
           : <PropertyFeatureModel>[],
           
-      propertyImage: _parseImages(json['images'] ?? json['propertyImage']),
+      propertyImage: _parseImages(imagesNode),
       
-      propertyImageRoom: _parseRoomImages(json['images'] ?? json['propertyImageRoom']),
+      propertyImageRoom: _parseRoomImages(imagesNode),
       
-      propertyImageLivingRoom: _parseLivingRoomImages(json['images'] ?? json['propertyImageLivingRoom']),
+      propertyImageLivingRoom: _parseLivingRoomImages(imagesNode),
       
-      propertyImageKitchen: _parseKitchenImages(json['images'] ?? json['propertyImageKitchen']),
+      propertyImageKitchen: _parseKitchenImages(imagesNode),
 
     );
   }
