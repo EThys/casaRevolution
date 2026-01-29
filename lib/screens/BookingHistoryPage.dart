@@ -24,6 +24,7 @@ import '../utils/database/DatabaseHelper.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/UserInfoBottomSheet.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../utils/ModernModal.dart';
 
 class BookingHistoryPage extends StatefulWidget {
   const BookingHistoryPage({Key? key}) : super(key: key);
@@ -1024,14 +1025,14 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                                  icon: Icons.close,
                                  color: Colors.red,
                                  label: "Refuser",
-                                 onTap: () => _handleReservationAction(reservation, 'CANCELLED')
+                                 onTap: () => _handleReservationAction(reservation, 'CANCELLED', fromBottomSheet: false)
                                ),
                                SizedBox(width: 8),
                                _buildActionButton(
                                  icon: Icons.check,
                                  color: Colors.green,
                                  label: "Valider",
-                                 onTap: () => _handleReservationAction(reservation, 'CONFIRMED')
+                                 onTap: () => _handleReservationAction(reservation, 'CONFIRMED', fromBottomSheet: false)
                                ),
                              ],
                            )
@@ -1326,7 +1327,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                                  mainAxisSize: MainAxisSize.min,
                                  children: [
                                      InkWell(
-                                      onTap: () => _handleReservationAction(reservation, 'CANCELLED'),
+                                      onTap: () => _handleReservationAction(reservation, 'CANCELLED', fromBottomSheet: false),
                                       borderRadius: BorderRadius.circular(8),
                                       child: Container(
                                         padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1340,7 +1341,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                                       ),
                                     ),
                                     InkWell(
-                                      onTap: () => _handleReservationAction(reservation, 'CONFIRMED'),
+                                      onTap: () => _handleReservationAction(reservation, 'CONFIRMED', fromBottomSheet: false),
                                       borderRadius: BorderRadius.circular(8),
                                       child: Container(
                                         padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1780,7 +1781,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                children: [
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () => _handleReservationAction(reservation, 'CANCELLED'),
+                      onPressed: () => _handleReservationAction(reservation, 'CANCELLED', fromBottomSheet: true),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _errorColor.withOpacity(0.1),
                         foregroundColor: _errorColor,
@@ -1794,7 +1795,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   SizedBox(width: 16),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () => _handleReservationAction(reservation, 'CONFIRMED'),
+                      onPressed: () => _handleReservationAction(reservation, 'CONFIRMED', fromBottomSheet: true),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _successColor,
                         foregroundColor: Colors.white,
@@ -2642,10 +2643,10 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     final now = DateFormat('dd/MM/yy HH:mm').format(DateTime.now());
     
     final property = reservation.property;
-    final publisher = property?.user;
     
-    // Infos propriétaire/commissionnaire
-    final publisherName = publisher?.username?.toString() ?? 'Non renseigné';
+    // Infos propriétaire/commissionnaire - Utiliser postBy en priorité
+    final advertiserName = property?.postBy?.toString() ?? property?.user?.username?.toString() ?? 'Non renseigné';
+    final publisher = property?.user;
     final publisherPhone = publisher?.phone?.toString() ?? 'Non renseigné';
     final publisherEmail = publisher?.email?.toString() ?? 'Non renseigné';
     final typeAccountName = publisher?.typeAccount?.name?.toString()?.toLowerCase() ?? '';
@@ -2718,7 +2719,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                         ),
                       ),
                       pw.Text(
-                        'Confirmation de la visite',
+                        'Demande de Visite',
                         style: pw.TextStyle(
                           fontSize: 14,
                         ),
@@ -2752,8 +2753,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
               if (userEmail.isNotEmpty) pw.Text('Email : $userEmail'),
               pw.SizedBox(height: 16),
 
-              pw.Text('Publié par', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Nom : $publisherName'),
+              pw.Text('Annonceur', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+              pw.Text('Nom : $advertiserName'),
               pw.Text('Rôle : $publisherRole'),
               pw.Text('Téléphone : $publisherPhone'),
               pw.Text('Email : $publisherEmail'),
@@ -3156,7 +3157,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  Future<void> _handleReservationAction(ReservationModel reservation, String action) async {
+  Future<void> _handleReservationAction(ReservationModel reservation, String action, {bool fromBottomSheet = false}) async {
       final ctrl = Provider.of<ReservationController>(context, listen: false);
       if (reservation.reservationId == null) return;
       
@@ -3175,17 +3176,21 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       }
       
       if (confirm) {
-         if (mounted) Navigator.pop(context); // Fermer le management BottomSheet
+         if (fromBottomSheet && mounted) Navigator.pop(context); // Fermer le management BottomSheet seulement si demandé
          setState(() => _isLoading = true);
          try {
            bool success = false;
            if (action == 'CANCELLED') {
-              final resp = await ctrl.cancelReservation(reservation.reservationId!, reason ?? "Cancelled");
-              success = resp.status == true;
-           } else {
-              final resp = await ctrl.updateReservationStatus(reservation.reservationId!, action);
-              success = resp.status == true;
-           }
+            final resp = await ctrl.cancelReservation(reservation.reservationId!, reason ?? "Cancelled");
+            success = resp.status == true;
+         } else if (action == 'CONFIRMED') {
+            // Utiliser l'endpoint spécial qui déclenche la notification WebSocket
+            final resp = await ctrl.validateReservation(reservation.reservationId!, true);
+            success = resp.status == true;
+         } else {
+            final resp = await ctrl.updateReservationStatus(reservation.reservationId!, action);
+            success = resp.status == true;
+         }
            
            if (success) {
              await _loadReservations();
@@ -3206,69 +3211,14 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
   void _showHostActionSuccessDialog(ReservationModel reservation) {
-    showDialog(
+    ModernModal.showSuccess(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-               Container(
-                 padding: EdgeInsets.all(16),
-                 decoration: BoxDecoration(color: _successColor.withOpacity(0.1), shape: BoxShape.circle),
-                 child: Icon(Icons.check_circle_rounded, color: _successColor, size: 60),
-               ),
-               SizedBox(height: 24),
-               Text("Réservation validée", style: GoogleFonts.inter(fontSize: 22, fontWeight: FontWeight.bold)),
-               SizedBox(height: 12),
-               Text(
-                 "Vous avez confirmé cette demande de visite. Le client a été notifié. Vous pouvez partager le bon de visite maintenant.",
-                 textAlign: TextAlign.center,
-                 style: TextStyle(color: _mediumGrey, height: 1.5),
-               ),
-               SizedBox(height: 32),
-               Row(
-                 children: [
-                   Expanded(
-                     child: OutlinedButton.icon(
-                       onPressed: () => _shareReservationPdf(reservation),
-                       icon: Icon(Icons.share_rounded, size: 18),
-                       label: Text("PARTAGER"),
-                       style: OutlinedButton.styleFrom(
-                         padding: EdgeInsets.symmetric(vertical: 14),
-                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                       ),
-                     ),
-                   ),
-                   SizedBox(width: 12),
-                   Expanded(
-                     child: ElevatedButton.icon(
-                       onPressed: () => _downloadReservationPdf(reservation),
-                       icon: Icon(Icons.download_rounded, size: 18),
-                       label: Text("TÉLÉCHARGER"),
-                       style: ElevatedButton.styleFrom(
-                         backgroundColor: _primaryColor,
-                         foregroundColor: Colors.white,
-                         padding: EdgeInsets.symmetric(vertical: 14),
-                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                         elevation: 0,
-                       ),
-                     ),
-                   ),
-                 ],
-               ),
-               SizedBox(height: 16),
-               TextButton(
-                 onPressed: () => Navigator.pop(context),
-                 child: Text("FERMER", style: TextStyle(color: _mediumGrey, fontWeight: FontWeight.bold)),
-               ),
-            ],
-          ),
-        ),
-      ),
+      title: "Réservation validée",
+      message: "Vous avez confirmé cette demande de visite. Le client a été notifié. Vous pouvez partager ou télécharger le bon de visite maintenant.",
+      actionLabel: "PARTAGER LE BON",
+      onAction: () => _shareReservationPdf(reservation),
+      secondaryLabel: "TÉLÉCHARGER (PDF)",
+      onSecondary: () => _downloadReservationPdf(reservation),
     );
   }
 
