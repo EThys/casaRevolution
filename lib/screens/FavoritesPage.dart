@@ -677,7 +677,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                             SizedBox(width: 4),
                             Expanded(
                               child: Text(
-                                propertyData?.address ?? 'Adresse non renseignée',
+                                "${propertyData?.cityValue}, ${propertyData?.communeValue}",
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: _mediumGrey,
@@ -936,7 +936,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                           SizedBox(width: 5),
                           Expanded(
                             child: Text(
-                              "${propertyData?.address ?? 'Adresse non disponible'}",
+                              "${propertyData?.cityValue}, ${propertyData?.communeValue}",
                               style: TextStyle(
                                 color: _mediumGrey,
                                 fontSize: 14,
