@@ -15,6 +15,7 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
   Future<void>? _initializeControllerFuture;
   bool _isCameraInitialized = false;
   bool _isTorchOn = false;
+  bool _isTakingPicture = false; // Flag to prevent multiple captures
 
   @override
   void initState() {
@@ -76,25 +77,34 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
   }
 
   Future<void> _takePicture() async {
+    if (_isTakingPicture || _controller == null || !_isCameraInitialized) {
+      return;
+    }
+
     try {
-      if (_controller == null || !_controller!.value.isInitialized) {
-        return;
+      setState(() => _isTakingPicture = true);
+
+      // Verify initialization state
+      if (!_controller!.value.isInitialized) {
+        throw CameraException("NotInitialized", "La caméra n'est pas encore prête.");
       }
 
-      await _initializeControllerFuture;
       final image = await _controller!.takePicture();
 
-      // Close camera screen first and pass the image path back
       if (mounted) {
         Navigator.pop(context, image.path);
-        // Call the callback after navigation to avoid setState on unmounted widget
         widget.onImageCaptured(image.path);
       }
     } catch (e) {
-      print('Error taking picture: $e');
+      print('❌ [SelfieCamera] Error taking picture: $e');
       if (mounted) {
+        setState(() => _isTakingPicture = false);
+        String errorMsg = "Erreur lors de la capture";
+        if (e is CameraException && e.code == 'cameraInitializationRequired') {
+          errorMsg = "La caméra redémarre, réessayez dans un instant";
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur lors de la capture: $e')),
+          SnackBar(content: Text(errorMsg)),
         );
       }
     }
@@ -152,24 +162,29 @@ class _SelfieCameraScreenState extends State<SelfieCameraScreen> {
             left: 0,
             right: 0,
             child: Center(
-              child: GestureDetector(
-                onTap: _takePicture,
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.grey, width: 4),
-                  ),
-                  child: Center(
-                    child: Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
-                      ),
+              child: Opacity(
+                opacity: (_isCameraInitialized && !_isTakingPicture) ? 1.0 : 0.5,
+                child: GestureDetector(
+                  onTap: (_isCameraInitialized && !_isTakingPicture) ? _takePicture : null,
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.grey, width: 4),
+                    ),
+                    child: Center(
+                      child: _isTakingPicture 
+                        ? const CircularProgressIndicator(color: Colors.red, strokeWidth: 3)
+                        : Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
                     ),
                   ),
                 ),
