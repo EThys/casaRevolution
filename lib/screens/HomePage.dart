@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
@@ -47,6 +48,7 @@ import 'package:casa/controllers/NotificationController.dart';
 import 'package:casa/controllers/TypeAccountController.dart';
 import '../utils/PulseBadge.dart';
 import '../widgets/OfflineBanner.dart';
+import 'ProfilePage.dart'; // Added for background update
 
 class HomePage extends StatefulWidget {
   final bool shouldRefresh;
@@ -71,7 +73,7 @@ class _HomePageState extends State<HomePage> {
   List<PrestationModel> majordhommeServices = [];
   List<PrestationModel> demenagementServices = [];
   Map<ServiceType, List<PrestationModel>> otherServicesByType = {};
-  bool isLoadingPrestations = false;
+  bool isLoadingPrestations = true; // Commencer à true pour voir le shimmer tout de suite
   
   // Mapping nom compte -> ID
   Map<String, int> accountNameToIdMap = {};
@@ -126,7 +128,10 @@ class _HomePageState extends State<HomePage> {
       propertyCtrl.fetchAndSyncPropertyTypes();
       
       // Charger tous les services
+      // Charger tous les services
       serviceCtrl.fetchServices();
+      // Charger le mapping des comptes services
+      serviceCtrl.fetchServiceAccounts();
       
       // Charger les prestations depuis l'API
       _loadPrestationsFromAPI();
@@ -156,309 +161,223 @@ class _HomePageState extends State<HomePage> {
       // [OPTIMIZATION] Charger les types de comptes en arrière-plan et les cacher en SQL
       // Cela permet à la page Register de charger instantanément sans réseau
       Provider.of<TypeAccountController>(context, listen: false).fetchAndCacheAccountTypes();
+
+      // [OPTIMIZATION] Mettre à jour le compteur de publications en arrière-plan
+      // Utile pour avoir l'info prête quand on ouvre la page Profil
+      if (authCtrl.isLoggedIn) {
+        Future.delayed(Duration(seconds: 3), () {
+           ProfilePage.updatePublicationCount(context);
+        });
+      }
     });
   }
 
   // Charger les comptes depuis l'API et mapper les noms aux IDs
   // Aussi charger et stocker les catégories de services dans SQLite
+  // Charger le mapping des comptes de manière optimisée
   Future<void> _loadAccountMapping() async {
     try {
-      // D'abord, essayer de charger depuis le cache local
+      // 1. CHARGEMENT DEPUIS LE CACHE (Instantané)
       final categoryDB = ServiceCategoryDatabaseHelper.instance;
       final cachedCategories = await categoryDB.getAllCategories();
       
       if (cachedCategories.isNotEmpty) {
-        print("📦 [HomePage] ${cachedCategories.length} catégories chargées depuis le cache local");
-        // Remplir le mapping depuis le cache
-        accountNameToIdMap.clear();
-        for (var category in cachedCategories) {
-          final accountName = category['accountName']?.toString().toLowerCase();
-          final accountId = category['accountId'];
-          if (accountName != null && accountId != null) {
-            accountNameToIdMap[accountName] = accountId;
-          }
-        }
+        print("📦 [HomePage] Mapping chargé depuis le cache local");
+        _updateMappingFromList(cachedCategories, isCache: true);
       }
       
-      // Ensuite, charger depuis l'API pour mettre à jour
+      // 2. MISE À JOUR API (En arrière-plan si on a déjà des données)
+      if (accountNameToIdMap.isNotEmpty) {
+        _fetchAccountMappingFromAPI(); // On ne l'attend pas ici pour ne pas bloquer
+      } else {
+        await _fetchAccountMappingFromAPI(); // On l'attend si on n'a rien
+      }
+    } catch (e) {
+      print("❌ [HomePage] Erreur chargement mapping: $e");
+    }
+  }
+
+  // Effectuer la requête API pour le mapping
+  Future<void> _fetchAccountMappingFromAPI() async {
+    try {
       final url = Endpoints.accounts;
       final token = storage.read<String>(StockageKeys.tokenKey);
       var response = await getData(url, token: token);
       
       if (response != null && response is Map<String, dynamic>) {
-        // L'API retourne "accounts" dans la réponse (pas "user_accounts")
         final accounts = response['accounts'] as List<dynamic>?;
-        
         if (accounts != null && accounts.isNotEmpty) {
-          accountNameToIdMap.clear();
-          final List<Map<String, dynamic>> categoriesToCache = [];
-          
-          // Mapping des icônes et couleurs par nom de compte
-          final iconMap = {
-            'plombier': 'plumbing_rounded',
-            'electricien': 'electrical_services_rounded',
-            'salubrité': 'cleaning_services_rounded',
-            'peintre': 'format_paint_rounded',
-            'carrelleur': 'square_foot_rounded',
-            'menusier': 'carpenter_rounded',
-            'frigoriste': 'ac_unit_rounded',
-            'ajusteur': 'build_rounded',
-            'architect': 'architecture_rounded',
-            'chauffeur': 'drive_eta_rounded',
-            'maçon': 'construction_rounded',
-            'majordome': 'cleaning_services_rounded',
-            'demenagement': 'local_shipping_rounded',
-          };
-          
-          final colorMap = {
-            'plombier': 0xFF2196F3,
-            'electricien': 0xFFFFEB3B,
-            'salubrité': 0xFF4CAF50,
-            'peintre': 0xFFFF5722,
-            'carrelleur': 0xFF9C27B0,
-            'menusier': 0xFF8D6E63,
-            'frigoriste': 0xFF00BCD4,
-            'ajusteur': 0xFF4CAF50,
-            'architect': 0xFFFF9800,
-            'chauffeur': 0xFFF44336,
-            'maçon': 0xFF795548,
-            'majordome': 0xFF607D8B,
-            'demenagement': 0xFF3F51B5,
-          };
-          
-          for (var acc in accounts) {
-            final accountName = acc['name']?.toString().toLowerCase();
-            final accountId = acc['id'];
-            final typeAccount = acc['typeAccount'];
-            final typeAccountId = typeAccount?['typeAccountId'];
-            
-            if (accountName != null && accountId != null) {
-              accountNameToIdMap[accountName] = accountId;
-              print("📋 [HomePage] Mapping API: $accountName -> $accountId");
-              
-              // Stocker uniquement les prestataires de service (typeAccountId == 3) dans le cache
-              if (typeAccountId == 3) {
-                final displayName = accountName[0].toUpperCase() + accountName.substring(1);
-                final serviceType = _mapAccountNameToServiceType(accountName);
-                
-                if (serviceType != null) {
-                  categoriesToCache.add({
-                    'name': displayName,
-                    'value': serviceType.value,
-                    'accountName': accountName,
-                    'accountId': accountId,
-                    'iconName': iconMap[accountName] ?? 'build_rounded',
-                    'colorValue': colorMap[accountName] ?? primaryColor.value,
-                  });
-                }
-              }
-            }
-          }
-          
-          // Stocker les catégories dans SQLite
-          if (categoriesToCache.isNotEmpty) {
-            await categoryDB.insertOrUpdateCategories(categoriesToCache);
-            print("💾 [HomePage] ${categoriesToCache.length} catégories stockées dans SQLite");
-          }
-          
-          print("✅ [HomePage] ${accountNameToIdMap.length} comptes chargés depuis l'API");
-        } else {
-          print("⚠️ [HomePage] Aucun accounts dans la réponse API ou liste vide");
+          _updateMappingFromList(accounts, isCache: false);
+          print("✅ [HomePage] Mapping mis à jour via API");
         }
-      } else {
-        print("⚠️ [HomePage] Réponse API invalide ou null");
       }
     } catch (e) {
-      print("❌ [HomePage] Erreur lors du chargement du mapping des comptes depuis l'API: $e");
-      // Fallback sur le stockage local si l'API échoue
-      try {
-        final userData = storage.read<Map<String, dynamic>>(StockageKeys.userKey);
-        final userAccounts = userData?['user_accounts'] as List<dynamic>?;
-        
-        if (userAccounts != null) {
-          accountNameToIdMap.clear();
-          for (var acc in userAccounts) {
-            final accountName = acc['name']?.toString().toLowerCase();
-            final accountId = acc['id'];
-            if (accountName != null && accountId != null) {
-              accountNameToIdMap[accountName] = accountId;
-              print("📋 [HomePage] Mapping local: $accountName -> $accountId");
-            }
-          }
-        }
-      } catch (e2) {
-        print("❌ [HomePage] Erreur lors du chargement du mapping local: $e2");
-      }
+      print("❌ [HomePage] Échec mise à jour API mapping: $e");
     }
   }
 
-  // Charger les prestations depuis l'API (avec cache SQLite)
+  // Mettre à jour le dictionnaire interne depuis une liste (Cache ou API)
+  void _updateMappingFromList(List<dynamic> list, {required bool isCache}) {
+    final List<Map<String, dynamic>> categoriesToCache = [];
+    
+    // Mapping des icônes et couleurs
+    final iconMap = {
+      'plombier': 'plumbing_rounded',
+      'electricien': 'electrical_services_rounded',
+      'salubrité': 'cleaning_services_rounded',
+      'peintre': 'format_paint_rounded',
+      'carrelleur': 'square_foot_rounded',
+      'menusier': 'carpenter_rounded',
+      'frigoriste': 'ac_unit_rounded',
+      'ajusteur': 'build_rounded',
+      'architect': 'architecture_rounded',
+      'chauffeur': 'drive_eta_rounded',
+      'maçon': 'construction_rounded',
+      'majordome': 'cleaning_services_rounded',
+      'demenagement': 'local_shipping_rounded',
+    };
+    
+    final colorMap = {
+      'plombier': 0xFF2196F3, 'electricien': 0xFFFFEB3B, 'salubrité': 0xFF4CAF50,
+      'peintre': 0xFFFF5722, 'carrelleur': 0xFF9C27B0, 'menusier': 0xFF8D6E63,
+      'frigoriste': 0xFF00BCD4, 'ajusteur': 0xFF4CAF50, 'architect': 0xFFFF9800,
+      'chauffeur': 0xFFF44336, 'maçon': 0xFF795548, 'majordome': 0xFF607D8B,
+      'demenagement': 0xFF3F51B5,
+    };
+
+    for (var acc in list) {
+      final accountName = (isCache ? acc['accountName'] : acc['name'])?.toString().toLowerCase();
+      final accountId = isCache ? acc['accountId'] : acc['id'];
+      
+      if (accountName != null && accountId != null) {
+        accountNameToIdMap[accountName] = accountId;
+        
+        if (!isCache) {
+          final typeAccount = acc['typeAccount'];
+          final typeAccountId = typeAccount?['typeAccountId'];
+          
+          if (typeAccountId == 3) {
+            final displayName = accountName[0].toUpperCase() + accountName.substring(1);
+            final serviceType = _mapAccountNameToServiceType(accountName);
+            if (serviceType != null) {
+              categoriesToCache.add({
+                'name': displayName,
+                'value': serviceType.value,
+                'accountName': accountName,
+                'accountId': accountId,
+                'iconName': iconMap[accountName] ?? 'build_rounded',
+                'colorValue': colorMap[accountName] ?? primaryColor.value,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    if (!isCache && categoriesToCache.isNotEmpty) {
+      ServiceCategoryDatabaseHelper.instance.insertOrUpdateCategories(categoriesToCache);
+    }
+  }
+
+  // Charger les prestations avec stratégie Cache-First puis API Parallèle
   Future<void> _loadPrestationsFromAPI() async {
     if (mounted) {
       setState(() => isLoadingPrestations = true);
     }
 
     try {
-      // Charger le mapping des comptes
-      await _loadAccountMapping();
+      // 1. Charger d'abord le mapping depuis le CACHE (très rapide)
+      await _loadAccountMapping(); 
       
       final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
-      
-      // Charger d'abord depuis le cache local pour affichage immédiat
       final dbHelper = PrestationDatabaseHelper.instance;
+      
+      // 2. CHARGEMENT INITIAL DEPUIS LE CACHE SQL
       final cachedPrestations = await dbHelper.getAllPrestations();
-      
-      // Récupérer l'ID du compte majordome (peut être "majordome" ou "majordhomme")
-      final majordomeId = accountNameToIdMap['majordome'] ?? accountNameToIdMap['majordhomme'];
-      if (majordomeId != null) {
-        // Charger depuis le cache d'abord
-        final cachedMajordome = cachedPrestations.where((p) => p.serviceId == majordomeId).toList();
-        if (cachedMajordome.isNotEmpty) {
-          majordhommeServices = cachedMajordome;
-          print("✅ [HomePage] ${majordhommeServices.length} prestations majordome chargées depuis le cache");
-          if (mounted) {
-            setState(() {});
-          }
-        }
-        
-        // Mettre à jour depuis l'API en arrière-plan
-        final majordomePrestations = await serviceCtrl.fetchPrestationsByServiceId(majordomeId);
-        majordhommeServices = List<PrestationModel>.from(majordomePrestations)
-          ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-        print("✅ [HomePage] ${majordhommeServices.length} prestations majordome mises à jour depuis l'API (serviceId: $majordomeId)");
-      } else {
-        print("⚠️ [HomePage] Aucun compte majordome trouvé dans user_accounts");
+      if (cachedPrestations.isNotEmpty) {
+        print("📦 [HomePage] Chargement express de ${cachedPrestations.length} prestations du cache");
+        _processPrestations(cachedPrestations);
+        if (mounted) setState(() {});
       }
-      
-      // Récupérer l'ID du compte demenagement
-      final demenagementId = accountNameToIdMap['demenagement'];
-      if (demenagementId != null) {
-        // Charger depuis le cache d'abord
-        final cachedDemenagement = cachedPrestations.where((p) => p.serviceId == demenagementId).toList();
-        if (cachedDemenagement.isNotEmpty) {
-          demenagementServices = cachedDemenagement;
-          print("✅ [HomePage] ${demenagementServices.length} prestations demenagement chargées depuis le cache");
-          if (mounted) {
-            setState(() {});
-          }
-        }
-        
-        // Mettre à jour depuis l'API en arrière-plan
-        final demenagementPrestations = await serviceCtrl.fetchPrestationsByServiceId(demenagementId);
-        demenagementServices = List<PrestationModel>.from(demenagementPrestations)
-          ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-        print("✅ [HomePage] ${demenagementServices.length} prestations demenagement mises à jour depuis l'API (serviceId: $demenagementId)");
-      } else {
-        print("⚠️ [HomePage] Aucun compte demenagement trouvé dans user_accounts");
-      }
-      
-      // Charger toutes les prestations pour les autres services (uniquement prestataires de service)
-      // D'abord depuis le cache
-      final cachedOtherServices = cachedPrestations.where((p) {
-        if (p.serviceId == null) return false;
-        String? accountName;
-        accountNameToIdMap.forEach((name, id) {
-          if (id == p.serviceId) {
-            accountName = name;
-          }
-        });
-        return accountName != null && 
-               accountName != 'majordome' && 
-               accountName != 'majordhomme' &&
-               accountName != 'demenagement';
-      }).toList();
-      
-      // Afficher les données du cache d'abord
-      if (cachedOtherServices.isNotEmpty) {
-        otherServicesByType.clear();
-        for (var prestation in cachedOtherServices) {
-          if (prestation.serviceId != null) {
-            String? accountName;
-            accountNameToIdMap.forEach((name, id) {
-              if (id == prestation.serviceId) {
-                accountName = name;
-              }
-            });
-            if (accountName != null) {
-              final serviceType = _mapAccountNameToServiceType(accountName!);
-              if (serviceType != null) {
-                otherServicesByType.putIfAbsent(serviceType, () => []).add(prestation);
-              }
-            }
-          }
-        }
-        print("✅ [HomePage] ${cachedOtherServices.length} prestations autres services chargées depuis le cache");
-        if (mounted) {
-          setState(() {});
-        }
-      }
-      
-      // Mettre à jour depuis l'API en arrière-plan
-      List<PrestationModel> allPrestations = [];
-      try {
-        allPrestations = await serviceCtrl.fetchAllPrestations();
-      } catch (e) {
-        // Silently fail for network errors - cache is already loaded
-        if (e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
-          print("ℹ️ [HomePage] Mode hors ligne - utilisation du cache uniquement");
-        } else {
-          print("⚠️ [HomePage] Erreur lors du chargement des prestations: $e");
-        }
-      }
-      
-      print("🔍 [HomePage] ${allPrestations.length} prestations chargées au total");
-      print("🔍 [HomePage] Mapping des comptes: $accountNameToIdMap");
-      
-      // Grouper par type de compte (serviceId) - uniquement prestataires de service
-      // Exclure majordome et demenagement qui sont déjà traités séparément
-      otherServicesByType.clear();
-      
-      for (var prestation in allPrestations) {
-        if (prestation.serviceId != null) {
-          // Trouver le nom du compte correspondant à ce serviceId
-          String? accountName;
-          accountNameToIdMap.forEach((name, id) {
-            if (id == prestation.serviceId) {
-              accountName = name;
-            }
-          });
+
+      // 3. RÉCUPÉRATION API (Optimisé)
+      // Note: On utilise uniquement /api/prestations car /api/prestations/service/{id} n'existe pas
+      final allList = await serviceCtrl.fetchAllPrestations();
+
+      if (mounted) {
+        setState(() {
+          // Traiter TOUTES les prestations (filtrage local par serviceId)
+          _processPrestations(allList);
           
-          // Exclure majordome et demenagement
-          if (accountName != null && 
-              accountName != 'majordome' && 
-              accountName != 'majordhomme' &&
-              accountName != 'demenagement') {
-            // Mapper le nom du compte vers ServiceType
-            final serviceType = _mapAccountNameToServiceType(accountName!);
-            if (serviceType != null) {
-              otherServicesByType.putIfAbsent(serviceType, () => []).add(prestation);
-              print("✅ [HomePage] Ajout prestation ${prestation.id} (serviceId: ${prestation.serviceId}, type: $serviceType, compte: $accountName)");
-            } else {
-              print("⚠️ [HomePage] ServiceType non trouvé pour compte: $accountName (serviceId: ${prestation.serviceId})");
-            }
-          } else if (accountName != null) {
-            print("ℹ️ [HomePage] Prestation ${prestation.id} exclue (compte: $accountName, serviceId: ${prestation.serviceId})");
-          } else {
-            print("⚠️ [HomePage] Aucun compte trouvé pour serviceId: ${prestation.serviceId} (prestation: ${prestation.id})");
-          }
-        }
+          isLoadingPrestations = false;
+        });
+        
+        // Compter les résultats par catégorie pour les logs
+        final majordomeId = accountNameToIdMap['majordome'] ?? accountNameToIdMap['majordhomme'];
+        final demenagementId = accountNameToIdMap['demenagement'];
+        final majCount = allList.where((p) => p.serviceId == majordomeId).length;
+        final demCount = allList.where((p) => p.serviceId == demenagementId).length;
+        
+        print("✅ [HomePage] Données API intégrées (Total: ${allList.length}, Ménage: $majCount, Déménag: $demCount)");
       }
-      
-      // Trier chaque liste de services par ID décroissant (plus récent en premier)
-      otherServicesByType.forEach((type, services) {
-        services.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-      });
-      
-      final totalPrestations = otherServicesByType.values.map((l) => l.length).fold(0, (a, b) => a + b);
-      print("✅ [HomePage] Autres services groupés: ${otherServicesByType.length} types, $totalPrestations prestations totales");
-      
     } catch (e) {
       print("❌ [HomePage] Erreur lors du chargement des prestations: $e");
-    } finally {
-      if (mounted) {
-        setState(() => isLoadingPrestations = false);
+      if (mounted) setState(() => isLoadingPrestations = false);
+    }
+  }
+
+  // Méthode utilitaire pour traiter et grouper les prestations
+  void _processPrestations(List<PrestationModel> allPrestations) {
+    // 1. Filtrer les majordomes et déménagements (gérés séparément)
+    final majordomeId = accountNameToIdMap['majordome'] ?? accountNameToIdMap['majordhomme'];
+    final demenagementId = accountNameToIdMap['demenagement'];
+
+    // TOUJOURS mettre à jour depuis les données API (pas seulement si vide)
+    // Ceci garantit que les données obsolètes en mémoire sont écrasées
+    if (majordomeId != null) {
+       final apiMajordhomme = allPrestations.where((p) => p.serviceId == majordomeId).toList()
+        ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+       // Ne mettre à jour que si on a des données de l'API OU si on veut vider
+       if (apiMajordhomme.isNotEmpty || majordhommeServices.isNotEmpty) {
+         majordhommeServices = apiMajordhomme;
+         print("🔄 [HomePage] Ménage mis à jour: ${apiMajordhomme.length} prestations");
+       }
+    }
+    if (demenagementId != null) {
+       final apiDemenagement = allPrestations.where((p) => p.serviceId == demenagementId).toList()
+        ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+       if (apiDemenagement.isNotEmpty || demenagementServices.isNotEmpty) {
+         demenagementServices = apiDemenagement;
+         print("🔄 [HomePage] Déménagement mis à jour: ${apiDemenagement.length} prestations");
+       }
+    }
+
+    // 2. Grouper les autres
+    otherServicesByType.clear();
+    for (var prestation in allPrestations) {
+      if (prestation.serviceId != null && 
+          prestation.serviceId != majordomeId && 
+          prestation.serviceId != demenagementId) {
+        
+        // Trouver le nom du compte
+        String? accountName;
+        accountNameToIdMap.forEach((name, id) {
+          if (id == prestation.serviceId) accountName = name;
+        });
+
+        if (accountName != null) {
+          final serviceType = _mapAccountNameToServiceType(accountName!);
+          if (serviceType != null) {
+            otherServicesByType.putIfAbsent(serviceType, () => []).add(prestation);
+          }
+        }
       }
     }
+
+    // 3. Trier
+    otherServicesByType.forEach((type, services) {
+      services.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+    });
   }
 
   // Obtenir l'icône pour un type de service
@@ -505,29 +424,41 @@ class _HomePageState extends State<HomePage> {
       'majordhomme': ServiceType.majordhomme,
       'plombier': ServiceType.plomberie,
       'plombiers': ServiceType.plomberie,
+      'plomberie': ServiceType.plomberie,
       'electricien': ServiceType.electricite,
       'electriciens': ServiceType.electricite,
+      'electricite': ServiceType.electricite,
+      'électricité': ServiceType.electricite,
       'salubrité': ServiceType.nettoyage,
       'salubrites': ServiceType.nettoyage,
+      'nettoyage': ServiceType.nettoyage,
       'peintre': ServiceType.peinture,
       'peintres': ServiceType.peinture,
+      'peinture': ServiceType.peinture,
       'carreleur': ServiceType.carrelage,
-      'carrelleur': ServiceType.carrelage, // Note: l'API retourne "carrelleur" avec double 'l'
+      'carrelleur': ServiceType.carrelage,
       'carreleurs': ServiceType.carrelage,
+      'carrelage': ServiceType.carrelage,
       'menuisier': ServiceType.reparation,
-      'menusier': ServiceType.reparation, // Note: l'API retourne "menusier" sans 'u'
+      'menusier': ServiceType.reparation,
       'menuisiers': ServiceType.reparation,
+      'reparation': ServiceType.reparation,
+      'réparation': ServiceType.reparation,
       'frigoriste': ServiceType.climatisation,
       'frigoristes': ServiceType.climatisation,
+      'climatisation': ServiceType.climatisation,
       'ajusteur': ServiceType.reparation,
       'ajusteurs': ServiceType.reparation,
       'architecte': ServiceType.renovation,
-      'architect': ServiceType.renovation, // Note: l'API retourne "architect" sans 'e'
+      'architect': ServiceType.renovation,
       'architectes': ServiceType.renovation,
-      'maçon': ServiceType.renovation, // Note: l'API retourne "maçon" avec accent
+      'maçon': ServiceType.renovation,
       'macon': ServiceType.renovation,
+      'renovation': ServiceType.renovation,
+      'rénovation': ServiceType.renovation,
       'chauffeur': ServiceType.transport,
       'chauffeurs': ServiceType.transport,
+      'transport': ServiceType.transport,
       'demenagement': ServiceType.demenagement,
       'demenagements': ServiceType.demenagement,
     };
@@ -1390,26 +1321,44 @@ class _HomePageState extends State<HomePage> {
                                 ),
                               ],
                             ),
-                            child: Builder(
-                              builder: (context) {
-                                // Récupérer l'URL de la photo depuis le profil
+                            child: Consumer<AuthentificationCtrl>(
+                              builder: (context, auth, child) {
+                                // Re-lire les données du drawer pour attraper les mises à jour de stockage
+                                final profileData = stockage.read(StockageKeys.profileKey);
                                 String? imageUrl;
-                                if (profile != null && profile is Map) {
-                                  imageUrl = profile['image']?.toString() ?? profile['images']?.toString();
+                                if (profileData != null && profileData is Map) {
+                                  imageUrl = profileData['image']?.toString() ?? profileData['images']?.toString();
                                 }
                                 
-                                // Déterminer si on a une URL valide
                                 final hasValidUrl = imageUrl != null && imageUrl.isNotEmpty && !imageUrl.startsWith('/');
                                 
                                 return CircleAvatar(
                                   radius: 40,
                                   backgroundColor: Colors.white,
-                                  backgroundImage: hasValidUrl ? NetworkImage(imageUrl!) : null,
-                                  child: hasValidUrl ? null : Icon(
-                                    Icons.person,
-                                    size: 42,
-                                    color: primaryColor,
-                                  ),
+                                  backgroundImage: () {
+                                     // 1. Priorité au fichier local (Garanti Offline & Instantané)
+                                     final localPath = stockage.read('user_image_path');
+                                     if (localPath != null && File(localPath).existsSync()) {
+                                       return FileImage(File(localPath)) as ImageProvider;
+                                     }
+                                     
+                                     // 2. Sinon, image réseau avec cache
+                                     if (hasValidUrl) {
+                                       return CachedNetworkImageProvider(imageUrl!);
+                                     }
+                                     
+                                     return null;
+                                  }(),
+                                  child: (() {
+                                     final localPath = stockage.read('user_image_path');
+                                     if (localPath != null && File(localPath).existsSync()) return null;
+                                     if (hasValidUrl) return null;
+                                     return Icon(
+                                        Icons.person,
+                                        size: 42,
+                                        color: primaryColor,
+                                      );
+                                  })(),
                                 );
                               },
                             ),
@@ -2676,7 +2625,7 @@ class _HomePageState extends State<HomePage> {
                                     SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
-                                        service.address ?? 'Adresse non disponible',
+                                        "${service.cityValue}, ${service.communeValue}",
                                         style: GoogleFonts.inter(
                                           color: Colors.white.withOpacity(0.8),
                                           fontSize: 14,
@@ -2820,12 +2769,12 @@ class _HomePageState extends State<HomePage> {
     // Filtrer et trier les services par priorité
     final List<ServiceType> availableServiceTypes = priorityServiceTypes
         .where((type) => groupedServices.containsKey(type) && groupedServices[type]!.isNotEmpty)
-        .take(4) // Limiter à 4 services pour la grille 2x2
+        .take(6) // Limiter à 6 services pour la grille 2x2 (3 lignes)
         .toList();
 
     if (isLoading || availableServiceTypes.isEmpty) {
       return Container(
-        height: 380, // Augmenté pour 2 rangées plus hautes
+        height: 570, // Augmenté pour 3 rangées de 2 colonnes
         margin: EdgeInsets.symmetric(horizontal: 24),
         child: GridView.builder(
           shrinkWrap: true,
@@ -2836,7 +2785,7 @@ class _HomePageState extends State<HomePage> {
             mainAxisSpacing: 16,
             childAspectRatio: 0.85,
           ),
-          itemCount: 4,
+          itemCount: 6,
           itemBuilder: (context, index) {
             return Shimmer.fromColors(
               baseColor: Colors.grey[300]!,
@@ -3055,17 +3004,34 @@ class _HomePageState extends State<HomePage> {
                                 ),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: Text(
-                                serviceType.displayName,
-                                style: GoogleFonts.inter(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.3,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.left,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    serviceType.displayName,
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.3,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    serviceType.description,
+                                    style: GoogleFonts.inter(
+                                      color: Colors.white.withOpacity(0.85),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      height: 1.2,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -3475,7 +3441,7 @@ class _HomePageState extends State<HomePage> {
                                     SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
-                                        property.address ?? 'Adresse non disponible',
+                                        "${property.cityValue}, ${property.communeValue}",
                                         style: GoogleFonts.inter(
                                           color: Colors.white.withOpacity(0.8),
                                           fontSize: 14,
@@ -3494,7 +3460,7 @@ class _HomePageState extends State<HomePage> {
                                 child: AnimatedContainer(
                                   duration: Duration(milliseconds: 300),
                                   padding: EdgeInsets.symmetric(
-                                    horizontal: 18,
+                                    horizontal: 18, 
                                     vertical: 12,
                                   ),
                                   decoration: BoxDecoration(
