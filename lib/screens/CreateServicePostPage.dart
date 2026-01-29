@@ -101,6 +101,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   List<DistrictModel> _availableDistricts = [];
   List<CommuneModel> _availableCommunes = [];
   List<QuartierModel> _availableQuartiers = [];
+  List<QuartierModel> _kinshasaQuartiers = []; // Liste dédiée pour Kinshasa (API flat)
 
   // Validation
   Map<String, String> _fieldErrors = {};
@@ -231,6 +232,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           
           if (_selectedCity != null) {
             _availableDistricts = locationCtrl.getDistrictsForCity(_selectedCity!.cityId!);
+            
+            // Si Kinshasa, précharger les quartiers flat
+            if (_selectedCity!.name?.toLowerCase().trim() == 'kinshasa') {
+               _loadKinshasaQuartiers();
+            }
+
             print("📍 [CreateService] ${_availableDistricts.length} districts pour ${_selectedCity?.name}");
             
             if (_availableDistricts.isNotEmpty) {
@@ -389,6 +396,20 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         suggestion.toLowerCase().contains(query.toLowerCase())).toList();
   }
 
+  Future<void> _loadKinshasaQuartiers() async {
+    try {
+      final locCtrl = Provider.of<LocationController>(context, listen: false);
+      final quartiers = await locCtrl.getKinshasaQuartiers();
+      if (mounted) {
+        setState(() {
+          _kinshasaQuartiers = quartiers;
+        });
+      }
+    } catch (e) {
+      print("Erreur chargement quartiers Kinshasa page: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -425,9 +446,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        child: _buildNavigationButtons(),
-      ),
+      // bottomNavigationBar: SafeArea(
+      //   child: _buildNavigationButtons(), // REMOVED: Moved to body
+      // ),
     );
   }
 
@@ -572,6 +593,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           SizedBox(height: _smallSpace),
           _buildPortfolioImagesGrid(), // Gestion améliorée des images multiples
           
+          SizedBox(height: _largeSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
         ],
       ),
     );
@@ -718,6 +742,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           SizedBox(height: _mediumSpace),
           _buildCvUploadSection(),
           SizedBox(height: _mediumSpace),
+
+          SizedBox(height: _largeSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
         ],
       ),
     );
@@ -797,23 +825,30 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               label: 'Quartier',
               controller: _quartierTextController,
               fieldKey: 'quartier',
-              suggestions: _availableQuartiers.map((q) => q.name ?? '').where((n) => n.isNotEmpty).toList(),
+              // Utiliser les quartiers chargés en local pour Kinshasa (API flat) + ceux liés à la commune si disp
+              suggestions: _kinshasaQuartiers.isNotEmpty 
+                  ? _kinshasaQuartiers.map((q) => q.name ?? '').toList()
+                  : _availableQuartiers.map((q) => q.name ?? '').where((n) => n.isNotEmpty).toList(),
             ),
             SizedBox(height: _mediumSpace),
           ] else ...[
-            // Mode hors Kinshasa : champs avec suggestions/autocomplete
+            // Mode hors Kinshasa
             _buildSuggestionTextField(
               label: 'Commune',
               controller: _communeTextController,
               fieldKey: 'commune',
-              suggestions: _availableCommunes.map((c) => c.name ?? '').where((n) => n.isNotEmpty).toList(),
+              // Filtre spécial : Si Matadi, afficher ses communes, sinon vide (pas de suggestions Kinshasa)
+              suggestions: (_selectedCity?.name?.toLowerCase().trim() == 'matadi' || 
+                            _cityTextController.text.toLowerCase().trim() == 'matadi')
+                  ? ['Matadi', 'Mvuzi', 'Nzanza']
+                  : [], // Désactiver suggestions pour les autres villes car elles pointent vers Kinshasa
             ),
             SizedBox(height: _smallSpace),
             _buildSuggestionTextField(
               label: 'Quartier',
               controller: _quartierTextController,
               fieldKey: 'quartier',
-              suggestions: _availableQuartiers.map((q) => q.name ?? '').where((n) => n.isNotEmpty).toList(),
+              suggestions: [], // Pas de suggestions locales connues hors Kinshasa
             ),
             SizedBox(height: _mediumSpace),
           ],
@@ -830,6 +865,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               return null;
             },
           ),
+
+          SizedBox(height: _largeSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
         ],
       ),
     );
@@ -837,463 +876,319 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
   Widget _buildProfileImageSelector() {
     final hasError = _shouldShowError(0, 'profile_image') && _profileImage == null;
-    final errorMsg = _getFieldError(0, 'profile_image');
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          height: 200,
-          decoration: BoxDecoration(
-            color: _cardColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: hasError ? _errorColor : _borderColor, width: hasError ? 2 : 1),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 8,
-                offset: Offset(0, 2),
+    if (_profileImage != null) {
+      return Stack(
+        children: [
+          Container(
+            height: 200,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              image: DecorationImage(
+                image: FileImage(File(_profileImage!.path)),
+                fit: BoxFit.cover,
               ),
-            ],
-          ),
-          child: _profileImage != null
-              ? Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Image.file(
-                        File(_profileImage!.path),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: IconButton(
-                        icon: Icon(Icons.edit, color: Colors.white),
-                        style: IconButton.styleFrom(
-                          backgroundColor: _primaryColor.withOpacity(0.8),
-                        ),
-                        onPressed: () => _pickProfileImage(),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 8,
-                      right: 8,
-                      child: IconButton(
-                        icon: Icon(Icons.delete, color: Colors.white),
-                        style: IconButton.styleFrom(
-                          backgroundColor: _errorColor.withOpacity(0.8),
-                        ),
-                        onPressed: () {
-                          if (mounted) {
-                            setState(() {
-                              _profileImage = null;
-                              _validateStep(0);
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                )
-              : GestureDetector(
-                  onTap: () => _pickProfileImage(),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: hasError ? _errorColor : _borderColor, style: BorderStyle.solid, width: 2),
-                      color: _lightColor,
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.camera_alt_rounded, size: 48, color: hasError ? _errorColor : _primaryColor),
-                        SizedBox(height: _mediumSpace),
-                        Text(
-                          'Ajouter votre photo',
-                          style: GoogleFonts.inter(
-                            fontSize: _bodySize,
-                            fontWeight: FontWeight.w600,
-                            color: hasError ? _errorColor : _darkColor,
-                          ),
-                        ),
-                        SizedBox(height: _smallSpace),
-                        Text(
-                          'Votre visage sera l\'image principale',
-                          style: GoogleFonts.inter(
-                            fontSize: _captionSize,
-                            color: hasError ? _errorColor.withOpacity(0.7) : _greyColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-        ),
-        if (hasError && errorMsg != null)
-          Padding(
-            padding: EdgeInsets.only(top: 8, left: 4),
-            child: Row(
-              children: [
-                Icon(Icons.error_outline_rounded, size: 16, color: _errorColor),
-                SizedBox(width: 8),
-                Text(
-                  errorMsg,
-                  style: GoogleFonts.inter(
-                    fontSize: _captionSize,
-                    color: _errorColor,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+              boxShadow: [
+                BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
               ],
             ),
           ),
-      ],
-    );
-  }
-
-  Widget _buildPortfolioImagesGrid() {
-    final hasError = _shouldShowError(0, 'portfolio_images') && _portfolioImages.isEmpty;
-    final errorMsg = _getFieldError(0, 'portfolio_images');
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: _cardColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: hasError ? _errorColor : _borderColor, width: hasError ? 2 : 1),
-          ),
-          padding: EdgeInsets.all(_mediumSpace),
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: NeverScrollableScrollPhysics(),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              crossAxisSpacing: _smallSpace,
-              mainAxisSpacing: _smallSpace,
-            ),
-            itemCount: _portfolioImages.length + 1,
-            itemBuilder: (context, index) {
-              if (index == _portfolioImages.length) {
-                return GestureDetector(
-                  onTap: () => _pickPortfolioImage(),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: _lightColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: hasError ? _errorColor : _borderColor, style: BorderStyle.solid, width: hasError ? 2 : 1),
-                    ),
-                    child: Icon(Icons.add_photo_alternate_rounded, color: hasError ? _errorColor : _primaryColor, size: 32),
-                  ),
-                );
-              }
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      File(_portfolioImages[index].path),
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: GestureDetector(
-                      onTap: () {
-                        if (mounted) {
-                          setState(() {
-                            _markFieldTouched('portfolio_images');
-                            _portfolioImages.removeAt(index);
-                            _validateStep(0);
-                          });
-                        }
-                      },
-                      child: Container(
-                        padding: EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: _errorColor,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(Icons.close, color: Colors.white, size: 16),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-        if (hasError && errorMsg != null)
-          Padding(
-            padding: EdgeInsets.only(top: 8, left: 4),
-            child: Row(
-              children: [
-                Icon(Icons.error_outline_rounded, size: 16, color: _errorColor),
-                SizedBox(width: 8),
-                Text(
-                  errorMsg,
-                  style: GoogleFonts.inter(
-                    fontSize: _captionSize,
-                    color: _errorColor,
-                    fontWeight: FontWeight.w500,
-                  ),
+          Positioned(
+            top: 12,
+            right: 12,
+            child: GestureDetector(
+              onTap: () => _pickProfileImage(),
+              child: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.9),
+                  shape: BoxShape.circle,
                 ),
-              ],
+                child: Icon(Icons.edit_rounded, color: _primaryColor, size: 20),
+              ),
             ),
           ),
-      ],
-    );
-  }
+        ],
+      );
+    }
 
-  Future<void> _pickProfileImage() async {
-    // Afficher un modal pour choisir entre galerie et caméra
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
+    return GestureDetector(
+      onTap: () => _pickProfileImage(),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
-          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: hasError ? _errorColor : _borderColor, width: 1.5),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: Offset(0, 4)),
+          ],
         ),
-        padding: EdgeInsets.all(20),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'Choisir une source',
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _darkColor,
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [_primaryColor, _secondaryColor],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(color: _primaryColor.withOpacity(0.25), blurRadius: 8, offset: Offset(0, 4)),
+                ],
               ),
+              child: Icon(Icons.camera_front_rounded, color: Colors.white, size: 28),
             ),
-            SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.pop(context);
-                      _pickImageFromSource(ImageSource.gallery, isProfile: true);
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-                      decoration: BoxDecoration(
-                        color: _lightColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: _borderColor),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(Icons.photo_library_rounded, color: _primaryColor, size: 32),
-                          SizedBox(height: 8),
-                          Text(
-                            'Galerie',
-                            style: GoogleFonts.inter(
-                              fontSize: _bodySize,
-                              fontWeight: FontWeight.w600,
-                              color: _darkColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.pop(context);
-                      _pickImageFromSource(ImageSource.camera, isProfile: true);
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-                      decoration: BoxDecoration(
-                        color: _lightColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: _borderColor),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(Icons.camera_alt_rounded, color: _primaryColor, size: 32),
-                          SizedBox(height: 8),
-                          Text(
-                            'Caméra',
-                            style: GoogleFonts.inter(
-                              fontSize: _bodySize,
-                              fontWeight: FontWeight.w600,
-                              color: _darkColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+            SizedBox(height: 12),
+            Text(
+              "Photo de profil",
+              style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: _darkColor),
+            ),
+            SizedBox(height: 4),
+            Text(
+              "Un selfie clair (Obligatoire)",
+              style: GoogleFonts.inter(fontSize: 12, color: _greyColor),
             ),
             SizedBox(height: 16),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Annuler', style: GoogleFonts.inter(color: _greyColor)),
-            ),
+
           ],
         ),
       ),
     );
   }
 
-  Future<void> _pickPortfolioImage() async {
-    try {
-      final List<XFile>? images = await _picker.pickMultiImage(
-        imageQuality: 85,
-        maxWidth: 1440,
-      );
+  Widget _buildPortfolioImagesGrid() {
+    final hasError = _shouldShowError(0, 'portfolio_images') && _portfolioImages.isEmpty;
 
-      if (images != null && images.isNotEmpty && mounted) {
-        // Vérifier la disponibilité des fichiers immédiatement
-        List<XFile> validImages = [];
-        for (var image in images) {
-          final file = File(image.path);
-          if (await file.exists()) {
-            final fileSize = await file.length();
-            if (fileSize > 0) {
-              validImages.add(image);
-              print("✅ Image valide: ${image.path}");
-            } else {
-              print("❌ Image non valide (fichier vide): ${image.path}");
-            }
-          } else {
-            print("❌ Image non valide (fichier manquant): ${image.path}");
-          }
-        }
-
-        if (mounted && validImages.isNotEmpty) {
-          setState(() {
-            _markFieldTouched('portfolio_images');
-            _portfolioImages.addAll(validImages);
-            _validateStep(0);
-          });
-        }
-      }
-    } on PlatformException catch (e) {
-      if (!mounted) return;
-      print('Erreur lors de la sélection des images: $e');
-      String errorMessage = "Erreur lors de la sélection des images";
-      if (e.code == 'photo_access_denied') {
-        errorMessage = "Permission refusée. Veuillez autoriser l'accès dans les paramètres de l'application.";
-      }
-      FancyNotification.show(context, errorMessage, type: NotificationType.error);
-    } catch (e) {
-      if (!mounted) return;
-      print('Erreur inattendue lors de la sélection des images: $e');
-      FancyNotification.show(context, "Erreur lors de la sélection des images", type: NotificationType.error);
-    }
-  }
-
-  Future<void> _pickImageFromSource(ImageSource source, {required bool isProfile}) async {
-    try {
-      // Attendre un peu pour s'assurer que le modal est bien fermé
-      await Future.delayed(Duration(milliseconds: 300));
-      
-      if (!mounted) return;
-
-      if (!mounted) return;
-      
-      // AJOUT : Utiliser SelfieCameraScreen pour la photo de profil via caméra pour éviter les crashs
-      if (isProfile && source == ImageSource.camera) {
-        final imagePath = await Navigator.push<String>(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SelfieCameraScreen(
-              onImageCaptured: (path) {},
-            ),
-          ),
-        );
-        
-        if (mounted && imagePath != null && imagePath.isNotEmpty) {
-          setState(() {
-            _profileImage = XFile(imagePath);
-            _validateStep(0);
-          });
-        }
-        return;
-      }
-
-      final XFile? image = await _picker.pickImage(
-        source: source,
-        imageQuality: 85,
-        maxWidth: 1440,
-      );
-
-      // Vérifier à nouveau que le widget est toujours monté après la sélection
-      if (!mounted) return;
-
-      if (image != null) {
-        // Vérifier que le fichier existe et est valide
-        final file = File(image.path);
-        
-        // Attendre un peu pour que le fichier soit complètement écrit (important pour les captures caméra)
-        await Future.delayed(Duration(milliseconds: 100));
-        
-        if (await file.exists()) {
-          // Vérifier la taille du fichier
-          final fileSize = await file.length();
-          if (fileSize == 0) {
-            if (mounted) {
-              FancyNotification.show(
-                context,
-                "Erreur : fichier image vide",
-                isError: true,
-              );
-            }
-            return;
-          }
-
-          if (isProfile && mounted) {
+    if (_portfolioImages.isEmpty) {
+      return GestureDetector(
+        onTap: () => _showImageSourceSelection((image) {
+          if (image != null) {
             setState(() {
-              _profileImage = image;
+              _markFieldTouched('portfolio_images');
+              _portfolioImages.add(image);
               _validateStep(0);
             });
           }
-        } else {
-          if (mounted) {
-            FancyNotification.show(
-              context,
-              "Erreur : fichier image introuvable",
-              isError: true,
+        }),
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.symmetric(vertical: 24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: hasError ? _errorColor : _borderColor, width: 1.5),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: _primaryColor.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.add_a_photo_rounded, color: _primaryColor, size: 24),
+              ),
+              SizedBox(height: 12),
+              Text(
+                "Photos de réalisations",
+                style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: _darkColor),
+              ),
+              SizedBox(height: 4),
+              Text(
+                "Ajoutez vos meilleures photos",
+                style: GoogleFonts.inter(fontSize: 11, color: _greyColor),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "${_portfolioImages.length} réalisation(s) ajoutée(s)",
+              style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: _greyColor),
+            ),
+            if (_portfolioImages.length < 10)
+            TextButton.icon(
+              onPressed: () => _showImageSourceSelection((image) {
+                  if (image != null) {
+                    setState(() {
+                      _markFieldTouched('portfolio_images');
+                      _portfolioImages.add(image);
+                      _validateStep(0);
+                    });
+                  }
+                }),
+              icon: Icon(Icons.add_a_photo_rounded, size: 16),
+              label: Text("Ajouter"),
+              style: TextButton.styleFrom(foregroundColor: _primaryColor),
+            ),
+          ],
+        ),
+        SizedBox(height: 12),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+          ),
+          itemCount: _portfolioImages.length,
+          itemBuilder: (context, index) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.file(File(_portfolioImages[index].path), fit: BoxFit.cover),
+                ),
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _portfolioImages.removeAt(index);
+                        _validateStep(0);
+                      });
+                    },
+                    child: Container(
+                      padding: EdgeInsets.all(4),
+                      decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
+                      child: Icon(Icons.close, color: Colors.white, size: 12),
+                    ),
+                  ),
+                ),
+              ],
             );
-          }
-        }
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickProfileImage() async {
+    try {
+      final imagePath = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SelfieCameraScreen(
+            onImageCaptured: (path) {},
+          ),
+        ),
+      );
+      
+      if (mounted && imagePath != null && imagePath.isNotEmpty) {
+        setState(() {
+          _profileImage = XFile(imagePath);
+          _validateStep(0);
+        });
       }
-    } on PlatformException catch (e) {
-      if (!mounted) return;
-      print('Erreur lors de la sélection de l\'image: $e');
-      String errorMessage = "Erreur lors de la sélection de l'image";
-      if (e.code == 'photo_access_denied' || e.code == 'camera_access_denied') {
-        errorMessage = "Permission refusée. Veuillez autoriser l'accès dans les paramètres de l'application.";
-      } else if (e.code == 'camera_access_denied') {
-        errorMessage = "Accès à la caméra refusé. Veuillez autoriser l'accès dans les paramètres.";
-      }
-      FancyNotification.show(context, errorMessage, type: NotificationType.error);
     } catch (e) {
-      if (!mounted) return;
-      print('Erreur inattendue lors de la sélection de l\'image: $e');
-      FancyNotification.show(context, "Erreur lors de la sélection de l'image", type: NotificationType.error);
+      print('Erreur lors de la capture du selfie: $e');
+      FancyNotification.show(context, "Erreur lors de la capture", type: NotificationType.error);
     }
   }
+
+  Future<void> _showImageSourceSelection(Function(XFile?) onImageSelected) async {
+    showModalBottomSheet(
+      context: context,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Choisir une source",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: _darkColor,
+                ),
+              ),
+              SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildSourceOption(
+                    icon: Icons.camera_alt_rounded,
+                    label: "Caméra",
+                    onTap: () async {
+                      Navigator.pop(context);
+                      final image = await _picker.pickImage(
+                        source: ImageSource.camera,
+                        imageQuality: 85,
+                        maxWidth: 1440,
+                      );
+                      if (image != null) onImageSelected(image);
+                    },
+                  ),
+                  _buildSourceOption(
+                    icon: Icons.photo_library_rounded,
+                    label: "Galerie",
+                    onTap: () async {
+                      Navigator.pop(context);
+                      final image = await _picker.pickImage(
+                        source: ImageSource.gallery,
+                        imageQuality: 85,
+                        maxWidth: 1440,
+                      );
+                      if (image != null) onImageSelected(image);
+                    },
+                  ),
+                ],
+              ),
+              SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSourceOption({required IconData icon, required String label, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _primaryColor.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: _primaryColor, size: 32),
+          ),
+          SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: _darkColor,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   Widget _buildSectionHeader(String title, String subtitle, IconData icon) {
     return Row(
@@ -1476,19 +1371,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     );
   }
 
-  Widget _buildNavigationButtons() {
+  Widget _buildBottomNavigation() {
     return Container(
-      padding: EdgeInsets.all(_mediumSpace),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: Offset(0, -2),
-          ),
-        ],
-      ),
+      padding: EdgeInsets.symmetric(vertical: _mediumSpace), // Keep vertical spacing if needed or remove entirely if spacing is handled by parent column.
+      // Removed decoration (white background + shadow)
       child: Row(
         children: [
           if (_currentStep > 0)
@@ -1722,6 +1608,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Future<void> _handleSubmit() async {
+    FocusScope.of(context).unfocus(); // Fermer le clavier
     print("🚀 [CreateService] ========== DÉBUT _handleSubmit ==========");
     setState(() {
       _hasAttemptedSubmit = true;
@@ -1923,6 +1810,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               if (selection.toLowerCase().trim() == 'kinshasa') {
                 _selectedCity = kin.name == null ? _selectedCity : kin;
                 _updateDistrictsForCity();
+                _loadKinshasaQuartiers();
               } else {
                 _selectedCity = null;
                 _selectedDistrict = null;
