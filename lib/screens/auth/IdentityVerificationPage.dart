@@ -24,12 +24,12 @@ class IdentityVerificationPage extends StatefulWidget {
 
 class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   final _formKey = GlobalKey<FormState>();
-  
+
   // Controllers
   final _addressController = TextEditingController();
   final _cardNumberController = TextEditingController();
   final _phoneController = TextEditingController();
-  
+
   // State
   int? _selectedCardTypeId; // ID du type de carte depuis l'API
   String? _selectedCardTypeDisplay; // Texte affiché ("Passeport", "Permis de conduire", "Carte d'électeur")
@@ -39,13 +39,13 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   bool _isLoading = false;
   bool _isLoadingCards = false;
   bool _isPhoneRequired = false;
-  
+
   // Liste des types de cartes depuis l'API
   List<Map<String, dynamic>> _cardTypes = [];
-  
+
   // Map pour suivre quels champs ont été touchés
   final Map<String, bool> _touchedFields = {};
-  
+
   // Phone Logic from LoginScreen
   String _selectedCountryCode = '+243'; // RDC par défaut
   final Map<String, String> _countryFlags = {
@@ -81,7 +81,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     '+234': '🇳🇬', // Nigeria
     '+233': '🇬🇭', // Ghana
   };
-  
+
   final ImagePicker _picker = ImagePicker();
 
   @override
@@ -90,17 +90,17 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     // Pré-remplir avec les infos utilisateur si disponibles
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authCtrl = context.read<AuthentificationCtrl>();
-      
+
       // Check phone logic
       final userData = authCtrl.stockage?.read(StockageKeys.userKey);
       final storedPhone = userData?['phone']?.toString();
-      
+
       if (storedPhone == null || storedPhone.isEmpty || storedPhone == "null") {
         setState(() {
           _isPhoneRequired = true;
         });
       }
-      
+
       if (authCtrl.user.city != null) {
         _addressController.text = authCtrl.user.city ?? "";
       }
@@ -113,26 +113,28 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     try {
       final token = context.read<AuthentificationCtrl>().stockage?.read<String>(StockageKeys.tokenKey);
       final response = await getData(Endpoints.cards, token: token);
-      
+
       if (response != null && response['data'] != null) {
         final List<dynamic> data = response['data'];
-        _cardTypes = data.map((item) => {
-          'typeCardId': item['typeCardId'],
-          'name': item['name'],
-        }).toList();
         
-        // Filtrer pour exclure "Autres" (typeCardId: 4)
-        _cardTypes = _cardTypes.where((card) => card['typeCardId'] != 4).toList();
-        
-        print("✅ Types de cartes chargés: $_cardTypes");
+        // Convert and Filter: Keep only IDs 1, 2, 3. Exclude 4 (Autres).
+        _cardTypes = data
+            .map((item) => {
+                  'typeCardId': item['typeCardId'],
+                  'name': item['name'],
+                })
+            .where((card) => card['typeCardId'] != 4)
+            .toList();
+
+        print("✅ Types de cartes sélectionnés (1,2,3): $_cardTypes");
       }
     } catch (e) {
-      print("❌ Erreur chargement types de cartes: $e");
-      // Fallback sur les types par défaut
+      print("❌ Erreur chargement types de cartes API: $e");
+      // Fallback conforme aux types demandés
       _cardTypes = [
-        {'typeCardId': 2, 'name': 'Visa'}, // Afficher comme "Passeport"
-        {'typeCardId': 3, 'name': 'Permis'}, // Afficher comme "Permis de conduire"
         {'typeCardId': 1, 'name': "Carte d'électeur"},
+        {'typeCardId': 2, 'name': 'Visa'}, // Sera affiché comme Passeport
+        {'typeCardId': 3, 'name': 'Permis'}, // Sera affiché comme Permis de conduire
       ];
     } finally {
       if (mounted) {
@@ -142,11 +144,17 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   }
 
   String _getCardDisplayName(String apiName, int typeCardId) {
-    // Mapper les noms de l'API vers les noms d'affichage
-    if (typeCardId == 2) return "Passeport"; // Visa -> Passeport
-    if (typeCardId == 3) return "Permis de conduire"; // Permis -> Permis de conduire
-    if (typeCardId == 1) return "Carte d'électeur";
-    return apiName;
+    // Mapper les noms de l'API vers les noms d'affichage souhaités
+    switch (typeCardId) {
+      case 1:
+        return "Carte d'électeur";
+      case 2:
+        return "Passeport"; // Visa -> Passeport
+      case 3:
+        return "Permis de conduire"; // Permis -> Permis de conduire
+      default:
+        return apiName;
+    }
   }
 
   @override
@@ -160,7 +168,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   Future<void> _pickImage(bool isProfile, {bool isFront = true}) async {
     try {
       String? imagePath;
-      
+
       if (isProfile) {
         // Enforce Selfie Camera only - use await to get result safely
         imagePath = await Navigator.push<String>(
@@ -173,7 +181,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
             ),
           ),
         );
-        
+
         // Only update state if widget is still mounted and we have a valid path
         if (mounted && imagePath != null && imagePath.isNotEmpty) {
           setState(() {
@@ -185,7 +193,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
 
       // For ID cards, use Custom Document Camera to prevent crashes with native ImagePicker
       final label = isFront ? "Recto" : "Verso";
-      
+
       imagePath = await Navigator.push<String>(
         context,
         MaterialPageRoute(
@@ -197,7 +205,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
           ),
         ),
       );
-      
+
       // Only update state if widget is still mounted and we have a valid path
       if (mounted && imagePath != null && imagePath.isNotEmpty) {
         setState(() {
@@ -208,7 +216,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
           }
         });
       }
-      
+
     } catch (e) {
       print("❌ Erreur choix image: $e");
       if (mounted) {
@@ -231,29 +239,29 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       setState(() {}); // Forcer la mise à jour pour afficher les erreurs
       return;
     }
-    
+
     if (_imageProfile == null) {
-       FancyNotification.show(context, "Veuillez ajouter une photo de profil", isError: true);
-       return;
+      FancyNotification.show(context, "Veuillez ajouter une photo de profil", isError: true);
+      return;
     }
 
     if (_selectedCardTypeId == null) {
       FancyNotification.show(context, "Veuillez sélectionner le type de pièce d'identité", isError: true);
       return;
     }
-    
+
     if (_imageFront == null) {
       FancyNotification.show(context, "Veuillez ajouter la photo recto de votre pièce d'identité", isError: true);
       return;
     }
-    
+
     // Pour le passeport (typeCardId = 2, car Visa -> Passeport), le verso n'est pas requis
     // Pour les autres types, le verso est requis
     if (_selectedCardTypeId != 2 && _imageBack == null) {
       FancyNotification.show(context, "Veuillez ajouter la photo verso de votre pièce d'identité", isError: true);
       return;
     }
-    
+
     setState(() => _isLoading = true);
 
     if (!await NetworkUtils.checkInternetConnectivity()) {
@@ -271,14 +279,14 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       // Utiliser l'ID du profil (profile.id) et non userId pour l'URL /api/members/{profileId}
       final profileData = authCtrl.stockage?.read(StockageKeys.profileKey);
       int? profileId;
-      
+
       if (profileData != null && profileData is Map) {
         profileId = profileData['id'];
       }
-      
+
       // Si pas de profileId, utiliser userId comme fallback
       final targetId = profileId?.toString() ?? authCtrl.user.userId?.toString();
-      
+
       if (targetId == null) {
         throw Exception("Impossible de déterminer l'ID du profil");
       }
@@ -286,7 +294,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       // 1. D'abord, uploader l'image de profil
       String profileBase64 = base64Encode(await _imageProfile!.readAsBytes());
       final profileImageResponse = await authCtrl.updateProfilePicture(targetId, profileBase64);
-      
+
       if (!profileImageResponse.status) {
         FancyNotification.show(
           context,
@@ -296,41 +304,45 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         setState(() => _isLoading = false);
         return;
       }
-      
+
       print("✅ Image de profil uploadée avec succès");
 
       // 2. Ensuite, envoyer la vérification d'identité
       String frontBase64 = base64Encode(await _imageFront!.readAsBytes());
-      String backBase64 = _imageBack != null 
+      String backBase64 = _imageBack != null
           ? base64Encode(await _imageBack!.readAsBytes())
           : "";
-      
+
+      // L'utilisateur demande de laisser le prénom et le nom vides lors de la vérification
+      // pour ne pas écraser les valeurs déjà présentes dans la BDD (ex: Loïc).
       String firstName = "";
       String lastName = "";
-      
+      int parrainId = 0;
+
       try {
         if (profileData != null && profileData is Map) {
-          firstName = profileData['firstname'] ?? "";
-          lastName = profileData['lastname'] ?? "";
+          // On garde parrainId car il est nécessaire pour la cohérence,
+          // mais on laisse firstName et lastName vides selon la demande.
+          parrainId = profileData['parrain_id'] ?? profileData['parrainId'] ?? 0;
         }
       } catch (e) {
         print("Erreur lecture profile keys: $e");
       }
-      
-      // Fallback if empty
-      if (firstName.isEmpty) firstName = authCtrl.user.username ?? "";
 
       final userData = authCtrl.stockage?.read(StockageKeys.userKey) ?? {};
-      
+
       final payload = {
         "lastName": lastName,
         "firstName": firstName,
-        "address": _addressController.text,
+        "address": _addressController.text.trim(),
         "cardFront": frontBase64,
         "cardBack": backBase64,
-        "typeCardId": _selectedCardTypeId,
-        "parrainId": 0,
-        "numberCard": _cardNumberController.text, // Peut être vide
+        "typeCardId": _selectedCardTypeId, // Envoi de l'ID correct sélectionné
+        "type_card_id": _selectedCardTypeId, // Fallback snake_case
+        "parrainId": parrainId, 
+        "parrain_id": parrainId, // Fallback snake_case
+        "numberCard": _cardNumberController.text.trim(), 
+        "number_card": _cardNumberController.text.trim(), // Fallback snake_case
         "user": {
           "email": (userData['email']?.toString() ?? "").isEmpty ? "string" : userData['email']?.toString() ?? "",
           "phone": _isPhoneRequired ? _formatPhoneNumberForSubmit() : (userData['phone']?.toString() ?? ""),
@@ -338,9 +350,17 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
           "country": userData['country']?.toString() ?? "",
         },
       };
-      
+
+      print("📤 Payload vérification d'identité: ${jsonEncode({
+        "lastName": payload["lastName"],
+        "firstName": payload["firstName"],
+        "typeCardId": payload["typeCardId"],
+        "numberCard": payload["numberCard"],
+        "user": payload["user"]
+      })} (images non incluses dans ce log)");
+
       final response = await authCtrl.verifyIdentity(targetId, payload);
-      
+
       if (response.status == true) {
         FancyNotification.show(
           context,
@@ -355,8 +375,8 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
           _sanitizeError(errorMsg),
           type: NotificationType.error,
         );
-      } 
-      
+      }
+
     } catch (e) {
       print("Erreur vérification: $e");
       FancyNotification.show(context, "Une erreur est survenue. Veuillez réessayer.", isError: true);
@@ -407,12 +427,12 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: Colors.grey[200],
-                          image: _imageProfile != null 
+                          image: _imageProfile != null
                               ? DecorationImage(image: FileImage(_imageProfile!), fit: BoxFit.cover)
                               : null,
                           border: Border.all(color: AppColors.primaryBlue.withOpacity(0.5), width: 2),
                         ),
-                        child: _imageProfile == null 
+                        child: _imageProfile == null
                             ? Icon(Icons.person, size: 50, color: Colors.grey[400])
                             : null,
                       ),
@@ -434,9 +454,9 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
               ),
               SizedBox(height: 8),
               Center(child: Text("Photo de profil", style: TextStyle(fontWeight: FontWeight.w600))),
-              
+
               SizedBox(height: 30),
-              
+
               _buildSectionTitle("Informations"),
               SizedBox(height: 16),
               _buildTextField(
@@ -453,74 +473,74 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                   _touchedFields['address'] = true;
                 },
               ),
-              
+
               if (_isPhoneRequired) ...[
                 SizedBox(height: 16),
                 _buildPhoneField(),
               ],
-              
+
               SizedBox(height: 24),
               _buildSectionTitle("Document d'Identité"),
               SizedBox(height: 16),
-              
+
               _isLoadingCards
                   ? Container(
-                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[50],
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
-                      child: Row(
-                        children: [
-                          SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-                          SizedBox(width: 16),
-                          Text("Chargement des types de cartes...", style: TextStyle(color: Colors.grey[600])),
-                        ],
-                      ),
-                    )
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey[300]!),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
+                    SizedBox(width: 16),
+                    Text("Chargement des types de cartes...", style: TextStyle(color: Colors.grey[600])),
+                  ],
+                ),
+              )
                   : DropdownButtonFormField<int>(
-                      value: _selectedCardTypeId,
-                      decoration: _inputDecoration("Type de pièce", Icons.credit_card),
+                value: _selectedCardTypeId,
+                decoration: _inputDecoration("Type de pièce", Icons.credit_card),
+                style: TextStyle(
+                  color: Colors.black87,
+                  fontSize: 16,
+                ),
+                dropdownColor: Colors.white,
+                items: _cardTypes.map((card) {
+                  final typeCardId = card['typeCardId'] as int;
+                  final displayName = _getCardDisplayName(card['name'] as String, typeCardId);
+                  return DropdownMenuItem<int>(
+                    value: typeCardId,
+                    child: Text(
+                      displayName,
                       style: TextStyle(
                         color: Colors.black87,
-                        fontSize: 16,
                       ),
-                      dropdownColor: Colors.white,
-                      items: _cardTypes.map((card) {
-                        final typeCardId = card['typeCardId'] as int;
-                        final displayName = _getCardDisplayName(card['name'] as String, typeCardId);
-                        return DropdownMenuItem<int>(
-                          value: typeCardId,
-                          child: Text(
-                            displayName,
-                            style: TextStyle(
-                              color: Colors.black87,
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        setState(() {
-                          _selectedCardTypeId = val;
-                          _selectedCardTypeDisplay = val != null 
-                              ? _getCardDisplayName(
-                                  _cardTypes.firstWhere((c) => c['typeCardId'] == val)['name'],
-                                  val
-                                )
-                              : null;
-                          _touchedFields['cardType'] = true;
-                        });
-                      },
-                      validator: (val) {
-                        if (!_touchedFields.containsKey('cardType') && _formKey.currentState?.validate() != false) {
-                          return null;
-                        }
-                        return val == null ? "Veuillez sélectionner le type de pièce" : null;
-                      },
                     ),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _selectedCardTypeId = val;
+                    _selectedCardTypeDisplay = val != null
+                        ? _getCardDisplayName(
+                        _cardTypes.firstWhere((c) => c['typeCardId'] == val)['name'],
+                        val
+                    )
+                        : null;
+                    _touchedFields['cardType'] = true;
+                  });
+                },
+                validator: (val) {
+                  if (!_touchedFields.containsKey('cardType') && _formKey.currentState?.validate() != false) {
+                    return null;
+                  }
+                  return val == null ? "Veuillez sélectionner le type de pièce" : null;
+                },
+              ),
               SizedBox(height: 16),
-              
+
               // Numéro de la pièce (Désactivé tant que le type n'est pas choisi)
               Opacity(
                 opacity: isCardTypeSelected ? 1.0 : 0.5,
@@ -545,11 +565,11 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                     style: TextStyle(color: Colors.orange, fontSize: 12),
                   ),
                 ),
-              
+
               SizedBox(height: 24),
               Text("Photos du document (Caméra obligatoire)", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
               SizedBox(height: 8),
-              
+
               Opacity(
                 opacity: isCardTypeSelected ? 1.0 : 0.5,
                 child: AbsorbPointer(
@@ -565,7 +585,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                   ),
                 ),
               ),
-              
+
               SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
@@ -577,7 +597,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     elevation: 2,
                   ),
-                  child: _isLoading 
+                  child: _isLoading
                       ? SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : Text("Soumettre la vérification", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
                 ),
@@ -598,7 +618,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       // bottomNavigationBar: ...
     );
   }
-  
+
   Widget _buildSectionTitle(String title) {
     return Text(
       title,
@@ -634,7 +654,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       },
     );
   }
-  
+
   InputDecoration _inputDecoration(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
@@ -654,11 +674,11 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     // But we reuse the same helper logic for simplicity
     return _buildCardPicker(isFront);
   }
-  
+
   Widget _buildCardPicker(bool isFront) {
     final image = isFront ? _imageFront : _imageBack;
     final label = isFront ? "Recto" : "Verso";
-    
+
     return GestureDetector(
       onTap: () => _pickImage(false, isFront: isFront),
       child: Container(
@@ -669,15 +689,15 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
           border: Border.all(color: Colors.grey[300]!, style: BorderStyle.solid),
           image: image != null ? DecorationImage(image: FileImage(image), fit: BoxFit.cover) : null,
         ),
-        child: image == null 
+        child: image == null
             ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.camera_alt_outlined, color: Colors.grey[400], size: 30),
-                  SizedBox(height: 8),
-                  Text(label, style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500)),
-                ],
-              )
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.camera_alt_outlined, color: Colors.grey[400], size: 30),
+            SizedBox(height: 8),
+            Text(label, style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500)),
+          ],
+        )
             : null,
       ),
     );
@@ -685,66 +705,66 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   String _sanitizeError(String? error) {
     if (error == null || error.isEmpty) return "Une erreur est survenue. Veuillez réessayer.";
     final lower = error.toLowerCase();
-    
-    if (lower.contains("internal server error") || 
-        lower.contains("exception") || 
+
+    if (lower.contains("internal server error") ||
+        lower.contains("exception") ||
         lower.contains("status")) {
       return "Une erreur est survenue. Veuillez réessayer.";
     }
-    return error; 
+    return error;
   }
 
   // --- Phone Utilities adapted from LoginScreen ---
 
   Widget _buildPhoneField() {
     return TextFormField(
-      controller: _phoneController,
-      style: TextStyle(
-        color: Colors.black87,
-        fontSize: 16,
-      ),
-      keyboardType: TextInputType.phone,
-      decoration: InputDecoration(
-        labelText: 'Numéro de téléphone',
-        labelStyle: TextStyle(color: Colors.black87),
-        hintText: '810000000',
-        hintStyle: TextStyle(color: Colors.grey[600]),
-        prefixIcon: _buildCountryCodeDropdown(),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.primaryBlue, width: 2)),
-        filled: true,
-        fillColor: Colors.grey[50], 
-      ),
-      validator: (val) {
-        if (!_isPhoneRequired) return null;
-        if (!_touchedFields.containsKey('phone') && _formKey.currentState?.validate() != false) {
-           return null;
-        }
-        if (val == null || val.isEmpty) return "Veuillez entrer votre numéro";
-        
-        final cleaned = val.replaceAll(RegExp(r'[^\d]'), '');
-        
-        if (_selectedCountryCode == '+243') {
-           if (cleaned.length != 9) return "Le numéro RDC doit avoir 9 chiffres";
-           if (!RegExp(r'^[89]').hasMatch(cleaned)) return "Le numéro doit commencer par 8 ou 9";
-        } else {
-           if (cleaned.length < 8) return "Numéro invalide";
-        }
-        return null;
-      },
-      onChanged: (value) {
-         _touchedFields['phone'] = true;
-         // Clean leading zero
-         String cleaned = value.replaceAll(RegExp(r'[^\d]'), '');
-         if (cleaned.startsWith('0') && cleaned.length > 1) {
+        controller: _phoneController,
+        style: TextStyle(
+          color: Colors.black87,
+          fontSize: 16,
+        ),
+        keyboardType: TextInputType.phone,
+        decoration: InputDecoration(
+          labelText: 'Numéro de téléphone',
+          labelStyle: TextStyle(color: Colors.black87),
+          hintText: '810000000',
+          hintStyle: TextStyle(color: Colors.grey[600]),
+          prefixIcon: _buildCountryCodeDropdown(),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.primaryBlue, width: 2)),
+          filled: true,
+          fillColor: Colors.grey[50],
+        ),
+        validator: (val) {
+          if (!_isPhoneRequired) return null;
+          if (!_touchedFields.containsKey('phone') && _formKey.currentState?.validate() != false) {
+            return null;
+          }
+          if (val == null || val.isEmpty) return "Veuillez entrer votre numéro";
+
+          final cleaned = val.replaceAll(RegExp(r'[^\d]'), '');
+
+          if (_selectedCountryCode == '+243') {
+            if (cleaned.length != 9) return "Le numéro RDC doit avoir 9 chiffres";
+            if (!RegExp(r'^[89]').hasMatch(cleaned)) return "Le numéro doit commencer par 8 ou 9";
+          } else {
+            if (cleaned.length < 8) return "Numéro invalide";
+          }
+          return null;
+        },
+        onChanged: (value) {
+          _touchedFields['phone'] = true;
+          // Clean leading zero
+          String cleaned = value.replaceAll(RegExp(r'[^\d]'), '');
+          if (cleaned.startsWith('0') && cleaned.length > 1) {
             cleaned = cleaned.substring(1);
-             _phoneController.value = TextEditingValue(
-                text: cleaned,
-                selection: TextSelection.collapsed(offset: cleaned.length),
-             );
-         }
-      }
+            _phoneController.value = TextEditingValue(
+              text: cleaned,
+              selection: TextSelection.collapsed(offset: cleaned.length),
+            );
+          }
+        }
     );
   }
 
@@ -754,7 +774,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       margin: EdgeInsets.only(right: 8),
       padding: EdgeInsets.only(left: 12),
       decoration: BoxDecoration(
-         border: Border(right: BorderSide(color: Colors.grey[300]!))
+          border: Border(right: BorderSide(color: Colors.grey[300]!))
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
@@ -788,15 +808,15 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   }
 
   String _formatPhoneNumberForSubmit() {
-     String raw = _phoneController.text.trim();
-     String cleaned = raw.replaceAll(RegExp(r'[^\d]'), '');
-     if (cleaned.startsWith('0')) {
-       cleaned = cleaned.substring(1);
-     }
-     // Si l'utilisateur n'a pas déjà mis l'indicatif (ce qui est probable vu l'UI)
-     if (!cleaned.startsWith(_selectedCountryCode.replaceAll('+', ''))) {
-        return "$_selectedCountryCode$cleaned";
-     }
-     return "+$cleaned";
+    String raw = _phoneController.text.trim();
+    String cleaned = raw.replaceAll(RegExp(r'[^\d]'), '');
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+    // Si l'utilisateur n'a pas déjà mis l'indicatif (ce qui est probable vu l'UI)
+    if (!cleaned.startsWith(_selectedCountryCode.replaceAll('+', ''))) {
+      return "$_selectedCountryCode$cleaned";
+    }
+    return "+$cleaned";
   }
 }

@@ -2016,21 +2016,21 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         "password": _passwordController.text,
         "city": _cityController.text.trim(),
         "country": _selectedCountryName ?? "RDC",
-        "username": "@${_firstNameController.text}${_lastNameController.text}".replaceAll(' ', ''),
+        "username": "${_firstNameController.text.trim()}${_lastNameController.text.trim()}".replaceAll(' ', '').toLowerCase(),
       };
       
       if (isPhone) {
-        userData["phone"] = phoneField;
+        userData["phone"] = phoneField; 
         userData["email"] = "";
       } else {
         userData["phone"] = "";
         userData["email"] = emailField;
       }
-      
+
       final actorData = {
-          "lastName": _lastNameController.text,
-          "firstName": _firstNameController.text,
-          "address": _cityController.text,
+          "lastName": _lastNameController.text.trim(),
+          "firstName": _firstNameController.text.trim(),
+          "address": _cityController.text.trim(),
           "images": "",
           "cardFront": "",
           "cardBack": "",
@@ -2054,7 +2054,8 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
          await Future.delayed(Duration(milliseconds: 500));
          Navigator.of(context).pushReplacementNamed(Routes.loginRoute);
       } else {
-         SnackbarForCasa.error(context, _sanitizeError("Une erreur est survenue. Veuillez réessayer"));
+         String errorMessage = response.errorMsg ?? response.data?['message'] ?? "Une erreur est survenue. Veuillez réessayer";
+         SnackbarForCasa.error(context, _sanitizeError(errorMessage));
       }
 
     } catch (e) {
