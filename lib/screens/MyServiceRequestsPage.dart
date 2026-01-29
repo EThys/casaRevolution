@@ -9,6 +9,8 @@ import '../controllers/ServiceRequestController.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/Routes.dart';
 import '../utils/networkCheck.dart';
+import '../utils/database/DatabaseHelper.dart';
+import 'package:shimmer/shimmer.dart';
 import 'ServiceRequestDetailPage.dart';
 
 class MyServiceRequestsPage extends StatefulWidget {
@@ -26,6 +28,8 @@ class _MyServiceRequestsPageState extends State<MyServiceRequestsPage> {
   final Color _successColor = Color(0xFF00B894);
   final Color _warningColor = Color(0xFFFFA000);
   final Color _errorColor = Color(0xFFD63031);
+  bool _isLoadingData = true;
+  bool _isInitialLoad = true;
 
   @override
   void initState() {
@@ -35,9 +39,66 @@ class _MyServiceRequestsPageState extends State<MyServiceRequestsPage> {
     });
   }
 
-  Future<void> _loadRequests() async {
+  Future<void> _loadRequests({bool forceRefresh = false}) async {
     final controller = context.read<ServiceRequestController>();
-    await controller.fetchUserRequests();
+    final db = DatabaseHelper.instance;
+
+    setState(() {
+      _isLoadingData = true;
+    });
+
+    try {
+      // 1. Charger le cache d'abord
+      final cachedRequests = await db.getAllServiceRequests();
+      if (cachedRequests.isNotEmpty && mounted) {
+        setState(() {
+          controller.requests = cachedRequests;
+          _isLoadingData = false; // On peut arrêter le shimmer si on a des données
+          _isInitialLoad = false;
+        });
+        print("📁 [MyServiceRequestsPage] ${cachedRequests.length} demandes chargées depuis le cache");
+      }
+
+      // 2. Appel API
+      await controller.fetchUserRequests();
+
+      // 3. Mettre à jour le cache
+      if (mounted) {
+        await db.clearServiceRequests();
+        await db.insertMultipleServiceRequests(controller.requests);
+        print("💾 [MyServiceRequestsPage] Cache des demandes mis à jour");
+      }
+    } catch (e) {
+      print("❌ Erreur lors du chargement des demandes: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingData = false;
+          _isInitialLoad = false;
+        });
+      }
+    }
+  }
+
+  Widget _buildShimmerEffect() {
+    return ListView.separated(
+      padding: EdgeInsets.all(20),
+      itemCount: 5,
+      separatorBuilder: (_, __) => SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        return Shimmer.fromColors(
+          baseColor: Colors.grey[300]!,
+          highlightColor: Colors.grey[100]!,
+          child: Container(
+            height: 120,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   String _getTimeAgo(DateTime date) {
@@ -305,47 +366,64 @@ class _MyServiceRequestsPageState extends State<MyServiceRequestsPage> {
       ),
       body: Consumer<ServiceRequestController>(
         builder: (context, controller, child) {
-          if (controller.loading) {
-            return Center(
-              child: CircularProgressIndicator(color: _primaryColor),
-            );
+          if (_isLoadingData && controller.requests.isEmpty) {
+            return _buildShimmerEffect();
           }
 
           if (controller.requests.isEmpty) {
             return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.inbox_outlined,
-                    size: 80,
-                    color: _textSecondary,
+              child: RefreshIndicator(
+                onRefresh: () => _loadRequests(forceRefresh: true),
+                child: SingleChildScrollView(
+                  physics: AlwaysScrollableScrollPhysics(),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.inbox_outlined,
+                        size: 80,
+                        color: _textSecondary,
+                      ),
+                      SizedBox(height: 24),
+                      Text(
+                        'Aucune demande',
+                        style: GoogleFonts.inter(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Vous n\'avez pas encore créé de demande de service',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: _textSecondary,
+                        ),
+                      ),
+                      SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: () => _loadRequests(forceRefresh: true),
+                        icon: Icon(Icons.refresh),
+                        label: Text('Actualiser'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _primaryColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 24),
-                  Text(
-                    'Aucune demande',
-                    style: GoogleFonts.inter(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      color: _textPrimary,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Vous n\'avez pas encore créé de demande de service',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      color: _textSecondary,
-                    ),
-                  ),
-                ],
+                ),
               ),
             );
           }
 
           return RefreshIndicator(
-            onRefresh: _loadRequests,
+            onRefresh: () => _loadRequests(forceRefresh: true),
             color: _primaryColor,
             child: ListView.builder(
               padding: EdgeInsets.all(20),
