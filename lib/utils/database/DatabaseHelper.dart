@@ -1,4 +1,7 @@
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/models/SollicitationModel.dart';
+import 'package:casa/models/ReservationModel.dart';
+import 'package:casa/models/ServiceRequestModel.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -6,11 +9,16 @@ import 'dart:convert';
 
 class DatabaseHelper {
   static const _databaseName = "properties.db";
-  static const _databaseVersion = 3;
+  static const _databaseVersion = 6;
   static const table = 'properties';
   static const tableBureaux = 'bureaux';
   static const tableFestives = 'festives';
   static const tableFuneraires = 'funeraires';
+  static const tableSolicitationsUser = 'solicitations_user';
+  static const tableSolicitationsHost = 'solicitations_host';
+  static const tableReservationsUser = 'reservations_user';
+  static const tableReservationsHost = 'reservations_host';
+  static const tableServiceRequests = 'service_requests';
   static const propertyTypesTable = 'property_types';
   static const featuresTable = 'features';
 
@@ -92,6 +100,50 @@ class DatabaseHelper {
         )
       ''');
     }
+    
+    if (oldVersion < 4) {
+      // Add solicitations tables
+      await db.execute('''
+        CREATE TABLE $tableSolicitationsUser (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE $tableSolicitationsHost (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+    }
+
+    if (oldVersion < 5) {
+      // Add reservations tables
+      await db.execute('''
+        CREATE TABLE $tableReservationsUser (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE $tableReservationsHost (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+    }
+
+    if (oldVersion < 6) {
+      // Add service requests table
+      await db.execute('''
+        CREATE TABLE $tableServiceRequests (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+    }
   }
 
   Future _onCreate(Database db, int version) async {
@@ -118,6 +170,41 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE $tableFuneraires (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+    
+    await db.execute('''
+      CREATE TABLE $tableSolicitationsUser (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableSolicitationsHost (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableReservationsUser (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableReservationsHost (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableServiceRequests (
         $columnId INTEGER PRIMARY KEY,
         $columnData TEXT NOT NULL
       )
@@ -366,5 +453,191 @@ class DatabaseHelper {
         await db.rawQuery('SELECT COUNT(*) FROM $featuresTable')
     );
     return count ?? 0;
+  }
+
+  // ========== Solicitations Methods ==========
+
+  /// Insert or update multiple user solicitations
+  Future<void> insertMultipleUserSolicitations(List<SollicitationModel> solicitations) async {
+    final db = await database;
+    final batch = db.batch();
+
+    for (final solicitation in solicitations) {
+      batch.insert(
+        tableSolicitationsUser,
+        {
+          columnId: solicitation.id,
+          columnData: json.encode(solicitation.toJson()),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    await batch.commit(noResult: true);
+  }
+
+  /// Get all user solicitations
+  Future<List<SollicitationModel>> getAllUserSolicitations() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(tableSolicitationsUser);
+
+    return maps.map((map) {
+      final jsonData = json.decode(map[columnData]);
+      return SollicitationModel.fromJson(jsonData);
+    }).toList();
+  }
+
+  /// Clear user solicitations
+  Future<int> clearUserSolicitations() async {
+    final db = await database;
+    return await db.delete(tableSolicitationsUser);
+  }
+
+  /// Insert or update multiple host solicitations
+  Future<void> insertMultipleHostSolicitations(List<SollicitationModel> solicitations) async {
+    final db = await database;
+    final batch = db.batch();
+
+    for (final solicitation in solicitations) {
+      batch.insert(
+        tableSolicitationsHost,
+        {
+          columnId: solicitation.id,
+          columnData: json.encode(solicitation.toJson()),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    await batch.commit(noResult: true);
+  }
+
+  /// Get all host solicitations
+  Future<List<SollicitationModel>> getAllHostSolicitations() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(tableSolicitationsHost);
+
+    return maps.map((map) {
+      final jsonData = json.decode(map[columnData]);
+      return SollicitationModel.fromJson(jsonData);
+    }).toList();
+  }
+
+  /// Clear host solicitations
+  Future<int> clearHostSolicitations() async {
+    final db = await database;
+    return await db.delete(tableSolicitationsHost);
+  }
+
+  // ========== Reservations Methods ==========
+
+  /// Insert or update multiple user reservations
+  Future<void> insertMultipleUserReservations(List<ReservationModel> reservations) async {
+    final db = await database;
+    final batch = db.batch();
+
+    for (final reservation in reservations) {
+      batch.insert(
+        tableReservationsUser,
+        {
+          columnId: reservation.reservationId,
+          columnData: json.encode(reservation.toJson()),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    await batch.commit(noResult: true);
+  }
+
+  /// Get all user reservations
+  Future<List<ReservationModel>> getAllUserReservations() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(tableReservationsUser);
+
+    return maps.map((map) {
+      final jsonData = json.decode(map[columnData]);
+      return ReservationModel.fromJson(jsonData);
+    }).toList();
+  }
+
+  /// Clear user reservations
+  Future<int> clearUserReservations() async {
+    final db = await database;
+    return await db.delete(tableReservationsUser);
+  }
+
+  /// Insert or update multiple host reservations
+  Future<void> insertMultipleHostReservations(List<ReservationModel> reservations) async {
+    final db = await database;
+    final batch = db.batch();
+
+    for (final reservation in reservations) {
+      batch.insert(
+        tableReservationsHost,
+        {
+          columnId: reservation.reservationId,
+          columnData: json.encode(reservation.toJson()),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    await batch.commit(noResult: true);
+  }
+
+  /// Get all host reservations
+  Future<List<ReservationModel>> getAllHostReservations() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(tableReservationsHost);
+
+    return maps.map((map) {
+      final jsonData = json.decode(map[columnData]);
+      return ReservationModel.fromJson(jsonData);
+    }).toList();
+  }
+
+  /// Clear host reservations
+  Future<int> clearHostReservations() async {
+    final db = await database;
+    return await db.delete(tableReservationsHost);
+  }
+
+  // ========== Service Requests Methods ==========
+
+  /// Insert or update multiple service requests
+  Future<void> insertMultipleServiceRequests(List<ServiceRequestModel> requests) async {
+    final db = await database;
+    final batch = db.batch();
+
+    for (final request in requests) {
+      batch.insert(
+        tableServiceRequests,
+        {
+          columnId: request.requestId,
+          columnData: json.encode(request.toJson()),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    await batch.commit(noResult: true);
+  }
+
+  /// Get all service requests
+  Future<List<ServiceRequestModel>> getAllServiceRequests() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(tableServiceRequests);
+
+    return maps.map((map) {
+      final jsonData = json.decode(map[columnData]);
+      return ServiceRequestModel.fromJson(jsonData);
+    }).toList();
+  }
+
+  /// Clear service requests
+  Future<int> clearServiceRequests() async {
+    final db = await database;
+    return await db.delete(tableServiceRequests);
   }
 }
