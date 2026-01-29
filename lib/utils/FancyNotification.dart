@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class FancyNotification {
   static void show(
@@ -9,9 +10,13 @@ class FancyNotification {
         NotificationType type = NotificationType.error,
         VoidCallback? onTap,
         String? actionLabel,
+        String? title,
       }) {
     final overlay = Overlay.of(context);
     late OverlayEntry overlayEntry;
+    
+    // Play system sound for feedback
+    SystemSound.play(SystemSoundType.click);
 
     overlayEntry = OverlayEntry(
       builder: (context) => Positioned(
@@ -22,6 +27,7 @@ class FancyNotification {
           color: Colors.transparent,
           child: PremiumNotification(
             message: message,
+            title: title,
             type: type,
             onTap: onTap,
             actionLabel: actionLabel,
@@ -49,6 +55,7 @@ enum NotificationType {
 
 class PremiumNotification extends StatefulWidget {
   final String message;
+  final String? title;
   final NotificationType type;
   final VoidCallback? onTap;
   final String? actionLabel;
@@ -56,6 +63,7 @@ class PremiumNotification extends StatefulWidget {
 
   const PremiumNotification({
     required this.message,
+    this.title,
     required this.type,
     this.onTap,
     this.actionLabel,
@@ -161,6 +169,7 @@ class _PremiumNotificationState extends State<PremiumNotification>
   }
 
   String _getTitle() {
+    if (widget.title != null) return widget.title!;
     switch (widget.type) {
       case NotificationType.success:
         return 'Succès';
