@@ -204,7 +204,7 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
             'plombier': Icons.plumbing_rounded,
             'electricien': Icons.electrical_services_rounded,
             'salubrité': Icons.cleaning_services_rounded,
-            'salubrite': Icons.cleaning_services_rounded, // Variante sans accent
+            'salubrite':  Icons.cleaning_services_rounded, // Variante sans accent
             'peintre': Icons.format_paint_rounded,
             'carrelleur': Icons.square_foot_rounded,
             'carreleur': Icons.square_foot_rounded, // Variante possible
