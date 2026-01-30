@@ -17,10 +17,12 @@ import 'package:casa/screens/auth/LoginScreen.dart';
 
 class ServiceDetailPage extends StatefulWidget {
   final PrestationModel service;
+  final String? serviceTypeName;
 
   const ServiceDetailPage({
     Key? key,
     required this.service,
+    this.serviceTypeName,
   }) : super(key: key);
 
   @override
@@ -87,7 +89,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     final priceText = _getPriceRange(widget.service);
 
     final shareText = '''
-🔧 ${widget.service.title ?? 'Service professionnel'} - ${widget.service.address ?? ''}
+🔧 ${widget.service.title ?? 'Service professionnel'} - ${widget.service.cityValue}, ${widget.service.communeValue}
 
 💰 ${priceText}
 ${widget.service.description != null ? '\n${widget.service.description}\n' : ''}
@@ -290,7 +292,7 @@ Découvrez ce service sur Casa!
                                   ),
                                   SizedBox(width: 6),
                                   Text(
-                                    'Prestation',
+                                    widget.serviceTypeName ?? 'Prestation',
                                     style: GoogleFonts.inter(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
@@ -468,7 +470,7 @@ Découvrez ce service sur Casa!
                         if (widget.service.address != null && widget.service.address!.isNotEmpty)
                           _buildInfoRow(
                             Icons.location_on,
-                            widget.service.address!,
+                            "${widget.service.cityValue}, ${widget.service.communeValue}",
                             Colors.red,
                           ),
                         SizedBox(height: 12),
