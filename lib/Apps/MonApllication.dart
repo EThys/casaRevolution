@@ -41,6 +41,7 @@ import 'package:casa/controllers/NotificationController.dart';
 
 class MonApplication extends StatelessWidget {
   final GetStorage _stockage = GetStorage();
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   // AJOUT: Firebase Analytics
   static FirebaseAnalytics get analytics => FirebaseAnalytics.instance;
@@ -99,6 +100,7 @@ class MonApplication extends StatelessWidget {
       child: Consumer<ThemeController>(
         builder: (context, themeController, child) {
           return MaterialApp(
+            navigatorKey: navigatorKey,
             debugShowCheckedModeBanner: false,
             useInheritedMediaQuery: true,
 
