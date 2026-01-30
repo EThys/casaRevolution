@@ -318,6 +318,45 @@ class LocationController extends ChangeNotifier {
     return _quartiers;
   }
 
+  // Spécial pour Kinshasa (charge les quartiers depuis /quartiers si nécessaire)
+  Future<List<QuartierModel>> getKinshasaQuartiers({bool forceRefresh = false}) async {
+    // 1. D'abord vérifier le cache local
+    if (!forceRefresh) {
+        final localQuartiers = await _db.getAllQuartiers();
+        if (localQuartiers.isNotEmpty) {
+            print("✅ ${localQuartiers.length} quartiers chargés depuis le cache local");
+            // Filtrer pour s'assurer qu'ils appartiennent à Kinshasa (si on avait l'info ville, mais ici on assume que la table contient ceux de Kin principalement ou on retourne tout pour filtrage UI)
+            // L'API /quartiers renvoie une liste plate, souvent pour la ville principale.
+            _quartiers = localQuartiers; // Mise à jour de la liste principale en mémoire
+            notifyListeners();
+            return localQuartiers;
+        }
+    }
+
+    try {
+        final response = await getData('quartiers');
+        if (response != null && response is Map && response.containsKey('quartiers')) {
+            final List<dynamic> list = response['quartiers'];
+            List<QuartierModel> fetchedQuartiers = list.map((e) => QuartierModel.fromJson(e)).toList();
+            
+            if (fetchedQuartiers.isNotEmpty) {
+                // Sauvegarde en local
+                await _db.clearQuartiers(); // On remplace pour éviter les doublons/conflits si la source change
+                await _db.batchInsertQuartiers(fetchedQuartiers);
+                
+                print("✅ ${fetchedQuartiers.length} quartiers chargés depuis l'API et mis en cache");
+                _quartiers = fetchedQuartiers;
+                notifyListeners();
+                return fetchedQuartiers;
+            }
+        }
+    } catch (e) {
+        print("Erreur chargement quartiers Kinshasa: $e");
+    }
+    
+    return [];
+  }
+
   // ==================== FILTRES COTÉ CLIENT ====================
 
   // Récupérer les districts d'une ville spécifique
