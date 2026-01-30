@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:photo_view/photo_view.dart';
+import 'package:casa/utils/FancyNotification.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'dart:io';
 import 'dart:convert';
 
@@ -11,6 +16,10 @@ import 'auth/IdentityVerificationPage.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/database/FavoriteDatabaseHelper.dart';
 import '../utils/database/ReservationDatabaseHelper.dart';
+import '../utils/database/DatabaseHelper.dart';
+import '../utils/database/PropertyDatabaseHelper.dart';
+import '../utils/database/PrestationDatabaseHelper.dart';
+import '../utils/TerrainDatabaseHelper.dart';
 import '../utils/DraftHelper.dart';
 import '../controllers/ThemeController.dart';
 import '../controllers/RegisterBailleurCtrl.dart';
@@ -32,10 +41,89 @@ import '../utils/FancyNotification.dart';
 import '../utils/requetes.dart';
 import 'package:provider/provider.dart';
 import 'HomePage.dart';
+import '../controllers/PropertyCtrl.dart';
+import '../controllers/ServiceController.dart';
+import '../controllers/AgenceController.dart';
+import '../widgets/ModernCustomDialog.dart';
+// import '../widgets/ModernCustomDialog.dart'; // Already imported if using relative, but just to be sure
+
 
 class ProfilePage extends StatefulWidget {
   @override
   _ProfilePageState createState() => _ProfilePageState();
+
+  // Static method to be called from anywhere (e.g. HomePage)
+  static Future<int> updatePublicationCount(BuildContext context) async {
+    try {
+      final storage = GetStorage();
+      final userData = storage.read(StockageKeys.userKey);
+      
+      dynamic userId;
+      if (userData != null && userData is Map) {
+         userId = userData['user']?['userId'] ?? userData['userId'];
+      }
+      
+      if (userId == null) return 0;
+
+      int total = 0;
+
+      // 1. Properties Count
+      try {
+        final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+        // Check if properties are already loaded to avoid unnecessary fetch if possible,
+        // but for "fresh" count we might want to check the list length.
+        // If properties list is empty, maybe fetch? 
+        // Best approach: If properties are empty, fetch. Else use current length.
+        if (propertyCtrl.properties.isEmpty && !propertyCtrl.loading) {
+           await propertyCtrl.getMyProperties(); // Verify if getMyProperties updates the main list 'properties' which might be 'all properties' vs 'my properties'.
+           // PropertyController.getMyProperties() returns a list, does not necessarily set 'properties'.
+           // Let's rely on the return value.
+           final myProps = await propertyCtrl.getMyProperties();
+           total += myProps.length;
+        } else {
+           // If 'properties' contains ALL properties (feed), we can't use it for valid count.
+           // We must call getMyProperties explicitly.
+           final myProps = await propertyCtrl.getMyProperties();
+           total += myProps.length;
+        }
+      } catch (e) {
+        print("Error fetching property count: $e");
+      }
+
+      // 2. Services Count
+      try {
+        final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+        final services = await serviceCtrl.getMyPrestations();
+        total += services.length;
+      } catch (e) {
+        print("Error fetching service count: $e");
+      }
+
+      // 3. Agency Sites Count
+      try {
+        final agenceCtrl = Provider.of<AgenceController>(context, listen: false);
+        await agenceCtrl.fetchAgencesByUser(userId);
+        if (agenceCtrl.agences.isNotEmpty) {
+           for (var agency in agenceCtrl.agences) {
+             if (agency.sites != null) {
+               total += agency.sites!.length;
+             }
+           }
+        }
+      } catch (e) {
+        print("Error fetching agency count: $e");
+      }
+
+      // Cache the count globally
+      storage.write('published_properties_count', total.toString());
+      print("✅ [ProfilePage] Compteur global mis à jour: $total");
+      
+      return total;
+    } catch (e) {
+      print("Error in updatePublicationCount: $e");
+      return 0;
+    }
+  }
 }
 
 class _ProfilePageState extends State<ProfilePage> {
@@ -53,14 +141,21 @@ class _ProfilePageState extends State<ProfilePage> {
   File? _imageFile;
   String? _profileImageUrl; // URL de l'image de profil depuis l'API
   final ImagePicker _picker = ImagePicker();
-  bool _isLoading = false;
+  bool _isDeleting = false; // Pour l'effet de suppression impactant
+  bool _isLoading = false; 
   double _profileCompletion = 0.0;
+  String _publicationsCount = '0'; // Local state for dynamic count
 
   @override
   void initState() {
     super.initState();
     _loadSavedData();
     _calculateProfileCompletion();
+    
+    // Fetch dynamic counts after frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchPublicationsCount();
+    });
   }
 
   void _loadSavedData() async {
@@ -82,7 +177,7 @@ class _ProfilePageState extends State<ProfilePage> {
     } else {
       // Fallback: charger depuis le chemin local
       final imagePath = storage.read('user_image_path');
-      if (imagePath != null) {
+      if (imagePath != null && File(imagePath).existsSync()) {
         setState(() {
           _imageFile = File(imagePath);
           _profileImageUrl = null;
@@ -285,63 +380,207 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   String get publishedProperties {
-    return storage.read('published_properties_count')?.toString() ?? '0';
+    return _publicationsCount;
   }
+
+
+
+  Future<void> _fetchPublicationsCount() async {
+    final count = await ProfilePage.updatePublicationCount(context);
+    if (mounted) {
+      setState(() {
+        _publicationsCount = count.toString();
+      });
+    }
+  }
+
+
 
   String get referralsCount {
     return storage.read('referrals_count')?.toString() ?? '0';
   }
 
 
+  bool _isUploadingPhoto = false;
+
   Future<void> _pickImage() async {
-    // Navigate to custom Selfie Camera
-    Navigator.push(
+    // Navigate to custom Selfie Camera - use await pattern like in IdentityVerificationPage
+    final String? path = await Navigator.push<String>(
       context,
       MaterialPageRoute(
         builder: (context) => SelfieCameraScreen(
-          onImageCaptured: (path) async {
-            setState(() {
-              _imageFile = File(path);
-            });
-            await storage.write('user_image_path', path);
-            _calculateProfileCompletion();
+          onImageCaptured: (path) {}, // Callback kept for compatibility
+        ),
+      ),
+    );
 
-            // S'il y a un profileId, uploader l'image via l'endpoint séparé
-            final currentProfileId = profileId;
-            if (currentProfileId != null) {
-              try {
-                final bytes = await File(path).readAsBytes();
-                final base64Image = base64Encode(bytes);
-                final authCtrl = context.read<AuthentificationCtrl>();
-                
-                // Appel à l'endpoint spécifique pour la photo /api/members/{id}/profile
-                final response = await authCtrl.updateProfilePicture(currentProfileId.toString(), base64Image);
-                
-                if (response.status) {
-                  // Récupérer l'URL de l'image depuis la réponse
-                  final imageUrl = response.data['image'] ?? response.data['images'] ?? response.data['profile']?['image'] ?? response.data['profile']?['images'];
-                  
-                  if (imageUrl != null && imageUrl.toString().isNotEmpty) {
-                    setState(() {
-                      _profileImageUrl = imageUrl.toString();
-                      _imageFile = null; // Plus besoin du fichier local, on a l'URL
-                    });
-                  }
-                  
-                  FancyNotification.show(context, "Photo de profil mise à jour !", isError: false);
-                } else {
-                  FancyNotification.show(
-                    context,
-                    response.errorMsg ?? "Erreur lors de la mise à jour de la photo",
-                    isError: true,
-                  );
-                }
-              } catch (e) {
-                print("Erreur upload photo: $e");
-                FancyNotification.show(context, "Erreur: ${e.toString()}", isError: true);
-              }
-            }
-          },
+    if (path == null || path.isEmpty) return;
+
+    setState(() {
+      _imageFile = File(path);
+      _isUploadingPhoto = true; // Animation de chargement sur l'avatar uniquement
+    });
+    await storage.write('user_image_path', path);
+    _calculateProfileCompletion();
+
+    // S'il y a un profileId, uploader l'image via l'endpoint séparé
+    final authCtrl = context.read<AuthentificationCtrl>();
+    
+    // Priorité à l'ID du profil
+    final profileData = storage.read(StockageKeys.profileKey);
+    int? pid;
+    if (profileData != null && profileData is Map) {
+      pid = profileData['id'];
+    }
+    
+    final targetId = pid?.toString() ?? authCtrl.user.userId?.toString();
+
+    if (targetId != null) {
+      try {
+        final bytes = await File(path).readAsBytes();
+        final base64Image = base64Encode(bytes);
+        
+        final response = await authCtrl.updateProfilePicture(targetId, base64Image);
+        
+        final responseMsg = response.data?['message']?.toString().toLowerCase() ?? "";
+        final isMsgSuccess = responseMsg.contains("avec") && responseMsg.contains("succès");
+        
+        if (response.status || isMsgSuccess) {
+          // Récupérer l'URL de l'image depuis la réponse
+          final imageUrl = response.data?['image'] ?? response.data?['images'] ?? response.data?['person']?['images'];
+          
+          if (imageUrl != null && imageUrl.toString().isNotEmpty) {
+            setState(() {
+              _profileImageUrl = imageUrl.toString();
+            });
+          }
+          
+          FancyNotification.show(
+            context, 
+            response.data?['message'] ?? "Photo de profil mise à jour !", 
+            isError: false,
+            type: NotificationType.success, // Forcer la couleur verte
+          );
+          
+          // Forcer le rechargement pour le drawer et autres écrans
+          authCtrl.notifyListeners();
+        } else {
+          FancyNotification.show(
+            context,
+            response.errorMsg ?? "Erreur lors de la mise à jour de la photo",
+            isError: true,
+            type: NotificationType.error,
+          );
+        }
+      } catch (e) {
+        print("Erreur upload photo: $e");
+        FancyNotification.show(context, "Erreur: ${e.toString()}", isError: true, type: NotificationType.error);
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isUploadingPhoto = false;
+          });
+        }
+      }
+    } else {
+      setState(() => _isUploadingPhoto = false);
+    }
+  }
+
+  void _showProfileOptions() {
+    // Vérifier si on a au moins une image (locale ou distante)
+    final localPath = storage.read('user_image_path');
+    final hasLocal = localPath != null && File(localPath).existsSync();
+    final hasRemote = _profileImageUrl != null && _profileImageUrl!.isNotEmpty;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+        ),
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            SizedBox(height: 20),
+            if (hasLocal || hasRemote)
+              ListTile(
+                leading: Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.fullscreen, color: Colors.blue[700]),
+                ),
+                title: Text("Voir la photo en plein écran", 
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _viewFullScreenPhoto(hasLocal ? localPath : _profileImageUrl!);
+                },
+              ),
+            ListTile(
+              leading: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.camera_alt, color: Colors.green[700]),
+              ),
+              title: Text("Changer la photo de profil", 
+                style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage();
+              },
+            ),
+            SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _viewFullScreenPhoto(String pathOrUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            elevation: 0,
+            leading: IconButton(
+              icon: Icon(Icons.close, color: Colors.white),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+          body: Center(
+            child: PhotoView(
+              imageProvider: pathOrUrl.startsWith('http') 
+                  ? CachedNetworkImageProvider(pathOrUrl) 
+                  : FileImage(File(pathOrUrl)) as ImageProvider,
+              minScale: PhotoViewComputedScale.contained,
+              maxScale: PhotoViewComputedScale.covered * 2.0,
+              heroAttributes: const PhotoViewHeroAttributes(tag: "profile_image"),
+            ),
+          ),
         ),
       ),
     );
@@ -462,75 +701,95 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           SizedBox(height: 5),
           GestureDetector(
-            onTap: _pickImage,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: _cardColor, width: 3),
-                  ),
-                  child: ClipOval(
-                    child: _profileImageUrl != null && _profileImageUrl!.isNotEmpty
-                        ? Image.network(
-                            _profileImageUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
+            onTap: _showProfileOptions,
+            child: Hero(
+              tag: "profile_image",
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: _cardColor, width: 3),
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        ClipOval(
+                          child: Builder(
+                            builder: (context) {
+                              final localImagePath = storage.read('user_image_path');
+                              final localFile = (localImagePath != null) ? File(localImagePath) : null;
+                              
+                              if (localFile != null && localFile.existsSync()) {
+                                return Image.file(localFile, fit: BoxFit.cover, width: 100, height: 100);
+                              }
+                              
+                              if (_profileImageUrl != null && _profileImageUrl!.isNotEmpty) {
+                                return CachedNetworkImage(
+                                  imageUrl: _profileImageUrl!,
+                                  fit: BoxFit.cover,
+                                  width: 100, height: 100,
+                                  placeholder: (context, url) => Container(
+                                    color: Colors.white.withOpacity(0.2),
+                                    child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                                  ),
+                                  errorWidget: (context, url, error) => Container(
+                                    color: Colors.white.withOpacity(0.2),
+                                    child: Icon(Icons.person, size: 50, color: _cardColor),
+                                  ),
+                                );
+                              }
+
                               return Container(
                                 color: Colors.white.withOpacity(0.2),
                                 child: Icon(Icons.person, size: 50, color: _cardColor),
                               );
-                            },
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Container(
-                                color: Colors.white.withOpacity(0.2),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    value: loadingProgress.expectedTotalBytes != null
-                                        ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                                        : null,
-                                  ),
-                                ),
-                              );
-                            },
-                          )
-                        : _imageFile != null
-                            ? Image.file(_imageFile!, fit: BoxFit.cover)
-                            : Container(
-                                color: Colors.white.withOpacity(0.2),
-                                child: Icon(
-                                  Icons.person,
-                                  size: 50,
-                                  color: _cardColor,
-                                ),
+                            }
+                          ),
+                        ),
+                        if (_isUploadingPhoto)
+                          Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.black.withOpacity(0.4),
+                            ),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 3,
                               ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: _primaryColor,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: _cardColor, width: 2),
+                            ),
+                          ),
+                      ],
                     ),
-                    child: Center(
-                      child: Icon(
-                        Icons.camera_alt,
-                        size: 16,
-                        color: _cardColor,
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: _primaryColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: _cardColor, width: 2),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          Icons.camera_alt,
+                          size: 16,
+                          color: _cardColor,
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           SizedBox(height: 16),
@@ -541,15 +800,6 @@ class _ProfilePageState extends State<ProfilePage> {
               fontSize: 24,
               fontWeight: FontWeight.bold,
             ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            bio.isNotEmpty ? bio : 'Ajoutez une bio pour personnaliser votre profil',
-            style: TextStyle(
-              color: _cardColor.withOpacity(0.9),
-              fontSize: 14,
-            ),
-            textAlign: TextAlign.center,
           ),
           SizedBox(height: 12),
           // Badge du type de compte
@@ -911,18 +1161,37 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Column(
         children: [
           _buildSettingItem(
-            icon: Icons.share_outlined,
-            title: 'Partager l\'application',
-            onTap: () {},
-          ),
-          Divider(height: 1, indent: 16, endIndent: 16, color: _borderColor),
-          _buildSettingItem(
             icon: Icons.logout,
             title: 'Déconnexion',
             onTap: _confirmLogout,
             color: Colors.red,
           ),
+          Divider(height: 1, indent: 16, endIndent: 16, color: _borderColor),
+          _buildSettingItem(
+            icon: Icons.share_outlined,
+            title: 'Partager l\'application',
+            onTap: () {},
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDangerZone() {
+    if (!isLoggedIn) return SizedBox.shrink();
+
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.red.shade100.withOpacity(0.5)),
+      ),
+      child: _buildSettingItem(
+        icon: Icons.delete_forever_rounded,
+        title: 'Supprimer mon compte définitivement',
+        onTap: _showDeleteAccountConfirmationDialog,
+        color: Colors.red.shade700,
       ),
     );
   }
@@ -1005,8 +1274,39 @@ class _ProfilePageState extends State<ProfilePage> {
       await storage.remove('card_front_path');
       await storage.remove('card_back_path');
       await storage.remove('user_data');
+      await storage.remove('user_accounts');
       await storage.remove('published_properties_count');
       await storage.remove('referrals_count');
+
+      // 🛑 NETTOYAGE RADICAL DES BASES DE DONNÉES SQL (Sécurité totale)
+      try {
+        print("🧹 Début du nettoyage radical des bases SQL depuis ProfilePage...");
+        
+        // 1. Services & Prestations
+        await PrestationDatabaseHelper.instance.clearAllPrestations();
+        
+        // 2. Propriétés générales & Catégories spéciales
+        final db = DatabaseHelper.instance;
+        await db.clearProperties();
+        await db.clearCategory(DatabaseHelper.tableBureaux);
+        await db.clearCategory(DatabaseHelper.tableFestives);
+        await db.clearCategory(DatabaseHelper.tableFuneraires);
+        
+        // 3. Transactions & Requêtes
+        await db.clearUserSolicitations();
+        await db.clearHostSolicitations();
+        await db.clearUserReservations();
+        await db.clearHostReservations();
+        await db.clearServiceRequests();
+        
+        // 4. Données utilisateur spécifiques
+        await PropertyDatabaseHelper.instance.clearDatabase();
+        await TerrainDatabaseHelper.instance.clearTerrains();
+        
+        print("✅ Nettoyage radical SQL terminé depuis ProfilePage");
+      } catch (e) {
+        print("⚠️ Erreur lors du nettoyage radical SQL: $e");
+      }
 
       await FavoriteDatabaseHelper.instance.clearAllFavorites();
       await ReservationDatabaseHelper.instance.clearAllReservations();
@@ -1019,11 +1319,14 @@ class _ProfilePageState extends State<ProfilePage> {
         print("⚠️ Erreur lors de la suppression des brouillons: $e");
       }
 
-      // 4. Réinitialiser l'état local
-      setState(() {
-        _imageFile = null;
-        _profileCompletion = 0.0;
-      });
+      // 4. Réinitialiser l'état local (uniquement si le widget est toujours monté)
+      if (mounted) {
+        setState(() {
+          _imageFile = null;
+          _profileCompletion = 0.0;
+          _profileImageUrl = null;
+        });
+      }
 
       print("✅ Données d'authentification, cache du profil et bases de données locales supprimées");
     } catch (e) {
@@ -1033,54 +1336,36 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _confirmLogout() {
+    ModernCustomDialog.show(
+      context,
+      title: "Déconnexion",
+      message: "Voulez-vous vraiment vous déconnecter ?",
+      confirmText: "DÉCONNEXION",
+      cancelText: "ANNULER",
+      isDanger: true,
+      onConfirm: _performLogout,
+      icon: Icons.logout_rounded,
+    );
+  }
+/*
+  void _confirmLogout() {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Déconnexion'),
-        content: const Text('Voulez-vous vraiment vous déconnecter ?'),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16.0),
-        ),
-        actionsAlignment: MainAxisAlignment.spaceBetween,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).primaryColor,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-            ),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () => _performLogout(),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade700,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8.0),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-            ),
-            child: const Text('Déconnexion'),
-          ),
-        ],
-      ),
-    );
-  }
+...
+*/
 
   Future<void> _performLogout() async {
-    // Fermer la dialog d'abord
-    Navigator.pop(context);
-
+    // Note: On ne pop plus la dialog ici, elle reste affichée avec son loader
+    // Elle sera détruite automatiquement par pushNamedAndRemoveUntil
     try {
       // 1. Nettoyer les données
       await _clearLocalAuthData();
 
-      // 2. Naviguer directement vers la page d'accueil (onglet accueil dans bottomPage)
+      // 2. Naviguer vers la page d'accueil en utilisant le root navigator
       if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
+        Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
           Routes.bottomPageRoute,
           (route) => false,
         );
@@ -1091,13 +1376,187 @@ class _ProfilePageState extends State<ProfilePage> {
 
       // Même en cas d'erreur, naviguer vers la page d'accueil
       if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
+        Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
           Routes.bottomPageRoute,
           (route) => false,
         );
       }
     }
+  }
+
+  void _showDeleteAccountConfirmationDialog() {
+    ModernCustomDialog.show(
+      context,
+      title: 'Supprimer le compte ?',
+      message: 'Cette action est irréversible. Toutes vos données seront définitivement effacées.',
+      confirmText: 'OUI, SUPPRIMER DÉFINITIVEMENT',
+      cancelText: 'GARDER MON COMPTE',
+      isDanger: true,
+      onConfirm: _handleAccountDeletion,
+    );
+  }
+
+  Future<void> _handleAccountDeletion() async {
+    setState(() => _isDeleting = true);
+
+    try {
+      // 1. Délai court pour "sentir" le début de l'action
+      await Future.delayed(Duration(milliseconds: 500));
+
+      final authCtrl = context.read<AuthentificationCtrl>();
+      final response = await authCtrl.deleteAccount();
+
+      if (response.status == true) {
+        // 2. EFFET DE SUPPRESSION "PROLONGÉ ET RALENTI"
+        // On attend la fin de l'animation majestueuse dans l'overlay
+        await Future.delayed(Duration(milliseconds: 7000)); 
+
+        // 3. Navigation vers HomePage (le pushNamedAndRemoveUntil force la re-initialisation donc le refresh)
+        if (mounted) {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            Routes.bottomPageRoute,
+            (route) => false,
+          );
+        }
+      } else {
+        setState(() => _isDeleting = false);
+        FancyNotification.show(context, response.errorMsg ?? "Échec de la suppression");
+      }
+    } catch (e) {
+      setState(() => _isDeleting = false);
+      FancyNotification.show(context, "Une erreur est survenue");
+    }
+  }
+
+  Widget _buildDeletionOverlay() {
+    if (!_isDeleting) return SizedBox.shrink();
+
+    final List<IconData> vapingIcons = [
+      Icons.person,
+      Icons.settings,
+      Icons.image,
+      Icons.house,
+      Icons.credit_card,
+      Icons.notifications,
+      Icons.favorite,
+      Icons.security,
+    ];
+
+    return Container(
+      color: Colors.black.withOpacity(0.8), // Réduit encore un peu le noir
+      width: double.infinity,
+      height: double.infinity,
+      child: Center(
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Fond d'étoiles/particules qui disparaissent (version ralentie)
+            ...List.generate(20, (index) {
+              final random = Random();
+              return Positioned(
+                left: MediaQuery.of(context).size.width / 2 + (random.nextDouble() - 0.5) * 40,
+                top: MediaQuery.of(context).size.height / 2 + (random.nextDouble() - 0.5) * 40,
+                child: Container(
+                  width: 4,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                ).animate(delay: (index * 150).ms)
+                 .move(
+                   begin: Offset.zero, 
+                   end: Offset((random.nextDouble() - 0.5) * 400, (random.nextDouble() - 0.5) * 400),
+                   duration: 5000.ms, // Temps doublé
+                   curve: Curves.easeOutQuart
+                 )
+                 .fadeOut(duration: 5000.ms)
+                 .scale(begin: Offset(1,1), end: Offset(0,0)),
+              );
+            }),
+
+            // Icônes du compte qui s'envolent au ralenti
+            ...vapingIcons.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final icon = entry.value;
+              final random = Random(idx); 
+              
+              return Icon(icon, color: Colors.white70, size: 30)
+                .animate(delay: (idx * 500).ms) // Plus d'espace entre les envolées
+                .fadeIn(duration: 800.ms)
+                .scale(begin: Offset(0,0), end: Offset(1.2, 1.2), duration: 1000.ms, curve: Curves.easeOutBack)
+                .then(delay: 200.ms)
+                .move(
+                  begin: Offset.zero,
+                  end: Offset((random.nextDouble() - 0.5) * 600, (random.nextDouble() - 1.5) * 600),
+                  duration: 5000.ms, // Ralenti extrême
+                  curve: Curves.easeOutCubic
+                )
+                .fadeOut(duration: 4000.ms)
+                .scale(begin: Offset(1.2, 1.2), end: Offset(0,0), duration: 5000.ms);
+            }),
+
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(height: 100),
+                Text(
+                  "SUPPRESSION DU COMPTE",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 4,
+                  ),
+                ).animate().fadeIn(duration: 1500.ms).shimmer(delay: 2000.ms, duration: 2500.ms),
+                
+                SizedBox(height: 12),
+                
+                Text(
+                  "Suppression définitive de vos données...",
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 14,
+                    letterSpacing: 1.1,
+                  ), 
+                ).animate().fadeIn(delay: 800.ms, duration: 1500.ms),
+                
+                SizedBox(height: 48),
+                
+                // Barre de vuidage au ralenti
+                Container(
+                  width: 240,
+                  height: 2,
+                  decoration: BoxDecoration(
+                    color: Colors.white10,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      height: 2,
+                      width: 240,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.redAccent, Colors.orangeAccent],
+                        ),
+                        boxShadow: [
+                          BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 10)
+                        ]
+                      ),
+                    ).animate(onPlay: (c) => c.repeat(reverse: false)).custom(
+                      duration: 7000.ms, // Aligné sur le délai global
+                      builder: (context, value, child) => FractionallySizedBox(
+                        widthFactor: value,
+                        alignment: Alignment.centerLeft,
+                        child: Container(color: Colors.redAccent),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 800.ms);
   }
 
   @override
@@ -1110,32 +1569,37 @@ class _ProfilePageState extends State<ProfilePage> {
       style: defaultStyle,
       child: Scaffold(
         backgroundColor: isDarkMode ? _darkColor : _lightColor,
-        body: _isLoading
-            ? Center(child: CircularProgressIndicator(color: _primaryColor))
-            : SingleChildScrollView(
-          physics: ClampingScrollPhysics(),
-          padding: EdgeInsets.only(bottom: 80), // Padding pour éviter que le contenu soit caché par la navbar
-          child: Column(
-            children: [
-              _buildProfileHeader(),
-              // Remonter légèrement les cartes pour chevaucher header
-              Transform.translate(
-                offset: Offset(0, -30),
-                child: Column(
-                  children: [
-                    _buildProfileCompletionCard(),
-                    _buildStatsCard(),
-                    SizedBox(height: 16),
-                    _buildProfileInfoCard(),
-                    _buildAuthOptions(),
-                    _buildDarkModeSection(),
-                    _buildSettingsSection(),
-                    SizedBox(height: 20),
-                  ],
-                ),
+        body: Stack(
+          children: [
+            _isLoading
+                ? Center(child: CircularProgressIndicator(color: _primaryColor))
+                : SingleChildScrollView(
+              physics: ClampingScrollPhysics(),
+              padding: EdgeInsets.only(bottom: 80),
+              child: Column(
+                children: [
+                  _buildProfileHeader(),
+                  Transform.translate(
+                    offset: Offset(0, -30),
+                    child: Column(
+                      children: [
+                        _buildProfileCompletionCard(),
+                        _buildStatsCard(),
+                        SizedBox(height: 16),
+                        _buildProfileInfoCard(),
+                        _buildAuthOptions(),
+                        _buildDarkModeSection(),
+                        _buildSettingsSection(),
+                        _buildDangerZone(),
+                        SizedBox(height: 20),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            if (_isDeleting) _buildDeletionOverlay(),
+          ],
         ),
       ),
     );
@@ -2628,10 +3092,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
       // Récupérer les valeurs existantes des cartes depuis le profil
       final existingCardFront = profileData['cardFront']?.toString() ?? "";
       final existingCardBack = profileData['cardBack']?.toString() ?? "";
-      final existingTypeCardId = profileData['typeCardId'] ?? profileData['typeCard']?['typeCardId'] ?? 1;
+      final existingTypeCardId = profileData['typeCardId'] ?? profileData['type_card_id'] ?? profileData['typeCard']?['typeCardId'] ?? 1;
       final existingNumberCard = isCertified 
           ? (profileData['numberCard']?.toString() ?? "")
           : _numberCardController.text.trim();
+      
+      // Récupérer le parrainId existant
+      final parrainId = profileData['parrain_id'] ?? profileData['parrainId'] ?? 0;
       
       // Structure du payload identique pour vérification et modification
       Map<String, dynamic> payload = {
@@ -2642,8 +3109,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
         "cardFront": existingCardFront, // Valeur existante si certifié, sinon vide
         "cardBack": existingCardBack, // Valeur existante si certifié, sinon vide
         "typeCardId": existingTypeCardId, // Valeur existante si certifié
-        "parrainId": 0,
+        "type_card_id": existingTypeCardId, // Fallback snake_case
+        "parrainId": parrainId, 
+        "parrain_id": parrainId, // Fallback snake_case
         "numberCard": existingNumberCard, // Valeur existante si certifié, sinon depuis le controller
+        "number_card": existingNumberCard, // Fallback snake_case
         // La clé "user" doit toujours être présente avec toutes ses propriétés (même vides)
         // Si l'email est vide, envoyer "string" pour éviter l'erreur API
         "user": {
@@ -2730,6 +3200,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
           context,
           response.errorMsg ?? "Profil modifié avec succès",
           isError: false,
+          type: NotificationType.success,
         );
 
         widget.onProfileUpdated();
