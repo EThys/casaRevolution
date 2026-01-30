@@ -68,6 +68,11 @@ android {
             debuggable false
             jniDebuggable false
             renderscriptDebuggable false
+            
+            // Fix for "Release app bundle failed to strip debug symbols"
+            ndk {
+                debugSymbolLevel 'SYMBOL_TABLE'
+            }
         }
     }
 
