@@ -6,6 +6,12 @@ import '../utils/StockageKeys.dart';
 import '../utils/requetes.dart';
 import '../utils/DraftHelper.dart';
 import '../utils/AgenceDatabaseHelper.dart';
+import '../utils/database/DatabaseHelper.dart';
+import '../utils/database/PropertyDatabaseHelper.dart';
+import '../utils/database/PrestationDatabaseHelper.dart';
+import '../utils/TerrainDatabaseHelper.dart';
+import '../utils/StompService.dart';
+import 'NotificationController.dart';
 
 class AuthentificationCtrl with ChangeNotifier {
   AuthentificationCtrl({this.stockage});
@@ -140,6 +146,9 @@ class AuthentificationCtrl with ChangeNotifier {
               await stockage?.write('user_accounts', member['accounts']);
            }
 
+          // Activer les notifications WebSocket
+          NotificationController().loadForUser(user.userId.toString());
+
           print("✅ Connexion et stockage réussis");
         } else {
           print("❌ Token ou données membre manquants dans la réponse");
@@ -266,15 +275,17 @@ class AuthentificationCtrl with ChangeNotifier {
             try {
               // Structure attendue pour le profileKey basée sur les logs user
               Map<String, dynamic> updatedProfile = {
-                 'id': personData['id'], // Important: garder l'ID du profil
-                 'firstname': personData['firstName'],
-                 'lastname': personData['lastName'],
-                 'fullname': personData['fullName'],
-                 'address': personData['address'],
-                 'images': personData['images'],
-                 'cardFront': personData['cardFront'],
-                 'cardBack': personData['cardBack'],
-                 'numberCard': personData['numberCard'],
+                  'id': personData['id'], // Important: garder l'ID du profil
+                  'firstname': personData['firstName'] ?? personData['first_name'],
+                  'lastname': personData['lastName'] ?? personData['last_name'],
+                  'fullname': personData['fullName'] ?? personData['full_name'],
+                  'address': personData['address'],
+                  'images': personData['images'],
+                  'cardFront': personData['cardFront'] ?? personData['card_front'],
+                  'cardBack': personData['cardBack'] ?? personData['card_back'],
+                  'numberCard': personData['numberCard'] ?? personData['number_card'],
+                  'typeCardId': personData['typeCardId'] ?? personData['type_card_id'],
+                  'parrainId': personData['parrainId'] ?? personData['parrain_id'],
                  // Garder d'autres champs potentiels de l'ancien profil si nécessaire, mais ici on semble avoir tout
               };
               
@@ -474,17 +485,94 @@ class AuthentificationCtrl with ChangeNotifier {
     }
   }
 
+  // DELETE ACCOUNT
+  Future<HttpResponse> deleteAccount() async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      var url = Endpoints.deleteAccount;
+      var tkn = token;
+
+      print("🛑 Suppression du compte en cours...");
+      // Habituellement on envoie le userId ou c'est géré via le token
+      final response = await deleteData(url, token: tkn);
+
+      if (response.status == true) {
+        print("✅ Compte supprimé avec succès sur le serveur");
+        await _clearLocalAuthData();
+      } else {
+        print("❌ Échec de la suppression du compte");
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      print("❌ Erreur lors de la suppression du compte: $e");
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
+
   Future<void> _clearLocalAuthData() async {
     try {
       _token = "";
       _user = UserModel();
       _userAuth = UserModel();
 
+      StompService().disconnect();
+
       await stockage?.remove(StockageKeys.tokenKey);
       await stockage?.remove(StockageKeys.refreshTokenKey);
       await stockage?.remove(StockageKeys.userKey);
       await stockage?.remove(StockageKeys.userPreferenceKey);
       await stockage?.remove(StockageKeys.profileKey);
+
+      // Supprimer les images et données de cache (Garanti retour à zéro)
+      await stockage?.remove('user_image_path');
+      await stockage?.remove('profile_image_path');
+      await stockage?.remove('card_front_path');
+      await stockage?.remove('card_back_path');
+      await stockage?.remove('user_accounts');
+      await stockage?.remove('published_properties_count');
+      await stockage?.remove('referrals_count');
+      await stockage?.remove('user_data'); 
+
+      // 🛑 NETTOYAGE RADICAL DES BASES DE DONNÉES SQL (Sécurité totale)
+      try {
+        print("🧹 Début du nettoyage radical des bases SQL...");
+        
+        // 1. Services & Prestations
+        await PrestationDatabaseHelper.instance.clearAllPrestations();
+        
+        // 2. Propriétés générales & Catégories spéciales
+        final db = DatabaseHelper.instance;
+        await db.clearProperties();
+        await db.clearCategory(DatabaseHelper.tableBureaux);
+        await db.clearCategory(DatabaseHelper.tableFestives);
+        await db.clearCategory(DatabaseHelper.tableFuneraires);
+        
+        // 3. Transactions & Requêtes
+        await db.clearUserSolicitations();
+        await db.clearHostSolicitations();
+        await db.clearUserReservations();
+        await db.clearHostReservations();
+        await db.clearServiceRequests();
+        
+        // 4. Données utilisateur spécifiques
+        await PropertyDatabaseHelper.instance.clearDatabase();
+        await TerrainDatabaseHelper.instance.clearTerrains();
+        
+        print("✅ Nettoyage radical terminé");
+      } catch (e) {
+        print("⚠️ Erreur lors du nettoyage radical SQL: $e");
+      }
 
       // Supprimer les brouillons expirés
       try {
@@ -731,11 +819,14 @@ class AuthentificationCtrl with ChangeNotifier {
             if (currentProfile != null) {
               currentProfile.addAll({
                 'id': personData['id'],
-                'firstname': personData['firstName'],
-                'lastname': personData['lastName'],
-                'fullname': personData['fullName'],
+                'firstname': personData['firstName'] ?? personData['first_name'],
+                'lastname': personData['lastName'] ?? personData['last_name'],
+                'fullname': personData['fullName'] ?? personData['full_name'],
                 'address': personData['address'],
                 'images': personData['images'],
+                'typeCardId': personData['typeCardId'] ?? personData['type_card_id'],
+                'parrainId': personData['parrainId'] ?? personData['parrain_id'],
+                'numberCard': personData['numberCard'] ?? personData['number_card'],
               });
               await stockage?.write(StockageKeys.profileKey, currentProfile);
             }
