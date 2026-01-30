@@ -2108,7 +2108,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            property.address ?? 'Adresse non disponible',
+                            "${property.cityValue}, ${property.communeValue}",
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 11,
