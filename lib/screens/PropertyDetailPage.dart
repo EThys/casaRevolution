@@ -276,7 +276,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       final surfaceText = _showSurface ? '📐 ${widget.property.surface?.toInt() ?? 0} m²' : '';
       
       final shareText = '''
-        🏠 ${widget.property.title ?? 'Belle propriété'} - ${widget.property.address ?? ''}
+        🏠 ${widget.property.title ?? 'Belle propriété'}
         
         💰 ${priceText}
         🛏️ ${widget.property.bedrooms ?? 0} chambres
@@ -821,20 +821,33 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             Icon(Icons.location_on_outlined, size: 18, color: _greyColor),
             SizedBox(width: 6),
             Expanded(
-              child: Text(
-                (widget.property.address != null && widget.property.address!.isNotEmpty)
-                    ? widget.property.address!
-                    : "Adresse non disponible",
-                style: TextStyle(
-                  color: _greyColor,
-                  fontSize: 15,
-                ),
+                child: Text(
+                  _formatLocation(),
+                  style: TextStyle(
+                    color: _greyColor,
+                    fontSize: 15,
+                  ),
               ),
             ),
           ],
         ),
       ],
     );
+  }
+
+  String _formatLocation() {
+    final city = widget.property.cityValue;
+    final commune = widget.property.communeValue;
+
+    if ((city == null || city.isEmpty) && (commune == null || commune.isEmpty)) {
+      return widget.property.address ?? 'Adresse non disponible';
+    }
+
+    List<String> parts = [];
+    if (city != null && city.isNotEmpty) parts.add(city);
+    if (commune != null && commune.isNotEmpty) parts.add(commune);
+    
+    return parts.join(', ');
   }
 
   String _getPropertyTypeFromTitle(String? title) {
@@ -1212,7 +1225,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
               SizedBox(width: 4),
               Text(
-                isForRent ? '\$/mois' : '\$',
+                isForRent ? '${widget.property.currency ?? '\$'}/mois' : '${widget.property.currency ?? '\$'}',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.9),
                   fontSize: 16,
@@ -1651,7 +1664,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      widget.property.address ?? '',
+                        '',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
