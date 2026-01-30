@@ -4,6 +4,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../models/PrestationModel.dart';
 import '../models/ServiceModel.dart';
 import '../utils/FavoriteEartIcon.dart';
+import '../controllers/ServiceController.dart'; // Added
+import 'package:provider/provider.dart'; // Added
 import 'ServiceDetailPage.dart';
 
 class ServiceCategoryPage extends StatefulWidget {
@@ -229,10 +231,18 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
             onTap: () {
+              final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+              final resolvedName = serviceCtrl.serviceIdToNameMap.containsKey(service.serviceId) 
+                  ? serviceCtrl.getServiceName(service.serviceId) 
+                  : widget.serviceType.displayName;
+
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => ServiceDetailPage(service: service),
+                  builder: (context) => ServiceDetailPage(
+                    service: service,
+                    serviceTypeName: resolvedName,
+                  ),
                 ),
               );
             },
@@ -364,6 +374,41 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                               child: Icon(Icons.verified, color: Colors.white, size: 12),
                             ),
                           ),
+                        // Type de service superposé (Top Left)
+                        Positioned(
+                          top: 8,
+                          left: service.isCertified == true ? 36 : 8, // Décale si vérifié
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withOpacity(0.9),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 4,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Builder(
+                              builder: (context) {
+                                final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+                                final resolvedName = serviceCtrl.serviceIdToNameMap.containsKey(service.serviceId) 
+                                    ? serviceCtrl.getServiceName(service.serviceId) 
+                                    : widget.serviceType.displayName;
+                                return Text(
+                                  resolvedName,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                );
+                              }
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -409,7 +454,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                                   SizedBox(width: 4),
                                   Flexible(
                                     child: Text(
-                                      service.address ?? service.cityValue ?? '',
+                                      "${service.cityValue}, ${service.communeValue}",
                                       style: GoogleFonts.inter(
                                         fontSize: 10,
                                         color: Colors.grey[600],
@@ -494,10 +539,18 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: () {
+            final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+            final resolvedName = serviceCtrl.serviceIdToNameMap.containsKey(service.serviceId) 
+                ? serviceCtrl.getServiceName(service.serviceId) 
+                : widget.serviceType.displayName;
+
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => ServiceDetailPage(service: service),
+                builder: (context) => ServiceDetailPage(
+                  service: service,
+                  serviceTypeName: resolvedName,
+                ),
               ),
             );
           },
@@ -571,6 +624,42 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                                   ),
                                 ),
                               ],
+                            ),
+                          ),
+                        ),
+                        
+                        // Type de service superposé (Top Left)
+                        Positioned(
+                          top: 12,
+                          left: service.isCertified == true ? 80 : 12, // Décale si vérifié
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withOpacity(0.9),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 4,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Builder(
+                              builder: (context) {
+                                final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+                                final resolvedName = serviceCtrl.serviceIdToNameMap.containsKey(service.serviceId) 
+                                    ? serviceCtrl.getServiceName(service.serviceId) 
+                                    : widget.serviceType.displayName;
+                                return Text(
+                                  resolvedName,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                );
+                              }
                             ),
                           ),
                         ),
@@ -668,7 +757,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                           SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              service.address ?? service.cityValue ?? '',
+                              "${service.cityValue}, ${service.communeValue}",
                               style: GoogleFonts.inter(
                                 fontSize: 13,
                                 color: Colors.grey[600],
