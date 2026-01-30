@@ -2045,7 +2045,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
         "password": _passwordController.text,
         "city": _cityController.text.trim(),
         "country": "RDC",
-        "username": "@${_firstNameController.text}${_lastNameController.text}".replaceAll(' ', ''),
+        "username": "${_firstNameController.text.trim()}${_lastNameController.text.trim()}".replaceAll(' ', '').toLowerCase(),
       };
       
       if (isPhone) {
@@ -2057,9 +2057,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
       }
       
       final actorData = {
-          "lastName": _lastNameController.text,
-          "firstName": _firstNameController.text,
-          "address": _cityController.text,
+          "lastName": _lastNameController.text.trim(),
+          "firstName": _firstNameController.text.trim(),
+          "address": _cityController.text.trim(),
           "images": "",
           "cardFront": "",
           "cardBack": "",
