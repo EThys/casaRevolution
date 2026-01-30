@@ -656,6 +656,8 @@ class ReservationController with ChangeNotifier {
       
       // La requête est spécifiée comme PUT par l'utilisateur
       HttpResponse response = await putData(url, {}, token: tkn);
+      
+      print("📡 [ReservationController] Réponse API détaillée: ${response.data}");
 
       if (response.status == true) {
         print("✅ [ReservationController] Réservation $reservationId validée avec succès");
