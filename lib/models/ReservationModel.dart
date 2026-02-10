@@ -51,41 +51,49 @@ class ReservationModel {
   factory ReservationModel.fromJson(Map<String, dynamic> json) {
     // Gérer la structure imbriquée : l'API retourne {"reservation": {...}, "property": {...}}
     Map<String, dynamic>? reservationData;
-    Map<String, dynamic>? propertyData;
     
     // Si la clé "reservation" existe et contient un objet, c'est la structure imbriquée
     if (json.containsKey("reservation") && json["reservation"] is Map) {
-      reservationData = json["reservation"] as Map<String, dynamic>;
-      propertyData = json["property"] as Map<String, dynamic>?;
-      print("📋 [ReservationModel] Structure imbriquée détectée - reservation.id: ${reservationData?["id"]}, userId: ${reservationData?["userId"]}");
+      reservationData = Map<String, dynamic>.from(json["reservation"]);
+      print("📋 [ReservationModel] Structure imbriquée détectée - reservation.id: ${reservationData["id"] ?? reservationData["reservationId"]}");
     } else {
-      // Sinon, c'est la structure plate (données directement dans json)
+      // Sinon, c'est la structure plate
       reservationData = json;
-      propertyData = json["property"] as Map<String, dynamic>?;
-      print("📋 [ReservationModel] Structure plate détectée - id: ${reservationData?["id"]}");
+      print("📋 [ReservationModel] Structure plate détectée - id: ${reservationData["id"] ?? reservationData["reservationId"]}");
     }
     
+    // Extraire et convertir l'ID de manière robuste
+    dynamic rawId = reservationData["reservationId"] ?? reservationData["id"];
+    int? parsedId;
+    if (rawId != null) {
+      if (rawId is int) {
+        parsedId = rawId;
+      } else if (rawId is String) {
+        parsedId = int.tryParse(rawId);
+      }
+    }
+
     return ReservationModel(
-      reservationId: reservationData?["reservationId"] ?? reservationData?["id"],
+      reservationId: parsedId,
       user: json["user"] == null
           ? null
           : UserModel.fromJson(json["user"]),
       property: PropertyModel.fromJson(json),
-      message: reservationData?["message"],
-      status: reservationData?["status"],
-      type: reservationData?["type"],
-      reservationHeure: reservationData?["reservationHeure"],
-      cancellationReason: reservationData?["cancellationReason"],
-      startDate: reservationData?["startDate"],
-      endDate: reservationData?["endDate"],
-      createdAt: reservationData?["createdAt"],
-      active: reservationData?["active"] ?? false,
-      terrainId: reservationData?["terrainId"],
-      bureauId: reservationData?["bureauId"],
-      vacanceId: reservationData?["vacanceId"],
-      festiveId: reservationData?["festiveId"],
-      funeraireId: reservationData?["funeraireId"],
-      hotelId: reservationData?["hotelId"],
+      message: reservationData["message"]?.toString(),
+      status: reservationData["status"]?.toString(),
+      type: reservationData["type"]?.toString(),
+      reservationHeure: reservationData["reservationHeure"]?.toString(),
+      cancellationReason: reservationData["cancellationReason"]?.toString(),
+      startDate: reservationData["startDate"]?.toString(),
+      endDate: reservationData["endDate"]?.toString(),
+      createdAt: reservationData["createdAt"]?.toString(),
+      active: reservationData["active"] == true,
+      terrainId: reservationData["terrainId"],
+      bureauId: reservationData["bureauId"],
+      vacanceId: reservationData["vacanceId"],
+      festiveId: reservationData["festiveId"],
+      funeraireId: reservationData["funeraireId"],
+      hotelId: reservationData["hotelId"],
     );
   }
 

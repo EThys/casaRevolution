@@ -116,7 +116,7 @@ class ReservationController with ChangeNotifier {
     }
 
     print("🔍 Récupération complète des réservations pour user: $userId (Standard + Spécialisées)");
-    
+
     loading = true;
     notifyListeners();
 
@@ -138,13 +138,15 @@ class ReservationController with ChangeNotifier {
       // Exécuter toutes les requêtes en parallèle pour plus de performance
       await Future.wait(endpointsToFetch.map((url) async {
         try {
-          print("🌐 Requête réservations: $url");
+          print("🌐 Requête réservations type: $url");
           var response = await getData(url, token: tkn);
 
-          if (response != null && (response['reservation'] != null || response['data'] != null)) {
-            List<dynamic> reservationsData = response['reservation'] ?? response['data'];
-            
+          // L'API peut retourner {"reservation": [...]} ou {"data": [...]} ou {"reservations": [...]}
+          if (response != null && (response['reservation'] != null || response['data'] != null || response['reservations'] != null)) {
+            List<dynamic> reservationsData = response['reservation'] ?? response['reservations'] ?? response['data'];
+
             if (reservationsData is List) {
+              print("✅ [ReservationController] ${reservationsData.length} réservations reçues de $url");
               for (var item in reservationsData) {
                 if (item is Map) {
                   try {
@@ -158,7 +160,7 @@ class ReservationController with ChangeNotifier {
             }
           }
         } catch (e) {
-          print("⚠️ Échec de récupération depuis l'endpoint $url: $e");
+          print("⚠️ Échec partiel de récupération depuis l'endpoint $url: $e");
         }
       }));
 
@@ -172,9 +174,9 @@ class ReservationController with ChangeNotifier {
       if (allUserReservations.isNotEmpty) {
         // Trier par date de création (la plus récente en premier)
         allUserReservations.sort((a, b) {
-           final dateA = a.createdAt ?? "";
-           final dateB = b.createdAt ?? "";
-           return dateB.compareTo(dateA);
+          final dateA = a.createdAt ?? "";
+          final dateB = b.createdAt ?? "";
+          return dateB.compareTo(dateA);
         });
 
         print("👤 Total des réservations récupérées (tous types confondus): ${allUserReservations.length}");
@@ -309,10 +311,10 @@ class ReservationController with ChangeNotifier {
   }
 
   Future<HttpResponse> createReservation(
-    Map<String, dynamic> reservationData, {
-    int? propertyOwnerId,
-    String? endpoint,
-  }) async {
+      Map<String, dynamic> reservationData, {
+        int? propertyOwnerId,
+        String? endpoint,
+      }) async {
     try {
       loading = true;
       notifyListeners();
@@ -335,28 +337,28 @@ class ReservationController with ChangeNotifier {
 
         // Empêcher la duplication d'une réservation en attente pour le même bien
         // On essaie de trouver un ID de propriété (standard ou spécial)
-        final propertyId = (reservationData['propertyId'] ?? 
-                           reservationData['terrainId'] ?? 
-                           reservationData['bureauId'] ?? 
-                           reservationData['vacanceId'] ?? 
-                           reservationData['festiveId'] ?? 
-                           reservationData['funeraireId'] ?? 
-                           reservationData['hotelId'])?.toString();
+        final propertyId = (reservationData['propertyId'] ??
+            reservationData['terrainId'] ??
+            reservationData['bureauId'] ??
+            reservationData['vacanceId'] ??
+            reservationData['festiveId'] ??
+            reservationData['funeraireId'] ??
+            reservationData['hotelId'])?.toString();
 
         if (propertyId != null) {
           final hasPending = reservations.any(
-            (r) {
-              final rPropertyId = (r.property?.propertyId ?? 
-                                  r.terrainId ?? 
-                                  r.bureauId ?? 
-                                  r.vacanceId ?? 
-                                  r.festiveId ?? 
-                                  r.funeraireId ?? 
-                                  r.hotelId)?.toString();
-              return r.user?.userId?.toString() == userId &&
-                     rPropertyId == propertyId &&
-                     (r.status?.toUpperCase() == 'PENDING');
-            }
+                  (r) {
+                final rPropertyId = (r.property?.propertyId ??
+                    r.terrainId ??
+                    r.bureauId ??
+                    r.vacanceId ??
+                    r.festiveId ??
+                    r.funeraireId ??
+                    r.hotelId)?.toString();
+                return r.user?.userId?.toString() == userId &&
+                    rPropertyId == propertyId &&
+                    (r.status?.toUpperCase() == 'PENDING');
+              }
           );
 
           if (hasPending) {
@@ -575,53 +577,77 @@ class ReservationController with ChangeNotifier {
       return [];
     }
 
-    print("🔍 Récupération des réservations hôte pour user: $userId");
-    
+    print("🔍 Récupération complète des réservations hôte pour user: $userId (Tous types)");
+
     loading = true;
     notifyListeners();
 
+    final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+    List<ReservationModel> allHostReservations = [];
+
+    // Liste des endpoints à interroger pour obtenir toutes les réservations reçues par l'hôte
+    final hostEndpointsToFetch = [
+      "${Endpoints.reservationsHost}$userId",
+      "${Endpoints.reservationsVacanceByHost}$userId",
+      "${Endpoints.reservationsTerrainByHost}$userId",
+      "${Endpoints.reservationsFuneraireByHost}$userId",
+      "${Endpoints.reservationsFestiveByHost}$userId",
+      "${Endpoints.reservationsBureauByHost}$userId",
+      "${Endpoints.reservationsHotelByHost}$userId",
+    ];
+
     try {
-      // Construction de l'URL: reservations/user/host/{userId}
-      final url = "${Endpoints.reservations}/${Endpoints.reservationsByUser}/host/$userId";
-      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-      
-      print("🌐 Requête réservations hôte: $url");
-      var response = await getData(url, token: tkn);
+      // Exécuter toutes les requêtes en parallèle pour plus de performance
+      await Future.wait(hostEndpointsToFetch.map((url) async {
+        try {
+          print("🌐 Requête réservations hôte: $url");
+          var response = await getData(url, token: tkn);
 
-      // L'API retourne {"reservation": [...]} (liste d'objets imbriqués)
-      if (response != null && (response['reservation'] != null || response['reservations'] != null || response['data'] != null)) {
-        List<dynamic> reservationsData = response['reservation'] ?? response['reservations'] ?? response['data'];
-        
-        print("📋 [ReservationController] Nombre de réservations hôte: ${reservationsData.length}");
+          // L'API peut retourner {"reservation": [...]} ou {"data": [...]}
+          if (response != null && (response['reservation'] != null || response['data'] != null || response['reservations'] != null)) {
+            List<dynamic> reservationsData = response['reservation'] ?? response['reservations'] ?? response['data'];
 
-        if (reservationsData is List && reservationsData.isNotEmpty) {
-          List<ReservationModel> hostReservations = [];
-          
-          for (var item in reservationsData) {
-            try {
-              if (item is Map) {
-                final itemMap = Map<String, dynamic>.from(item);
-                // ReservationModel.fromJson gère déjà la structure imbriquée {"reservation": ..., "property": ...}
-                final reservation = ReservationModel.fromJson(itemMap);
-                hostReservations.add(reservation);
+            if (reservationsData is List) {
+              for (var item in reservationsData) {
+                if (item is Map) {
+                  try {
+                    final reservation = ReservationModel.fromJson(Map<String, dynamic>.from(item));
+                    allHostReservations.add(reservation);
+                  } catch (e) {
+                    print("❌ Error parsing host reservation from $url: $e");
+                  }
+                }
               }
-            } catch (e, stack) {
-              print("❌ [ReservationController] Erreur parsing réservation hôte: $e");
-              print("🔍 Stack: $stack");
             }
           }
-
-          print("👤 Réservations hôte récupérées: ${hostReservations.length}");
-          
-          loading = false;
-          notifyListeners();
-          return hostReservations;
+        } catch (e) {
+          print("⚠️ Échec de récupération depuis l'endpoint hôte $url: $e");
         }
-      } else {
-         print("⚠️ Aucune réservation hôte trouvée ou format réponse invalide");
+      }));
+
+      // Supprimer les doublons potentiels
+      final seenIds = <int>{};
+      allHostReservations = allHostReservations.where((r) {
+        if (r.reservationId == null) return true;
+        return seenIds.add(r.reservationId!);
+      }).toList();
+
+      if (allHostReservations.isNotEmpty) {
+        // Trier par date de création (la plus récente en premier)
+        allHostReservations.sort((a, b) {
+          final dateA = a.createdAt ?? "";
+          final dateB = b.createdAt ?? "";
+          return dateB.compareTo(dateA);
+        });
+
+        print("👤 Total des réservations hôte récupérées: ${allHostReservations.length}");
+        
+        loading = false;
+        notifyListeners();
+        return allHostReservations;
       }
     } catch (e) {
-      print("❌ Erreur réseau réservations hôte: $e");
+      print("❌ Erreur lors de la récupération des réservations hôte: $e");
     }
 
     loading = false;
@@ -653,21 +679,21 @@ class ReservationController with ChangeNotifier {
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
       print("🌐 [ReservationController] Validation réservation: $url");
-      
+
       // La requête est spécifiée comme PUT par l'utilisateur
       HttpResponse response = await putData(url, {}, token: tkn);
-      
+
       print("📡 [ReservationController] Réponse API détaillée: ${response.data}");
 
       if (response.status == true) {
         print("✅ [ReservationController] Réservation $reservationId validée avec succès");
-        
+
         // Mettre à jour localement si nécessaire
         final index = reservations.indexWhere((r) => r.reservationId == reservationId);
         if (index != -1) {
           reservations[index].status = isValid ? 'CONFIRMED' : 'REJECTED';
         }
-        
+
         await getAllReservations(); // Rafraîchir la liste
       }
 
