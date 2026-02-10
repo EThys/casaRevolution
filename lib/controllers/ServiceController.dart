@@ -385,7 +385,7 @@ class ServiceController with ChangeNotifier {
 
     try {
       final token = stockage?.read<String>(StockageKeys.tokenKey) ?? '';
-      final url = "${Endpoints.myServices}";
+      final url = Endpoints.myServices;
       var response = await getData(url, token: token);
 
       if (response != null && response is Map<String, dynamic>) {
