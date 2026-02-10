@@ -154,8 +154,8 @@ class AgenceController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Endpoint: /api/agences/owner/{userId}
-      final url = '${Endpoints.agences}/owner/$userId';
+      // Endpoint: /api/v1/protected/agences/owner/{userId}
+      final url = '${Endpoints.agencesByOwner}$userId';
       print("🔍 [AgenceController] Fetching agencies for user $userId from: $url");
       
       // Get user token from storage (token is stored at root level, not in user object)

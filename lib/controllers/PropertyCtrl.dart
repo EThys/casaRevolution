@@ -1186,9 +1186,9 @@ class PropertyController with ChangeNotifier {
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
       final endpoints = [
         "${Endpoints.propertiesByOwner}$userId",
-        "property/bureaux/owner/$userId",
-        "property/festives/owner/$userId",
-        "property/funeraires/owner/$userId",
+        "${Endpoints.propertyBureauxByOwner}$userId",
+        "${Endpoints.propertyFestivesByOwner}$userId",
+        "${Endpoints.propertyFunerairesByOwner}$userId",
       ];
 
       List<PropertyModel> allMyProperties = [];
