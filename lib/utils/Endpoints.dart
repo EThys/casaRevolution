@@ -4,7 +4,7 @@ class Endpoints {
   static const String login = "login";
   static const String forgotPassword = "forgot-password";
   static const String verifyOTP = "verify-otp";
-  static const String resetPassword = "reset-password";
+  static const String resetPassword = "reset/password";
   static const String updateProfilePicture = "members/"; // {id}/profile
 
   // OTP Endpoints
@@ -18,7 +18,7 @@ class Endpoints {
 
   static const String updateProfile = "profile";
   static const String logout = "logout";
-  static const String changePassword = "change-password";
+  static const String changePassword = "change/password";
   static const String deleteAccount = "delete/user";
   static const String accounts = "accounts";
 
@@ -57,6 +57,7 @@ class Endpoints {
   static const String propertyFuneraires = "property/funeraires";
   static const String propertyVacances = "property/vacances";
   static const String propertyTerrains = "property/terrains";
+  static const String propertyHotels = "property/hotels";
   
   // Specialized properties by owner
   static const String propertyBureauxByOwner = "property/bureaux/owner/";
@@ -132,7 +133,7 @@ class Endpoints {
 
   // Search Endpoints
   static const String propertyFilter = "property/filter";
-  static const String propertySearch = "roperty/search";
+  static const String propertySearch = "property/search";
 
   // Service Endpoints
   static const String services = "services";

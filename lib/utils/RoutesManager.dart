@@ -32,6 +32,7 @@ import '../screens/RequestInterventionPage.dart';
 import '../screens/NotificationPage.dart';
 import '../screens/ServiceDetailPage.dart';
 import '../screens/CreateAgencePage.dart';
+import '../screens/HelpSupportPage.dart';
 import '../models/ServiceModel.dart';
 import '../models/ServiceRequestModel.dart';
 import '../models/PrestationModel.dart';
@@ -136,6 +137,8 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>ServiceDetailPage(service: service));
       case Routes.createAgenceRoute:
         return MaterialPageRoute(builder: (_)=>CreateAgencePage());
+      case Routes.helpSupportRoute:
+        return MaterialPageRoute(builder: (_)=>HelpSupportPage());
       // case Routes.visitPageRoute:
       //   final PropertyModel property = r.arguments as PropertyModel;
       //   return MaterialPageRoute(builder: (_)=>BookingVisitPage(property: property));

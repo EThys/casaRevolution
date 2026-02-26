@@ -36,4 +36,5 @@ class Routes {
   static const String notificationPageRoute = "notificationPage";
   static const String serviceDetail = "serviceDetail";
   static const String createAgenceRoute = "createAgence";
+  static const String helpSupportRoute = "helpSupport";
 }
