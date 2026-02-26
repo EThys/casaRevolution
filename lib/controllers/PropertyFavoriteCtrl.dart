@@ -53,35 +53,58 @@ class PropertyFavoriteCtrl with ChangeNotifier {
       List<PropertyFavoriteModel> aggregatedFavorites = [];
 
       // Helper pour parser une réponse individuelle selon la structure (favorites/favorite/list/single)
-      List<PropertyFavoriteModel> parseResponse(dynamic response) {
+      List<PropertyFavoriteModel> parseResponse(dynamic response, String source) {
         if (response == null) return [];
+        if (response is Map && response.containsKey('status') && response['status'] == false) return [];
+        
         List<PropertyFavoriteModel> parsed = [];
         try {
-          if (response['favorites'] is List) {
-             parsed = (response['favorites'] as List)
-                .map<PropertyFavoriteModel>((e) => PropertyFavoriteModel.fromJson(e)).toList();
-          } else if (response['favorite'] is List) {
-             parsed = (response['favorite'] as List)
-                .map<PropertyFavoriteModel>((e) => PropertyFavoriteModel.fromJson(e)).toList();
-          } else if (response['favorite'] is Map) {
-             parsed.add(PropertyFavoriteModel.fromJson(response['favorite']));
+          List<dynamic>? list;
+          if (response is Map) {
+            final mapResponse = Map<String, dynamic>.from(response);
+            if (mapResponse['favorites'] is List) {
+              list = mapResponse['favorites'];
+            } else if (mapResponse['favorite'] is List) {
+              list = mapResponse['favorite'];
+            } else if (mapResponse['favorite'] is Map) {
+              final fav = PropertyFavoriteModel.fromJson(Map<String, dynamic>.from(mapResponse['favorite']));
+              if (fav.property != null) parsed.add(fav);
+            } else if (mapResponse.containsKey('propertyId') || mapResponse.containsKey('id')) {
+              // Tentative de parse direct si l'objet ressemble à un favori
+              final fav = PropertyFavoriteModel.fromJson(mapResponse);
+              if (fav.property != null) parsed.add(fav);
+            }
           } else if (response is List) {
-             parsed = (response as List)
-                .map<PropertyFavoriteModel>((e) => PropertyFavoriteModel.fromJson(e)).toList();
-          } else {
-             try {
-                parsed.add(PropertyFavoriteModel.fromJson(response));
-             } catch (_) {}
+            list = response;
+          }
+
+          if (list != null) {
+            for (var item in list) {
+              if (item is Map) {
+                final fav = PropertyFavoriteModel.fromJson(Map<String, dynamic>.from(item));
+                if (fav.property != null) {
+                  parsed.add(fav);
+                }
+              }
+            }
           }
         } catch (e) {
-          print("Error parsing response subset: $e");
+          print("Error parsing response subset from $source: $e");
+        }
+        
+        if (parsed.isNotEmpty) {
+          print("✅ [$source] Found ${parsed.length} valid favorites");
         }
         return parsed;
       }
 
       // 3. Aggréger
-      for (var response in results) {
-        aggregatedFavorites.addAll(parseResponse(response));
+      final sources = [
+        "Main", "Hotel", "Festive", "Funeraire", "Terrain", "Vacance", "Prestation"
+      ];
+      
+      for (int i = 0; i < results.length; i++) {
+        aggregatedFavorites.addAll(parseResponse(results[i], sources[i]));
       }
 
       print("Total aggregated favorites from API: ${aggregatedFavorites.length}");
