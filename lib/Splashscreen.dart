@@ -201,7 +201,8 @@
 //   final passwordError = _validatePassword(_passwordController.text);
 //
 //   if (emailError != null || passwordError != null) {
-//     FancyNotification.show(context, "Veuillez corriger les erreurs ci-dessus");
+//     FancyNotification.show(context, "Veuillez corriger les erreurs ci
+//     -dessus");
 //     return;
 //   }
 //
