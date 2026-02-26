@@ -47,7 +47,7 @@ class _FavoritesPageState extends State<FavoritesPage>
   final Color _chipBackground = Color(0xFFE8F4F8);
 
   List<int> _deletingIds = [];
-  bool _isGridView = false; // Toggle pour vue liste/grille
+  bool _isGridView = true;
 
   @override
   void initState() {
@@ -251,6 +251,7 @@ class _FavoritesPageState extends State<FavoritesPage>
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
+      automaticallyImplyLeading: false,
       elevation: 0,
       flexibleSpace: Container(
         decoration: BoxDecoration(
@@ -1045,8 +1046,9 @@ class _FavoritesPageState extends State<FavoritesPage>
   // Vue quand l'utilisateur n'est pas connecté
   Widget _buildNotConnectedView() {
     return Scaffold(
-      backgroundColor: _lightGrey,
+      backgroundColor: Colors.white,
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         elevation: 0,
         flexibleSpace: Container(
           decoration: BoxDecoration(
@@ -1057,72 +1059,72 @@ class _FavoritesPageState extends State<FavoritesPage>
             ),
           ),
         ),
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
         title: Text(
           'Mes favoris',
-          style: TextStyle(
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.bold,
             color: Colors.white,
-            fontWeight: FontWeight.w600,
           ),
         ),
       ),
       body: Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: const EdgeInsets.all(40.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Container(
-                width: 120,
-                height: 120,
+                width: 140,
+                height: 140,
                 decoration: BoxDecoration(
-                  color: _lightGrey,
+                  color: _primaryColor.withOpacity(0.05),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.favorite_border, size: 60, color: _mediumGrey.withOpacity(0.3)),
+                child: Icon(
+                  Icons.favorite_outline_rounded,
+                  size: 70,
+                  color: _primaryColor,
+                ),
               ),
-              SizedBox(height: 24),
+              const SizedBox(height: 32),
               Text(
-                'Connexion Requise',
-                style: TextStyle(
+                'Connectez-vous',
+                style: GoogleFonts.inter(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
                   color: _darkColor,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
                 ),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
-                'Connectez-vous pour accéder à vos propriétés favorites',
+                'Connectez-vous pour enregistrer vos propriétés préférées et les retrouver facilement.',
                 textAlign: TextAlign.center,
-                style: TextStyle(
+                style: GoogleFonts.inter(
+                  fontSize: 14,
                   color: _mediumGrey,
-                  fontSize: 16,
+                  height: 1.5,
                 ),
               ),
-              SizedBox(height: 32),
-              Container(
+              const SizedBox(height: 40),
+              SizedBox(
                 width: double.infinity,
-                height: 50,
                 child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pushNamed(context, Routes.loginRoute);
-                  },
+                  onPressed: () => Navigator.pushNamed(context, Routes.loginRoute),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _primaryColor,
                     foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                    padding: EdgeInsets.symmetric(vertical: 12),
+                    elevation: 4,
+                    shadowColor: _primaryColor.withOpacity(0.3),
                   ),
                   child: Text(
                     'SE CONNECTER',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 16,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
                     ),
                   ),
                 ),
