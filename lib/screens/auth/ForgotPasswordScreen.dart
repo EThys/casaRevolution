@@ -3,6 +3,7 @@ import 'package:casa/screens/auth/OTPVerificationScreen.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:provider/provider.dart';
 
 import '../../utils/FancyNotification.dart';
@@ -25,6 +26,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final Color secondaryTextColor = Color(0xFF5C6BC0);
   bool _phoneTouched = false;
   String _selectedCountryCode = '+243';
+  final box = GetStorage();
+  final int maxDeviceDailyRequests = 10; // Limite globale du téléphone par jour
 
   // Dictionnaire des indicatifs avec drapeaux
   final Map<String, String> _countryFlags = {
@@ -579,6 +582,26 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       String phoneNumber = _phoneController.text.trim();
       phoneNumber = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
 
+      // --- LOGIQUE DE PROTECTION GLOBALE DU TÉLÉPHONE ---
+      final now = DateTime.now();
+      final lastResetDate = box.read('global_otp_reset_date');
+      int globalCount = box.read('global_otp_count') ?? 0;
+
+      // Réinitialiser le compteur si on a changé de jour
+      if (lastResetDate == null || 
+          DateTime.parse(lastResetDate).day != now.day) {
+        globalCount = 0;
+        box.write('global_otp_reset_date', now.toIso8601String());
+        box.write('global_otp_count', 0);
+      }
+
+      if (globalCount >= maxDeviceDailyRequests) {
+        SnackbarForCasa.error(context, "Limite quotidienne de sécurité atteinte pour cet appareil.");
+        setState(() => _isLoading = false);
+        return;
+      }
+      // --------------------------------------------------
+
       // Formater le numéro avec l'indicatif
       String phoneWithCountryCode;
       if (phoneNumber.startsWith('0')) {
@@ -604,6 +627,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         final responseData = res.data as Map<String, dynamic>;
         final message = responseData['message'] ?? "Code OTP envoyé avec succès";
         final phone = responseData['phone'] ?? phoneWithCountryCode;
+        
+        // Incrémenter le compteur global de l'appareil
+        int currentGlobalCount = box.read('global_otp_count') ?? 0;
+        box.write('global_otp_count', currentGlobalCount + 1);
         
         SnackbarForCasa.success(context, message);
         
