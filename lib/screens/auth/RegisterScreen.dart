@@ -235,16 +235,26 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
           // Contenu principal
           SafeArea(
-            child: SingleChildScrollView(
-              physics: BouncingScrollPhysics(),
-              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 24),
-              child: Column(
-                children: [
-                  SizedBox(height: 20),
-                  _buildLogo(),
-                  SizedBox(height: 30),
-                  _buildAuthCard(),
-                ],
+            child: AbsorbPointer(
+              absorbing: _isLoading,
+              child: SingleChildScrollView(
+                physics: BouncingScrollPhysics(),
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 24),
+                child: Column(
+                  children: [
+                    Align(
+                      alignment: Alignment.topLeft,
+                      child: IconButton(
+                        icon: Icon(Icons.arrow_back_ios, color: textColor),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    _buildLogo(),
+                    SizedBox(height: 30),
+                    _buildAuthCard(),
+                  ],
+                ),
               ),
             ),
           ),
@@ -503,13 +513,20 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
 
           SizedBox(height: 30),
 
-          _buildAuthForm(),
-          SizedBox(height: 25),
-          _buildPrivacyText(), // CONDITIONS PLACÉES ICI, AVANT LE BOUTON
-          SizedBox(height: 25),
-          _buildAuthButton(),
-          SizedBox(height: 20),
-          _buildLoginLink(),
+          AbsorbPointer(
+            absorbing: _isLoading,
+            child: Column(
+              children: [
+                _buildAuthForm(),
+                SizedBox(height: 25),
+                _buildPrivacyText(),
+                SizedBox(height: 25),
+                _buildAuthButton(),
+                SizedBox(height: 20),
+                _buildLoginLink(),
+              ],
+            ),
+          ),
         ],
       ),
     ).animate().slideY(
@@ -556,9 +573,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           SizedBox(height: 20),
           // Mot de passe
           _buildPasswordField(),
-          SizedBox(height: 8),
-          // Indicateur de force du mot de passe en temps réel
-          _buildPasswordStrengthIndicator(),
         ],
       ),
     );
@@ -591,8 +605,14 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         style: TextStyle(color: Colors.black87, fontSize: 16), // Force black text on light background
         textInputAction: nextFocus != null ? TextInputAction.next : TextInputAction.done,
         onFieldSubmitted: nextFocus != null ? (_) => _goToNextField(focusNode, nextFocus!) : null,
-        onChanged: (_) {
-          if (isTouched) _forceRevalidation();
+        onChanged: (val) {
+          if (!isTouched && val.isNotEmpty) {
+            setState(() {
+              if (label == 'Prénom') _firstNameTouched = true;
+              else if (label == 'Nom') _lastNameTouched = true;
+            });
+          }
+          _forceRevalidation();
         },
         onEditingComplete: () {
           setState(() {
@@ -700,6 +720,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         ),
         keyboardType: _isPhoneInput ? TextInputType.phone : TextInputType.emailAddress,
         onChanged: (String value) {
+          if (!_contactTouched && value.isNotEmpty) {
+            setState(() => _contactTouched = true);
+          }
           bool isPhone = _looksLikePhoneNumber(value);
           if (isPhone) {
             String cleaned = value.replaceAll(RegExp(r'[^\d]'), '');
@@ -711,13 +734,13 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
               );
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _updateContactType();
-                if (_contactTouched) _forceRevalidation();
+                _forceRevalidation();
               });
               return;
             }
           }
           _updateContactType();
-          if (_contactTouched) _forceRevalidation();
+          _forceRevalidation();
         },
         onEditingComplete: () {
           setState(() => _contactTouched = true);
@@ -1240,8 +1263,11 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         autovalidateMode: AutovalidateMode.disabled,
         textInputAction: TextInputAction.go, // ← CHANGER EN "go"
         onFieldSubmitted: (_) => _triggerRegistrationIfValid(), // ← AJOUTER CETTE LIGNE
-        onChanged: (_) {
-          if (_passwordTouched) _forceRevalidation();
+        onChanged: (val) {
+          if (!_passwordTouched && val.isNotEmpty) {
+            setState(() => _passwordTouched = true);
+          }
+          _forceRevalidation();
         },
         onEditingComplete: () {
           setState(() {
@@ -1896,12 +1922,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     }
     if (value.length < 6) {
       return 'Le mot de passe doit contenir au moins 6 caractères';
-    }
-    if (value.length > 50) {
-      return 'Le mot de passe ne peut pas dépasser 50 caractères';
-    }
-    if (!RegExp(r'^(?=.*[a-zA-Z]).{6,}$').hasMatch(value)) {
-      return 'Le mot de passe doit contenir au moins une lettre';
     }
     return null;
   }
