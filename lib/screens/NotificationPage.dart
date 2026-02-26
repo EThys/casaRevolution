@@ -4,6 +4,8 @@ import 'package:casa/controllers/NotificationController.dart';
 import '../utils/Routes.dart';
 import '../models/ServiceRequestModel.dart';
 import 'ServiceRequestDetailPage.dart';
+import '../controllers/AuthentificationCtrl.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({Key? key}) : super(key: key);
@@ -60,6 +62,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final authCtrl = Provider.of<AuthentificationCtrl>(context);
+    
+    if (authCtrl.token.isEmpty) {
+      return _buildNotConnectedView();
+    }
+
     return Consumer<NotificationController>(
       builder: (context, controller, child) {
         // Filtrer les notifications
@@ -428,6 +436,89 @@ class _NotificationsPageState extends State<NotificationsPage> {
             textAlign: TextAlign.center,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNotConnectedView() {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: primaryColor,
+        elevation: 0,
+        title: Text(
+          'Notifications',
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(40.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 140,
+                height: 140,
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.05),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.notifications_none_rounded,
+                  size: 70,
+                  color: primaryColor,
+                ),
+              ),
+              const SizedBox(height: 32),
+              Text(
+                'Connectez-vous',
+                style: GoogleFonts.inter(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF1A1D26),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Connectez-vous pour voir vos notifications en temps réel et rester informé.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 40),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pushNamed(context, Routes.loginRoute),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 4,
+                    shadowColor: primaryColor.withOpacity(0.3),
+                  ),
+                  child: Text(
+                    'SE CONNECTER',
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
