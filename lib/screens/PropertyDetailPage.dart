@@ -61,6 +61,34 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   bool get _isAvailable => widget.property.transactionType?.toLowerCase() != 'vente' &&
       widget.property.transactionType?.toLowerCase() != 'location';
 
+  bool get _shouldHideBedrooms {
+    final typeId = widget.property.propertyTypeId;
+    // 4: Bureau, 7: Salle funéraire, 8: Salle de fête, 9: Terrain
+    return typeId == 4 || typeId == 7 || typeId == 8 || typeId == 9;
+  }
+
+  bool get _shouldHideSalons {
+    final typeId = widget.property.propertyTypeId;
+    // 7: Salle funéraire, 8: Salle de fête, 9: Terrain
+    return typeId == 7 || typeId == 8 || typeId == 9;
+  }
+
+  bool get _shouldHideKitchen {
+    final typeId = widget.property.propertyTypeId;
+    // 4: Bureau, 7: Salle funéraire, 9: Terrain
+    return typeId == 4 || typeId == 7 || typeId == 9;
+  }
+
+  bool get _isFestiveOrFuneraire {
+    final typeId = widget.property.propertyTypeId;
+    if (typeId != null) {
+      // 7: Salle funéraire, 8: Salle de fête
+      return typeId == 7 || typeId == 8;
+    }
+    final name = widget.property.propertyType?.name?.toLowerCase() ?? '';
+    return name.contains('fête') || name.contains('festive') || name.contains('funéra') || name.contains('deuil');
+  }
+
   final List<ImageCategory> _imageCategories = [
     ImageCategory(
       id: 'propertyImage',
@@ -157,21 +185,21 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     }
 
     // Grouper les images des chambres
-    if (widget.property.propertyImageRoom != null && widget.property.propertyImageRoom!.isNotEmpty) {
+    if (widget.property.propertyImageRoom != null && widget.property.propertyImageRoom!.isNotEmpty && !_shouldHideBedrooms) {
       groupedImages['propertyImageRoom'] = widget.property.propertyImageRoom!
           .map((roomImage) => PropertyImageModel(path: roomImage.path))
           .toList();
     }
 
     // Grouper les images du salon
-    if (widget.property.propertyImageLivingRoom != null && widget.property.propertyImageLivingRoom!.isNotEmpty) {
+    if (widget.property.propertyImageLivingRoom != null && widget.property.propertyImageLivingRoom!.isNotEmpty && !_shouldHideSalons) {
       groupedImages['propertyImageLivingRoom'] = widget.property.propertyImageLivingRoom!
           .map((livingRoomImage) => PropertyImageModel(path: livingRoomImage.path))
           .toList();
     }
 
     // Grouper les images de la cuisine
-    if (widget.property.propertyImageKitchen != null && widget.property.propertyImageKitchen!.isNotEmpty) {
+    if (widget.property.propertyImageKitchen != null && widget.property.propertyImageKitchen!.isNotEmpty && !_shouldHideKitchen) {
       groupedImages['propertyImageKitchen'] = widget.property.propertyImageKitchen!
           .map((kitchenImage) => PropertyImageModel(path: kitchenImage.path))
           .toList();
@@ -244,6 +272,10 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 SizedBox(height: 16),
                 _buildLocationPreview(),
                 SizedBox(height: 16),
+                if (widget.property.propertyTypeId == 5) ...[
+                  _buildHotelRoomsSection(),
+                  SizedBox(height: 16),
+                ],
                 if (groupedImages.isNotEmpty) _buildGroupedImagesSection(groupedImages),
                 SizedBox(height: 16),
                 _buildSimilarProperties(similar),
@@ -269,18 +301,19 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
       bool isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
 
-      final priceText = isForRent
+      final priceText = isForRent && !_isFestiveOrFuneraire
           ? '${widget.property.price?.toStringAsFixed(0) ?? '0'} ${widget.property.currency}/mois'
           : '${widget.property.price?.toStringAsFixed(0) ?? '0'} ${widget.property.currency}';
 
       final surfaceText = _showSurface ? '📐 ${widget.property.surface?.toInt() ?? 0} m²' : '';
       
+      final bedroomsText = _shouldHideBedrooms ? '' : '🛏️ ${widget.property.bedrooms ?? 0} chambres\n';
+      
       final shareText = '''
         🏠 ${widget.property.title ?? 'Belle propriété'}
         
         💰 ${priceText}
-        🛏️ ${widget.property.bedrooms ?? 0} chambres
-        🚿 ${widget.property.bathroom ?? 0} salles de bain
+        $bedroomsText        🚿 ${widget.property.bathroom ?? 0} salles de bain
         ${surfaceText.isNotEmpty ? '$surfaceText\n' : ''}
         Découvrez plus de détails sur Yinzo!
 ''';
@@ -871,9 +904,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     final lowerTitle = title.toLowerCase();
     
     if (lowerTitle.contains('appart')) return 'Appartement';
-    if (lowerTitle.contains('maison')) return 'Maison';
+    if (lowerTitle.contains('maison') || lowerTitle.contains('villa')) return 'Maison';
     if (lowerTitle.contains('studio')) return 'Studio';
-    if (lowerTitle.contains('villa')) return 'Villa';
     if (lowerTitle.contains('bureau')) return 'Bureau';
     if (lowerTitle.contains('hotel')) return 'Hotel';
     if (lowerTitle.contains('fête') || lowerTitle.contains('fete')) return 'Salle de fête';
@@ -956,7 +988,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                         color: _primaryColor,
                       ),
                     ),
-                    if (isForRent)
+                    if (isForRent && !_isFestiveOrFuneraire)
                       Padding(
                         padding: EdgeInsets.only(left: 4, bottom: 2),
                         child: Text(
@@ -1051,8 +1083,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     // Créer une liste dynamique des éléments à afficher avec le bon type
     final List<Widget> featureItems = <Widget>[];
 
-    // Ajouter les chambres seulement si > 0
-    if ((widget.property.bedrooms ?? 0) > 0) {
+    // Ajouter les chambres seulement si > 0 et si on ne doit pas les cacher
+    if ((widget.property.bedrooms ?? 0) > 0 && !_shouldHideBedrooms) {
       featureItems.add(_buildFeatureItem(
         'assets/images/bed.png',
         '${widget.property.bedrooms ?? 0}',
@@ -1225,7 +1257,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
               SizedBox(width: 4),
               Text(
-                isForRent ? '${widget.property.currency ?? '\$'}/mois' : '${widget.property.currency ?? '\$'}',
+                (isForRent && !_isFestiveOrFuneraire) ? '${widget.property.currency ?? '\$'}/mois' : '${widget.property.currency ?? '\$'}',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.9),
                   fontSize: 16,
@@ -1244,7 +1276,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     final stats = <Map<String, dynamic>>[];
     
     // Bedrooms (chambres)
-    if (widget.property.bedrooms != null && widget.property.bedrooms! > 0) {
+    if (widget.property.bedrooms != null && widget.property.bedrooms! > 0 && !_shouldHideBedrooms) {
       stats.add({
         'icon': Icons.bed_outlined,
         'label': 'Chambres',
@@ -1255,7 +1287,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     }
     
     // Living Room (salon)
-    if (widget.property.livingRoom != null && widget.property.livingRoom! > 0) {
+    if (widget.property.livingRoom != null && widget.property.livingRoom! > 0 && !_shouldHideSalons) {
       stats.add({
         'icon': Icons.weekend_outlined,
         'label': 'Salon',
@@ -1266,7 +1298,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     }
     
     // Kitchen (cuisine)
-    if (widget.property.kitchen != null && widget.property.kitchen! > 0) {
+    if (widget.property.kitchen != null && widget.property.kitchen! > 0 && !_shouldHideKitchen) {
       stats.add({
         'icon': Icons.kitchen_outlined,
         'label': 'Cuisine',
@@ -1296,7 +1328,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           'label': 'Réunions',
           'value': '${widget.property.roomMeet}',
           'unit': widget.property.roomMeet! > 1 ? 'salles' : 'salle',
-          'color': Color(0xFF5C6BC0),
+          'color': Color(0xFF42A5F5),
         });
       }
       if (widget.property.isEquip != null) {
@@ -1305,7 +1337,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           'label': 'Meublé',
           'value': widget.property.isEquip == true ? 'Oui' : 'Non',
           'unit': widget.property.isEquip == true ? 'Équipé' : 'Vide',
-          'color': Color(0xFF26A69A),
+          'color': Color(0xFF42A5F5),
         });
       }
     }
@@ -1318,7 +1350,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           'label': 'Capacité',
           'value': '${widget.property.capacityPeople}',
           'unit': 'pers.',
-          'color': Color(0xFFEC407A),
+          'color': Color(0xFF42A5F5),
         });
       }
       if (widget.property.propertyTypeId == 8 && widget.property.pisteDanse != null) {
@@ -1327,7 +1359,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             'label': 'Piste',
             'value': widget.property.pisteDanse == true ? 'Oui' : 'Non',
             'unit': 'Danse',
-            'color': Color(0xFFFF7043),
+            'color': Color(0xFF42A5F5),
           });
       }
       if (widget.property.isDecore != null) {
@@ -1336,7 +1368,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             'label': 'Décoré',
             'value': widget.property.isDecore == true ? 'Oui' : 'Non',
             'unit': 'Déco',
-            'color': Color(0xFFAB47BC),
+            'color': Color(0xFF42A5F5),
           });
       }
     }
@@ -2701,6 +2733,227 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       default:
         return 'Non spécifié';
     }
+  }
+
+  Widget _buildHotelRoomsSection() {
+    final rooms = widget.property.hotelStructure;
+    if (rooms == null || rooms.isEmpty) return SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Nos Chambres',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: _darkColor,
+              ),
+            ),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '${rooms.length} types disponibles',
+                style: TextStyle(
+                  color: _primaryColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 16),
+        ListView.separated(
+          shrinkWrap: true,
+          physics: NeverScrollableScrollPhysics(),
+          itemCount: rooms.length,
+          separatorBuilder: (context, index) => SizedBox(height: 16),
+          itemBuilder: (context, index) {
+            return _buildRoomCard(rooms[index]);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRoomCard(HotelRoomStructure roomStructure) {
+    final room = roomStructure.chambre;
+    final images = roomStructure.images ?? [];
+    if (room == null) return SizedBox.shrink();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Room images carousel
+          if (images.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              child: SizedBox(
+                height: 200,
+                child: Stack(
+                  children: [
+                    PageView.builder(
+                      itemCount: images.length,
+                      itemBuilder: (context, idx) {
+                        return CachedNetworkImage(
+                          imageUrl: images[idx].path ?? '',
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(color: Colors.grey[200]),
+                          errorWidget: (context, url, error) => Icon(Icons.error),
+                        );
+                      },
+                    ),
+                    Positioned(
+                      bottom: 12,
+                      right: 12,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${images.length} photos',
+                          style: TextStyle(color: Colors.white, fontSize: 10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        room.title ?? 'Chambre standard',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: _darkColor,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${room.price?.toStringAsFixed(0) ?? '0'} ${widget.property.currency ?? '\$'}',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _primaryColor,
+                      ),
+                    ),
+                  ],
+                ),
+                if (room.priceHeure != null && room.priceHeure!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      'Prix/heure: ${room.priceHeure}',
+                      style: TextStyle(color: _greyColor, fontSize: 13),
+                    ),
+                  ),
+                SizedBox(height: 12),
+                if (room.description != null && room.description!.isNotEmpty)
+                  Text(
+                    room.description!,
+                    style: TextStyle(color: _greyColor, fontSize: 14),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                SizedBox(height: 16),
+                Row(
+                  children: [
+                    _buildRoomFeature(Icons.king_bed_outlined, '${room.numberPiece ?? 1} lits'),
+                    SizedBox(width: 16),
+                    _buildRoomFeature(Icons.check_circle_outline, room.available == true ? 'Disponible' : 'Occupé'),
+                  ],
+                ),
+                SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: () => _reserveRoom(room),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _primaryColor,
+                    foregroundColor: Colors.white,
+                    minimumSize: Size(double.infinity, 45),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    'RÉSERVER CETTE CHAMBRE',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRoomFeature(IconData icon, String label) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: _greyColor),
+        SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(color: _greyColor, fontSize: 13),
+        ),
+      ],
+    );
+  }
+
+  void _reserveRoom(HotelRoomModel room) {
+     final token = storage.read(StockageKeys.tokenKey);
+     if (token == null) {
+       FancyNotification.show(
+         context, 
+         "Vous devez être connecté pour réserver une chambre",
+         type: NotificationType.info
+       );
+       Navigator.push(
+         context,
+         MaterialPageRoute(builder: (context) => LoginScreen()),
+       );
+     } else {
+       // On passe le bien complet mais idéalement on devrait aussi passer l'ID de la chambre
+       // Pour l'instant on utilise le flux standard de visite/réservation de l'app
+       Navigator.pushNamed(
+           context,
+           Routes.bookingVisitPageRoute,
+           arguments: widget.property
+       );
+     }
   }
 
   void _navigateToBookingPage() {
