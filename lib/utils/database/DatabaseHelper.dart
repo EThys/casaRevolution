@@ -9,11 +9,12 @@ import 'dart:convert';
 
 class DatabaseHelper {
   static const _databaseName = "properties.db";
-  static const _databaseVersion = 6;
+  static const _databaseVersion = 7;
   static const table = 'properties';
   static const tableBureaux = 'bureaux';
   static const tableFestives = 'festives';
   static const tableFuneraires = 'funeraires';
+  static const tableHotels = 'hotels';
   static const tableSolicitationsUser = 'solicitations_user';
   static const tableSolicitationsHost = 'solicitations_host';
   static const tableReservationsUser = 'reservations_user';
@@ -144,6 +145,15 @@ class DatabaseHelper {
         )
       ''');
     }
+
+    if (oldVersion < 7) {
+      await db.execute('''
+        CREATE TABLE $tableHotels (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+    }
   }
 
   Future _onCreate(Database db, int version) async {
@@ -205,6 +215,13 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE $tableServiceRequests (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableHotels (
         $columnId INTEGER PRIMARY KEY,
         $columnData TEXT NOT NULL
       )
