@@ -13,7 +13,9 @@ import 'ServiceFullScreenImageViewer.dart';
 import 'RequestInterventionPage.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:casa/utils/StockageKeys.dart';
-import 'package:casa/screens/auth/LoginScreen.dart';
+import '../controllers/ServiceController.dart'; // Added
+import 'package:provider/provider.dart'; // Added
+import 'auth/LoginScreen.dart';
 
 class ServiceDetailPage extends StatefulWidget {
   final PrestationModel service;
@@ -291,13 +293,19 @@ Découvrez ce service sur Casa!
                                     color: primaryColor,
                                   ),
                                   SizedBox(width: 6),
-                                  Text(
-                                    widget.serviceTypeName ?? 'Prestation',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: primaryColor,
-                                    ),
+                                  Consumer<ServiceController>(
+                                    builder: (context, serviceController, child) {
+                                      final resolvedName = widget.serviceTypeName ?? 
+                                                         serviceController.getServiceName(widget.service.serviceId);
+                                      return Text(
+                                        resolvedName,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: primaryColor,
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ],
                               ),
