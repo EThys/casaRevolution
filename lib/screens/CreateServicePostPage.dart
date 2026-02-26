@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 import 'package:casa/controllers/ServiceController.dart';
 import 'package:casa/controllers/LocationController.dart';
 import 'package:casa/models/CityModel.dart';
@@ -430,25 +431,94 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: Column(
+      body: Stack(
         children: [
-          _buildProgressIndicator(),
-          Expanded(
-            child: PageView(
-              controller: _pageController,
-              physics: NeverScrollableScrollPhysics(),
+          // --- START PREMIUM BACKGROUND ---
+          Positioned.fill(
+            child: Container(
+              color: const Color(0xFFF8F9FF), 
+            ),
+          ),
+          
+          // Mesh Gradient Blobs
+          Positioned(
+            top: -100,
+            right: -80,
+            child: Container(
+              width: 400,
+              height: 400,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    _primaryColor.withOpacity(0.08),
+                    _primaryColor.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
+          Positioned(
+            bottom: 100,
+            left: -100,
+            child: Container(
+              width: 450,
+              height: 450,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    _secondaryColor.withOpacity(0.06),
+                    _secondaryColor.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // GLASS EFFECT: Backdrop Blur
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+
+          // Texture Overlay
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.03, 
+              child: Image.asset(
+                "assets/images/abstract.jpg",
+                fit: BoxFit.cover,
+                colorBlendMode: BlendMode.overlay,
+              ),
+            ),
+          ),
+          // --- END PREMIUM BACKGROUND ---
+
+          AbsorbPointer(
+            absorbing: _isLoading,
+            child: Column(
               children: [
-                _buildStep0(), // Photo principale (visage) + Réalisations
-                _buildStep1(), // Détails (titre, description, prix)
-                _buildStep2(), // Localisation
+                _buildProgressIndicator(),
+                Expanded(
+                  child: PageView(
+                    controller: _pageController,
+                    physics: NeverScrollableScrollPhysics(),
+                    children: [
+                      _buildStep0(), // Photo principale (visage) + Réalisations
+                      _buildStep1(), // Détails (titre, description, prix)
+                      _buildStep2(), // Localisation
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
         ],
       ),
-      // bottomNavigationBar: SafeArea(
-      //   child: _buildNavigationButtons(), // REMOVED: Moved to body
-      // ),
     );
   }
 
@@ -1081,26 +1151,102 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Future<void> _pickProfileImage() async {
-    try {
-      final imagePath = await Navigator.push<String>(
-        context,
-        MaterialPageRoute(
-          builder: (context) => SelfieCameraScreen(
-            onImageCaptured: (path) {},
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
           ),
         ),
-      );
-      
-      if (mounted && imagePath != null && imagePath.isNotEmpty) {
-        setState(() {
-          _profileImage = XFile(imagePath);
-          _validateStep(0);
-        });
-      }
-    } catch (e) {
-      print('Erreur lors de la capture du selfie: $e');
-      FancyNotification.show(context, "Erreur lors de la capture", type: NotificationType.error);
-    }
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Photo de profil",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.camera_alt_rounded, color: Colors.blue[700]),
+              ),
+              title: const Text(
+                "Prendre une photo (Selfie)",
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              onTap: () async {
+                Navigator.pop(context);
+                try {
+                  final imagePath = await Navigator.push<String>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => SelfieCameraScreen(
+                        onImageCaptured: (path) {},
+                      ),
+                    ),
+                  );
+                  
+                  if (mounted && imagePath != null && imagePath.isNotEmpty) {
+                    setState(() {
+                      _profileImage = XFile(imagePath);
+                      _validateStep(0);
+                    });
+                  }
+                } catch (e) {
+                  print('Erreur lors de la capture du selfie: $e');
+                  FancyNotification.show(context, "Erreur lors de la capture", type: NotificationType.error);
+                }
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.purple[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.photo_library_rounded, color: Colors.purple[700]),
+              ),
+              title: const Text(
+                "Choisir depuis la galerie",
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              onTap: () async {
+                Navigator.pop(context);
+                try {
+                  final XFile? file = await _picker.pickImage(
+                    source: ImageSource.gallery,
+                    imageQuality: 70,
+                  );
+                  
+                  if (mounted && file != null) {
+                    setState(() {
+                      _profileImage = file;
+                      _validateStep(0);
+                    });
+                  }
+                } catch (e) {
+                  print('Erreur lors du choix en galerie: $e');
+                  FancyNotification.show(context, "Erreur lors du choix de l'image", type: NotificationType.error);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _showImageSourceSelection(Function(XFile?) onImageSelected) async {
@@ -1450,7 +1596,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 elevation: 0,
               ),
               child: _isLoading
-                  ? SizedBox(
+                  ? const SizedBox(
                       height: 20,
                       width: 20,
                       child: CircularProgressIndicator(
