@@ -231,9 +231,9 @@ class OverlayPainter extends CustomPainter {
     // Create a path for the entire screen
     final path = Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height));
 
-    // Create the oval cutout
-    final ovalWidth = size.width * 0.7;
-    final ovalHeight = size.height * 0.5;
+    // Create the oval cutout - Shrinking to force user to move back (better face size)
+    final ovalWidth = size.width * 0.6; // Was 0.7
+    final ovalHeight = size.height * 0.42; // Was 0.5
     final ovalRect = Rect.fromCenter(
       center: Offset(size.width / 2, size.height / 2),
       width: ovalWidth,
