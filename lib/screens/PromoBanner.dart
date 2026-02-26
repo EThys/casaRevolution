@@ -54,7 +54,7 @@ class _PromoBannerState extends State<PromoBanner> with SingleTickerProviderStat
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
 
-    _startAutoPlay();
+    // _startAutoPlay(); // Disabled as per user request
     _animationController.forward();
   }
 
