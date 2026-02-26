@@ -170,19 +170,63 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       String? imagePath;
 
       if (isProfile) {
-        // Enforce Selfie Camera only - use await to get result safely
-        imagePath = await Navigator.push<String>(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SelfieCameraScreen(
-              onImageCaptured: (path) {
-                // Callback still needed for compatibility, but we'll use the returned value
-              },
+        // Demander à l'utilisateur : Caméra ou Galerie ?
+        final ImageSource? source = await showModalBottomSheet<ImageSource>(
+          context: context,
+          backgroundColor: Colors.transparent,
+          barrierColor: Colors.black.withOpacity(0.5),
+          builder: (context) => Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Photo de profil", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 20),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.blue[50], shape: BoxShape.circle),
+                    child: Icon(Icons.camera_alt_rounded, color: Colors.blue[700]),
+                  ),
+                  title: const Text("Prendre une photo", style: TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () => Navigator.pop(context, ImageSource.camera),
+                ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.purple[50], shape: BoxShape.circle),
+                    child: Icon(Icons.photo_library_rounded, color: Colors.blue[700]),
+                  ),
+                  title: const Text("Choisir depuis la galerie", style: TextStyle(fontWeight: FontWeight.w600)),
+                  onTap: () => Navigator.pop(context, ImageSource.gallery),
+                ),
+                const SizedBox(height: 12),
+              ],
             ),
           ),
         );
 
-        // Only update state if widget is still mounted and we have a valid path
+        if (source == null) return;
+
+        if (source == ImageSource.camera) {
+          imagePath = await Navigator.push<String>(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SelfieCameraScreen(
+                onImageCaptured: (path) {},
+              ),
+            ),
+          );
+        } else {
+          final XFile? file = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+          imagePath = file?.path;
+        }
+
         if (mounted && imagePath != null && imagePath.isNotEmpty) {
           setState(() {
             _imageProfile = File(imagePath!);
