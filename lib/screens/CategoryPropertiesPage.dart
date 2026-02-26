@@ -34,10 +34,25 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   final Color _lightColor = Color(0xFFF5F6FA);
   final Color _greyColor = Color(0xFF7F8C8D);
 
-  bool _isGridView = false;
+  bool _isGridView = true;
   String _selectedFilter = 'Tous';
   final List<String> _filters = ['Tous', 'Location', 'Vente', 'Populaires', 'Nouveautés'];
   final RefreshController _refreshController = RefreshController();
+  
+  int _visibleCount = 15;
+  final int _pageSize = 15;
+  bool _isLoadingMore = false;
+  
+  final Map<String, int> _categoryToId = {
+    'Maison': 3,
+    'Appartement': 2,
+    'Studio': 1,
+    'Bureau': 4,
+    'Terrain': 9,
+    'Hotels': 5,
+    'Salle de fête': 8,
+    'Salle funéraires': 7,
+  };
 
   @override
   void initState() {
@@ -53,30 +68,28 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   Widget build(BuildContext context) {
     final propertyCtrl = context.watch<PropertyController>();
     
-    // Récupérer les propriétés de base + les spécialisées si nécessaire
-    // D'abord les listes spécialisées (prioritaires car plus fraîches)
-    List<PropertyModel> allRelevantProperties = [];
-    
-    if (widget.category == 'Bureau') allRelevantProperties.addAll(propertyCtrl.bureaux);
-    else if (widget.category == 'Salle de fête') allRelevantProperties.addAll(propertyCtrl.festives);
-    else if (widget.category == 'Salle funéraires') allRelevantProperties.addAll(propertyCtrl.funeraires);
-    
-    // Ensuite ajouter le reste des propriétés (doublons gérés plus bas)
-    allRelevantProperties.addAll(propertyCtrl.properties);
-    
-    // Handle terrains - convert Map to PropertyModel for display
-    if (widget.category == 'Terrain') {
-      // Terrains are stored as Map<String, dynamic>, we need to convert them for display
-      // For now, we'll handle them separately in the display logic
-      print("🏞️ [CategoryPropertiesPage] ${propertyCtrl.terrains.length} terrains disponibles");
+    // Pour les catégories spéciales → liste dédiée uniquement (IDs indépendants par endpoint)
+    // Pour les autres → propriétés standard uniquement
+    // IMPORTANT: On ne mélange PAS les listes car les IDs ne sont pas globaux
+    List<PropertyModel> allRelevantProperties;
+
+    if (widget.category == 'Bureau') {
+      allRelevantProperties = List.from(propertyCtrl.bureaux);
+    } else if (widget.category == 'Salle de fête') {
+      allRelevantProperties = List.from(propertyCtrl.festives);
+    } else if (widget.category == 'Salle funéraires') {
+      allRelevantProperties = List.from(propertyCtrl.funeraires);
+    } else if (widget.category == 'Terrain') {
+      allRelevantProperties = List.from(propertyCtrl.terrainProperties);
+    } else if (widget.category == 'Hotels') {
+      allRelevantProperties = List.from(propertyCtrl.hotels);
+    } else {
+      allRelevantProperties = List.from(propertyCtrl.properties);
     }
 
-    // Supprimer les doublons éventuels par ID
-    final seenIds = <int>{};
-    allRelevantProperties = allRelevantProperties.where((p) {
-      if (p.propertyId == null) return false;
-      return seenIds.add(p.propertyId!);
-    }).toList();
+    if (widget.category == 'Terrain') {
+      print("🏞️ [CategoryPropertiesPage] ${propertyCtrl.terrains.length} terrains disponibles");
+    }
 
     final properties = allRelevantProperties.where((p) =>
         _matchesCategory(p, widget.category)).toList();
@@ -101,13 +114,28 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       body: SmartRefresher(
         controller: _refreshController,
         enablePullDown: true,
-        enablePullUp: false,
+        enablePullUp: true,
         header: WaterDropMaterialHeader(
           backgroundColor: _primaryColor,
           color: Colors.white,
         ),
+        footer: ClassicFooter(
+          loadingText: "Chargement de la suite...",
+          noDataText: "Toutes les propriétés sont affichées",
+          canLoadingText: "Relâchez pour charger plus",
+          idleText: "Scrollez pour voir plus",
+          loadingIcon: SizedBox(
+            width: 25,
+            height: 25,
+            child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor),
+          ),
+        ),
         onRefresh: () async {
+          setState(() => _visibleCount = _pageSize);
           await _handlePullToRefresh(propertyCtrl);
+        },
+        onLoading: () async {
+          await _loadMore(propertyCtrl);
         },
         child: Column(
           children: [
@@ -157,6 +185,72 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _loadMore(PropertyController propertyCtrl) async {
+    if (_isLoadingMore) return;
+
+    // 1. Calculer le pool de données actuel
+    List<PropertyModel> allRelevantProperties;
+    if (widget.category == 'Bureau') {
+      allRelevantProperties = propertyCtrl.bureaux;
+    } else if (widget.category == 'Salle de fête') {
+      allRelevantProperties = propertyCtrl.festives;
+    } else if (widget.category == 'Salle funéraires') {
+      allRelevantProperties = propertyCtrl.funeraires;
+    } else if (widget.category == 'Terrain') {
+      allRelevantProperties = propertyCtrl.terrainProperties;
+    } else {
+      allRelevantProperties = propertyCtrl.properties;
+    }
+
+    final filtered = allRelevantProperties.where((p) => _matchesCategory(p, widget.category)).toList();
+    final totalLoaded = filtered.length;
+
+    // 2. Si on a encore des éléments non affichés localement, les révéler
+    if (_visibleCount < totalLoaded) {
+      setState(() => _isLoadingMore = true);
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) {
+        setState(() {
+          _visibleCount = (_visibleCount + _pageSize).clamp(0, totalLoaded);
+          _isLoadingMore = false;
+        });
+        _refreshController.loadComplete();
+      }
+      return;
+    }
+
+    // 3. Sinon, si l'API a encore des données (Infinity Scroll réel)
+    if (propertyCtrl.hasMoreData) {
+      setState(() => _isLoadingMore = true);
+      
+      // Mapper la catégorie vers un type pour l'API
+      int? typeId = _categoryToId[widget.category];
+      
+      // Déterminer le type de transaction basé sur le filtre (optionnel)
+      bool? isSold;
+      if (_selectedFilter == 'Location' || _selectedFilter == 'Vente') {
+          // Note: filterProperties handles typeMaison. Transaction type is more complex.
+      }
+
+      await propertyCtrl.filterProperties(
+        typeMaison: typeId,
+        isLoadMore: true,
+        sortBy: 'id',
+        sortOrder: 'desc',
+      );
+
+      if (mounted) {
+        setState(() {
+          _visibleCount = (_visibleCount + _pageSize);
+          _isLoadingMore = false;
+        });
+        _refreshController.loadComplete();
+      }
+    } else {
+      _refreshController.loadNoData();
+    }
   }
 
   Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
@@ -440,40 +534,58 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   }
 
   Widget _buildPropertyListOrGrid(List<dynamic> items) {
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      child: _isGridView
-          ? GridView.builder(
+    final visibleItems = items.take(_visibleCount).toList();
+    
+    if (_isGridView) {
+      return GridView.builder(
+        padding: EdgeInsets.all(16),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
+          childAspectRatio: 0.72,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 0.72,
         ),
-        itemCount: items.length,
+        itemCount: visibleItems.length,
         itemBuilder: (context, index) {
-          final item = items[index];
+          final item = visibleItems[index];
           if (item is AgenceModel) {
             return _buildAgenceCard(item);
+          } else {
+            final property = item as PropertyModel;
+            final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
+            return _buildPropertyCard(property, isForRent);
           }
-          final property = item as PropertyModel;
-          final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
-          return _buildPropertyCard(property, isForRent);
         },
-      )
-          : ListView.builder(
-        itemCount: items.length,
-        itemBuilder: (context, index) {
-          final item = items[index];
-          if (item is AgenceModel) {
-            return _buildAgenceListItem(item);
-          }
+      );
+    }
+
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: visibleItems.length,
+      itemBuilder: (context, index) {
+        final item = visibleItems[index];
+        if (item is AgenceModel) {
+          return _buildAgenceListItem(item);
+        } else {
           final property = item as PropertyModel;
           final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
           return _buildPropertyListItem(property, isForRent);
-        },
-      ),
+        }
+      },
     );
+  }
+
+  Widget _buildShimmerGridItem() {
+     return Shimmer.fromColors(
+       baseColor: Colors.grey[300]!,
+       highlightColor: Colors.grey[100]!,
+       child: Container(
+         decoration: BoxDecoration(
+           borderRadius: BorderRadius.circular(16),
+           color: Colors.white,
+         ),
+       ),
+     );
   }
 
   // --- AGENCY WIDGETS ---
@@ -1319,7 +1431,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
               ),
             ),
 
-            // Section détails
             Expanded(
               flex: 4,
               child: Padding(
