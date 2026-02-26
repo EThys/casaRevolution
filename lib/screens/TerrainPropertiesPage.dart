@@ -293,7 +293,8 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
     final price = terrain?['price'] ?? 0.0;
     final surface = terrain?['surface'] ?? '';
     final transactionType = terrain?['transactionType'] ?? '';
-    final deviseCode = devise?['code'] ?? 'USD';
+    final rawDeviseCode = devise?['code'] ?? 'USD';
+    final deviseCode = (rawDeviseCode == 'USD') ? '\$' : (rawDeviseCode == 'CDF' ? 'FC' : rawDeviseCode);
     final location = "${address?['cityValue']}, ${address?['communeValue']}";
     
     final firstImage = images?.isNotEmpty == true ? images!.first['path'] : null;
@@ -471,7 +472,8 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
     final price = terrain?['price'] ?? 0.0;
     final surface = terrain?['surface'] ?? '';
     final transactionType = terrain?['transactionType'] ?? '';
-    final deviseCode = devise?['code'] ?? 'USD';
+    final rawDeviseCode = devise?['code'] ?? 'USD';
+    final deviseCode = (rawDeviseCode == 'USD') ? '\$' : (rawDeviseCode == 'CDF' ? 'FC' : rawDeviseCode);
     final location = "${address?['cityValue']}, ${address?['communeValue']}";
     
     final firstImage = images?.isNotEmpty == true ? images!.first['path'] : null;

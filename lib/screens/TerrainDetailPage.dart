@@ -249,7 +249,8 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
   Future<void> _shareTerrain() async {
     final title = widget.terrain.terrain?.title ?? 'Terrain';
     final price = widget.terrain.terrain?.price ?? 0;
-    final currency = widget.terrain.devise?.code ?? 'USD';
+    final rawCurrency = widget.terrain.devise?.code ?? 'USD';
+    final currency = (rawCurrency == 'USD') ? '\$' : (rawCurrency == 'CDF' ? 'FC' : rawCurrency);
     
     await Share.share(
       'Découvrez ce terrain : $title\nPrix : $price $currency\nSur l\'application CasaNayo!',
@@ -262,7 +263,8 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
     final isVente = t?.transactionType?.toLowerCase().contains('vente') ?? false;
     final isAvailable = t?.isAvailable ?? true;
     final price = t?.price ?? 0;
-    final currency = widget.terrain.devise?.code ?? 'USD';
+    final rawCurrency = widget.terrain.devise?.code ?? 'USD';
+    final currency = (rawCurrency == 'USD') ? '\$' : (rawCurrency == 'CDF' ? 'FC' : rawCurrency);
     final title = t?.title ?? 'Terrain';
     
     return Column(
