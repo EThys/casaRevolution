@@ -14,10 +14,13 @@ import '../models/CityModel.dart';
 import '../models/CommuneModel.dart';
 import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/models/PrestationModel.dart'; // Added
+import '../utils/city_suggestions.dart';
+import '../widgets/LocationAutocompleteWidget.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/Routes.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../controllers/provider/FavoriteProvider.dart';
+import 'package:shimmer/shimmer.dart';
 
 class PropertySearchPage extends StatefulWidget {
   @override
@@ -32,22 +35,36 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   final Color _accentColor = Color(0xFF4CAF50);
 
   // Filtres
-  RangeValues _priceRange = RangeValues(500, 2500);
+  RangeValues _priceRange = RangeValues(10, 400);
   String _selectedPropertyType = 'Tous';
   String? _selectedBedrooms;
   bool _showFilters = false;
-  bool _isLoadingProperties = true; // New flag for coordinated loading
+  bool _isLoadingProperties = true;
   TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
   bool _showSearchLoader = false;
 
   // Mode de recherche
   String _searchType = 'Propriétés'; // 'Propriétés' ou 'Services'
-  
+
+  // ─── Infinity Scroll ────────────────────────────────────────────────────────
+  static const int _pageSize = 15;
+
+  // Propriétés
+  int _visiblePropertyCount = _pageSize;  // Combien on affiche actuellement
+  bool _isLoadingMoreProperties = false;  // Loader du bas pour propriétés
+  final ScrollController _propertyScrollController = ScrollController();
+
+  // Services
+  int _visibleServiceCount = _pageSize;   // Combien on affiche actuellement
+  bool _isLoadingMoreServices = false;    // Loader du bas pour services
+  final ScrollController _serviceScrollController = ScrollController();
+  // ────────────────────────────────────────────────────────────────────────────
+
   // Filtres Services
-  String? _selectedServiceCategory; // Changed from ServiceType to String for flexibility
+  String? _selectedServiceCategory;
   List<String> _serviceCategories = [];
-  List<PrestationModel> _allPrestations = []; // Using PrestationModel
+  List<PrestationModel> _allPrestations = [];
   List<PrestationModel> _filteredPrestations = [];
   bool _isLoadingServices = false;
 
@@ -112,10 +129,99 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     _minPriceController.addListener(_updatePriceRange);
     _maxPriceController.addListener(_updatePriceRange);
 
-    // Charger les propriétés et les données de localisation
+    // Listeners pour le scroll infini
+    _propertyScrollController.addListener(() {
+      if (_propertyScrollController.position.pixels >=
+          _propertyScrollController.position.maxScrollExtent - 200) {
+        _loadMoreProperties();
+      }
+    });
+    _serviceScrollController.addListener(() {
+      if (_serviceScrollController.position.pixels >=
+          _serviceScrollController.position.maxScrollExtent - 200) {
+        _loadMoreServices();
+      }
+    });
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeData();
     });
+  }
+
+  /// Révèle plus de propriétés et charge la page suivante de l'API si nécessaire
+  void _loadMoreProperties() async {
+    final ctrl = Provider.of<PropertyController>(context, listen: false);
+    final allProps = ctrl.allProperties;
+    final totalLoaded = allProps.length;
+
+    if (_isLoadingMoreProperties) return;
+
+    // 1. D'abord, révéler le buffer local par lots de 15
+    if (_visiblePropertyCount < totalLoaded) {
+      setState(() => _isLoadingMoreProperties = true);
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+      setState(() {
+        _visiblePropertyCount = (_visiblePropertyCount + _pageSize).clamp(0, totalLoaded);
+        _isLoadingMoreProperties = false;
+      });
+      return;
+    }
+
+    // 2. Si on a tout révélé mais que l'API a encore des données (Infinity Scroll réel)
+    if (ctrl.hasMoreData) {
+      setState(() => _isLoadingMoreProperties = true);
+      
+      final searchTerm = _searchController.text.trim();
+      if (_isSearching && searchTerm.isNotEmpty) {
+        await ctrl.searchProperties(searchTerm, isLoadMore: true);
+      } else {
+        await _applyFiltersAsync(ctrl, isLoadMore: true);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        // Mettre à jour visibleCount pour inclure les nouveaux arrivants
+        _visiblePropertyCount = ctrl.allProperties.length;
+        _isLoadingMoreProperties = false;
+      });
+    }
+  }
+
+  /// Révèle plus de services et charge la page suivante de l'API si nécessaire
+  void _loadMoreServices() async {
+    final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+    final totalInList = _filteredPrestations.length;
+
+    if (_isLoadingMoreServices) return;
+
+    // 1. Révéler le buffer local
+    if (_visibleServiceCount < totalInList) {
+      setState(() => _isLoadingMoreServices = true);
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (!mounted) return;
+      setState(() {
+        _visibleServiceCount = (_visibleServiceCount + _pageSize).clamp(0, totalInList);
+        _isLoadingMoreServices = false;
+      });
+      return;
+    }
+
+    // 2. Real API fetch for next page if no local search active
+    bool isSearchingLocally = _searchController.text.isNotEmpty;
+    if (!isSearchingLocally && serviceCtrl.hasMoreData) {
+      setState(() => _isLoadingMoreServices = true);
+      
+      await serviceCtrl.fetchAllPrestations(isLoadMore: true);
+      
+      if (!mounted) return;
+      setState(() {
+        _allPrestations = List.from(serviceCtrl.prestations);
+        _filteredPrestations = List.from(serviceCtrl.prestations);
+        _visibleServiceCount = _filteredPrestations.length;
+        _isLoadingMoreServices = false;
+      });
+    }
   }
 
   void _initializeData() async {
@@ -128,6 +234,10 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       _isLoadingServices = true;
     });
     
+    if (serviceController.serviceIdToNameMap.isEmpty) {
+      serviceController.fetchServiceAccounts();
+    }
+
     // Utiliser fetchAllPrestations au lieu de fetchServices
     await serviceController.fetchAllPrestations();
     
@@ -137,29 +247,40 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         _allPrestations = List.from(serviceController.prestations);
         _filteredPrestations = List.from(serviceController.prestations);
         
-        // Extraire les catégories dynamiquement si possible, sinon utiliser une liste statique
-        // Ici on va utiliser les types de comptes ou catégories codés en dur pour l'instant
-        _serviceCategories = [
-          'Plombier', 'Electricien', 'Menuisier', 'Peintre', 'Maçon', 
-          'Jardinier', 'Nettoyage', 'Déménagement', 'Traiteur', 'Photographe'
-        ];
+        // Extraire les catégories dynamiquement depuis le mapping si disponible
+        if (serviceController.serviceIdToNameMap.isNotEmpty) {
+          _serviceCategories = serviceController.serviceIdToNameMap.values
+              .map((name) => name[0].toUpperCase() + name.substring(1).toLowerCase())
+              .toSet() // Éliminer doublons
+              .toList();
+          _serviceCategories.sort();
+        } else {
+          _serviceCategories = [
+            'Plombier', 'Electricien', 'Menuisier', 'Peintre', 'Maçon', 
+            'Jardinier', 'Nettoyage', 'Déménagement', 'Traiteur', 'Photographe'
+          ];
+        }
         
         _isLoadingServices = false;
       });
     }
 
-    // Charger les propriétés (Normales + Spéciales) de manière séquentielle pour garantir le merge
+    // getAllProperty() gère déjà :
+    // 1. Chargement cache SQL instantané (standard + spéciales locales)
+    // 2. Sync online en arrière-plan avec re-fusion automatique des spéciales
     try {
       if (mounted) setState(() => _isLoadingProperties = true);
-      
-      // 1. Charger les propriétés standard (écrase la liste)
+
       await propertyController.getAllProperty();
-      // 2. Charger et fusionner les catégories spéciales (ajoute à la liste)
-      await propertyController.syncAllSpecialCategories();
-      
+
+      if (mounted) {
+        setState(() {
+          _visiblePropertyCount = _pageSize; // Démarrer avec 15 items visibles
+          _isLoadingProperties = false;
+        });
+      }
     } catch (e) {
       print("Erreur chargement propriétés: $e");
-    } finally {
       if (mounted) setState(() => _isLoadingProperties = false);
     }
 
@@ -169,10 +290,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     // Mettre à jour les listes de villes et communes
     if (mounted) {
       setState(() {
-        _cities = locationController.cities
-            .where((city) => city.name != null && city.name!.isNotEmpty)
-            .map((city) => city.name!)
-            .toList();
+        _cities = CitySuggestions.cities;
 
         _communes = locationController.communes
             .where((commune) => commune.name != null && commune.name!.isNotEmpty)
@@ -183,73 +301,84 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   }
 
 
-  void _updatePriceRange() {
-    final min = int.tryParse(_minPriceController.text) ?? 500;
-    final max = int.tryParse(_maxPriceController.text) ?? 2500;
-    if (min <= max) {
-      setState(() {
+  void _updatePriceRange({StateSetter? setModalState}) {
+    final min = int.tryParse(_minPriceController.text) ?? 10;
+    final max = int.tryParse(_maxPriceController.text) ?? 400;
+    
+    final fn = () {
+      if (min <= max) {
         _priceRange = RangeValues(min.toDouble(), max.toDouble());
-      });
-    }
+      }
+    };
+
+    setState(fn);
+    if (setModalState != null) setModalState(fn);
   }
 
-  void _onCityChanged(String? selectedCity) {
+  void _onCityChanged(String? selectedCity, {StateSetter? setModalState}) {
     final locationController = Provider.of<LocationController>(context, listen: false);
+    
+    // Preparer la nouvelle liste de communes avant de mettre à jour l'état
+    List<String> newCommunes = [];
+    String? normalizedCity = selectedCity?.trim().toLowerCase();
 
-    setState(() {
-      _selectedCity = selectedCity;
-      _selectedCommune = null;
-    });
+    if (normalizedCity != null && normalizedCity.isNotEmpty) {
+      if (normalizedCity == 'matadi') {
+        newCommunes = ['Matadi', 'Nzanza', 'Mvuzi'];
+      } else {
+        try {
+          final city = locationController.cities.firstWhere(
+            (city) => (city.name ?? '').trim().toLowerCase() == normalizedCity,
+            orElse: () => CityModel(cityId: null),
+          );
 
-    if (selectedCity != null) {
-      print("🏙️ Ville sélectionnée: $selectedCity");
-
-      try {
-        // Trouver la ville sélectionnée
-        final city = locationController.cities.firstWhere(
-              (city) => city.name == selectedCity,
-          orElse: () => CityModel(),
-        );
-
-        if (city.cityId != null) {
-          print("🔍 Recherche des communes pour: ${city.name} (ID: ${city.cityId})");
-
-          // Utiliser la méthode directe
-          final communesForCity = locationController.getCommunesForCity(city.cityId!);
-
-          if (communesForCity.isNotEmpty) {
-            setState(() {
-              _communes = communesForCity
+          if (city.cityId != null) {
+            final communesForCity = locationController.getCommunesForCity(city.cityId!);
+            if (communesForCity.isNotEmpty) {
+              newCommunes = communesForCity
                   .where((commune) => commune.name != null && commune.name!.isNotEmpty)
-                  .map((commune) => commune.name!)
+                  .map((commune) => commune.name!.trim())
                   .toList();
-            });
-            print("✅ ${_communes.length} communes chargées pour ${city.name}");
-          } else {
-            print("⚠️ Aucune commune trouvée pour ${city.name}");
-            _showAllCommunes(locationController);
+            } else if (normalizedCity == 'kinshasa') {
+              newCommunes = locationController.communes
+                  .where((commune) => commune.name != null && commune.name!.isNotEmpty)
+                  .map((commune) => commune.name!.trim())
+                  .toList();
+            }
+          } else if (normalizedCity == 'kinshasa') {
+            newCommunes = locationController.communes
+                .where((commune) => commune.name != null && commune.name!.isNotEmpty)
+                .map((commune) => commune.name!.trim())
+                .toList();
           }
-        } else {
-          print("❌ Aucun ID trouvé pour la ville: $selectedCity");
-          _showAllCommunes(locationController);
+        } catch (_) {
+          newCommunes = [];
         }
-      } catch (e) {
-        print("❌ Erreur lors du filtrage des communes: $e");
-        _showAllCommunes(locationController);
       }
     } else {
-      _showAllCommunes(locationController);
+      // Pour les autres villes, pas de suggestions de communes
+      newCommunes = [];
     }
+
+    final fn = () {
+      _selectedCity = selectedCity;
+      _selectedCommune = null; 
+      _communes = newCommunes;
+    };
+
+    if (mounted) setState(fn);
+    if (setModalState != null) setModalState(fn);
   }
 
-  void _showAllCommunes(LocationController locationController) {
-    setState(() {
+  void _showAllCommunes(LocationController locationController, {StateSetter? setModalState}) {
+    final fn = () {
       _communes = locationController.communes
           .where((commune) => commune.name != null && commune.name!.isNotEmpty)
-          .map((commune) => commune.name!)
+          .map((commune) => commune.name!.trim())
           .toList();
-    });
-    print("🌍 Affichage de toutes les communes: ${_communes.length}");
+    };
+    if (mounted) setState(fn);
+    if (setModalState != null) setModalState(fn);
   }
 
 
@@ -336,24 +465,28 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     final locationController = Provider.of<LocationController>(context, listen: false);
 
     setState(() {
-      _priceRange = RangeValues(500, 2500);
+      _priceRange = RangeValues(10, 400);
       _selectedPropertyType = 'Tous';
       _selectedBedrooms = null;
       _selectedCity = null;
       _selectedCommune = null;
       _selectedTransaction = 'Location';
       _selectedServiceCategory = null; 
-      _minPriceController.text = '500';
-      _maxPriceController.text = '2500';
+      _minPriceController.text = '10';
+      _maxPriceController.text = '400';
       _bedroomsController.clear();
       _searchController.clear();
       _isSearching = false;
       _showSearchLoader = false;
+      
+      // Reset visibility counts to show first page
+      _visiblePropertyCount = _pageSize;
+      _visibleServiceCount = _pageSize;
 
       // Réinitialiser les communes pour montrer toutes
       _communes = locationController.communes
           .where((commune) => commune.name != null)
-          .map((commune) => commune.name!)
+          .map((commune) => commune.name!.trim())
           .toList();
       
       // Reset prestations list
@@ -448,8 +581,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       }).toList();
   }
 
-  // Async version of applyFilters for refresh
-  Future<void> _applyFiltersAsync(PropertyController propertyController) async {
+  // Async version of applyFilters for refresh and load more
+  Future<void> _applyFiltersAsync(PropertyController propertyController, {bool isLoadMore = false}) async {
       final locationController = Provider.of<LocationController>(context, listen: false);
 
       int? propertyTypeId = _propertyTypeMapping[_selectedPropertyType];
@@ -465,7 +598,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       if (_selectedCity != null) {
         final city = locationController.cities.firstWhere(
           (c) => c.name == _selectedCity,
-          orElse: () => CityModel(),
+          orElse: () => CityModel(cityId: null),
         );
         cityId = city.cityId;
       }
@@ -473,7 +606,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       if (_selectedCommune != null) {
          final commune = locationController.communes.firstWhere(
           (c) => c.name == _selectedCommune,
-          orElse: () => CommuneModel(),
+          orElse: () => CommuneModel(communeId: null),
         );
         communeId = commune.communeId;
       }
@@ -488,8 +621,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         city: cityId,
         commune: communeId,
         room: bedrooms,
-        sortBy: 'price',
-        sortOrder: 'asc',
+        sortBy: 'id',
+        sortOrder: 'desc',
+        isLoadMore: isLoadMore,
       );
   }
 
@@ -510,155 +644,209 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.8,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 10,
-              offset: Offset(0, -2),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(32),
+              topRight: Radius.circular(32),
             ),
-          ],
-        ),
-        child: Column(
-          children: [
-            // Handle and Header
-            Container(
-              padding: EdgeInsets.fromLTRB(20, 12, 20, 20),
-              decoration: BoxDecoration(
-                border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.12),
+                blurRadius: 30,
+                offset: const Offset(0, -10),
               ),
+            ],
+          ),
+          child: Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            child: GestureDetector(
+              onTap: () => FocusScope.of(context).unfocus(),
+              behavior: HitTestBehavior.opaque,
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Handle and Header
                   Container(
-                    width: 40,
-                    height: 4,
-                    margin: EdgeInsets.only(bottom: 20),
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
                     decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
+                      border: Border(bottom: BorderSide(color: Colors.grey.shade100, width: 1)),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[300],
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Filtres',
+                              style: GoogleFonts.inter(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                color: const Color(0xFF1A1D26),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                setModalState(() {
+                                  _resetFilters();
+                                });
+                                Navigator.pop(context);
+                                _showFilterModal();
+                              },
+                              style: TextButton.styleFrom(
+                                foregroundColor: _primaryColor,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                backgroundColor: _primaryColor.withOpacity(0.08),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: const Text('Réinitialiser', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Filtres',
-                        style: GoogleFonts.inter(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: _darkColor,
-                        ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_searchType == 'Propriétés') ...[
+                            // Transaction Zone
+                            _buildSectionHeader(Icons.swap_horiz_rounded, 'Transaction'),
+                            const SizedBox(height: 12),
+                            _buildDropdownField(
+                              'Je cherche à',
+                              _selectedTransaction,
+                              ['Location', 'Achat'],
+                              Icons.swap_horiz_rounded,
+                              (value) {
+                                setModalState(() {
+                                  _selectedTransaction = value ?? 'Location';
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 24),
+
+                            // Localisation Zone
+                            _buildSectionHeader(Icons.location_on_rounded, 'Localisation'),
+                            const SizedBox(height: 12),
+                            _buildLocationSection(setModalState: setModalState),
+                            const SizedBox(height: 24),
+
+                            // Budget Zone
+                            _buildSectionHeader(Icons.payments_rounded, 'Budget'),
+                            const SizedBox(height: 12),
+                            _buildModernPriceRange(setModalState: setModalState),
+                            const SizedBox(height: 24),
+
+                            // Type de bien Zone
+                            _buildSectionHeader(Icons.home_work_rounded, 'Type de bien'),
+                            const SizedBox(height: 12),
+                            _buildDropdownField(
+                              'Type de bien',
+                              _selectedPropertyType,
+                              _propertyTypes,
+                              Icons.home_work_rounded,
+                              (value) {
+                                setModalState(() {
+                                  _selectedPropertyType = value ?? 'Tous';
+                                });
+                              },
+                            ),
+                          ] else ...[
+                            // Localisation Zone (Service)
+                            _buildSectionHeader(Icons.location_on_rounded, 'Localisation'),
+                            const SizedBox(height: 12),
+                            _buildLocationSection(setModalState: setModalState),
+                            const SizedBox(height: 24),
+
+                            // Service Category Zone
+                            _buildSectionHeader(Icons.work_rounded, 'Profession & Service'),
+                            const SizedBox(height: 12),
+                            _buildDropdownField(
+                              'un service ',
+                              _selectedServiceCategory,
+                              _serviceCategories,
+                              Icons.work_outline_rounded,
+                              (value) {
+                                setModalState(() {
+                                  _selectedServiceCategory = value;
+                                });
+                              },
+                            ),
+                          ],
+
+                          const SizedBox(height: 32),
+
+                          // Footer Button moved inside ScrollView to avoid RenderFlex Overflow
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                _applyFilters();
+                                Navigator.pop(context);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _primaryColor,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                elevation: 2,
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check_circle_outline, size: 20),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'APPLIQUER LES FILTRES',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            "Affinez votre recherche pour trouver rapidement ce qui correspond à vos besoins",
+                            style: TextStyle(
+                              color: Colors.grey[500],
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
+                        ],
                       ),
-                      TextButton(
-                        onPressed: () {
-                          _resetFilters();
-                          Navigator.pop(context);
-                          _showFilterModal();
-                        },
-                        style: TextButton.styleFrom(
-                          foregroundColor: _primaryColor,
-                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          backgroundColor: _primaryColor.withOpacity(0.05),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                        ),
-                        child: Text('Réinitialiser', style: TextStyle(fontWeight: FontWeight.w600)),
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),
             ),
-
-            // Content
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_searchType == 'Propriétés') ...[
-                      _buildSectionTitle('Transaction'),
-                      SizedBox(height: 12),
-                      _buildModernTransactionSelector(),
-                      SizedBox(height: 32),
-                      
-                      _buildSectionTitle('Type de bien'),
-                      SizedBox(height: 12),
-                      _buildModernPropertyTypeSelector(),
-                      SizedBox(height: 32),
-
-                      _buildSectionTitle('Prix'),
-                      SizedBox(height: 12),
-                      _buildModernPriceRange(),
-                      SizedBox(height: 32),
- 
-                      _buildSectionTitle('Chambres'),
-                      SizedBox(height: 12),
-                      _buildModernBedroomsSelector(),
-                      SizedBox(height: 32),
-                    ] else ...[
-                       _buildSectionTitle('Catégorie de service'),
-                       SizedBox(height: 12),
-                       _buildServiceCategorySelector(),
-                       SizedBox(height: 32),
-                    ],
-
-                    _buildLocationSection(),
-                    SizedBox(height: 80), // Bottom padding
-                  ],
-                ),
-              ),
-            ),
-
-            // Footer Button
-            Container(
-              padding: EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: Offset(0, -5),
-                  ),
-                ],
-              ),
-              child: SafeArea(
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      _applyFilters();
-                      Navigator.pop(context);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _darkColor,
-                      foregroundColor: Colors.white, 
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: Text(
-                      'Appliquer les filtres',
-                      style: GoogleFonts.inter(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -787,40 +975,53 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  Widget _buildModernPriceRange() {
+  Widget _buildModernPriceRange({StateSetter? setModalState}) {
       // Simplification: Just two inputs for now, could act as a range
     return Row(
       children: [
         Expanded(
-          child: _buildModernInput(_minPriceController, 'Min', Icons.attach_money),
+          child: _buildModernInput(_minPriceController, 'Min', Icons.attach_money, setModalState: setModalState),
         ),
         SizedBox(width: 16),
         Text('-', style: TextStyle(color: Colors.grey, fontSize: 24)),
         SizedBox(width: 16),
         Expanded(
-          child: _buildModernInput(_maxPriceController, 'Max', Icons.attach_money),
+          child: _buildModernInput(_maxPriceController, 'Max', Icons.attach_money, setModalState: setModalState),
         ),
       ],
     );
   }
 
-  Widget _buildModernInput(TextEditingController controller, String hint, IconData icon) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
+  Widget _buildModernInput(TextEditingController controller, String hint, IconData icon, {StateSetter? setModalState}) {
+    return TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      onChanged: (val) {
+        _updatePriceRange(setModalState: setModalState);
+      },
+      style: const TextStyle(
+        fontSize: 15, 
+        color: Color(0xFF1A1D26),
+        fontWeight: FontWeight.w500,
       ),
-      child: TextField(
-        controller: controller,
-        keyboardType: TextInputType.number,
-        decoration: InputDecoration(
-          hintText: hint,
-          prefixIcon: Icon(icon, size: 18, color: Colors.grey),
-          border: InputBorder.none,
-          focusedBorder: InputBorder.none,
-          enabledBorder: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(vertical: 12),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: TextStyle(color: Colors.grey[400], fontWeight: FontWeight.w400),
+        // Icon removed per user request (trop d'icon)
+        filled: true,
+        fillColor: const Color(0xFFF8F9FB),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: Colors.grey.withOpacity(0.1)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFF2855AE), width: 1.5),
         ),
       ),
     );
@@ -857,61 +1058,65 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   // Removed _buildSimplifiedFilterPanel implementation as it's replaced by modal
   // Keeping helper methods used in modal content below...
 
-  Widget _buildLocationSection() {
+  Widget _buildLocationSection({StateSetter? setModalState}) {
     return Consumer<LocationController>(
       builder: (context, locationController, child) {
-        // Afficher un loader si les données ne sont pas encore chargées
         if (locationController.loading && _cities.isEmpty) {
           return _buildLocationLoader();
         }
 
+        // Use controller data as ultimate fallback if local lists are empty
+        final effectiveCities = _cities.isNotEmpty ? _cities : CitySuggestions.cities;
+        final effectiveCommunes = _communes.isNotEmpty ? _communes : 
+          locationController.communes.map((c) => c.name ?? '').where((n) => n.isNotEmpty).toList();
+
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: _primaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(Icons.location_on_rounded, color: _primaryColor, size: 20),
-                ),
-                SizedBox(width: 12),
-                Text(
-                  'Localisation',
-                  style: GoogleFonts.inter(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: _darkColor,
-                  ),
-                ),
-              ],
+            LocationAutocompleteWidget(
+              key: const ValueKey('city_filter_field'), // Stable key to keep focus
+              hint: 'Ville',
+              icon: Icons.location_city,
+              suggestions: effectiveCities,
+              initialValue: _selectedCity,
+              onChanged: (value) => _onCityChanged(value, setModalState: setModalState),
             ),
-            SizedBox(height: 16),
-            _buildDropdownField(
-              'Ville',
-              _selectedCity,
-              _cities,
-              Icons.location_city,
-              _onCityChanged,
-            ),
-            SizedBox(height: 16),
-            _buildDropdownField(
-              'Commune',
-              _selectedCommune,
-              _communes,
-              Icons.map,
-                  (value) {
-                setState(() {
+            SizedBox(height: 14),
+            LocationAutocompleteWidget(
+              key: const ValueKey('commune_filter_field'), // Stable key to keep focus
+              hint: _selectedCity?.trim().toLowerCase() == 'matadi' 
+                  ? 'Commune (Matadi)' 
+                  : (_selectedCity?.trim().toLowerCase() == 'kinshasa' ? 'Commune (Kinshasa)' : 'Commune'),
+              icon: Icons.map_rounded,
+              suggestions: _communes, // Use the updated _communes list
+              initialValue: _selectedCommune,
+              onChanged: (value) {
+                final fn = () {
                   _selectedCommune = value;
-                });
+                };
+                setState(fn);
+                if (setModalState != null) setModalState(fn);
               },
             ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildSectionHeader(IconData icon, String title) {
+    return Row(
+      children: [
+        // Icon removed per user request (too many icons)
+        Text(
+          title.toUpperCase(),
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: Colors.grey[600],
+            letterSpacing: 1.2,
+          ),
+        ),
+      ],
     );
   }
 
@@ -975,48 +1180,58 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       IconData icon,
       ValueChanged<String?> onChanged,
       ) {
-    return Container(
-      height: 56,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: value != null ? _primaryColor : Colors.grey[300]!,
-          width: value != null ? 2 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: value != null
-                ? _primaryColor.withOpacity(0.1)
-                : Colors.black.withOpacity(0.03),
-            blurRadius: 8,
-            offset: Offset(0, 2),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        /*Padding(
+          padding: EdgeInsets.only(bottom: 6, left: 4),
+          child: Text(
+            hint,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
           ),
-        ],
-      ),
-      child: DropdownButtonFormField<String>(
-        value: value,
-        decoration: InputDecoration(
-          hintText: hint,
-          prefixIcon: Icon(icon, color: value != null ? _primaryColor : _greyColor),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        ),
-        items: [
-          DropdownMenuItem(
-            value: null,
-            child: Text('Sélectionner $hint', style: GoogleFonts.inter(color: _greyColor)),
+        ),*/
+        DropdownButtonFormField<String>(
+          value: value,
+          icon: Icon(Icons.arrow_drop_down_rounded, color: Color(0xFF2855AE)),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(color: Colors.grey[500]!),
+            // Icon removed per user request (trop d'icon)
+            filled: true,
+            fillColor: const Color(0xFFF8F9FB),
+            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Colors.grey.withOpacity(0.1)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: Color(0xFF2855AE), width: 1.5),
+            ),
           ),
-          ...items.map((item) => DropdownMenuItem(
-            value: item,
-            child: Text(item, style: GoogleFonts.inter(color: _darkColor, fontWeight: FontWeight.w500)),
-          )),
-        ],
-        onChanged: onChanged,
-        icon: Icon(Icons.arrow_drop_down_rounded, color: _primaryColor),
-        dropdownColor: Colors.white,
-        style: GoogleFonts.inter(fontSize: 14, color: _darkColor, fontWeight: FontWeight.w500),
-      ),
+          items: [
+            DropdownMenuItem(
+              value: null,
+              child: Text('Sélectionner $hint', style: GoogleFonts.inter(color: Colors.grey[500]!)),
+            ),
+            ...items.map((item) => DropdownMenuItem(
+              value: item,
+              child: Text(item, style: GoogleFonts.inter(color: Colors.black87, fontWeight: FontWeight.w500)),
+            )),
+          ],
+          onChanged: onChanged,
+          dropdownColor: Colors.white,
+          style: GoogleFonts.inter(fontSize: 14, color: Colors.black87),
+        ),
+      ],
     );
   }
 
@@ -1165,18 +1380,23 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   int _getActiveFilterCount() {
     int count = 0;
     
-    // Filtres communs
-    if (_selectedCity != null) count++;
-    if (_selectedCommune != null) count++;
+    // Filtres communs (Vérifier non-null et non-vide)
+    if (_selectedCity != null && _selectedCity!.trim().isNotEmpty) count++;
+    if (_selectedCommune != null && _selectedCommune!.trim().isNotEmpty) count++;
 
     if (_searchType == 'Propriétés') {
       if (_selectedPropertyType != 'Tous') count++;
       if (_selectedBedrooms != null && _selectedBedrooms!.isNotEmpty) count++;
-      if (_priceRange.start > 500 || _priceRange.end < 2500) count++;
+      
+      // Conversion sécurisée des prix pour comparaison
+      final currentMin = double.tryParse(_minPriceController.text) ?? 10.0;
+      final currentMax = double.tryParse(_maxPriceController.text) ?? 400.0;
+      
+      if (currentMin > 10.0 || currentMax < 400.0) count++;
       if (_selectedTransaction != 'Location') count++;
     } else {
       // Filtres Services
-      if (_selectedServiceCategory != null) count++;
+      if (_selectedServiceCategory != null && _selectedServiceCategory!.isNotEmpty) count++;
     }
     
     return count;
@@ -1185,6 +1405,11 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   // ... (keeping _buildServiceCategoryChip string version)
 
   void _applyFilters() {
+    setState(() {
+      _visiblePropertyCount = _pageSize; 
+      _visibleServiceCount = _pageSize;
+    });
+    
     if (_searchType == 'Propriétés') {
       // ... (keeping existing property filter logic)
       final propertyController = Provider.of<PropertyController>(context, listen: false);
@@ -1207,17 +1432,19 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       int? communeId;
 
       if (_selectedCity != null) {
+        final normalizedCity = _selectedCity!.trim().toLowerCase();
         final city = locationController.cities.firstWhere(
-          (c) => c.name == _selectedCity,
-          orElse: () => CityModel(),
+          (c) => (c.name ?? '').toLowerCase() == normalizedCity,
+          orElse: () => CityModel(cityId: null),
         );
         cityId = city.cityId;
       }
 
       if (_selectedCommune != null) {
+        final normalizedCommune = _selectedCommune!.trim().toLowerCase();
         final commune = locationController.communes.firstWhere(
-          (c) => c.name == _selectedCommune,
-          orElse: () => CommuneModel(),
+          (c) => (c.name ?? '').toLowerCase() == normalizedCommune,
+          orElse: () => CommuneModel(communeId: null),
         );
         communeId = commune.communeId;
       }
@@ -1245,24 +1472,28 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
              final serviceName = _getServiceName(prestation.serviceId);
              if (serviceName == null) return false;
              
-             // Check if the service name (e.g. "Plombier") matches the selected category
-             // Using simple contains for flexibility
              if (!serviceName.toLowerCase().contains(_selectedServiceCategory!.toLowerCase()) && 
                  !_selectedServiceCategory!.toLowerCase().contains(serviceName.toLowerCase())) {
                return false;
              }
           }
 
-          // Filtre Ville
+          // Filtre Ville (Normalisation pour plus de robustesse)
           if (_selectedCity != null) {
-            final pCity = prestation.cityValue;
-            if (pCity != null && pCity != _selectedCity) return false;
+            final pCity = (prestation.cityValue ?? '').trim().toLowerCase();
+            final sCity = _selectedCity!.trim().toLowerCase();
+            if (pCity.isNotEmpty && pCity != sCity) return false;
+            // Si pCity est vide mais qu'une ville est sélectionnée, on pourrait choisir de l'exclure ou de l'inclure.
+            // Généralement on exclut.
+            if (pCity.isEmpty) return false; 
           }
 
           // Filtre Commune
           if (_selectedCommune != null) {
-             final pCommune = prestation.communeValue;
-            if (pCommune != null && pCommune != _selectedCommune) return false;
+            final pCommune = (prestation.communeValue ?? '').trim().toLowerCase();
+            final sCommune = _selectedCommune!.trim().toLowerCase();
+            if (pCommune.isNotEmpty && pCommune != sCommune) return false;
+            if (pCommune.isEmpty) return false;
           }
           
           return true;
@@ -1286,19 +1517,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
   String? _getServiceName(int? serviceId) {
     if (serviceId == null) return null;
-    try {
-      final serviceController = Provider.of<ServiceController>(context, listen: false);
-      if (serviceController.services.isEmpty) return null;
-      
-      final service = serviceController.services.firstWhere(
-        (s) => s.serviceId == serviceId, 
-        orElse: () => ServiceModel()
-      );
-      return service.title ?? service.serviceType?.displayName; 
-    } catch (e) {
-      print("Err getting service name: $e");
-      return null;
-    }
+    final serviceController = Provider.of<ServiceController>(context, listen: false);
+    final name = serviceController.getServiceName(serviceId);
+    return name != 'Prestation' ? name : null;
   }
 
   Widget _buildPriceInputField(
@@ -1500,6 +1721,23 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
+  /// Construction du widget loader de bas de page
+  Widget _buildBottomLoader() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Center(
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: _primaryColor,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPropertyList() {
     return Consumer<PropertyController>(
       builder: (context, controller, child) {
@@ -1514,15 +1752,21 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           );
         }
 
-        if (controller.loading && controller.properties.isEmpty) {
+        // Utilise allProperties = standard + bureaux + festives + funéraires
+        final allProps = controller.allProperties;
+
+        if (controller.loading && allProps.isEmpty) {
           return Center(
             child: _buildMainLoader(),
           );
         }
 
-        if (controller.properties.isEmpty) {
+        if (allProps.isEmpty) {
           return _buildEmptyState(controller);
         }
+
+        final visibleCount = _visiblePropertyCount.clamp(0, allProps.length);
+        final hasMore = visibleCount < allProps.length;
 
         return SmartRefresher(
           controller: _propertyRefreshController,
@@ -1533,12 +1777,23 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             color: Colors.white,
           ),
           onRefresh: () async {
+            // Reset pagination on refresh
+            setState(() => _visiblePropertyCount = _pageSize);
             await _handlePullToRefresh(controller, controller: _propertyRefreshController);
           },
           child: ListView.builder(
-            padding: EdgeInsets.all(16),
-            itemCount: controller.properties.length,
-            itemBuilder: (context, index) => _buildPropertyListItem(controller.properties[index]),
+            controller: _propertyScrollController,
+            padding: const EdgeInsets.all(16),
+            // +1 item pour le loader du bas si besoin
+            itemCount: visibleCount + (hasMore ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index == visibleCount) {
+                return _isLoadingMoreProperties
+                    ? _buildBottomLoader()
+                    : const SizedBox.shrink();
+              }
+              return _buildPropertyListItem(allProps[index]);
+            },
           ),
         );
       },
@@ -1585,6 +1840,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       );
     }
 
+    final visibleCount = _visibleServiceCount.clamp(0, _filteredPrestations.length);
+    final hasMore = visibleCount < _filteredPrestations.length;
+
     return SmartRefresher(
       controller: _serviceRefreshController,
       enablePullDown: true,
@@ -1594,13 +1852,21 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         color: Colors.white,
       ),
       onRefresh: () async {
+        // Reset pagination on refresh
+        setState(() => _visibleServiceCount = _pageSize);
         final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
         await _handlePullToRefresh(propertyCtrl, controller: _serviceRefreshController);
       },
       child: ListView.builder(
-        padding: EdgeInsets.all(16),
-        itemCount: _filteredPrestations.length,
+        controller: _serviceScrollController,
+        padding: const EdgeInsets.all(16),
+        itemCount: visibleCount + (hasMore ? 1 : 0),
         itemBuilder: (context, index) {
+          if (index == visibleCount) {
+            return _isLoadingMoreServices
+                ? _buildBottomLoader()
+                : const SizedBox.shrink();
+          }
           return _buildServiceListItem(_filteredPrestations[index]);
         },
       ),
@@ -1631,21 +1897,44 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         ),
         child: Row(
           children: [
-            Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  bottomLeft: Radius.circular(16),
+            Stack(
+              children: [
+                Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      bottomLeft: Radius.circular(16),
+                    ),
+                    image: DecorationImage(
+                      image: (service.images != null && service.images!.isNotEmpty)
+                          ? CachedNetworkImageProvider(service.images!.first)
+                          : AssetImage('assets/images/placeholder.png') as ImageProvider,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
                 ),
-                image: DecorationImage(
-                  image: (service.images != null && service.images!.isNotEmpty)
-                      ? CachedNetworkImageProvider(service.images!.first)
-                      : AssetImage('assets/images/placeholder.png') as ImageProvider,
-                  fit: BoxFit.cover,
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _primaryColor.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      _getServiceName(service.serviceId) ?? "Service",
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
             Expanded(
               child: Padding(
@@ -1673,8 +1962,12 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                       _getServiceName(service.serviceId) ?? "Service",
-                      style: GoogleFonts.inter(fontSize: 12, color: _primaryColor, fontWeight: FontWeight.w600),
+                      "À partir de ${service.minPrice?.toInt() ?? 0} ${service.currency}",
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: _primaryColor,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     SizedBox(height: 8),
                     Row(
@@ -1884,8 +2177,95 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       padding: EdgeInsets.all(16),
       itemCount: 5,
       itemBuilder: (context, index) {
-        return _buildShimmerLoader(height: 150);
+        return _searchType == 'Propriétés' 
+            ? _buildPropertyShimmerCard() 
+            : _buildServiceShimmerCard();
       },
+    );
+  }
+
+  Widget _buildPropertyShimmerCard() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Container(
+        margin: EdgeInsets.only(bottom: 20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 180,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(height: 20, width: double.infinity, color: Colors.white),
+                  SizedBox(height: 12),
+                  Container(height: 16, width: 150, color: Colors.white),
+                  SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(height: 24, width: 70, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12))),
+                      SizedBox(width: 12),
+                      Container(height: 24, width: 70, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12))),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildServiceShimmerCard() {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Container(
+        margin: EdgeInsets.only(bottom: 16),
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(height: 20, width: double.infinity, color: Colors.white),
+                  SizedBox(height: 12),
+                  Container(height: 14, width: 140, color: Colors.white),
+                  SizedBox(height: 16),
+                  Container(height: 28, width: 100, decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8))),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2264,6 +2644,10 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       case 4: return 'Bureau';
       case 5: return 'Hotels';
       case 6: return 'Vacances';
+      case 7: return 'Salle funéraires';
+      case 8: return 'Salle de fête';
+      case 9: return 'Terrain';
+      case 10: return 'Entrepôt';
       default: return 'Autre';
     }
   }
@@ -2429,6 +2813,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     _bedroomsFocus.dispose();
     _propertyRefreshController.dispose();
     _serviceRefreshController.dispose();
+    _propertyScrollController.dispose();
+    _serviceScrollController.dispose();
     super.dispose();
   }
 }
