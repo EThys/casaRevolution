@@ -6,6 +6,7 @@ import 'package:casa/utils/FancyNotification.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import 'dart:convert';
 
@@ -403,24 +404,36 @@ class _ProfilePageState extends State<ProfilePage> {
 
   bool _isUploadingPhoto = false;
 
-  Future<void> _pickImage() async {
-    // Navigate to custom Selfie Camera - use await pattern like in IdentityVerificationPage
-    final String? path = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SelfieCameraScreen(
-          onImageCaptured: (path) {}, // Callback kept for compatibility
+  Future<void> _pickImage(ImageSource source) async {
+    String? path;
+    
+    if (source == ImageSource.camera) {
+      // Custom Selfie Camera
+      path = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SelfieCameraScreen(
+            onImageCaptured: (path) {},
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      // Pick from Gallery
+      final XFile? file = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 70, // Compresser un peu pour l'upload
+      );
+      path = file?.path;
+    }
 
     if (path == null || path.isEmpty) return;
+    final String imagePath = path;
 
     setState(() {
-      _imageFile = File(path);
+      _imageFile = File(imagePath);
       _isUploadingPhoto = true; // Animation de chargement sur l'avatar uniquement
     });
-    await storage.write('user_image_path', path);
+    await storage.write('user_image_path', imagePath);
     _calculateProfileCompletion();
 
     // S'il y a un profileId, uploader l'image via l'endpoint séparé
@@ -437,7 +450,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     if (targetId != null) {
       try {
-        final bytes = await File(path).readAsBytes();
+        final bytes = await File(imagePath).readAsBytes();
         final base64Image = base64Encode(bytes);
         
         final response = await authCtrl.updateProfilePicture(targetId, base64Image);
@@ -485,6 +498,20 @@ class _ProfilePageState extends State<ProfilePage> {
     } else {
       setState(() => _isUploadingPhoto = false);
     }
+  }
+
+  void _shareApp() {
+    const String androidLink = "https://play.google.com/store/apps/details?id=com.casa.casa.casa&pcampaignid=web_share";
+    const String iosLink = "https://apps.apple.com/fr/app/casanayo/id6757759953?l=en-GB";
+
+    final String message = "⭐️ Découvrez CasaNayo ! ⭐️\n\n"
+        "Votre plateforme de référence pour trouver une propriété, réserver un hôtel ou solliciter des services professionnels de qualité.\n\n"
+        "Téléchargez l'application dès maintenant :\n\n"
+        "🤖 Android : $androidLink\n\n"
+        "🍎 iOS : $iosLink\n\n"
+        "CasaNayo, l'immobilier en toute simplicité !";
+
+    Share.share(message, subject: "Partagez l'application CasaNayo");
   }
 
   void _showProfileOptions() {
@@ -541,13 +568,29 @@ class _ProfilePageState extends State<ProfilePage> {
                   color: Colors.green[50],
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.camera_alt, color: Colors.green[700]),
+                child: Icon(Icons.camera_alt, color: Colors.blue[700]),
               ),
-              title: Text("Changer la photo de profil", 
+              title: Text("Prendre une photo (Caméra)", 
                 style: TextStyle(fontWeight: FontWeight.w600)),
               onTap: () {
                 Navigator.pop(context);
-                _pickImage();
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.purple[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.photo_library, color: Colors.blue[700]),
+              ),
+              title: Text("Choisir depuis la galerie", 
+                style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.gallery);
               },
             ),
             SizedBox(height: 10),
@@ -1124,128 +1167,158 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildDarkModeSection() {
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 4),
+  Widget _buildSettingsMenu() {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+          child: Text(
+            'PARAMÈTRES',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: isDarkMode ? Colors.white54 : _greyColor,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ),
+        Container(
+          margin: EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+            color: _cardColor,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 15,
+                offset: Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Mode Sombre
+              Consumer<ThemeController>(
+                builder: (context, themeController, child) {
+                  final isDark = themeController.isDarkMode;
+                  return ListTile(
+                    leading: Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+                        color: Colors.amber[700],
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      'Mode sombre',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: isDarkMode ? Colors.white : _darkColor,
+                      ),
+                    ),
+                    trailing: Switch.adaptive(
+                      value: isDark,
+                      activeColor: _primaryColor,
+                      onChanged: (value) {
+                        themeController.toggleTheme();
+                      },
+                    ),
+                  );
+                },
+              ),
+              Divider(height: 1, indent: 60, endIndent: 20, color: _borderColor),
+              
+              // Partager l'application
+              _buildSettingMenuItem(
+                icon: Icons.share_rounded,
+                iconColor: Colors.blue[600]!,
+                bgColor: Colors.blue[50]!,
+                title: "Partager l'application",
+                onTap: _shareApp,
+                isDarkMode: isDarkMode,
+              ),
+              
+              if (isLoggedIn) ...[
+                Divider(height: 1, indent: 60, endIndent: 20, color: _borderColor),
+                // Déconnexion
+                _buildSettingMenuItem(
+                  icon: Icons.logout_rounded,
+                  iconColor: Colors.orange[700]!,
+                  bgColor: Colors.orange[50]!,
+                  title: 'Déconnexion',
+                  onTap: _confirmLogout,
+                  isDarkMode: isDarkMode,
+                ),
+              ],
+            ],
+          ),
+        ),
+        
+        if (isLoggedIn) ...[
+          SizedBox(height: 24),
+          // Zone Danger (Suppression de compte)
+          Container(
+            margin: EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: isDarkMode ? Colors.red.withOpacity(0.1) : Colors.red[50],
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.red.withOpacity(0.2)),
+            ),
+            child: _buildSettingMenuItem(
+              icon: Icons.delete_forever_rounded,
+              iconColor: Colors.red[700]!,
+              bgColor: Colors.red[100]!,
+              title: 'Supprimer mon compte définitivement',
+              onTap: _showDeleteAccountConfirmationDialog,
+              isDarkMode: isDarkMode,
+              textColor: Colors.red[700],
+              hideChevron: true,
+            ),
           ),
         ],
-      ),
-      child: _buildDarkModeToggle(),
+      ],
     );
   }
 
-  Widget _buildSettingsSection() {
-    if (!isLoggedIn) return SizedBox.shrink();
-
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          _buildSettingItem(
-            icon: Icons.logout,
-            title: 'Déconnexion',
-            onTap: _confirmLogout,
-            color: Colors.red,
-          ),
-          Divider(height: 1, indent: 16, endIndent: 16, color: _borderColor),
-          _buildSettingItem(
-            icon: Icons.share_outlined,
-            title: 'Partager l\'application',
-            onTap: () {},
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDangerZone() {
-    if (!isLoggedIn) return SizedBox.shrink();
-
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.red.shade100.withOpacity(0.5)),
-      ),
-      child: _buildSettingItem(
-        icon: Icons.delete_forever_rounded,
-        title: 'Supprimer mon compte définitivement',
-        onTap: _showDeleteAccountConfirmationDialog,
-        color: Colors.red.shade700,
-      ),
-    );
-  }
-
-  Widget _buildSettingItem({
+  Widget _buildSettingMenuItem({
     required IconData icon,
+    required Color iconColor,
+    required Color bgColor,
     required String title,
     required VoidCallback onTap,
-    Color? color,
+    required bool isDarkMode,
+    Color? textColor,
+    bool hideChevron = false,
   }) {
     return ListTile(
-      leading: Icon(icon, color: color ?? _primaryColor),
+      onTap: onTap,
+      leading: Container(
+        padding: EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isDarkMode ? iconColor.withOpacity(0.2) : bgColor,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: iconColor, size: 20),
+      ),
       title: Text(
         title,
         style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w500,
-          color: color ?? _darkColor,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: textColor ?? (isDarkMode ? Colors.white : _darkColor),
         ),
       ),
-      trailing: Icon(Icons.chevron_right, color: _greyColor),
-      onTap: onTap,
-    );
-  }
-
-  Widget _buildDarkModeToggle() {
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
-    
-    return Consumer<ThemeController>(
-      builder: (context, themeController, child) {
-        final isDark = themeController.isDarkMode;
-        return ListTile(
-          leading: Icon(
-            isDark ? Icons.dark_mode : Icons.light_mode,
-            color: _primaryColor,
-          ),
-          title: Text(
-            'Mode sombre',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-              color: isDarkMode ? Colors.white : _darkColor,
-            ),
-          ),
-          trailing: Switch(
-            value: isDark,
-            onChanged: (value) {
-              themeController.toggleTheme();
-            },
-            activeColor: _primaryColor,
-          ),
-        );
-      },
+      trailing: hideChevron ? null : Icon(Icons.chevron_right_rounded, size: 20, color: _greyColor),
     );
   }
 
@@ -1588,9 +1661,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         SizedBox(height: 16),
                         _buildProfileInfoCard(),
                         _buildAuthOptions(),
-                        _buildDarkModeSection(),
-                        _buildSettingsSection(),
-                        _buildDangerZone(),
+                        _buildSettingsMenu(),
                         SizedBox(height: 20),
                       ],
                     ),
