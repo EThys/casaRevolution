@@ -1,6 +1,7 @@
  import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/screens/auth/IdentityVerificationPage.dart';
@@ -187,6 +188,16 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     _bathroomsController.addListener(_updateTotalRooms);
     _livingRoomsController.addListener(_updateTotalRooms);
     _kitchensController.addListener(_updateTotalRooms);
+    
+    // Ajout de listeners pour la validation en temps réel des champs critiques
+    _areaController.addListener(_validateCurrentStepFields);
+    _capacityController.addListener(_validateCurrentStepFields);
+    _quartierTextController.addListener(_validateCurrentStepFields);
+    _cityTextController.addListener(_validateCurrentStepFields);
+    _communeTextController.addListener(_validateCurrentStepFields);
+    _titleController.addListener(_validateCurrentStepFields);
+    _priceController.addListener(_validateCurrentStepFields);
+    _addressController.addListener(_validateCurrentStepFields);
 
     PaintingBinding.instance.imageCache.maximumSize = 100;
     PaintingBinding.instance.imageCache.maximumSizeBytes = 50 << 20;
@@ -962,16 +973,20 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   void _validateCurrentStepFields() {
-    switch (_currentStep) {
-      case 0:
-        _validateStep0();
-        break;
-      case 1:
-        _validateStep1();
-        break;
-      case 2:
-        _validateStep2();
-        break;
+    if (mounted) {
+      setState(() {
+        switch (_currentStep) {
+          case 0:
+            _validateStep0();
+            break;
+          case 1:
+            _validateStep1();
+            break;
+          case 2:
+            _validateStep2();
+            break;
+        }
+      });
     }
     _saveDraft();
   }
@@ -1074,7 +1089,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       if (_selectedCity == null) _setFieldError(1, 'city', 'Ville requise');
       if (_selectedDistrict == null) _setFieldError(1, 'district', 'District requis');
       if (_selectedCommune == null) _setFieldError(1, 'commune', 'Commune requise');
-      if (_selectedQuartier == null) _setFieldError(1, 'quartier', 'Quartier requis');
+      // Fix: Accepter soit le quartier de la BD locale, soit celui de l'API Kinshasa, soit le texte saisi manuellement
+      if (_selectedQuartier == null && _selectedKinshasaQuartier == null && _quartierTextController.text.trim().isEmpty) {
+        _setFieldError(1, 'quartier', 'Quartier requis');
+      }
     } else {
       if (_cityTextController.text.trim().isEmpty) _setFieldError(1, 'city', 'Ville requise');
       if (_communeTextController.text.trim().isEmpty) _setFieldError(1, 'commune', 'Commune requise');
@@ -1444,27 +1462,96 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     return Scaffold(
       backgroundColor: _lightColor,
       appBar: _buildAppBar(),
-      body: WillPopScope(
-        onWillPop: () async {
-          await _saveDraft();
-          return true;
-        },
-        child: Form(
-          key: _formKey,
-          autovalidateMode: _autoValidateMode,
-          child: Column(
-            children: [
-              _buildProgressIndicator(),
-              Expanded(
-                child: _buildCurrentStepContent(),
-              ),
-            ],
+      body: Stack(
+        children: [
+          // --- START PREMIUM BACKGROUND ---
+          Positioned.fill(
+            child: Container(
+              color: const Color(0xFFF8F9FF),
+            ),
           ),
-        ),
+          
+          // Mesh Gradient Blobs
+          Positioned(
+            top: -100,
+            right: -80,
+            child: Container(
+              width: 400,
+              height: 400,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    _primaryColor.withOpacity(0.08),
+                    _primaryColor.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
+          Positioned(
+            bottom: 100,
+            left: -100,
+            child: Container(
+              width: 450,
+              height: 450,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    _secondaryColor.withOpacity(0.06),
+                    _secondaryColor.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // GLASS EFFECT: Backdrop Blur
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+
+          // Texture Overlay
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.03, 
+              child: Image.asset(
+                "assets/images/abstract.jpg",
+                fit: BoxFit.cover,
+                colorBlendMode: BlendMode.overlay,
+              ),
+            ),
+          ),
+          // --- END PREMIUM BACKGROUND ---
+
+          AbsorbPointer(
+            absorbing: _isLoading,
+            child: WillPopScope(
+              onWillPop: () async {
+                await _saveDraft();
+                return true;
+              },
+              child: Form(
+                key: _formKey,
+                autovalidateMode: _autoValidateMode,
+                child: Column(
+                  children: [
+                    _buildProgressIndicator(),
+                    Expanded(
+                      child: _buildCurrentStepContent(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
-      // bottomNavigationBar: SafeArea(
-      //   child: _buildBottomNavigation(),
-      // ),
     );
   }
 
@@ -2831,11 +2918,11 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
           _buildModernTextField(
             controller: _priceController,
-            label: _isForRent ? 'Prix mensuel' : 'Prix de vente',
-            hint: _isForRent ? '1200' : '450000',
+            label: (isFestive || isFuneraire) ? 'Prix' : (_isForRent ? 'Prix mensuel' : 'Prix de vente'),
+            hint: (isFestive || isFuneraire) ? '500' : (_isForRent ? '1200' : '450000'),
             icon: Icons.attach_money_rounded,
             keyboardType: TextInputType.number,
-            suffixText: '${_isForRent ? '/mois' : '\$'}',
+            suffixText: (isFestive || isFuneraire) ? null : (_isForRent ? '/mois' : '\$'),
             prefixIconColor: _isForRent ? Colors.blue : Colors.green,
             focusNode: _focusNodes[1],
             nextFocusNode: _isForRent ? _focusNodes[2] : _focusNodes[3],
@@ -3521,7 +3608,7 @@ Widget _buildStep3() {
               Expanded(
                 child: ElevatedButton(
                   onPressed: isLastStep
-                      ? (canPublish ? _handleCreatePropertyPost : null)
+                      ? (canPublish && !_isLoading ? _handleCreatePropertyPost : null)
                       : (canProceed ? () {
                     bool currentStepValid = false;
                     switch (_currentStep) {
@@ -3555,7 +3642,16 @@ Widget _buildStep3() {
                     ),
                     elevation: 0,
                   ),
-                  child: Text(
+                  child: _isLoading && isLastStep
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Text(
                     isLastStep ? 'Publier l\'annonce' : 'Suivant',
                     style: TextStyle(fontWeight: FontWeight.w600, fontSize: _bodySize),
                   ),
@@ -3812,12 +3908,18 @@ Widget _buildStep3() {
                   ),
                 ),
                 onChanged: (val) {
+                  // Mettre à jour le contrôleur principal pour la validation
+                  _quartierTextController.text = val;
+                  
                   // Si l'utilisateur efface, on invalide la sélection
                   if (val.isEmpty && _selectedKinshasaQuartier != null) {
                     setState(() {
                       _selectedKinshasaQuartier = null;
                     });
                   }
+                  
+                  // Déclencher la validation
+                  _validateCurrentStepFields();
                 },
                 onSubmitted: (val) => onFieldSubmitted(),
               );
