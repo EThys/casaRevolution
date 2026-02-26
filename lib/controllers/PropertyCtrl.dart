@@ -12,6 +12,8 @@ import '../utils/StockageKeys.dart';
 import '../utils/Constantes.dart';
 import '../utils/requetes.dart' show getData, postData, patchData, deleteData, putData, HttpResponse;
 import '../models/DeviseModel.dart';
+import '../models/PropertyImageModel.dart';
+import '../models/PropertyFeatureModel.dart';
 
 class PropertyController with ChangeNotifier {
   PropertyController({this.stockage});
@@ -33,8 +35,59 @@ class PropertyController with ChangeNotifier {
   List<PropertyModel> bureaux = [];
   List<PropertyModel> festives = [];
   List<PropertyModel> funeraires = [];
-  List<Map<String, dynamic>> terrains = [];
+  List<PropertyModel> hotels = [];
+  List<Map<String, dynamic>> terrains = [];       // données brutes (pour usage interne)
+  List<PropertyModel> terrainProperties = [];     // terrains convertis en PropertyModel
   bool loadingSpecial = false;
+  bool isFiltered = false; // Mode filtrage/recherche actif
+  int currentPage = 0;
+  bool hasMoreData = true;
+
+  /// Toutes les propriétés combinées (standard + bureaux + festives + funéraires + terrains).
+  /// En mode filtré, on retourne uniquement la liste 'properties' qui contient les résultats unifiés.
+  List<PropertyModel> get allProperties {
+    if (isFiltered) return properties;
+    return [...properties, ...bureaux, ...festives, ...funeraires, ...terrainProperties, ...hotels];
+  }
+
+  /// Convertit un Map terrain (format API/DB) en PropertyModel pour l'affichage uniforme
+  PropertyModel _terrainToPropertyModel(Map<String, dynamic> t) {
+    final terrainData = t['terrain'] as Map<String, dynamic>? ?? t;
+    final address    = t['address']  as Map<String, dynamic>? ?? {};
+    final devise     = t['devise']   as Map<String, dynamic>? ?? {};
+    final typeProperty = t['typeProperty'] as Map<String, dynamic>? ?? {};
+    final imagesList = (t['images'] as List<dynamic>? ?? [])
+        .map((img) => img is Map ? (img['path'] as String?) ?? '' : img.toString())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final surfaceRaw = terrainData['surface'];
+    double? surface;
+    if (surfaceRaw is num)   surface = surfaceRaw.toDouble();
+    if (surfaceRaw is String) surface = double.tryParse(surfaceRaw);
+
+    return PropertyModel(
+      propertyId:      terrainData['id'] as int?,
+      title:           terrainData['title'] as String?,
+      description:     terrainData['description'] as String?,
+      price:           (terrainData['price'] as num?)?.toDouble(),
+      surface:         surface,
+      transactionType: terrainData['transactionType'] as String?,
+      available:       terrainData['available'] == false || terrainData['isAvailable'] == false,
+      cityValue:       address['cityValue'] as String?,
+      communeValue:    address['communeValue'] as String?,
+      address:         address['address'] as String?,
+      deviseId:        (devise['id'] as num?)?.toInt(),
+      propertyTypeId:  (typeProperty['propertyTypeId'] as num?)?.toInt() ?? 9,
+      propertyType:    PropertyTypeModel(
+        propertyTypeId: (typeProperty['propertyTypeId'] as num?)?.toInt() ?? 9,
+        name: typeProperty['name'] as String? ?? 'Terrain',
+      ),
+      propertyImage: imagesList
+          .map<PropertyImageModel>((path) => PropertyImageModel(path: path))
+          .toList(),
+    );
+  }
 
   // Devises
   List<DeviseModel> devisesList = [];
@@ -69,9 +122,7 @@ class PropertyController with ChangeNotifier {
       final url = "${Endpoints.properties}";
       var response = await getData(url);
 
-      // Vérification plus robuste du type de réponse
       if (response != null && response is Map<String, dynamic>) {
-        // Vérifier les différentes structures possibles de réponse
         dynamic propertiesData;
 
         if (response.containsKey('properties')) {
@@ -79,19 +130,16 @@ class PropertyController with ChangeNotifier {
         } else if (response.containsKey('data')) {
           propertiesData = response['data'];
         } else {
-          // Si la structure est différente, utiliser la réponse entière
           propertiesData = response;
         }
 
-        // Cas API paginée: properties -> content
         if (propertiesData is Map && propertiesData.containsKey('content')) {
           propertiesData = propertiesData['content'];
         }
 
-        // Check if propertiesData is a List
         if (propertiesData is List) {
           List<PropertyModel> onlineProperties = propertiesData
-              .where((e) => e != null) // Filtrer les éléments null
+              .where((e) => e != null)
               .map<PropertyModel>((e) {
             try {
               return PropertyModel.fromJson(e);
@@ -100,14 +148,17 @@ class PropertyController with ChangeNotifier {
               return PropertyModel();
             }
           })
-              .where((property) => property.propertyId != null) // Filtrer les propriétés invalides
+              .where((property) => property.propertyId != null)
               .toList();
 
-          // Synchroniser avec la base locale (sera vidée si onlineProperties est vide)
           await _syncWithLocalDatabase(onlineProperties);
 
-          // Mettre à jour la liste en mémoire
+          // Remplacer les propriétés standard uniquement
+          // Les catégories spéciales (bureaux, festives, funeraires) restent dans leurs listes dédiées
           properties = onlineProperties;
+
+          final total = onlineProperties.length + bureaux.length + festives.length + funeraires.length + terrains.length;
+          print("✅ syncProperties terminé: ${onlineProperties.length} standard + ${bureaux.length} bureaux + ${festives.length} festives + ${funeraires.length} funéraires + ${terrains.length} terrains = $total total");
         } else {
           print("Aucune donnée de propriété valide trouvée");
           await _loadFromCache();
@@ -118,7 +169,6 @@ class PropertyController with ChangeNotifier {
       }
     } catch (e) {
       print("Erreur lors de la synchronisation: $e");
-      // En cas d'erreur, charger depuis le cache
       await _loadFromCache();
     } finally {
       syncing = false;
@@ -184,11 +234,7 @@ class PropertyController with ChangeNotifier {
     // 1. Charger d'abord tout depuis le SQL local pour un affichage instantané
     await _loadSpecialFromCache();
     
-    // Fusionner les données locales dans la liste principale immédiatement
-    _mergeIntoMainProperties(bureaux);
-    _mergeIntoMainProperties(festives);
-    _mergeIntoMainProperties(funeraires);
-    
+    // Les catégories spéciales restent dans leurs listes dédiées (bureaux, festives, funeraires)
     // Si on a des données locales, on affiche tout de suite (pas de loader bloquant)
     if (bureaux.isNotEmpty || festives.isNotEmpty || funeraires.isNotEmpty) {
        notifyListeners();
@@ -201,19 +247,23 @@ class PropertyController with ChangeNotifier {
     try {
       // 2. Synchronisation en arrière-plan (sans bloquer l'UI)
       // On lance les appels en parallèle pour aller plus vite, ou séquentiel si on veut limiter la charge
-      await Future.wait([
+      Future.wait([
         _syncSpecialCategory(Endpoints.propertyBureaux, DatabaseHelper.tableBureaux, (list) => bureaux = list),
         _syncSpecialCategory(Endpoints.propertyFestives, DatabaseHelper.tableFestives, (list) => festives = list),
         _syncSpecialCategory(Endpoints.propertyFuneraires, DatabaseHelper.tableFuneraires, (list) => funeraires = list),
+        _syncSpecialCategory(Endpoints.propertyHotels, DatabaseHelper.tableHotels, (list) => hotels = list),
         _syncTerrainCategory(),
-      ]);
-      
-      print("🎯 Synchronisation des catégories spéciales terminée");
+      ]).then((_) {
+        print("🎯 Synchronisation des catégories spéciales terminée");
+        loadingSpecial = false;
+        notifyListeners();
+      }).catchError((e) {
+        print("⚠️ Erreur lors de la sync globale des catégories spéciales: $e");
+        loadingSpecial = false;
+        notifyListeners();
+      });
     } catch (e) {
-      print("⚠️ Erreur lors de la sync globale des catégories spéciales: $e");
-    } finally {
-      loadingSpecial = false;
-      notifyListeners();
+      print("⚠️ Erreur : $e");
     }
   }
 
@@ -222,6 +272,7 @@ class PropertyController with ChangeNotifier {
     bureaux = await db.getFromCategory(DatabaseHelper.tableBureaux);
     festives = await db.getFromCategory(DatabaseHelper.tableFestives);
     funeraires = await db.getFromCategory(DatabaseHelper.tableFuneraires);
+    hotels = await db.getFromCategory(DatabaseHelper.tableHotels);
     
     // Load terrains from TerrainDatabaseHelper
     await _loadTerrainsFromCache();
@@ -236,6 +287,7 @@ class PropertyController with ChangeNotifier {
         if (response.containsKey('bureaux')) rawData = response['bureaux'];
         else if (response.containsKey('festives')) rawData = response['festives'];
         else if (response.containsKey('funeraires')) rawData = response['funeraires'];
+        else if (response.containsKey('hotels')) rawData = response['hotels'];
         else rawData = response['data'];
 
         print("📡 [$tableName] Response keys: ${response.keys}");
@@ -254,7 +306,10 @@ class PropertyController with ChangeNotifier {
                  p.propertyType = PropertyTypeModel(propertyTypeId: 8, name: 'Salle de fête');
               } else if (tableName == DatabaseHelper.tableFuneraires) {
                  p.propertyTypeId = 7;
-                 p.propertyType = PropertyTypeModel(propertyTypeId: 7, name: 'Salle funéraires');
+                 p.propertyType = PropertyTypeModel(propertyTypeId: 7, name: 'Funéraire');
+              } else if (tableName == DatabaseHelper.tableHotels) {
+                 p.propertyTypeId = 5;
+                 p.propertyType = PropertyTypeModel(propertyTypeId: 5, name: 'Hôtel');
               }
               
               if (p.propertyId != null) {
@@ -303,11 +358,9 @@ class PropertyController with ChangeNotifier {
                await db.insertOrUpdateInCategory(tableName, p);
              }
              updateList(onlineList);
-             _mergeIntoMainProperties(onlineList); // Update main memory list too
           } else {
              print("✅ [$tableName] Local data is up-to-date. Using local.");
              updateList(localList); // Ensure memory uses the (verified valid) local list
-             _mergeIntoMainProperties(localList);
           }
         } else {
              print("⚠️ [$tableName] Raw data is null or not a list");
@@ -327,16 +380,18 @@ class PropertyController with ChangeNotifier {
     }
   }
 
-  /// Load terrains from local cache
+  /// Load terrains from local cache and convert to PropertyModel
   Future<void> _loadTerrainsFromCache() async {
     try {
       final db = TerrainDatabaseHelper.instance;
       final cachedTerrains = await db.getAllTerrains();
       terrains = cachedTerrains;
+      terrainProperties = cachedTerrains.map(_terrainToPropertyModel).toList();
       print("📦 [PropertyCtrl] ${terrains.length} terrains chargés depuis le cache local");
     } catch (e) {
       print("⚠️ [PropertyCtrl] Erreur lors du chargement des terrains depuis le cache: $e");
       terrains = [];
+      terrainProperties = [];
     }
   }
 
@@ -348,14 +403,15 @@ class PropertyController with ChangeNotifier {
         final rawData = response['terrain'];
         if (rawData != null && rawData is List) {
           final List<Map<String, dynamic>> terrainList = rawData.cast<Map<String, dynamic>>();
-          
+
           // Store in local database
           final db = TerrainDatabaseHelper.instance;
           await db.insertTerrains(terrainList);
-          
-          // Update in-memory list
+
+          // Update in-memory lists
           terrains = terrainList;
-          
+          terrainProperties = terrainList.map(_terrainToPropertyModel).toList();
+
           print("✅ [PropertyCtrl] ${terrains.length} terrains synchronisés depuis l'API");
         } else {
           print("⚠️ [PropertyCtrl] Aucune donnée terrain dans la réponse API");
@@ -610,17 +666,31 @@ class PropertyController with ChangeNotifier {
     notifyListeners();
 
     try {
-      // Essayer d'abord de synchroniser avec les données en ligne
-      await syncProperties();
+      // 1. Chargement local rapide → affichage immédiat
+      await _loadFromCache();
+      // Charger aussi les spéciales depuis le cache local (dans leurs listes dédiées)
+      await _loadSpecialFromCache();
+
+      loading = false;
+      notifyListeners();
+      print("📦 Cache initial: ${properties.length} standard + ${bureaux.length} bureaux + ${festives.length} festives + ${funeraires.length} funéraires + ${terrains.length} terrains");
+
+      // 2. Sync online en arrière-plan
+      // syncProperties() re-fusionnera automatiquement les spéciales après l'écrasement
+      syncProperties().catchError((e) {
+        print("Erreur de synchronisation en arrière-plan: $e");
+      });
+
+      // 3. Sync des catégories spéciales en arrière-plan (pour les nouvelles données online)
+      syncAllSpecialCategories();
+
       return properties;
     } catch (e) {
       print("Erreur lors du chargement: $e");
-      // En cas d'erreur, charger depuis le cache
       await _loadFromCache();
-      return properties;
-    } finally {
       loading = false;
       notifyListeners();
+      return properties;
     }
   }
 
@@ -1346,13 +1416,36 @@ class PropertyController with ChangeNotifier {
     int? commune,
     int? room,
     int page = 0,
-    int size = 20,
-    String sortBy = 'title',
-    String sortOrder = 'asc',
+    int size = 15,
+    String sortBy = 'id',
+    String sortOrder = 'desc',
+    bool isLoadMore = false,
   }) async {
     try {
-      loading = true;
-      notifyListeners();
+      if (!isLoadMore) {
+        loading = true;
+        isFiltered = true;
+        currentPage = 0;
+        hasMoreData = true;
+        notifyListeners();
+      }
+      
+      // 1. Recherche locale au premier appel uniquement
+      if (!isLoadMore) {
+        await _filterLocalProperties(
+          sold: sold,
+          minPrice: minPrice,
+          maxPrice: maxPrice,
+          typeMaison: typeMaison,
+          city: city,
+          commune: commune,
+          room: room,
+        );
+        loading = false;
+        notifyListeners();
+      }
+
+      // 2. Requête réseau en arrière-plan
       final Map<String, dynamic> queryParams = {};
 
       if (sold != null) queryParams['sold'] = sold.toString();
@@ -1373,61 +1466,59 @@ class PropertyController with ChangeNotifier {
       print("🔍 URL de filtrage: $url");
 
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-      HttpResponse response = await getData(url, token: tkn);
+      
+      // Lancement asynchrone pour ne pas bloquer l'UI
+      getData(url, token: tkn).then((response) {
+        if (response.status == true && response.data != null) {
+          dynamic propertiesData;
 
-      if (response.status == true && response.data != null) {
-        dynamic propertiesData;
-
-        if (response.data.containsKey('properties')) {
-          propertiesData = response.data['properties'];
-        } else if (response.data.containsKey('data')) {
-          propertiesData = response.data['data'];
-        } else if (response.data.containsKey('content')) {
-          propertiesData = response.data['content']; // Pour la pagination Spring
-        } else {
-          propertiesData = response.data;
-        }
-
-        // Convertir en liste de PropertyModel
-        if (propertiesData is List && propertiesData.isNotEmpty) {
-          List<PropertyModel> filteredProperties = propertiesData
-              .where((e) => e != null)
-              .map<PropertyModel>((e) {
-            try {
-              return PropertyModel.fromJson(e);
-            } catch (e) {
-              print("Erreur lors du parsing d'une propriété filtrée: $e");
-              return PropertyModel();
+          if (response.data is Map) {
+            if (response.data.containsKey('content')) {
+              propertiesData = response.data['content'];
+              // Vérifier s'il y a plus de pages (format Spring Pageable)
+              final bool last = response.data['last'] ?? true;
+              hasMoreData = !last;
+            } else if (response.data.containsKey('properties')) {
+              propertiesData = response.data['properties'];
+            } else if (response.data.containsKey('data')) {
+              propertiesData = response.data['data'];
             }
-          })
-              .where((property) => property.propertyId != null)
-              .toList();
+          }
 
-          // Mettre à jour la liste des propriétés avec les résultats filtrés
-          properties = filteredProperties;
+          if (propertiesData is List && propertiesData.isNotEmpty) {
+            List<PropertyModel> apiFiltered = propertiesData
+                .where((e) => e != null)
+                .map<PropertyModel>((e) {
+              try {
+                return PropertyModel.fromJson(e);
+              } catch (e) {
+                return PropertyModel();
+              }
+            })
+                .where((property) => property.propertyId != null)
+                .toList();
 
-          print("✅ Filtrage réussi: ${filteredProperties.length} propriétés trouvées");
-        } else {
-          print("ℹ️ Aucune propriété trouvée avec les critères spécifiés");
-          properties = []; // Vider la liste si aucun résultat
+            if (isLoadMore) {
+              // Éviter les doublons
+              final existingIds = properties.map((p) => p.propertyId).toSet();
+              final newItems = apiFiltered.where((p) => !existingIds.contains(p.propertyId)).toList();
+              properties.addAll(newItems);
+              currentPage++;
+            } else {
+              properties = apiFiltered;
+            }
+            print("✅ Filtrage réseau réussi: ${apiFiltered.length} propriétés trouvées. hasMore: $hasMoreData");
+            notifyListeners();
+          } else if (propertiesData is List && propertiesData.isEmpty) {
+            hasMoreData = false;
+            notifyListeners();
+          }
         }
-      } else {
-        print("❌ Erreur lors du filtrage: ${response.errorMsg}");
-        // En cas d'erreur, charger depuis le cache local avec les mêmes critères
-        await _filterLocalProperties(
-          sold: sold,
-          minPrice: minPrice,
-          maxPrice: maxPrice,
-          typeMaison: typeMaison,
-          city: city,
-          commune: commune,
-          room: room,
-        );
-      }
+      }).catchError((e) {
+         print("❌ Erreur réseau lors du filtrage: $e");
+      });
 
-      loading = false;
-      notifyListeners();
-      return response;
+      return HttpResponse(status: true, data: properties);
 
     } catch (e) {
       print("❌ Erreur critique dans filterProperties: $e");
@@ -1465,37 +1556,69 @@ class PropertyController with ChangeNotifier {
     int? room,
   }) async {
     final db = DatabaseHelper.instance;
-    final allProperties = await db.getAllProperties();
+    final standardProps = await db.getAllProperties();
 
-    // Appliquer les filtres
-    List<PropertyModel> filtered = allProperties.where((property) {
-      // Filtre sold
-      if (sold != null && property.sold != sold) return false;
+    // Charger d'abord les catégories spéciales depuis le cache pour avoir un pool complet et frais
+    final bureauRepo = await db.getFromCategory(DatabaseHelper.tableBureaux);
+    final festiveRepo = await db.getFromCategory(DatabaseHelper.tableFestives);
+    final funeraireRepo = await db.getFromCategory(DatabaseHelper.tableFuneraires);
+    final terrainRepoRaw = await TerrainDatabaseHelper.instance.getAllTerrains();
+    final terrainRepo = terrainRepoRaw.map(_terrainToPropertyModel).toList();
 
-      // Filtre prix minimum
+    // Pool complet : standard + toutes catégories spéciales
+    final allPool = [...standardProps, ...bureauRepo, ...festiveRepo, ...funeraireRepo, ...terrainRepo];
+
+    bool _matches(PropertyModel property) {
+      // Filtre sold / transactionType
+      if (sold != null) {
+        final tx = property.transactionType?.toLowerCase() ?? '';
+        final isLocation = tx.contains('location');
+        // sold=false → location, sold=true → vente
+        if (sold == false && !isLocation) return false;
+        if (sold == true  &&  isLocation) return false;
+      }
+
+      // Filtre prix
       if (minPrice != null && (property.price ?? 0) < minPrice) return false;
-
-      // Filtre prix maximum
       if (maxPrice != null && (property.price ?? double.maxFinite) > maxPrice) return false;
 
-      // Filtre type de maison
+      // Filtre type de bien
       if (typeMaison != null && property.propertyTypeId != typeMaison) return false;
 
-
-      // Filtre ville
-      if (city != null && property.cityId != city) return false;
+      // Filtre ville (par ID ou par nom selon dispo)
+      if (city != null && property.cityId != null && property.cityId != city) return false;
 
       // Filtre commune
-      if (commune != null && property.communeId != commune) return false;
+      if (commune != null && property.communeId != null && property.communeId != commune) return false;
 
-      // Filtre nombre de pièces
-      if (room != null && property.rooms != room) return false;
+      // Filtre pièces (non applicable aux terrains)
+      if (room != null && property.propertyTypeId != 9 && property.rooms != room) return false;
 
       return true;
-    }).toList();
+    }
 
-    properties = filtered;
-    print("🔍 Filtrage local: ${filtered.length} propriétés trouvées");
+    // Capture tous les matches du pool complet dans 'properties' pour le mode filtré
+    properties = allPool.where(_matches).toList();
+
+    // Filtrer aussi les listes spéciales indépendamment pour les pages de catégories
+    if (typeMaison == null || typeMaison == 4)
+      bureaux = (await db.getFromCategory(DatabaseHelper.tableBureaux)).where(_matches).toList();
+    else bureaux = [];
+
+    if (typeMaison == null || typeMaison == 8)
+      festives = (await db.getFromCategory(DatabaseHelper.tableFestives)).where(_matches).toList();
+    else festives = [];
+
+    if (typeMaison == null || typeMaison == 7)
+      funeraires = (await db.getFromCategory(DatabaseHelper.tableFuneraires)).where(_matches).toList();
+    else funeraires = [];
+
+    if (typeMaison == null || typeMaison == 9) {
+      final cachedTerrains = await TerrainDatabaseHelper.instance.getAllTerrains();
+      terrainProperties = cachedTerrains.map(_terrainToPropertyModel).where(_matches).toList();
+    } else terrainProperties = [];
+
+    print("🔍 Filtrage local: ${allProperties.length} résultats (${properties.length} std + ${bureaux.length} bur + ${festives.length} fes + ${funeraires.length} fun + ${terrainProperties.length} terra)");
   }
 
   // Méthode utilitaire pour construire la query string
@@ -1508,49 +1631,73 @@ class PropertyController with ChangeNotifier {
 
   // Méthode pour réinitialiser les filtres et charger toutes les propriétés
   Future<void> resetFilters() async {
+    isFiltered = false;
     await getAllProperty();
   }
 
   // Méthode pour rechercher par texte (titre, description, etc.)
-  Future<HttpResponse> searchProperties(String searchTerm) async {
+  Future<HttpResponse> searchProperties(String searchTerm, {int page = 0, int size = 15, bool isLoadMore = false}) async {
     try {
-      loading = true;
-      notifyListeners();
+      if (!isLoadMore) {
+        loading = true;
+        isFiltered = true;
+        currentPage = 0;
+        hasMoreData = true;
+        notifyListeners();
 
-      final url = "${Endpoints.propertySearch}?query=${Uri.encodeComponent(searchTerm)}";
-      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-
-      HttpResponse response = await getData(url, token: tkn);
-
-      if (response.status == true && response.data != null) {
-        dynamic propertiesData;
-
-        if (response.data.containsKey('properties')) {
-          propertiesData = response.data['properties'];
-        } else if (response.data.containsKey('data')) {
-          propertiesData = response.data['data'];
-        } else {
-          propertiesData = response.data;
-        }
-
-        if (propertiesData is List && propertiesData.isNotEmpty) {
-          List<PropertyModel> searchResults = propertiesData
-              .where((e) => e != null)
-              .map<PropertyModel>((e) => PropertyModel.fromJson(e))
-              .where((property) => property.propertyId != null)
-              .toList();
-
-          properties = searchResults;
-          print("🔍 Recherche réussie: ${searchResults.length} résultats pour '$searchTerm'");
-        } else {
-          properties = [];
-          print("ℹ️ Aucun résultat pour la recherche: '$searchTerm'");
-        }
+        // 1. Recherche locale instantanée
+        await _searchLocalProperties(searchTerm);
+        loading = false;
+        notifyListeners();
       }
 
-      loading = false;
-      notifyListeners();
-      return response;
+      // 2. Recherche en ligne en arrière-plan
+      final url = "${Endpoints.propertySearch}?query=${Uri.encodeComponent(searchTerm)}&page=${isLoadMore ? currentPage + 1 : 0}&size=$size";
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      getData(url, token: tkn).then((response) {
+        if (response.status == true && response.data != null) {
+          dynamic propertiesData;
+
+          if (response.data is Map) {
+            if (response.data.containsKey('content')) {
+              propertiesData = response.data['content'];
+              final bool last = response.data['last'] ?? true;
+              hasMoreData = !last;
+            } else if (response.data.containsKey('properties')) {
+              propertiesData = response.data['properties'];
+            } else if (response.data.containsKey('data')) {
+              propertiesData = response.data['data'];
+            }
+          }
+
+          if (propertiesData is List && propertiesData.isNotEmpty) {
+            List<PropertyModel> searchResults = propertiesData
+                .where((e) => e != null)
+                .map<PropertyModel>((e) => PropertyModel.fromJson(e))
+                .where((property) => property.propertyId != null)
+                .toList();
+
+            if (isLoadMore) {
+              final existingIds = properties.map((p) => p.propertyId).toSet();
+              final newItems = searchResults.where((p) => !existingIds.contains(p.propertyId)).toList();
+              properties.addAll(newItems);
+              currentPage++;
+            } else {
+              properties = searchResults;
+            }
+            print("🔍 Recherche en ligne réussie: ${searchResults.length} résultats. hasMore: $hasMoreData");
+            notifyListeners();
+          } else if (propertiesData is List && propertiesData.isEmpty) {
+            hasMoreData = false;
+            notifyListeners();
+          }
+        }
+      }).catchError((e) {
+         print("❌ Erreur réseau lors de la recherche: $e");
+      });
+
+      return HttpResponse(status: true, data: properties);
 
     } catch (e) {
       print("❌ Erreur lors de la recherche: $e");
@@ -1572,25 +1719,36 @@ class PropertyController with ChangeNotifier {
   // Méthode pour rechercher localement
   Future<void> _searchLocalProperties(String searchTerm) async {
     final db = DatabaseHelper.instance;
-    final allProperties = await db.getAllProperties();
+    final term = searchTerm.toLowerCase();
 
-    final searchResults = allProperties.where((property) {
-      final term = searchTerm.toLowerCase();
-
-      // Rechercher dans le titre
+    bool _matchesSearch(PropertyModel property) {
       if (property.title?.toLowerCase().contains(term) == true) return true;
-
-      // Rechercher dans la description
       if (property.description?.toLowerCase().contains(term) == true) return true;
-
-      // Rechercher dans l'adresse
       if (property.address?.toLowerCase().contains(term) == true) return true;
-
+      if (property.cityValue?.toLowerCase().contains(term) == true) return true;
+      if (property.communeValue?.toLowerCase().contains(term) == true) return true;
       return false;
-    }).toList();
+    }
 
-    properties = searchResults;
-    print("🔍 Recherche locale: ${searchResults.length} résultats pour '$searchTerm'");
+    // Charger toutes les catégories pour un pool de recherche complet
+    final standardProps = await db.getAllProperties();
+    final bureauRepo = await db.getFromCategory(DatabaseHelper.tableBureaux);
+    final festiveRepo = await db.getFromCategory(DatabaseHelper.tableFestives);
+    final funeraireRepo = await db.getFromCategory(DatabaseHelper.tableFuneraires);
+    final terrainRepoRaw = await TerrainDatabaseHelper.instance.getAllTerrains();
+    final terrainRepo = terrainRepoRaw.map(_terrainToPropertyModel).toList();
+
+    // Pool complet pour la recherche unifiée
+    final allPool = [...standardProps, ...bureauRepo, ...festiveRepo, ...funeraireRepo, ...terrainRepo];
+    properties = allPool.where(_matchesSearch).toList();
+
+    // Mettre à jour les listes filtrées par catégorie
+    bureaux = bureauRepo.where(_matchesSearch).toList();
+    festives = festiveRepo.where(_matchesSearch).toList();
+    funeraires = funeraireRepo.where(_matchesSearch).toList();
+    terrainProperties = terrainRepo.where(_matchesSearch).toList();
+
+    print("🔍 Recherche locale terminée: ${allProperties.length} résultats globaux pour '$searchTerm'");
   }
 
 
