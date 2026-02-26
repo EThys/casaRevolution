@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
@@ -30,10 +31,25 @@ class AllPropertiesPage extends StatefulWidget {
 class _AllPropertiesPageState extends State<AllPropertiesPage> {
   late List<PropertyModel> _filteredProperties;
   final TextEditingController _searchController = TextEditingController();
-  final RefreshController _refreshController = RefreshController();
-  bool _isGridView = false;
+  bool _isGridView = true;
   String _selectedFilter = 'Tous';
-  final List<String> _filters = ['Tous', 'Apparts', 'Maisons', 'Studios', 'Bureaux', 'Villas'];
+  final List<String> _filters = [
+    'Tous', 
+    'Apparts', 
+    'Maisons', 
+    'Studios', 
+    'Bureaux',
+    'Terrains', 
+    'Salles de fête', 
+    'Funéraires',
+    'Hôtels'
+  ];
+  
+  // Infinity Scroll Logic
+  int _visibleCount = 15;
+  final int _pageSize = 15;
+  bool _isLoadingMore = false;
+  final RefreshController _refreshController = RefreshController();
 
   // Couleurs du design PropertySearchPage
   final Color _primaryColor = Color(0xFF1976D2);
@@ -60,13 +76,27 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
       body: SmartRefresher(
         controller: _refreshController,
         enablePullDown: true,
-        enablePullUp: false,
+        enablePullUp: true,
         header: WaterDropMaterialHeader(
           backgroundColor: _primaryColor,
           color: Colors.white,
         ),
+        footer: ClassicFooter(
+          loadingText: "Plus de biens en chemin...",
+          noDataText: "Toutes les propriétés sont affichées",
+          idleText: "Scrollez pour voir plus",
+          loadingIcon: SizedBox(
+            width: 25,
+            height: 25,
+            child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor),
+          ),
+        ),
         onRefresh: () async {
+          setState(() => _visibleCount = _pageSize);
           await _handlePullToRefresh(propertyCtrl);
+        },
+        onLoading: () async {
+          await _loadMore(propertyCtrl);
         },
         child: Column(
           children: [
@@ -97,7 +127,10 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
       'Maisons': FontAwesomeIcons.house,
       'Studios': FontAwesomeIcons.buildingCircleCheck,
       'Bureaux': FontAwesomeIcons.buildingColumns,
-      'Villas': FontAwesomeIcons.houseChimney,
+      'Terrains': Icons.landscape_rounded,
+      'Salles de fête': Icons.celebration_rounded,
+      'Funéraires': Icons.church_rounded,
+      'Hôtels': Icons.hotel_rounded,
     };
 
     return Container(
@@ -199,6 +232,60 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _loadMore(PropertyController propertyCtrl) async {
+    if (_isLoadingMore) return;
+
+    final totalLoaded = _filteredProperties.length;
+
+    // 1. Buffer local first
+    if (_visibleCount < totalLoaded) {
+      setState(() => _isLoadingMore = true);
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) {
+        setState(() {
+          _visibleCount = (_visibleCount + _pageSize).clamp(0, totalLoaded);
+          _isLoadingMore = false;
+        });
+        _refreshController.loadComplete();
+      }
+      return;
+    }
+
+    // 2. API Fetch next page
+    if (propertyCtrl.hasMoreData) {
+      setState(() => _isLoadingMore = true);
+      
+      final searchTerm = _searchController.text.trim();
+      if (searchTerm.isNotEmpty) {
+        await propertyCtrl.searchProperties(searchTerm, isLoadMore: true);
+      } else {
+        await propertyCtrl.filterProperties(
+          sold: !widget.isForRent,
+          isLoadMore: true,
+          sortBy: 'id',
+          sortOrder: 'desc',
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          // Utiliser propertyCtrl.allProperties comme nouvelle base pour AllPropertiesPage
+          _filteredProperties = propertyCtrl.allProperties.where((p) {
+             final isTypeMatch = p.transactionType == (widget.isForRent ? 'location' : 'vente');
+             return isTypeMatch;
+          }).toList();
+          
+          _applyFilters(); // Re-appliquer les filtres de recherche/chips sur la nouvelle liste unifiée
+          _visibleCount = _filteredProperties.length;
+          _isLoadingMore = false;
+        });
+        _refreshController.loadComplete();
+      }
+    } else {
+      _refreshController.loadNoData();
+    }
   }
 
   Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
@@ -354,14 +441,20 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
   }
 
   Widget _buildPropertyList(bool isDarkMode) {
+    final visibleItems = _filteredProperties.take(_visibleCount).toList();
+
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _filteredProperties.length,
-      itemBuilder: (context, index) => _buildPropertyListItem(_filteredProperties[index], isDarkMode),
+      itemCount: visibleItems.length,
+      itemBuilder: (context, index) {
+        return _buildPropertyListItem(visibleItems[index], isDarkMode);
+      },
     );
   }
 
   Widget _buildPropertyGrid(bool isDarkMode) {
+    final visibleItems = _filteredProperties.take(_visibleCount).toList();
+
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -370,16 +463,30 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
-      itemCount: _filteredProperties.length,
+      itemCount: visibleItems.length,
       itemBuilder: (context, index) {
-        return _buildPropertyCard(_filteredProperties[index], isDarkMode);
+        return _buildPropertyCard(visibleItems[index], isDarkMode);
       },
     );
   }
 
+  Widget _buildShimmerGridItem() {
+     return Shimmer.fromColors(
+       baseColor: Colors.grey[300]!,
+       highlightColor: Colors.grey[100]!,
+       child: Container(
+         decoration: BoxDecoration(
+           borderRadius: BorderRadius.circular(16),
+           color: Colors.white,
+         ),
+       ),
+     );
+  }
+
   // Carte en mode liste - Design moderne avec superposition améliorée
   Widget _buildPropertyListItem(PropertyModel property, bool isDarkMode) {
-    final priceText = widget.isForRent
+    final isForRent = widget.isForRent;
+    final priceText = isForRent
         ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
         : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
 
@@ -1058,8 +1165,6 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
       return 'Maison';
     } else if (lowerTitle.contains('studio')) {
       return 'Studio';
-    } else if (lowerTitle.contains('villa')) {
-      return 'Villa';
     } else if (lowerTitle.contains('bureau')) {
       return 'Bureau';
     } else if (lowerTitle.contains('hotel')) {
@@ -1071,8 +1176,16 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
   }
 
   void _applyFilters() {
+    final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+    
+    // Base de données : Toutes les propriétés unifiées filtrées par type de transaction (Vente/Location)
+    final baseProperties = propertyCtrl.allProperties.where((p) {
+       final isTypeMatch = p.transactionType?.toLowerCase() == (widget.isForRent ? 'location' : 'vente');
+       return isTypeMatch;
+    }).toList();
+
     setState(() {
-      _filteredProperties = widget.initialProperties.where((property) {
+      _filteredProperties = baseProperties.where((property) {
         final searchText = _searchController.text.toLowerCase();
         final matchesSearch = searchText.isEmpty ||
             (property.title?.toLowerCase().contains(searchText) ?? false) ||
@@ -1090,21 +1203,25 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
 
   bool _matchesCategory(PropertyModel property, String category) {
     final propertyTypeName = property.propertyType?.name?.toLowerCase() ?? '';
+    final propertyTypeId = property.propertyTypeId;
 
     switch (category) {
       case 'Apparts':
-        return propertyTypeName.contains('appart') ||
-            propertyTypeName.contains('apart');
+        return propertyTypeName.contains('appart') || propertyTypeName.contains('apart');
       case 'Maisons':
-        return propertyTypeName.contains('maison') ||
-            propertyTypeName.contains('house');
+        return propertyTypeName.contains('maison') || propertyTypeName.contains('house');
       case 'Studios':
         return propertyTypeName.contains('studio');
       case 'Bureaux':
-        return propertyTypeName.contains('bureau') ||
-            propertyTypeName.contains('office');
-      case 'Villas':
-        return propertyTypeName.contains('villa');
+        return propertyTypeName.contains('bureau') || propertyTypeName.contains('office') || propertyTypeId == 4;
+      case 'Terrains':
+        return propertyTypeName.contains('terrain') || propertyTypeId == 9;
+      case 'Salles de fête':
+        return propertyTypeName.contains('fête') || propertyTypeName.contains('fete') || propertyTypeId == 8;
+      case 'Funéraires':
+        return propertyTypeName.contains('funéraire') || propertyTypeName.contains('funeraire') || propertyTypeId == 7;
+      case 'Hôtels':
+        return propertyTypeName.contains('hôtel') || propertyTypeName.contains('hotel') || propertyTypeId == 5;
       default:
         return true;
     }
