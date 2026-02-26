@@ -1,14 +1,18 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:math';
+import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/controllers/ServiceController.dart';
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/screens/AllPropertiesPage.dart';
+import 'package:casa/screens/PropertySearchPage.dart';
 import 'package:casa/screens/PromoBanner.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
@@ -78,9 +82,18 @@ class _HomePageState extends State<HomePage> {
   // Mapping nom compte -> ID
   Map<String, int> accountNameToIdMap = {};
   
-  // String _selectedSpecialCategory = 'Bureaux'; // Supprimé pour simplification UI
+  // Auto-scroll for categories and sections
+  final ScrollController _categoryScrollController = ScrollController();
+  final ScrollController _rentalsScrollController = ScrollController();
+  final ScrollController _salesScrollController = ScrollController();
+  final ScrollController _majordhommeScrollController = ScrollController();
+  final ScrollController _demenagementScrollController = ScrollController();
 
-
+  Timer? _categoryTimer;
+  Timer? _rentalsTimer;
+  Timer? _salesTimer;
+  Timer? _majordhommeTimer;
+  Timer? _demenagementTimer;
 
   @override
   void initState() {
@@ -105,10 +118,24 @@ class _HomePageState extends State<HomePage> {
         _refreshController.requestRefresh();
       });
     }
+
+    _startAutoScrolls();
   }
 
   @override
   void dispose() {
+    _categoryTimer?.cancel();
+    _rentalsTimer?.cancel();
+    _salesTimer?.cancel();
+    _majordhommeTimer?.cancel();
+    _demenagementTimer?.cancel();
+
+    _categoryScrollController.dispose();
+    _rentalsScrollController.dispose();
+    _salesScrollController.dispose();
+    _majordhommeScrollController.dispose();
+    _demenagementScrollController.dispose();
+
     ServerHealthService().stopMonitoring();
     super.dispose();
   }
@@ -487,7 +514,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     var propertyCtrl = context.watch<PropertyController>();
     var serviceCtrl = context.watch<ServiceController>();
-    var properties = propertyCtrl.properties;
+    var properties = propertyCtrl.allProperties;
     var services = serviceCtrl.services;
 
     // Types de propriétés à afficher : Studio (1), Apparts (2), Maisons (3), Bureaux (4)
@@ -503,7 +530,9 @@ class _HomePageState extends State<HomePage> {
           if (name.contains('studio') || name.contains('appart') || 
               name.contains('maison') || name.contains('bureau') ||
               name.contains('fête') || name.contains('fete') ||
-              name.contains('funéraire') || name.contains('funeraire')) {
+              name.contains('funéraire') || name.contains('funeraire') ||
+              name.contains('terrain') || name.contains('hotel') || 
+              name.contains('hôtel')) {
             allowedTypeIds.add(typeId as int);
           }
         }
@@ -512,7 +541,7 @@ class _HomePageState extends State<HomePage> {
     
     // Fallback si l'API n'a pas encore chargé les types
     if (allowedTypeIds.isEmpty) {
-      allowedTypeIds.addAll([1, 2, 3, 4, 7, 8]); // Studio, Apparts, Maisons, Bureaux, Funéraire, Fêtes
+      allowedTypeIds.addAll([1, 2, 3, 4, 5, 7, 8, 9]); // Studio, Apparts, Maisons, Bureaux, Hotels, Funéraire, Fêtes, Terrain
     }
     
     final rentalProperties = properties.where((p) => 
@@ -539,6 +568,110 @@ class _HomePageState extends State<HomePage> {
       appBar: _buildAppBar(),
       body: Stack(
         children: [
+          // --- START PREMIUM BACKGROUND ---
+          Positioned.fill(
+            child: Container(
+              color: const Color(0xFFF8F9FF), // Ultra-clean premium base
+            ),
+          ),
+          
+          // Mesh Gradient Blobs - Level: "DE OUF"
+          // Top Right: Deep Blue
+          Positioned(
+            top: -100,
+            right: -80,
+            child: Container(
+              width: 450,
+              height: 450,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    primaryColor.withOpacity(0.12),
+                    primaryColor.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
+          // Mid Left: Indigo/Purple accent for depth
+          Positioned(
+            top: 250,
+            left: -120,
+            child: Container(
+              width: 500,
+              height: 500,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF3F51B5).withOpacity(0.08), // Indigo
+                    const Color(0xFF3F51B5).withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Bottom Center: Soft Cyan/Sky Blue
+          Positioned(
+            bottom: 100,
+            left: 50,
+            child: Container(
+              width: 600,
+              height: 600,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF00BCD4).withOpacity(0.06), // Cyan
+                    const Color(0xFF00BCD4).withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Bottom Right: Primary Blue base
+          Positioned(
+            bottom: -150,
+            right: -100,
+            child: Container(
+              width: 550,
+              height: 550,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    primaryColor.withOpacity(0.1),
+                    primaryColor.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // GLASS EFFECT: Backdrop Blur to blend all blobs into a mesh
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+
+          // Texture Overlay (Grain/Abstract) on top of the mesh
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.04, 
+              child: Image.asset(
+                "assets/images/abstract.jpg",
+                fit: BoxFit.cover,
+                colorBlendMode: BlendMode.overlay, // "Overlay" makes it blend with the colors
+              ),
+            ),
+          ),
+          // --- END PREMIUM BACKGROUND ---
           SmartRefresher(
             controller: _refreshController,
             enablePullDown: true,
@@ -606,6 +739,7 @@ class _HomePageState extends State<HomePage> {
                 properties: rentalProperties,
                 isLoading: propertyCtrl.loading,
                 heroPrefix: 'rental',
+                scrollController: _rentalsScrollController,
               ),
               SizedBox(height: 32),
               
@@ -632,6 +766,7 @@ class _HomePageState extends State<HomePage> {
                 properties: saleProperties,
                 isLoading: propertyCtrl.loading,
                 heroPrefix: 'sale',
+                scrollController: _salesScrollController,
               ),
               SizedBox(height: 32),
               
@@ -668,6 +803,7 @@ class _HomePageState extends State<HomePage> {
                 services: currentMajordhommeServices,
                 isLoading: isLoadingPrestations,
                 serviceType: ServiceType.majordhomme,
+                scrollController: _majordhommeScrollController,
               ),
               SizedBox(height: 32),
               
@@ -692,6 +828,7 @@ class _HomePageState extends State<HomePage> {
                 services: currentDemenagementServices,
                 isLoading: isLoadingPrestations,
                 serviceType: ServiceType.demenagement,
+                scrollController: _demenagementScrollController,
               ),
               SizedBox(height: 32),
               
@@ -1586,7 +1723,7 @@ class _HomePageState extends State<HomePage> {
                             icon: Icons.share_rounded,
                             title: 'Partager l\'app',
                             isSelected: selectedRoute == '/share',
-                            onTap: () => _handleNavigation('/share'),
+                            onTap: _shareApp,
                           ),
                         ],
                       ),
@@ -1596,22 +1733,10 @@ class _HomePageState extends State<HomePage> {
                         title: "SUPPORT",
                         items: [
                           _buildDrawerItem(
-                            icon: Icons.settings_rounded,
-                            title: 'Paramètres',
-                            isSelected: selectedRoute == '/settings',
-                            onTap: () => _handleNavigation('/settings'),
-                          ),
-                          _buildDrawerItem(
                             icon: Icons.help_outline_rounded,
                             title: 'Aide & Support',
-                            isSelected: selectedRoute == '/help',
-                            onTap: () => _handleNavigation('/help'),
-                          ),
-                          _buildDrawerItem(
-                            icon: Icons.info_outline_rounded,
-                            title: 'À propos',
-                            isSelected: selectedRoute == '/about',
-                            onTap: () => _handleNavigation('/about'),
+                            isSelected: selectedRoute == Routes.helpSupportRoute,
+                            onTap: () => _handleNavigation(Routes.helpSupportRoute),
                           ),
                         ],
                       ),
@@ -1779,6 +1904,21 @@ class _HomePageState extends State<HomePage> {
     return 'Utilisateur';
   }
 
+  void _shareApp() {
+    Navigator.pop(context); // Close drawer
+    const String androidLink = "https://play.google.com/store/apps/details?id=com.casa.casa.casa&pcampaignid=web_share";
+    const String iosLink = "https://apps.apple.com/fr/app/casanayo/id6757759953?l=en-GB";
+
+    final String message = "⭐️ Découvrez CasaNayo ! ⭐️\n\n"
+        "Votre plateforme de référence pour trouver une propriété, réserver un hôtel ou solliciter des services professionnels de qualité.\n\n"
+        "Téléchargez l'application dès maintenant :\n\n"
+        "🤖 Android : $androidLink\n\n"
+        "🍎 iOS : $iosLink\n\n"
+        "CasaNayo, l'immobilier en toute simplicité !";
+
+    Share.share(message, subject: "Partagez l'application CasaNayo");
+  }
+
   void _handleNavigation(String routeName) {
     Navigator.pop(context);
 
@@ -1791,7 +1931,8 @@ class _HomePageState extends State<HomePage> {
         routeName == Routes.bookingHistoryPageRoute ||
         routeName == Routes.quickServiceRequestRoute ||
         routeName == Routes.myServiceRequestsRoute ||
-        routeName == Routes.notificationPageRoute) {
+        routeName == Routes.notificationPageRoute ||
+        routeName == Routes.helpSupportRoute) {
       Navigator.pushNamed(context, routeName);
     } else if (routeName == '/my-agency') {
        Navigator.push(context, MaterialPageRoute(builder: (_) => MyAgencyPage()));
@@ -1999,7 +2140,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.all(28.0),
+                padding: const EdgeInsets.fromLTRB(24, 50, 24, 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -2047,7 +2188,12 @@ class _HomePageState extends State<HomePage> {
                         ],
                       ),
                       child: ElevatedButton.icon(
-                        onPressed: () {},
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => PropertySearchPage()),
+                          );
+                        },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: primaryColor,
@@ -2094,7 +2240,6 @@ class _HomePageState extends State<HomePage> {
           {'label': 'Studios', 'image': 'assets/images/studio.png', 'value': 'Studio'},
           {'label': 'Apparts', 'image': 'assets/images/apart.png', 'value': 'Apparts'},
           {'label': 'Maisons', 'image': 'assets/images/maison.png', 'value': 'Maisons'},
-          {'label': 'Villas', 'image': 'assets/images/maison.png', 'value': 'Maisons'},
           {'label': 'Bureaux', 'image': 'assets/images/office.png', 'value': 'Bureau'},
           {'label': 'Fêtes', 'image': 'assets/images/fete.png', 'value': 'Salle de fête'},
           {'label': 'Funéraires', 'image': 'assets/images/funebre.png', 'value': 'Salle funéraires'},
@@ -2131,7 +2276,7 @@ class _HomePageState extends State<HomePage> {
                     );
                   },
                   child: Text(
-                    'Voir tout',
+                    'Voir tout ',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -2146,6 +2291,7 @@ class _HomePageState extends State<HomePage> {
           Container(
             height: 100,
             child: ListView.builder(
+              controller: _categoryScrollController,
               scrollDirection: Axis.horizontal,
               padding: EdgeInsets.symmetric(horizontal: 12),
               itemCount: categories.length,
@@ -2232,6 +2378,41 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
+  }
+
+  void _startAutoScrolls() {
+    _categoryTimer = _createAutoScrollTimer(_categoryScrollController, delta: 100);
+    _rentalsTimer = _createAutoScrollTimer(_rentalsScrollController, delta: 200);
+    _salesTimer = _createAutoScrollTimer(_salesScrollController, delta: 200);
+    _majordhommeTimer = _createAutoScrollTimer(_majordhommeScrollController, delta: 220);
+    _demenagementTimer = _createAutoScrollTimer(_demenagementScrollController, delta: 220);
+  }
+
+  Timer _createAutoScrollTimer(ScrollController controller, {double delta = 150.0}) {
+    return Timer.periodic(Duration(seconds: 4), (timer) {
+      if (controller.hasClients) {
+        double maxScroll = controller.position.maxScrollExtent;
+        double currentScroll = controller.offset;
+        
+        if (currentScroll + delta >= maxScroll) {
+          controller.animateTo(
+            0,
+            duration: Duration(milliseconds: 1500),
+            curve: Curves.easeOutQuad,
+          );
+        } else {
+          controller.animateTo(
+            currentScroll + delta,
+            duration: Duration(milliseconds: 1000),
+            curve: Curves.easeInOutQuad,
+          );
+        }
+      }
+    });
+  }
+
+  void _startCategoryAutoScroll() {
+    // Logic moved to _startAutoScrolls and _createAutoScrollTimer
   }
 
 
@@ -2379,6 +2560,7 @@ class _HomePageState extends State<HomePage> {
     required List<PrestationModel> services,
     required bool isLoading,
     required ServiceType serviceType,
+    ScrollController? scrollController,
   }) {
     if (isLoading) {
       return Container(
@@ -2441,6 +2623,7 @@ class _HomePageState extends State<HomePage> {
     return Container(
       height: 380,
       child: ListView.builder(
+        controller: scrollController,
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         padding: EdgeInsets.symmetric(horizontal: 24),
@@ -3191,6 +3374,7 @@ class _HomePageState extends State<HomePage> {
     required bool isForRent,
     required bool isLoading,
     String? heroPrefix,
+    ScrollController? scrollController,
   }) {
     if (isLoading) {
       return _buildShimmerLoading();
@@ -3273,6 +3457,7 @@ class _HomePageState extends State<HomePage> {
     return Container(
       height: 380,
       child: ListView.builder(
+        controller: scrollController,
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         padding: EdgeInsets.symmetric(horizontal: 24),
@@ -3653,14 +3838,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   String _getCategoryValue(String name) {
-    if (name.contains('Studio')) return 'Studio';
-    if (name.contains('Apparts')) return 'Apparts';
-    if (name.contains('Maisons')) return 'Maisons';
-    if (name.contains('Bureau')) return 'Bureau';
-    if (name.contains('Hotels')) return 'Hotels';
-    if (name.contains('Vacances')) return 'Vacances';
-    if (name.contains('funéraire')) return 'Salle funéraires';
-    if (name.contains('fête')) return 'Salle de fête';
+    String n = name.toLowerCase();
+    if (n.contains('studio')) return 'Studio';
+    if (n.contains('appart')) return 'Apparts';
+    if (n.contains('maison')) return 'Maisons';
+    if (n.contains('bureau')) return 'Bureau';
+    if (n.contains('hotel') || n.contains('hôtel')) return 'Hotels';
+    if (n.contains('vacance')) return 'Vacances';
+    if (n.contains('funérair')) return 'Salle funéraires';
+    if (n.contains('fête')) return 'Salle de fête';
+    if (n.contains('terrain')) return 'Terrain';
     return name;
   }
 }
