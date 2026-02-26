@@ -32,7 +32,7 @@ class ServiceCategoryPage extends StatefulWidget {
 }
 
 class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
-  bool _isGrid = false;
+  bool _isGrid = true;
   String _sort = 'Aucun';
 
   Color get primaryColor => ServiceCategoryPage.primaryColor;
