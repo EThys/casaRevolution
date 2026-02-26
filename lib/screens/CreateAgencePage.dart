@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:casa/controllers/AgenceController.dart';
 import 'package:casa/utils/FancyNotification.dart';
@@ -170,108 +171,188 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Friendly Text
-              Container(
-                padding: EdgeInsets.all(16),
-                margin: EdgeInsets.only(bottom: 24),
-                decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: primaryColor.withOpacity(0.3)),
+      body: Stack(
+        children: [
+          // --- START PREMIUM BACKGROUND ---
+          Positioned.fill(
+            child: Container(
+              color: const Color(0xFFF8F9FF), // Ultra-clean premium base
+            ),
+          ),
+          
+          // Mesh Gradient Blobs
+          Positioned(
+            top: -100,
+            right: -80,
+            child: Container(
+              width: 400,
+              height: 400,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    primaryColor.withOpacity(0.08),
+                    primaryColor.withOpacity(0.0),
+                  ],
                 ),
-                child: Row(
+              ),
+            ),
+          ),
+          
+          Positioned(
+            bottom: 100,
+            left: -100,
+            child: Container(
+              width: 450,
+              height: 450,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    secondaryColor.withOpacity(0.06),
+                    secondaryColor.withOpacity(0.0),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // GLASS EFFECT: Backdrop Blur
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+
+          // Texture Overlay
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.03, 
+              child: Image.asset(
+                "assets/images/abstract.jpg",
+                fit: BoxFit.cover,
+                colorBlendMode: BlendMode.overlay,
+              ),
+            ),
+          ),
+          // --- END PREMIUM BACKGROUND ---
+
+          AbsorbPointer(
+            absorbing: _isLoading,
+            child: SingleChildScrollView(
+              physics: BouncingScrollPhysics(),
+              padding: EdgeInsets.all(20),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.info_outline_rounded, color: primaryColor, size: 28),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        "Pour publier des sites touristiques ou des lieux de vacances, vous devez d'abord avoir une agence enregistrée.",
-                        style: TextStyle(
-                            color: Colors.black87, 
-                            fontSize: 14,
-                            height: 1.4
+                    // Friendly Text
+                    Container(
+                      padding: EdgeInsets.all(16),
+                      margin: EdgeInsets.only(bottom: 24),
+                      decoration: BoxDecoration(
+                        color: primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: primaryColor.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline_rounded, color: primaryColor, size: 28),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              "Pour publier des sites touristiques ou des lieux de vacances, vous devez d'abord avoir une agence enregistrée.",
+                              style: TextStyle(
+                                  color: Colors.black87, 
+                                  fontSize: 14,
+                                  height: 1.4
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    _buildLogoUpload(),
+                    SizedBox(height: 24),
+                    _buildTextField(
+                      controller: _nameController,
+                      label: "Nom de l'agence",
+                      icon: Icons.business,
+                      validator: (value) =>
+                          value!.isEmpty ? "Le nom est obligatoire" : null,
+                    ),
+                    SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _descriptionController,
+                      label: "Description",
+                      icon: Icons.description,
+                      maxLines: 3,
+                    ),
+                    SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _phone1Controller,
+                      label: "Téléphone 1",
+                      icon: Icons.phone,
+                      keyboardType: TextInputType.phone,
+                      validator: (value) =>
+                          value!.isEmpty ? "Le téléphone est obligatoire" : null,
+                    ),
+                    SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _phone2Controller,
+                      label: "Téléphone 2 (Optionnel)",
+                      icon: Icons.phone_android,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    SizedBox(height: 16),
+                    _buildTextField(
+                      controller: _addressController,
+                      label: "Adresse",
+                      icon: Icons.location_on,
+                      validator: (value) =>
+                          value!.isEmpty ? "L'adresse est obligatoire" : null,
+                    ),
+                    SizedBox(height: 32),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _submitForm,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          elevation: 5,
                         ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(
+                                "Enregistrer l'agence",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
                       ),
                     ),
                   ],
                 ),
               ),
-
-              _buildLogoUpload(),
-              SizedBox(height: 24),
-              _buildTextField(
-                controller: _nameController,
-                label: "Nom de l'agence",
-                icon: Icons.business,
-                validator: (value) =>
-                    value!.isEmpty ? "Le nom est obligatoire" : null,
-              ),
-              SizedBox(height: 16),
-              _buildTextField(
-                controller: _descriptionController,
-                label: "Description",
-                icon: Icons.description,
-                maxLines: 3,
-              ),
-              SizedBox(height: 16),
-              _buildTextField(
-                controller: _phone1Controller,
-                label: "Téléphone 1",
-                icon: Icons.phone,
-                keyboardType: TextInputType.phone,
-                validator: (value) =>
-                    value!.isEmpty ? "Le téléphone est obligatoire" : null,
-              ),
-              SizedBox(height: 16),
-              _buildTextField(
-                controller: _phone2Controller,
-                label: "Téléphone 2 (Optionnel)",
-                icon: Icons.phone_android,
-                keyboardType: TextInputType.phone,
-              ),
-              SizedBox(height: 16),
-              _buildTextField(
-                controller: _addressController,
-                label: "Adresse",
-                icon: Icons.location_on,
-                validator: (value) =>
-                    value!.isEmpty ? "L'adresse est obligatoire" : null,
-              ),
-              SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _submitForm,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    elevation: 5,
-                  ),
-                  child: _isLoading
-                      ? CircularProgressIndicator(color: Colors.white)
-                      : Text(
-                          "Enregistrer l'agence",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
