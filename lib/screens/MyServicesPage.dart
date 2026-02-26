@@ -620,10 +620,14 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
     return GestureDetector(
       onTap: isDeleting ? null : () {
         if (prestation.id != null) {
+          final serviceController = Provider.of<ServiceController>(context, listen: false);
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => ServiceDetailPage(service: prestation),
+              builder: (context) => ServiceDetailPage(
+                service: prestation,
+                serviceTypeName: serviceController.getServiceName(prestation.serviceId),
+              ),
             ),
           );
         }
@@ -758,7 +762,16 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                                  // Modifier logic - navigate to edit (reuse create route with args if supported or show details)
                                  // For now, redirect to detail which usually has edit
                                  if (prestation.id != null) {
-                                   Navigator.push(context, MaterialPageRoute(builder: (c) => ServiceDetailPage(service: prestation)));
+                                   final serviceController = Provider.of<ServiceController>(context, listen: false);
+                                   Navigator.push(
+                                     context, 
+                                     MaterialPageRoute(
+                                       builder: (c) => ServiceDetailPage(
+                                         service: prestation,
+                                         serviceTypeName: serviceController.getServiceName(prestation.serviceId),
+                                       ),
+                                     ),
+                                   );
                                  }
                               }, 
                               icon: Icon(Icons.edit, size: 14, color: _primaryColor),
@@ -796,7 +809,16 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                               InkWell(
                                 onTap: () {
                                    if (prestation.id != null) {
-                                      Navigator.push(context, MaterialPageRoute(builder: (c) => ServiceDetailPage(service: prestation)));
+                                      final serviceController = Provider.of<ServiceController>(context, listen: false);
+                                      Navigator.push(
+                                        context, 
+                                        MaterialPageRoute(
+                                          builder: (c) => ServiceDetailPage(
+                                            service: prestation,
+                                            serviceTypeName: serviceController.getServiceName(prestation.serviceId),
+                                          ),
+                                        ),
+                                      );
                                    }
                                 },
                                 child: Container(
@@ -843,10 +865,14 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
           // Si on est dans "Demandes reçues", on affiche le BottomSheet de gestion
           _showSolicitationActionBottomSheet(item);
         } else if (item.prestation != null) {
+          final serviceController = Provider.of<ServiceController>(context, listen: false);
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => ServiceDetailPage(service: item.prestation!),
+              builder: (context) => ServiceDetailPage(
+                service: item.prestation!,
+                serviceTypeName: serviceController.getServiceName(item.prestation!.serviceId),
+              ),
             ),
           );
         }
