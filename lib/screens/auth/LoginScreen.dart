@@ -147,18 +147,28 @@ class _LoginScreenState extends State<LoginScreen> {
           _buildBackground(),
 
           // Contenu principal
-          SingleChildScrollView(
-            physics: BouncingScrollPhysics(),
-            padding: EdgeInsets.symmetric(horizontal: 15, vertical: 24),
-            child: SafeArea(
-              child: Column(
-                children: [
-                  SizedBox(height: 20),
-                  _buildLogo(),
-                  SizedBox(height: 30),
-                  _buildAuthCard(),
-                  SizedBox(height: 10)
-                ],
+          AbsorbPointer(
+            absorbing: _isLoading,
+            child: SingleChildScrollView(
+              physics: BouncingScrollPhysics(),
+              padding: EdgeInsets.symmetric(horizontal: 15, vertical: 24),
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    Align(
+                      alignment: Alignment.topLeft,
+                      child: IconButton(
+                        icon: Icon(Icons.arrow_back_ios, color: textColor),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    _buildLogo(),
+                    SizedBox(height: 30),
+                    _buildAuthCard(),
+                    SizedBox(height: 10)
+                  ],
+                ),
               ),
             ),
           ),
@@ -367,13 +377,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
           SizedBox(height: 30),
 
-          _buildAuthForm(),
-          SizedBox(height: 25),
-          // _buildPrivacyText() removed
-          _buildAuthButton(),
-          SizedBox(height: 10),
-          _buildForgotPassword(),
-          _buildAlternativeAuth(),
+                _buildAuthForm(),
+                SizedBox(height: 25),
+                // _buildPrivacyText() removed
+                _buildAuthButton(),
+                SizedBox(height: 10),
+                _buildForgotPassword(),
+                _buildAlternativeAuth(),
         ],
       ),
     ).animate().slideY(
@@ -449,6 +459,9 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         keyboardType: _isPhoneInput ? TextInputType.phone : TextInputType.emailAddress,
         onChanged: (String value) {
+          if (!_emailTouched && value.isNotEmpty) {
+            setState(() => _emailTouched = true);
+          }
           // Gérer automatiquement le 0 initial pour les numéros de téléphone
           bool isPhone = _looksLikePhoneNumber(value);
           if (isPhone) {
@@ -463,17 +476,13 @@ class _LoginScreenState extends State<LoginScreen> {
               // Mettre à jour l'état après modification
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _updateButtonState();
-                if (_emailTouched) {
-                  _forceRevalidation();
-                }
+                _forceRevalidation();
               });
               return; // Sortir pour éviter le setState double
             }
           }
           _updateButtonState();
-          if (_emailTouched) {
-            _forceRevalidation();
-          }
+          _forceRevalidation();
         },
         onEditingComplete: () {
           // Vérifier si l'email est valide avant de passer au suivant
@@ -552,10 +561,11 @@ class _LoginScreenState extends State<LoginScreen> {
         obscureText: !_showPassword,
         autovalidateMode: AutovalidateMode.disabled,
         textInputAction: TextInputAction.done, // ← AJOUTER CETTE LIGNE
-        onChanged: (_) {
-          if (_passwordTouched) {
-            _forceRevalidation();
+        onChanged: (val) {
+          if (!_passwordTouched && val.isNotEmpty) {
+            setState(() => _passwordTouched = true);
           }
+          _forceRevalidation();
         },
         onEditingComplete: () {
           // Fermer le clavier et valider quand on appuie sur "Done"
@@ -819,10 +829,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   String? _validatePassword(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Veuillez entrer votre mot de passe';
+      return 'Le mot de passe est obligatoire';
     }
     if (value.length < 6) {
-      return 'Le mot de passe doit faire au moins 6 caractères';
+      return 'Le mot de passe doit contenir au moins 6 caractères';
     }
     return null;
   }
