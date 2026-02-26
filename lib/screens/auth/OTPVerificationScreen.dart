@@ -4,9 +4,11 @@ import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:sms_autofill/sms_autofill.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:provider/provider.dart';
-
 import '../../utils/FancyNotification.dart';
+import '../../utils/ModernModal.dart';
 
 class OTPVerificationScreen extends StatefulWidget {
   final String phoneNumber;
@@ -17,12 +19,18 @@ class OTPVerificationScreen extends StatefulWidget {
   _OTPVerificationScreenState createState() => _OTPVerificationScreenState();
 }
 
-class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
+class _OTPVerificationScreenState extends State<OTPVerificationScreen> with CodeAutoFill {
   final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   bool _isLoading = false;
   bool _isResending = false;
+  bool _isHandlingPaste = false;
   int _countdown = 60;
+  int _resendAttempts = 0;
+  final int maxAttempts = 3; // Limite de 3 tentatives par numéro
+  final int maxDeviceDailyRequests = 10; // Limite globale du téléphone par jour
+  final box = GetStorage();
+  
   final Color primaryColor = Color(0xFF1976D2);
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
@@ -35,10 +43,47 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   void initState() {
     super.initState();
     _startCountdown();
+    _initSmsAutoFill();
+    _loadAttempts();
     // Auto focus sur le premier champ
     Future.delayed(Duration(milliseconds: 300), () {
       _focusNodes[0].requestFocus();
     });
+  }
+
+  void _loadAttempts() {
+    // Charger le nombre de tentatives sauvegardées pour ce numéro
+    String key = 'otp_attempts_${widget.phoneNumber}';
+    setState(() {
+      _resendAttempts = box.read(key) ?? 0;
+    });
+  }
+
+  void _initSmsAutoFill() async {
+    listenForCode();
+    // Récupérer la signature de l'application pour Android
+    // IMPORTANT: Affichez ceci dans vos logs et ajoutez-le à la fin de votre SMS
+    // pour que l'auto-remplissage fonctionne sur Android.
+    String signature = await SmsAutoFill().getAppSignature;
+    print("Code App Signature pour le SMS (Android): $signature");
+  }
+
+  @override
+  void codeUpdated() {
+    // Cette méthode est appelée quand un SMS OTP est détecté
+    if (code != null) {
+      // Extraire les 6 chiffres du code
+      String otp = code!.replaceAll(RegExp(r'[^0-9]'), '');
+      if (otp.length >= 6) {
+        String finalOtp = otp.substring(0, 6);
+        setState(() {
+          for (int i = 0; i < 6; i++) {
+            _controllers[i].text = finalOtp[i];
+          }
+        });
+        _handleVerifyOTP(); // Tenter la vérification automatique
+      }
+    }
   }
 
   void _startCountdown() {
@@ -54,6 +99,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
 
   @override
   void dispose() {
+    cancel(); // Arrêter l'écoute du SMS
     for (var controller in _controllers) {
       controller.dispose();
     }
@@ -64,12 +110,35 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   }
 
   void _onChanged(int index, String value) {
-    if (value.length == 1 && index < 5) {
+    if (_isHandlingPaste) return;
+
+    if (value.length > 1) {
+      _isHandlingPaste = true;
+      // Nettoyer la valeur pour n'avoir que des chiffres
+      String code = value.replaceAll(RegExp(r'[^0-9]'), '');
+      
+      // Distribuer les chiffres
+      for (int i = 0; i < code.length && (index + i) < 6; i++) {
+        _controllers[index + i].text = code[i];
+        _controllers[index + i].selection = TextSelection.fromPosition(
+          TextPosition(offset: _controllers[index + i].text.length),
+        );
+      }
+      _isHandlingPaste = false;
+
+      // Déplacer le focus
+      int nextIndex = index + code.length;
+      if (nextIndex >= 6) {
+        _focusNodes[5].unfocus();
+      } else {
+        _focusNodes[nextIndex].requestFocus();
+      }
+    } else if (value.length == 1 && index < 5) {
       _focusNodes[index + 1].requestFocus();
     }
     
     // Vérifier si tous les champs sont remplis
-    if (_controllers.every((controller) => controller.text.isNotEmpty)) {
+    if (_getOTPCode().length == 6) {
       _handleVerifyOTP();
     }
   }
@@ -99,17 +168,27 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
       body: Stack(
         children: [
           _buildBackground(),
-          SafeArea(
-            child: SingleChildScrollView(
-              physics: BouncingScrollPhysics(),
-              padding: EdgeInsets.symmetric(horizontal: 15, vertical: 24),
-              child: Column(
-                children: [
-                  SizedBox(height: 20),
-                  _buildLogo(),
-                  SizedBox(height: 30),
-                  _buildAuthCard(),
-                ],
+          PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, result) async {
+              if (didPop) return;
+              final shouldPop = await _showExitConfirmation();
+              if (shouldPop && mounted) {
+                Navigator.of(context).pop();
+              }
+            },
+            child: SafeArea(
+              child: SingleChildScrollView(
+                physics: BouncingScrollPhysics(),
+                padding: EdgeInsets.symmetric(horizontal: 15, vertical: 24),
+                child: Column(
+                  children: [
+                    SizedBox(height: 20),
+                    _buildLogo(),
+                    SizedBox(height: 30),
+                    _buildAuthCard(),
+                  ],
+                ),
               ),
             ),
           ),
@@ -268,7 +347,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   Widget _buildAuthCard() {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(30),
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 30),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
@@ -313,6 +392,18 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
           ).animate().fadeIn(delay: 1200.ms),
           SizedBox(height: 30),
           _buildOTPFields(),
+          if (_resendAttempts > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Text(
+                'Tentatives de renvoi : $_resendAttempts / $maxAttempts',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _resendAttempts >= maxAttempts ? errorColor : secondaryTextColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
           SizedBox(height: 25),
           _buildVerifyButton(),
           SizedBox(height: 20),
@@ -328,66 +419,72 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   }
 
   Widget _buildOTPFields() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: List.generate(6, (index) {
-        return Container(
-          width: 50,
-          height: 60,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: primaryColor.withOpacity(0.05),
-                blurRadius: 10,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: TextField(
-            controller: _controllers[index],
-            focusNode: _focusNodes[index],
-            textAlign: TextAlign.center,
-            keyboardType: TextInputType.number,
-            maxLength: 1,
-            style: TextStyle(
-              color: textColor,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-            decoration: InputDecoration(
-              counterText: '',
-              enabledBorder: OutlineInputBorder(
+    return AutofillGroup(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: List.generate(6, (index) {
+          return Flexible(
+            child: Container(
+              margin: EdgeInsets.symmetric(horizontal: 2),
+              height: 60,
+              decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade300, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: primaryColor.withOpacity(0.05),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: primaryColor, width: 2),
+              child: TextField(
+                controller: _controllers[index],
+                focusNode: _focusNodes[index],
+                textAlign: TextAlign.center,
+                keyboardType: TextInputType.number,
+                maxLength: 6, // Augmenté pour supporter le paste
+                autofillHints: const [AutofillHints.oneTimeCode],
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+                decoration: InputDecoration(
+                  counterText: '',
+                  contentPadding: EdgeInsets.zero,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300, width: 2),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: primaryColor, width: 2),
+                  ),
+                  filled: true,
+                  fillColor: lightBlue.withOpacity(0.3),
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                ],
+                onChanged: (value) => _onChanged(index, value),
+                onTap: () {
+                  _controllers[index].selection = TextSelection.fromPosition(
+                    TextPosition(offset: _controllers[index].text.length),
+                  );
+                },
+                onSubmitted: (_) {
+                  if (index < 5) {
+                    _focusNodes[index + 1].requestFocus();
+                  } else {
+                    _handleVerifyOTP();
+                  }
+                },
               ),
-              filled: true,
-              fillColor: lightBlue.withOpacity(0.3),
             ),
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-            ],
-            onChanged: (value) => _onChanged(index, value),
-            onTap: () {
-              _controllers[index].selection = TextSelection.fromPosition(
-                TextPosition(offset: _controllers[index].text.length),
-              );
-            },
-            onSubmitted: (_) {
-              if (index < 5) {
-                _focusNodes[index + 1].requestFocus();
-              } else {
-                _handleVerifyOTP();
-              }
-            },
-          ),
-        ).animate()
-            .scale(delay: (1300 + index * 100).ms, duration: 400.ms);
-      }),
+          ).animate()
+              .scale(delay: (1300 + index * 100).ms, duration: 400.ms);
+        }),
+      ),
     );
   }
 
@@ -482,9 +579,9 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
           )
         else
           TextButton(
-            onPressed: _isResending ? null : _handleResendCode,
+            onPressed: (_isResending || _resendAttempts >= maxAttempts) ? null : _handleResendCode,
             style: TextButton.styleFrom(
-              foregroundColor: primaryColor,
+              foregroundColor: (_resendAttempts >= maxAttempts) ? Colors.grey : primaryColor,
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             ),
             child: _isResending
@@ -502,7 +599,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                 Icon(Icons.refresh_rounded, size: 18),
                 SizedBox(width: 8),
                 Text(
-                  'Renvoyer le code',
+                  _resendAttempts >= maxAttempts ? 'Limite atteinte' : 'Renvoyer le code',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
@@ -573,6 +670,14 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
         if (res.data != null && res.data is Map) {
           errorMessage = (res.data as Map)['message'] ?? errorMessage;
         }
+        
+        // Gestion professionnelle de l'erreur 500 (souvent due à un code déjà utilisé)
+        if (errorMessage.toLowerCase().contains("internal server error") || 
+            errorMessage.contains("500") || 
+            (res.errorMsg != null && res.errorMsg!.contains("500"))) {
+          errorMessage = "Ce code est invalide ou a déjà été utilisé. Veuillez en demander un nouveau si nécessaire.";
+        }
+        
         SnackbarForCasa.error(context, errorMessage);
         
         // Effacer les champs en cas d'erreur
@@ -582,7 +687,12 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
         _focusNodes[0].requestFocus();
       }
     } catch (e) {
-      SnackbarForCasa.error(context, "Erreur technique lors de la vérification");
+      String errorMsg = "Erreur technique lors de la vérification";
+      if (e.toString().toLowerCase().contains("internal server error") || 
+          e.toString().contains("500")) {
+        errorMsg = "Ce code est invalide ou a déjà été utilisé.";
+      }
+      SnackbarForCasa.error(context, errorMsg);
       print("OTP verification error: $e");
       
       // Effacer les champs en cas d'erreur
@@ -600,10 +710,17 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   }
 
   Future<void> _handleResendCode() async {
-    if (!mounted || _isResending) return;
+    if (!mounted || _isResending || _resendAttempts >= maxAttempts) return;
+    
+    // Vérifier la limite globale de l'appareil
+    int globalCount = box.read('global_otp_count') ?? 0;
+    if (globalCount >= maxDeviceDailyRequests) {
+      SnackbarForCasa.error(context, "Limite quotidienne atteinte pour cet appareil.");
+      return;
+    }
+
     setState(() {
       _isResending = true;
-      _countdown = 60;
     });
 
     final isConnected = await NetworkUtils.checkInternetConnectivity();
@@ -620,6 +737,17 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
       if (!mounted) return;
 
       if (res.status == true && res.data != null) {
+        setState(() {
+          _resendAttempts++;
+          _countdown = 60;
+          // Sauvegarder les tentatives par numéro
+          box.write('otp_attempts_${widget.phoneNumber}', _resendAttempts);
+          
+          // Incrémenter et sauvegarder le compteur global de l'appareil
+          int currentGlobalCount = box.read('global_otp_count') ?? 0;
+          box.write('global_otp_count', currentGlobalCount + 1);
+        });
+        
         final responseData = res.data as Map<String, dynamic>;
         final message = responseData['message'] ?? "Code OTP renvoyé avec succès";
         SnackbarForCasa.success(context, message);
@@ -628,6 +756,14 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
         String errorMessage = res.data != null && res.data is Map
             ? (res.data as Map)['message'] ?? "Erreur lors de l'envoi du code"
             : res.errorMsg ?? "Erreur lors de l'envoi du code";
+            
+        // Gestion professionnelle de l'erreur 500
+        if (errorMessage.toLowerCase().contains("internal server error") || 
+            errorMessage.contains("500") || 
+            (res.errorMsg != null && res.errorMsg!.contains("500"))) {
+          errorMessage = "Le service d'envoi est momentanément indisponible. Veuillez réessayer.";
+        }
+        
         SnackbarForCasa.error(context, errorMessage);
       }
     } catch (e) {
@@ -640,6 +776,25 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
         });
       }
     }
+  }
+
+  Future<bool> _showExitConfirmation() async {
+    bool result = false;
+    await ModernModal.showConfirm(
+      context: context,
+      title: 'Quitter la vérification ?',
+      message: 'Voulez-vous vraiment annuler la vérification du code OTP ?',
+      actionLabel: 'Quitter',
+      secondaryLabel: 'Rester',
+      isDestructive: true,
+      onConfirm: () {
+        result = true;
+      },
+      onCancel: () {
+        result = false;
+      },
+    );
+    return result; 
   }
 }
 
