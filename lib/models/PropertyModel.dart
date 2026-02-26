@@ -116,6 +116,7 @@ class PropertyModel {
   List<PropertyImageRoomModel>? propertyImageRoom;
   List<PropertyImageLivingRoomModel>? propertyImageLivingRoom;
   List<PropertyImageKitchenModel>? propertyImageKitchen;
+  List<HotelRoomStructure>? hotelStructure;
 
   PropertyModel({
     this.propertyId,
@@ -192,6 +193,7 @@ class PropertyModel {
     this.propertyImageLivingRoom,
     this.propertyImageKitchen,
     this.deviseId,
+    this.hotelStructure,
   });
 
   factory PropertyModel.fromJson(Map<String, dynamic> json) {
@@ -210,6 +212,14 @@ class PropertyModel {
           break;
         }
       }
+    }
+    
+    // Support pour la structure d'hôtel (chambres)
+    List<HotelRoomStructure>? parsedStructure;
+    if (json["structure"] is List) {
+      parsedStructure = (json["structure"] as List)
+          .map((s) => HotelRoomStructure.fromJson(s))
+          .toList();
     }
 
     // 2. Identifier le noeud de données plates (title, price, price, etc.)
@@ -297,20 +307,21 @@ class PropertyModel {
       pisteDanse: _parseBool(_getVal("pisteDanse")),
 
       // NOUVELLES PROPRIÉTES STATISTIQUES
-      viewCount: _parseInt(json["viewCount"]) ?? 0,
-      favoriteCount: _parseInt(json["favoriteCount"]) ?? 0,
-      isFavorite: _parseBool(json["isFavorite"]),
-      rating: _parseDouble(json["rating"]) ?? 0.0,
-      reviewCount: _parseInt(json["reviewCount"]) ?? 0,
+      viewCount: _parseInt(json["viewCount"]) ?? _parseInt(container["viewCount"]) ?? 0,
+      favoriteCount: _parseInt(json["favoriteCount"]) ?? _parseInt(container["favoriteCount"]) ?? 0,
+      isFavorite: _parseBool(json["isFavorite"]) || _parseBool(container["isFavorite"]),
+      rating: _parseDouble(json["rating"]) ?? _parseDouble(container["rating"]) ?? 0.0,
+      reviewCount: _parseInt(json["reviewCount"]) ?? _parseInt(container["reviewCount"]) ?? 0,
 
       // NOUVELLES PROPRIÉTES MÉTADONNÉES
-      isActive: _parseBool(dataNode["isActive"]) ?? true,
-      isVerified: _parseBool(dataNode["isVerified"]) ?? false,
-      isFeatured: _parseBool(dataNode["isFeatured"]) ?? false,
-      available: _parseBool(dataNode["available"]) ?? _parseBool(json["available"]) ?? true,
+      isActive: _parseBool(dataNode["isActive"]) ?? _parseBool(container["isActive"]) ?? true,
+      isVerified: _parseBool(dataNode["isVerified"]) ?? _parseBool(container["isVerified"]) ?? false,
+      isFeatured: _parseBool(dataNode["isFeatured"]) ?? _parseBool(container["isFeatured"]) ?? false,
+      available: _parseBool(dataNode["available"]) ?? _parseBool(container["available"]) ?? _parseBool(json["available"]) ?? true,
       status: _parseString(dataNode["status"]) ?? "active",
       rejectionReason: _parseString(dataNode["rejectionReason"]),
       deviseId: _parseInt(dataNode["deviseId"]) ?? _parseInt(json["deviseId"]) ?? _parseInt(json["devise"]?["id"]),
+      hotelStructure: parsedStructure,
 
       features: (json["features"] ?? json["feature"] ?? dataNode["features"]) is List
           ? List<PropertyFeatureModel>.from(
@@ -412,6 +423,9 @@ class PropertyModel {
     "propertyImageKitchen": propertyImageKitchen == null
         ? []
         : List<dynamic>.from(propertyImageKitchen!.map((x) => x.toJson())),
+    "hotelStructure": hotelStructure == null
+        ? []
+        : List<dynamic>.from(hotelStructure!.map((x) => x.toJson())),
   };
 
   // Méthodes utilitaires
@@ -715,4 +729,83 @@ class PropertyModel {
     }
     return [];
   }
+}
+
+class HotelRoomStructure {
+  final HotelRoomModel? chambre;
+  final List<PropertyImageModel>? images;
+
+  HotelRoomStructure({this.chambre, this.images});
+
+  factory HotelRoomStructure.fromJson(Map<String, dynamic> json) {
+    return HotelRoomStructure(
+      chambre: json["chambre"] != null ? HotelRoomModel.fromJson(json["chambre"]) : null,
+      images: (json["image"] ?? json["images"]) != null 
+          ? ((json["image"] ?? json["images"]) as List).map((i) => PropertyImageModel.fromJson(Map<String, dynamic>.from(i))).toList()
+          : [],
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    "chambre": chambre?.toJson(),
+    "image": images == null ? [] : List<dynamic>.from(images!.map((x) => x.toJson())),
+  };
+}
+
+class HotelRoomModel {
+  final int? id;
+  final int? hotelId;
+  final int? deviseId;
+  final String? title;
+  final String? description;
+  final int? numberPiece;
+  final double? price;
+  final String? priceHeure;
+  final String? createdAt;
+  final String? updatedAt;
+  final bool? available;
+
+  HotelRoomModel({
+    this.id,
+    this.hotelId,
+    this.deviseId,
+    this.title,
+    this.description,
+    this.numberPiece,
+    this.price,
+    this.priceHeure,
+    this.createdAt,
+    this.updatedAt,
+    this.available,
+  });
+
+  factory HotelRoomModel.fromJson(Map<String, dynamic> json) {
+    return HotelRoomModel(
+      id: json["id"],
+      hotelId: json["hotelId"],
+      deviseId: json["deviseId"],
+      title: json["title"],
+      description: json["description"],
+      numberPiece: json["numberPiece"],
+      price: json["price"] != null ? (json["price"] as num).toDouble() : 0.0,
+      priceHeure: json["priceHeure"],
+      createdAt: json["createdAt"],
+      updatedAt: json["updatedAt"],
+      available: json["available"] == null ? true : (json["available"] is bool ? json["available"] : json["available"] == 1),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    "id": id,
+    "hotelId": hotelId,
+    "deviseId": deviseId,
+    "title": title,
+    "description": description,
+    "numberPiece": numberPiece,
+    "price": price,
+    "priceHeure": priceHeure,
+    "createdAt": createdAt,
+    "updatedAt": updatedAt,
+    "available": available,
+  };
 }
