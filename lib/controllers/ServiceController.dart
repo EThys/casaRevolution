@@ -16,6 +16,8 @@ class ServiceController with ChangeNotifier {
 
   GetStorage? stockage;
   bool loading = false;
+  int currentPage = 0;
+  bool hasMoreData = true;
   List<ServiceModel> services = [];
   ServiceModel? currentService;
   Map<int, String> serviceIdToNameMap = {};
@@ -24,9 +26,10 @@ class ServiceController with ChangeNotifier {
   String getServiceName(int? serviceId) {
     if (serviceId == null) return 'Prestation';
     final name = serviceIdToNameMap[serviceId];
-    if (name != null && name.isNotEmpty) {
-      // Capitalize first letter
-      return name[0].toUpperCase() + name.substring(1);
+    if (name != null && name.trim().isNotEmpty) {
+      // Capitalize first letter, rest lowercase
+      final cleanName = name.trim().toLowerCase();
+      return cleanName[0].toUpperCase() + cleanName.substring(1);
     }
     // Fallback: try to find generic name if map is empty (maybe reload?)
     return 'Prestation';
@@ -680,16 +683,60 @@ class ServiceController with ChangeNotifier {
     }
   }
 
-  // Récupérer toutes les prestations (avec cache SQLite)
-  Future<List<PrestationModel>> fetchAllPrestations() async {
+  PrestationModel _parsePrestation(dynamic e) {
     try {
+      // La structure API est : {"prestation": {...}, "image": [...]}
+      Map<String, dynamic> prestationData;
+      List<String> images = [];
+      
+      if (e is Map<String, dynamic> && e.containsKey('prestation')) {
+        prestationData = e['prestation'] as Map<String, dynamic>;
+        // Injecter postBy dans les données de prestation si présent à la racine
+        if (e.containsKey('postBy')) {
+          prestationData['postBy'] = e['postBy'];
+        }
+        // Extraire les images
+        if (e.containsKey('image') && e['image'] is List) {
+          images = (e['image'] as List).map((img) {
+            if (img is String) return img;
+            if (img is Map) return img['path'] ?? img['url'] ?? '';
+            return '';
+          }).where((path) => path.isNotEmpty).cast<String>().toList();
+        }
+      } else {
+        prestationData = e as Map<String, dynamic>;
+      }
+      
+      final prestation = PrestationModel.fromJson(prestationData);
+      prestation.images = images.isNotEmpty ? images : null;
+      return prestation;
+    } catch (e) {
+      print("Erreur lors du parsing d'une prestation: $e");
+      return PrestationModel();
+    }
+  }
+
+  // Récupérer toutes les prestations (avec cache SQLite)
+  Future<List<PrestationModel>> fetchAllPrestations({int page = 0, int size = 15, bool isLoadMore = false}) async {
+    try {
+      if (!isLoadMore) {
+        currentPage = 0;
+        hasMoreData = true;
+      }
+
       final dbHelper = PrestationDatabaseHelper.instance;
       
-      // D'abord, charger depuis le cache local
-      List<PrestationModel> cachedPrestations = await dbHelper.getAllPrestations();
+      // D'abord, charger depuis le cache local (uniquement au premier chargement)
+      if (!isLoadMore && page == 0) {
+        List<PrestationModel> cachedPrestations = await dbHelper.getAllPrestations();
+        if (cachedPrestations.isNotEmpty) {
+          prestations = cachedPrestations;
+          notifyListeners();
+        }
+      }
       
-      // Ensuite, charger depuis l'API et mettre à jour le cache
-      final url = Endpoints.prestations;
+      // Ensuite, charger depuis l'API
+      final url = "${Endpoints.prestations}?page=${isLoadMore ? currentPage + 1 : page}&size=$size";
       String? token = stockage?.read(StockageKeys.tokenKey);
       var response = await getData(url, token: token);
 
@@ -700,90 +747,51 @@ class ServiceController with ChangeNotifier {
           prestationsData = response['prestations'];
         } else if (response.containsKey('data')) {
           prestationsData = response['data'];
+        } else if (response.containsKey('content')) {
+          prestationsData = response['content'];
         } else if (response is List) {
           prestationsData = response;
         }
 
-        print("📊 [ServiceController] fetchAllPrestations - Type de données: ${prestationsData.runtimeType}");
-        
         if (prestationsData is List) {
           final apiPrestations = prestationsData
               .where((e) => e != null)
-              .map<PrestationModel>((e) {
-            try {
-              // La structure API est : {"prestation": {...}, "image": [...]}
-              Map<String, dynamic> prestationData;
-              List<String> images = [];
-              
-              if (e is Map<String, dynamic> && e.containsKey('prestation')) {
-                prestationData = e['prestation'] as Map<String, dynamic>;
-                 // Injecter postBy dans les données de prestation si présent à la racine
-                if (e.containsKey('postBy')) {
-                  prestationData['postBy'] = e['postBy'];
-                }
-                // Extraire les images
-                if (e.containsKey('image') && e['image'] is List) {
-                  images = (e['image'] as List).map((img) {
-                    if (img is String) return img;
-                    if (img is Map) return img['path'] ?? img['url'] ?? '';
-                    return '';
-                  }).where((path) => path.isNotEmpty).cast<String>().toList();
-                }
-              } else {
-                prestationData = e as Map<String, dynamic>;
-              }
-              
-              final prestation = PrestationModel.fromJson(prestationData);
-              prestation.images = images.isNotEmpty ? images : null;
-              
-              // Debug: vérifier les images
-              if (prestation.images != null && prestation.images!.isNotEmpty) {
-                print("✅ [ServiceController] Prestation ${prestation.id} a ${prestation.images!.length} image(s): ${prestation.images!.take(2).join(', ')}");
-              } else {
-                print("⚠️ [ServiceController] Prestation ${prestation.id} n'a pas d'images (extracted: ${images.length})");
-              }
-              
-              return prestation;
-            } catch (e) {
-              print("Erreur lors du parsing d'une prestation: $e");
-              return PrestationModel();
-            }
-          })
+              .map<PrestationModel>((e) => _parsePrestation(e))
               .where((prestation) => prestation.id != null)
               .toList();
           
-          print("🔄 [ServiceController] NETTOYAGE du cache - ${cachedPrestations.length} prestations en cache");
-          // Mettre à jour le cache - TOUJOURS vider le cache avant de réinsérer
-          await dbHelper.clearAllPrestations();
-          print("✅ [ServiceController] Cache vidé, insertion de ${apiPrestations.length} nouvelles prestations");
-          await dbHelper.insertOrUpdatePrestations(apiPrestations);
-          prestations = apiPrestations;
+          if (isLoadMore) {
+             final existingIds = prestations.map((p) => p.id).toSet();
+             final newItems = apiPrestations.where((p) => !existingIds.contains(p.id)).toList();
+             prestations.addAll(newItems);
+             currentPage++;
+          } else {
+             // Mettre à jour le cache uniquement sur le refresh complet (page 0)
+             await dbHelper.clearAllPrestations();
+             await dbHelper.insertOrUpdatePrestations(apiPrestations);
+             prestations = apiPrestations;
+          }
+
+          // Gérer le hasMoreData (format Spring Pageable)
+          if (response is Map && response.containsKey('last')) {
+            hasMoreData = !(response['last'] as bool);
+          } else {
+            hasMoreData = apiPrestations.length >= size;
+          }
+
           notifyListeners();
           return apiPrestations;
         } else {
-          print("⚠️ [ServiceController] prestationsData n'est pas une List, type: ${prestationsData.runtimeType}");
+          print("⚠️ [ServiceController] prestationsData n'est pas une List");
+          hasMoreData = false;
         }
-      } else {
-        print("⚠️ [ServiceController] Response null ou format invalide");
       }
-      
-      // Retourner le cache si l'API n'a pas retourné de données valides
-      prestations = cachedPrestations;
-      notifyListeners();
-      return cachedPrestations;
+      return prestations;
     } catch (e) {
       print("Erreur lors de la récupération des prestations: $e");
-      // En cas d'erreur, retourner le cache
-      try {
-        final dbHelper = PrestationDatabaseHelper.instance;
-        final cachedPrestations = await dbHelper.getAllPrestations();
-        prestations = cachedPrestations;
-        notifyListeners();
-        return cachedPrestations;
-      } catch (e2) {
-        print("Erreur lors du chargement du cache: $e2");
-        return [];
-      }
+      return prestations;
+    } finally {
+      notifyListeners();
     }
   }
 
