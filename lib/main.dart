@@ -28,5 +28,5 @@ void main() async {
   // Initialize ConnectivityService to start listening for network changes
   ConnectivityService().initialize();
   
-  initializeDateFormatting().then((_) => runApp(MonApplication()));
+  initializeDateFormatting('fr_FR', null).then((_) => runApp(MonApplication()));
 }
