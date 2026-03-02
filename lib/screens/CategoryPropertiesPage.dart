@@ -988,6 +988,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         ),
                         child: FavoriteHeartIcon(
                           propertyId: property.propertyId.toString(),
+                          propertyTypeId: property.propertyTypeId,
                           size: 20,
                           splashRadius: 18,
                           activeColor: Colors.red,
@@ -1364,6 +1365,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                           ),
                           child: FavoriteHeartIcon(
                             propertyId: property.propertyId.toString(),
+                            propertyTypeId: property.propertyTypeId,
                             size: 18,
                             splashRadius: 16,
                             activeColor: Colors.red,
@@ -1399,27 +1401,33 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                             Expanded(
                               child: Text(
                                 priceText,
-                                style: TextStyle(
-                                  fontSize: 12,
+                                style: const TextStyle(
+                                  fontSize: 10,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
                                 ),
                                 overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
                               ),
                             ),
+                            const SizedBox(width: 4),
                             Container(
-                              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              constraints: const BoxConstraints(maxWidth: 45),
                               decoration: BoxDecoration(
                                 color: isForRent ? Colors.blue[500] : Colors.green[500],
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 isForRent ? 'LOC' : 'VENTE',
-                                style: TextStyle(
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w700,
+                                style: const TextStyle(
+                                  fontSize: 7,
+                                  fontWeight: FontWeight.w800,
                                   color: Colors.white,
                                 ),
+                                textAlign: TextAlign.center,
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
                               ),
                             ),
                           ],
