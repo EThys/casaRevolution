@@ -199,18 +199,32 @@ class PropertyModel {
   factory PropertyModel.fromJson(Map<String, dynamic> json) {
     // 1. Identifier le conteneur principal (qui contient images, address, etc.)
     Map<String, dynamic> container = json;
+    int? inferredTypeId;
+
     if (json["property"] is Map) {
       container = json["property"];
     } else {
-      final specializedKeys = [
-        "terrain", "bureau", "bureaux", "vacance", "vacances", 
-        "festive", "festives", "funeraire", "funeraires", "hotel", "salle"
-      ];
-      for (final key in specializedKeys) {
-        if (json[key] is Map) {
-          container = json[key];
-          break;
-        }
+      if (json["terrain"] is Map) {
+        container = json["terrain"];
+        inferredTypeId = 9;
+      } else if (json["bureau"] is Map || json["bureaux"] is Map) {
+        container = json["bureau"] ?? json["bureaux"];
+        inferredTypeId = 4;
+      } else if (json["hotel"] is Map) {
+        container = json["hotel"];
+        inferredTypeId = 5;
+      } else if (json["funeraire"] is Map || json["funeraires"] is Map) {
+        container = json["funeraire"] ?? json["funeraires"];
+        inferredTypeId = 7;
+      } else if (json["festive"] is Map || json["festives"] is Map || json["salle"] is Map) {
+        container = json["festive"] ?? json["festives"] ?? json["salle"];
+        inferredTypeId = 8;
+      } else if (json["vacance"] is Map || json["vacances"] is Map) {
+        container = json["vacance"] ?? json["vacances"];
+        inferredTypeId = 11;
+      } else if (json["prestation"] is Map || json["prestations"] is Map) {
+        container = json["prestation"] ?? json["prestations"];
+        inferredTypeId = 12;
       }
     }
     
@@ -231,7 +245,7 @@ class PropertyModel {
     // Debug logging pour le support technique
     print('🔍 Parsing PropertyModel [ID: ${dataNode["propertyId"] ?? dataNode["id"]}] - Structure: ${json["property"] != null ? (container["property"] != null ? 'DOUBLE_NESTED' : 'NESTED') : 'FLAT'}');
                 
-    final dynamic imagesNode = container["images"] ?? json["images"] ?? container["propertyImage"];
+    final dynamic imagesNode = container["images"] ?? json["images"] ?? container["propertyImage"] ?? dataNode["profile"];
     final Map<String, dynamic> addressNode = container["address"] is Map ? container["address"] : (json["address"] is Map ? json["address"] : dataNode);
     final Map<String, dynamic> geoNode = container["geoZone"] is Map ? container["geoZone"] : (json["geoZone"] is Map ? json["geoZone"] : dataNode);
     final Map<String, dynamic> typeNode = container["typeProperty"] is Map ? container["typeProperty"] : (json["typeProperty"] is Map ? json["typeProperty"] : dataNode);
@@ -246,9 +260,9 @@ class PropertyModel {
       title: _parseString(dataNode["title"]),
       description: _parseString(dataNode["description"]),
       postBy: _parseString(container["postBy"]) ?? _parseString(json["postBy"]),
-      image: _parseString(container["image"]) ?? _parseString(json["image"]),
+      image: _parseString(container["image"]) ?? _parseString(json["image"]) ?? _parseString(dataNode["profile"]),
       username: _parseString(container["postBy"]) ?? _parseString(dataNode["username"]) ?? _parseString(json["username"]),
-      price: _parseDouble(dataNode["price"]) ?? 0.0,
+      price: _parseDouble(dataNode["price"]) ?? _parseDouble(dataNode["minPrice"]) ?? _parseDouble(dataNode["maxPrice"]) ?? 0.0,
       surface: _parseDouble(dataNode["surface"]) ?? 0.0,
       rooms: _parseInt(dataNode["rooms"]) ?? 0,
       bedrooms: _parseInt(dataNode["bedrooms"]) ?? 0,
@@ -274,13 +288,13 @@ class PropertyModel {
       quartier: _parseString(addressNode["quartier"]) ?? _parseString(dataNode["quartier"]),
       sold: _parseBool(dataNode["sold"]),
       transactionType: _parseString(dataNode["transactionType"]),
-      propertyTypeId: _parseInt(typeNode["propertyTypeId"]) ?? _parseInt(dataNode["propertyTypeId"]) ?? 0,
+      propertyTypeId: _parseInt(typeNode["propertyTypeId"]) ?? _parseInt(dataNode["propertyTypeId"]) ?? inferredTypeId ?? 0,
       
       propertyType: typeNode.isNotEmpty && typeNode["propertyTypeId"] != null
           ? PropertyTypeModel.fromJson(typeNode)
           : (dataNode["propertyType"] is Map<String, dynamic>
               ? PropertyTypeModel.fromJson(dataNode["propertyType"])
-              : null),
+              : (inferredTypeId != null ? PropertyTypeModel(propertyTypeId: inferredTypeId) : null)),
 
       userId: _parseInt(dataNode["userId"]) ?? 
               _parseInt(json["userId"]) ?? 
@@ -514,7 +528,11 @@ class PropertyModel {
     return features!.map((feature) => feature.name ?? "").where((name) => name.isNotEmpty).toList();
   }
 
-  String get currency => (deviseId == 1) ? "FC" : "\$";
+  String get currency {
+    if (deviseId == 1) return "FC";
+    if (deviseId == 2) return "\$";
+    return "\$"; // Fallback par défaut
+  }
 
   @override
   String toString() {
@@ -670,6 +688,9 @@ class PropertyModel {
   static List<PropertyImageModel> _parseImages(dynamic data) {
     if (data == null) return [];
     try {
+      if (data is String) {
+        return [PropertyImageModel(path: data)];
+      }
       if (data is List) {
         return List<PropertyImageModel>.from(data.where((x) => x != null).map((x) {
              if (x is String) return PropertyImageModel(path: x);
