@@ -345,7 +345,8 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                           top: 8,
                           right: 8,
                           child: FavoriteHeartIcon(
-                            propertyId: 'service_${service.serviceId}',
+                            propertyId: '${service.id}',
+                            isPrestation: true,
                             size: 20,
                             splashRadius: 18,
                             activeColor: Colors.red,
@@ -592,7 +593,8 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                         top: 12,
                         right: 12,
                         child: FavoriteHeartIcon(
-                          propertyId: 'service_${service.id}',
+                          propertyId: service.id.toString(),
+                          isPrestation: true,
                           size: 24,
                           splashRadius: 20,
                           activeColor: Colors.red,
