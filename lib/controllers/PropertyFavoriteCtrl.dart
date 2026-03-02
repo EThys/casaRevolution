@@ -29,6 +29,7 @@ class PropertyFavoriteCtrl with ChangeNotifier {
     final urlTerrain = "${Endpoints.favoriteTerrainByUser}/$userId";
     final urlVacance = "${Endpoints.favoriteVacanceByUser}/$userId";
     final urlPrestation = "${Endpoints.favoritePrestationByUser}/$userId";
+    final urlBureau = "${Endpoints.favoriteBureauByUser}/$userId";
 
     loading = true;
     notifyListeners();
@@ -43,6 +44,7 @@ class PropertyFavoriteCtrl with ChangeNotifier {
         getData(urlTerrain, token: tkn),    // 4: Terrain
         getData(urlVacance, token: tkn),    // 5: Vacance
         getData(urlPrestation, token: tkn), // 6: Prestation
+        getData(urlBureau, token: tkn),     // 7: Bureau
       ]);
 
       print("API Responses received: ${results.length}");
@@ -62,17 +64,43 @@ class PropertyFavoriteCtrl with ChangeNotifier {
           List<dynamic>? list;
           if (response is Map) {
             final mapResponse = Map<String, dynamic>.from(response);
-            if (mapResponse['favorites'] is List) {
-              list = mapResponse['favorites'];
-            } else if (mapResponse['favorite'] is List) {
-              list = mapResponse['favorite'];
-            } else if (mapResponse['favorite'] is Map) {
-              final fav = PropertyFavoriteModel.fromJson(Map<String, dynamic>.from(mapResponse['favorite']));
-              if (fav.property != null) parsed.add(fav);
-            } else if (mapResponse.containsKey('propertyId') || mapResponse.containsKey('id')) {
-              // Tentative de parse direct si l'objet ressemble à un favori
-              final fav = PropertyFavoriteModel.fromJson(mapResponse);
-              if (fav.property != null) parsed.add(fav);
+            
+            // Priorité aux clés connues
+            final knownKeys = [
+              'favorites', 'favorite', 'terrain', 'bureau', 'bureaux', 
+              'festive', 'festives', 'funeraire', 'funeraires', 
+              'hotel', 'hotels', 'vacance', 'vacances', 
+              'prestation', 'prestations', 'content', 'data'
+            ];
+
+            for (var key in knownKeys) {
+              if (mapResponse[key] is List) {
+                list = mapResponse[key];
+                // print("📍 [$source] Found list under key: '$key' (${list?.length} items)");
+                break;
+              }
+            }
+
+            // Si aucune clé connue, chercher la PEMIÈRE liste trouvée dans le Map
+            if (list == null) {
+              for (var value in mapResponse.values) {
+                if (value is List) {
+                  list = value;
+                  // print("📍 [$source] Found list under unknown key (${list.length} items)");
+                  break;
+                }
+              }
+            }
+
+            // Si c'est un objet unique (favori seul ou propriété seule)
+            if (list == null) {
+              if (mapResponse.containsKey('propertyId') || mapResponse.containsKey('id') || mapResponse.containsKey('title')) {
+                final fav = PropertyFavoriteModel.fromJson(mapResponse);
+                if (fav.property != null) parsed.add(fav);
+              } else if (mapResponse['favorite'] is Map) {
+                 final fav = PropertyFavoriteModel.fromJson(Map<String, dynamic>.from(mapResponse['favorite']));
+                 if (fav.property != null) parsed.add(fav);
+              }
             }
           } else if (response is List) {
             list = response;
@@ -82,7 +110,9 @@ class PropertyFavoriteCtrl with ChangeNotifier {
             for (var item in list) {
               if (item is Map) {
                 final fav = PropertyFavoriteModel.fromJson(Map<String, dynamic>.from(item));
-                if (fav.property != null) {
+                // Accepter si property OU prestation a pu être construit
+                if ((fav.property != null && fav.property!.propertyId != null) ||
+                    (fav.prestation != null && fav.prestation!.id != null)) {
                   parsed.add(fav);
                 }
               }
@@ -93,14 +123,16 @@ class PropertyFavoriteCtrl with ChangeNotifier {
         }
         
         if (parsed.isNotEmpty) {
-          print("✅ [$source] Found ${parsed.length} valid favorites");
+          print("✅ [$source] Found ${parsed.length} favorites");
+        } else if (response != null) {
+          // print("ℹ️ [$source] No favorites found in response");
         }
         return parsed;
       }
 
       // 3. Aggréger
       final sources = [
-        "Main", "Hotel", "Festive", "Funeraire", "Terrain", "Vacance", "Prestation"
+        "Main", "Hotel", "Festive", "Funeraire", "Terrain", "Vacance", "Prestation", "Bureau"
       ];
       
       for (int i = 0; i < results.length; i++) {
@@ -113,6 +145,13 @@ class PropertyFavoriteCtrl with ChangeNotifier {
       for (var fav in aggregatedFavorites) {
         await _dbHelper.insertOrUpdateFavorite(fav, userId);
       }
+
+      // 5. Trier par ID décroissant pour avoir le dernier ajouté au dessus
+      aggregatedFavorites.sort((a, b) {
+        int idA = a.propertyFavoriteId ?? 0;
+        int idB = b.propertyFavoriteId ?? 0;
+        return idB.compareTo(idA);
+      });
 
       propertyFavorites = aggregatedFavorites;
 
@@ -157,6 +196,7 @@ class PropertyFavoriteCtrl with ChangeNotifier {
       final id = item['id'] as int;
       final propertyId = item['propertyId'] as String;
       final action = item['action'] as String;
+      final propertyTypeId = item['propertyTypeId'] as int?;
       
       // THROTTLING: Petit délai pour ne pas spammer le serveur
       await Future.delayed(Duration(milliseconds: 1000));
@@ -164,14 +204,14 @@ class PropertyFavoriteCtrl with ChangeNotifier {
       bool success = false;
       try {
         if (action == 'ADD') {
-          success = await _performAddFavoriteApi(userId, propertyId);
+          success = await _performAddFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId);
         } else if (action == 'REMOVE') {
-          success = await _performRemoveFavoriteApi(userId, propertyId);
+          success = await _performRemoveFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId);
         }
         
         if (success) {
           await _dbHelper.removeFromQueue(id);
-          print("✅ [PropertyFavoriteCtrl] Élément de file traité et supprimé: $action $propertyId");
+          print("✅ [PropertyFavoriteCtrl] Élément de file traité et supprimé: $action $propertyId (Type: $propertyTypeId)");
         }
       } catch (e) {
         print("❌ [PropertyFavoriteCtrl] Échec synchro item $id: $e");
@@ -197,7 +237,7 @@ class PropertyFavoriteCtrl with ChangeNotifier {
   }
 
   // API Call interne sans logique de queue
-  Future<bool> _performAddFavoriteApi(String userId, String propertyId, {int? propertyTypeId}) async {
+  Future<bool> _performAddFavoriteApi(String userId, String propertyId, {int? propertyTypeId, bool isPrestation = false}) async {
     final token = stockage?.read<String>(StockageKeys.tokenKey);
     if (token == null) throw Exception('Token non disponible');
     
@@ -206,53 +246,51 @@ class PropertyFavoriteCtrl with ChangeNotifier {
     final uid = int.tryParse(userId);
     final pid = int.tryParse(propertyId);
 
-    // Default body
-    data = {
-      "userId": uid,
-      "propertyId": pid,
-    };
+    // Si c'est une prestation, on utilise l'endpoint et le body spécifiques
+    if (isPrestation) {
+      url = Endpoints.favoritePrestation;
+      data = {
+        "userId": uid,
+        "prestationId": pid,
+      };
+    } else {
+      // Pour les propriétés classiques
+      data = {
+        "userId": uid,
+        "propertyId": pid,
+      };
 
-    if (propertyTypeId != null) {
-       switch (propertyTypeId) {
-         case 5: // Hotel
-           url = Endpoints.favoriteHotel;
-           data = {"userId": uid, "hotelId": pid};
-           break;
-         case 7: // Funeraire
-           url = Endpoints.favoriteFuneraire;
-           data = {"userId": uid, "funeraireId": pid};
-           break;
-         case 8: // Festive
-           url = Endpoints.favoriteFestive;
-           data = {"userId": uid, "festId": pid};
-           break;
-         case 9: // Terrain
-           url = Endpoints.favoriteTerrain;
-           data = {"userId": uid, "terrainId": pid};
-           break;
-         // Case for Vacance? Assuming it shares ID logic or uses propertyTypeId specific to it.
-         // If "Vacance" is a type, mapped to ?
-         // For now, if user says "vacance", we need to know its ID.
-         // Let's assume ID 11? Or is it part of properties?
-         // If generic property, it uses default.
-         case 11: // Vacance (Hypothetical ID, check consts if available)
-            url = Endpoints.favoriteVacance;
-            data = {"userId": uid, "terrainId": pid}; // User said terrainId for vacance... suspicious but following order.
-            break;
-            
-         // Prestation?
-         case 12: // Prestation (Hypothetical) 
-            url = Endpoints.favoritePrestation;
-            data = {"userId": uid, "prestationId": pid};
-            break;
-       }
+      if (propertyTypeId != null) {
+         switch (propertyTypeId) {
+           case 4: // Bureau
+             url = Endpoints.favoriteBureau;
+             data = {"userId": uid, "bureauId": pid};
+             break;
+           case 5: // Hotel
+             url = Endpoints.favoriteHotel;
+             data = {"userId": uid, "hotelId": pid};
+             break;
+           case 7: // Funeraire
+             url = Endpoints.favoriteFuneraire;
+             data = {"userId": uid, "funeraireId": pid};
+             break;
+           case 8: // Festive
+             url = Endpoints.favoriteFestive;
+             data = {"userId": uid, "festId": pid};
+             break;
+           case 9: // Terrain
+             url = Endpoints.favoriteTerrain;
+             data = {"userId": uid, "terrainId": pid};
+             break;
+           case 11: // Vacance
+              url = Endpoints.favoriteVacance;
+              data = {"userId": uid, "vacanceId": pid};
+              break;
+         }
+      }
     }
     
-    // Fallback logic specific for implicit overrides based on IDs if type is passed but not matched above? 
-    // Actually, let's keep it simple. If it matches known types, switch.
-    
     print("AddFavorite: $url with body $data");
-
     final response = await postData(url, data, token: token);
     
     if (response.status == true) return true;
@@ -265,28 +303,69 @@ class PropertyFavoriteCtrl with ChangeNotifier {
     return false;
   }
 
-  Future<bool> _performRemoveFavoriteApi(String userId, String propertyId, {int? propertyTypeId}) async {
+  Future<bool> _performRemoveFavoriteApi(String userId, String propertyId, {int? propertyTypeId, bool isPrestation = false}) async {
     final token = stockage?.read<String>(StockageKeys.tokenKey);
     if (token == null) throw Exception('Token non disponible');
     
-    // Note: User didn't specify DELETE endpoints, assuming generic delete works by ID
-    // If specific delete endpoints exist, implement switch here too.
-    final url = "favorite/delete/$userId/$propertyId";
+    String url;
+    final uid = int.tryParse(userId);
+    final pid = int.tryParse(propertyId);
+    
+    if (isPrestation) {
+      url = "${Endpoints.favoritePrestationDelete}/$uid/$pid";
+    } else {
+      // Utiliser l'endpoint spécifique selon le type pour les propriétés classiques
+      if (propertyTypeId != null) {
+        switch (propertyTypeId) {
+          case 4: // Bureau
+            url = "${Endpoints.favoriteBureauDelete}/$uid/$pid";
+            break;
+          case 5: // Hotel
+            url = "${Endpoints.favoriteHotelDelete}/$uid/$pid";
+            break;
+          case 8: // Festive
+            url = "${Endpoints.favoriteFestiveDelete}/$uid/$pid";
+            break;
+          case 7: // Funeraire
+            url = "${Endpoints.favoriteFuneraireDelete}/$uid/$pid";
+            break;
+          case 9: // Terrain
+            url = "${Endpoints.favoriteTerrainDelete}/$uid/$pid";
+            break;
+          case 11: // Vacance
+            url = "${Endpoints.favoriteVacanceDelete}/$uid/$pid";
+            break;
+          default:
+            url = "${Endpoints.removeMyfavorites}/$uid/$pid";
+        }
+      } else {
+        url = "${Endpoints.removeMyfavorites}/$uid/$pid";
+      }
+    }
+
+    print("🗑️ [PropertyFavoriteCtrl] Appel API DELETE: $url");
     final response = await deleteData(url, token: token);
     
     if (response.status == true) return true;
+    
+    print("⚠️ [PropertyFavoriteCtrl] API Detail: Status=${response.status}, Data=${response.data}");
+    
     if (response.data != null && response.data is Map) {
          final msg = response.data['message']?.toString().toLowerCase() ?? '';
          if (msg.contains('deleted') || msg.contains('success')) return true;
+         if (msg.contains('not found') || msg.contains('aucun')) {
+           print("ℹ️ [PropertyFavoriteCtrl] Déjà supprimé ou inexistant sur le serveur");
+           return true; 
+         }
     }
     return false;
   }
 
-  Future<bool> addFavorite(String userId, String propertyId, {int? propertyTypeId}) async {
-    print("❤️ [PropertyFavoriteCtrl] Début addFavorite - userId: $userId, propertyId: $propertyId, type: $propertyTypeId");
+  Future<bool> addFavorite(String userId, String propertyId, {int? propertyTypeId, bool isPrestation = false}) async {
+    print("❤️ [PropertyFavoriteCtrl] Début addFavorite - userId: $userId, propertyId: $propertyId, type: $propertyTypeId, isPrestation: $isPrestation");
     
     try {
-      final success = await _performAddFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId);
+      final success = await _performAddFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId, isPrestation: isPrestation);
       
       if (success) {
         print("✅ [PropertyFavoriteCtrl] API Success: Favorite added");
@@ -304,23 +383,23 @@ class PropertyFavoriteCtrl with ChangeNotifier {
                            e.toString().contains("Network is unreachable");
 
       if (isNetworkError) {
-        print("🌐 [PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente ADD");
-        await _dbHelper.enqueueAction(userId, propertyId, 'ADD');
+        print("🌐 [PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente ADD (Type: $propertyTypeId)");
+        await _dbHelper.enqueueAction(userId, propertyId, 'ADD', propertyTypeId: propertyTypeId);
         return true;
       }
       rethrow;
     }
   }
 
-  Future<bool> removeFavorite(String userId, String propertyId, {int? propertyTypeId}) async {
-    print("🗑️ [PropertyFavoriteCtrl] Début removeFavorite - userId: $userId, propertyId: $propertyId, type: $propertyTypeId");
+  Future<bool> removeFavorite(String userId, String propertyId, {int? propertyTypeId, bool isPrestation = false}) async {
+    print("🗑️ [PropertyFavoriteCtrl] Début removeFavorite - userId: $userId, propertyId: $propertyId, type: $propertyTypeId, isPrestation: $isPrestation");
 
     try {
       // Suppression locale immédiate (déjà géré par Provider en optimiste, mais on nettoie la DB local)
       await _dbHelper.removeFavorite(userId, propertyId);
       
       // Appel API
-      final success = await _performRemoveFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId);
+      final success = await _performRemoveFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId, isPrestation: isPrestation);
       
       if (success) {
         print("✅ [PropertyFavoriteCtrl] Suppression API réussie");
@@ -336,8 +415,8 @@ class PropertyFavoriteCtrl with ChangeNotifier {
                            e.toString().contains("Connection refused");
 
       if (isNetworkError) {
-        print("🌐 [PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente REMOVE");
-        await _dbHelper.enqueueAction(userId, propertyId, 'REMOVE');
+        print("🌐 [PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente REMOVE (Type: $propertyTypeId)");
+        await _dbHelper.enqueueAction(userId, propertyId, 'REMOVE', propertyTypeId: propertyTypeId);
         return true; // Succès optimiste
       }
       
