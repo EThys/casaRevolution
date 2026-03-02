@@ -8,7 +8,8 @@ import '../controllers/AuthentificationCtrl.dart';
 
 class FavoriteHeartIcon extends StatefulWidget {
   final String propertyId;
-  final int? propertyTypeId; // Nouveau paramètre optionnel
+  final int? propertyTypeId;
+  final bool isPrestation;
   final double size;
   final Color? activeColor;
   final Color? inactiveColor;
@@ -19,6 +20,7 @@ class FavoriteHeartIcon extends StatefulWidget {
     super.key,
     required this.propertyId,
     this.propertyTypeId,
+    this.isPrestation = false,
     this.size = 48,
     this.activeColor = Colors.red,
     this.inactiveColor = Colors.grey,
@@ -37,12 +39,13 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
   Widget build(BuildContext context) {
     return Consumer2<FavoriteProvider, AuthentificationCtrl>(
       builder: (context, provider, authCtrl, child) {
+        final key = FavoriteProvider.generateKey(widget.propertyId, typeId: widget.propertyTypeId, isPrestation: widget.isPrestation);
         final isLoggedIn = authCtrl.token.isNotEmpty;
         final isFavorite = isLoggedIn
-            ? provider.state.isFavorite(widget.propertyId)
+            ? provider.state.favoriteStatus[key] ?? false
             : false;
         // Vérifier seulement si CETTE propriété spécifique est en chargement
-        final isLoadingThisProperty = provider.state.isLoadingProperty(widget.propertyId) || _isProcessing;
+        final isLoadingThisProperty = provider.state.loadingProperties.contains(key) || _isProcessing;
 
         return Stack(
           alignment: Alignment.center,
@@ -101,7 +104,8 @@ class _FavoriteHeartIconState extends State<FavoriteHeartIcon> {
                   await provider.toggleFavorite(
                     userId: userId,
                     propertyId: widget.propertyId,
-                    propertyTypeId: widget.propertyTypeId, // Passé au provider
+                    propertyTypeId: widget.propertyTypeId,
+                    isPrestation: widget.isPrestation,
                   );
                   
                   // Callback après succès
