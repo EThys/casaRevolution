@@ -2719,18 +2719,6 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                         ),
-                        // Bouton favoris
-                        Positioned(
-                          top: 12,
-                          right: 12,
-                          child: FavoriteHeartIcon(
-                            propertyId: 'service_${service.id}',
-                            size: 24,
-                            splashRadius: 20,
-                            activeColor: Colors.red,
-                            inactiveColor: Colors.white,
-                          ),
-                        ),
                         Container(
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
@@ -2867,6 +2855,20 @@ class _HomePageState extends State<HomePage> {
                             ],
                           ),
                         ),
+                        // Favorite Button
+                        if (service.id != null)
+                          Positioned(
+                            top: 12,
+                            right: 12,
+                            child: FavoriteHeartIcon(
+                              propertyId: service.id.toString(),
+                              isPrestation: true,
+                              size: 24,
+                              splashRadius: 20,
+                              activeColor: Colors.red,
+                              inactiveColor: Colors.white,
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -3776,6 +3778,7 @@ class _HomePageState extends State<HomePage> {
                               if (property.propertyId != null)
                                 FavoriteHeartIcon(
                                   propertyId: property.propertyId.toString(),
+                                  propertyTypeId: property.propertyTypeId,
                                   size: 24,
                                   splashRadius: 20,
                                   activeColor: Colors.red,
