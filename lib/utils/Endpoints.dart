@@ -85,7 +85,7 @@ class Endpoints {
   static const String allFavories = "favorite";
   static const String AddFavorite = "favorite";
   static const String getMyfavorites = "favorite/user";
-  static const String removeMyfavorites = "favorite/user/delete";
+  static const String removeMyfavorites = "favorite/delete";
 
   // Specific Favorites
   static const String favoriteHotel = "hotel/favorite";
@@ -94,6 +94,7 @@ class Endpoints {
   static const String favoritePrestation = "prestation/favorite";
   static const String favoriteFuneraire = "funeraire/favorite";
   static const String favoriteTerrain = "terrain/favorite";
+  static const String favoriteBureau = "bureau/favorite";
 
   // Specific Favorites GET by User
   static const String favoriteHotelByUser = "hotel/favorite/user";
@@ -102,6 +103,16 @@ class Endpoints {
   static const String favoritePrestationByUser = "prestation/favorite/user";
   static const String favoriteFuneraireByUser = "funeraire/favorite/user";
   static const String favoriteTerrainByUser = "terrain/favorite/user";
+  static const String favoriteBureauByUser = "bureau/favorite/user";
+
+  // Specific Favorites DELETE
+  static const String favoriteHotelDelete = "hotel/favorite/delete";
+  static const String favoriteFestiveDelete = "festive/favorite/delete";
+  static const String favoriteVacanceDelete = "vacance/favorite/delete";
+  static const String favoritePrestationDelete = "prestation/favorite/delete";
+  static const String favoriteFuneraireDelete = "funeraire/favorite/delete";
+  static const String favoriteTerrainDelete = "terrain/favorite/delete";
+  static const String favoriteBureauDelete = "bureau/favorite/delete";
 
   // Visit Endpoints
   static const String allReservations = "reservations/";
