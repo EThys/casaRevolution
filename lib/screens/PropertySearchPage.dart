@@ -1934,6 +1934,32 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                     ),
                   ),
                 ),
+                // Bouton favoris en haut à droite
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.9),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 4,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: FavoriteHeartIcon(
+                      propertyId: '${service.id}',
+                      isPrestation: true,
+                      size: 20,
+                      splashRadius: 18,
+                      activeColor: Colors.red,
+                      inactiveColor: _greyColor,
+                    ),
+                  ),
+                ),
               ],
             ),
             Expanded(
@@ -2461,6 +2487,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         if (property.propertyId != null)
                           FavoriteHeartIcon(
                             propertyId: property.propertyId.toString(),
+                            propertyTypeId: property.propertyTypeId,
                             size: 24,
                             splashRadius: 20,
                           ),
