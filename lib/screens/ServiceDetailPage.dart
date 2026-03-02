@@ -206,12 +206,13 @@ Découvrez ce service sur Casa!
               // Bouton favoris
               Container(
                 margin: EdgeInsets.only(right: 8),
-                child: FavoriteHeartIcon(
-                  propertyId: widget.service.id.toString(),
-                  size: 24,
-                  activeColor: Colors.red,
-                  inactiveColor: Colors.white,
-                ),
+              child: FavoriteHeartIcon(
+                propertyId: widget.service.id.toString(),
+                isPrestation: true,
+                size: 24,
+                activeColor: Colors.red,
+                inactiveColor: Colors.white,
+              ),
               ),
               // Bouton partager
               IconButton(
