@@ -4,10 +4,11 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../models/PropertyFavoriteModel.dart';
+import '../../models/PrestationModel.dart';
 
 class FavoriteDatabaseHelper {
   static const _databaseName = "favorites.db";
-  static const _databaseVersion = 1;
+  static const _databaseVersion = 2;
   static const table = 'favorites';
 
   static const columnId = 'id';
@@ -32,6 +33,7 @@ class FavoriteDatabaseHelper {
       path,
       version: _databaseVersion,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -59,21 +61,29 @@ class FavoriteDatabaseHelper {
         $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
         $columnUserId INTEGER NOT NULL,
         propertyId TEXT NOT NULL,
+        propertyTypeId INTEGER,
         $columnAction TEXT NOT NULL,
         $columnTimestamp INTEGER NOT NULL
       )
     ''');
   }
 
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE $tableQueue ADD COLUMN propertyTypeId INTEGER');
+    }
+  }
+
   // MÉTHODES POUR LA FILE D'ATTENTE (QUEUE)
   
-  Future<int> enqueueAction(String userId, String propertyId, String action) async {
+  Future<int> enqueueAction(String userId, String propertyId, String action, {int? propertyTypeId}) async {
     final db = await database;
     return await db.insert(
       tableQueue,
       {
         columnUserId: int.tryParse(userId) ?? 0,
         'propertyId': propertyId,
+        'propertyTypeId': propertyTypeId,
         columnAction: action,
         columnTimestamp: DateTime.now().millisecondsSinceEpoch,
       },
@@ -125,23 +135,32 @@ class FavoriteDatabaseHelper {
   Future<int> insertOrUpdateFavorite(PropertyFavoriteModel favorite, String userId) async {
     final db = await database;
 
-    // Utiliser le userId passé en paramètre au lieu de favorite.userId
     final int userIdInt = int.tryParse(userId) ?? 0;
     if (userIdInt == 0) {
       print('❌ ERROR: Invalid userId: $userId');
-      // On ne lance pas d'exception pour éviter de crasher l'app en prod, juste log
       return 0; 
     }
 
-    // Convertir le property en JSON pour le stocker
-    final propertyJson = favorite.property?.toJson() ?? {};
+    // Sérialiser property OU prestation selon ce qui est présent
+    Map<String, dynamic> dataJson = {};
+    if (favorite.prestation != null) {
+      // Stocker la prestation avec un flag pour la distinguer
+      dataJson = {
+        '__type': 'prestation',
+        'prestation': favorite.prestation!.toJson(),
+        'favoriteId': favorite.propertyFavoriteId,
+        'userId': userIdInt,
+      };
+    } else if (favorite.property != null) {
+      dataJson = favorite.property!.toJson();
+    }
 
     return await db.insert(
       table,
       {
         columnId: favorite.propertyFavoriteId,
-        columnUserId: userIdInt, // ← Utiliser le userId passé en paramètre
-        columnData: jsonEncode(propertyJson),
+        columnUserId: userIdInt,
+        columnData: jsonEncode(dataJson),
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -153,10 +172,31 @@ class FavoriteDatabaseHelper {
       table,
       where: '$columnUserId = ?',
       whereArgs: [userId],
+      orderBy: '$columnId DESC',
     );
 
     return List.generate(maps.length, (i) {
-      return PropertyFavoriteModel.fromJson(jsonDecode(maps[i][columnData]));
+      final rowId = maps[i][columnId] as int?;
+      final data = jsonDecode(maps[i][columnData]) as Map<String, dynamic>;
+      // Reconstruire depuis la structure stockée
+      if (data['__type'] == 'prestation' && data['prestation'] != null) {
+        return PropertyFavoriteModel(
+          propertyFavoriteId: rowId,
+          userId: int.tryParse(userId),
+          prestation: PrestationModel.fromJson(Map<String, dynamic>.from(data['prestation'])),
+        );
+      }
+      final fav = PropertyFavoriteModel.fromJson(data);
+      if (fav.propertyFavoriteId == null) {
+        return PropertyFavoriteModel(
+          propertyFavoriteId: rowId,
+          userId: fav.userId,
+          propertyId: fav.propertyId,
+          property: fav.property,
+          prestation: fav.prestation,
+        );
+      }
+      return fav;
     });
   }
 
@@ -164,8 +204,8 @@ class FavoriteDatabaseHelper {
     final db = await database;
     return await db.delete(
       table,
-      where: '$columnUserId = ? AND $columnData LIKE ?',
-      whereArgs: [userId, '%"PropertyId":"$propertyId"%'],
+      where: '$columnUserId = ? AND ($columnData LIKE ? OR $columnData LIKE ?)',
+      whereArgs: [userId, '%"propertyId":$propertyId%', '%"PropertyId":"$propertyId"%'],
     );
   }
 
@@ -177,19 +217,28 @@ class FavoriteDatabaseHelper {
     final favorites = await getFavoritesByUser(userId);
     for (var favorite in favorites) {
       if (favorite.property?.propertyId.toString() == propertyId) {
-        return await db.delete(
-          table,
-          where: '$columnId = ? AND $columnUserId = ?',
-          whereArgs: [favorite.propertyFavoriteId, userId],
-        );
+        if (favorite.propertyFavoriteId != null) {
+          return await db.delete(
+            table,
+            where: '$columnId = ? AND $columnUserId = ?',
+            whereArgs: [favorite.propertyFavoriteId, userId],
+          );
+        } else {
+          // Si l'ID est null, on tente par le contenu JSON
+          return await db.delete(
+            table,
+            where: '$columnUserId = ? AND $columnData LIKE ?',
+            whereArgs: [userId, '%"propertyId":$propertyId%'],
+          );
+        }
       }
     }
 
-    // Méthode alternative si la première ne fonctionne pas
+    // Méthode alternative si la première ne fonctionne pas (recherche large dans le JSON)
     return await db.delete(
       table,
-      where: '$columnUserId = ? AND $columnData LIKE ?',
-      whereArgs: [userId, '%"propertyId":$propertyId%'],
+      where: '$columnUserId = ? AND ($columnData LIKE ? OR $columnData LIKE ?)',
+      whereArgs: [userId, '%"propertyId":$propertyId%', '%"PropertyId":$propertyId%'],
     );
   }
 
