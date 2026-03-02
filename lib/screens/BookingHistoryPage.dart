@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/models/ReservationModel.dart';
+import 'package:open_file/open_file.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
@@ -43,7 +44,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   final GetStorage _storage = GetStorage();
   bool _isLoading = false;
   List<String> _cancellingIds = [];
-  bool _isGridView = false; // Toggle pour vue liste/grille
+  bool _isGridView = true;
 
   // Host Logic
   bool _isHostView = false;
@@ -1237,6 +1238,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               ),
                               child: FavoriteHeartIcon(
                                 propertyId: reservation.property!.propertyId.toString(),
+                                propertyTypeId: reservation.property!.propertyTypeId,
                                 size: 20,
                                 splashRadius: 18,
                                 activeColor: Colors.red,
@@ -2048,61 +2050,62 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   ),
                 SizedBox(height: 15),
 
-                // Actions
+                // Boutons Partager et Télécharger (disponibles pour tous les statuts)
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async => await _shareReservationPdf(reservation),
+                        icon: Icon(Icons.ios_share_rounded, color: _primaryColor),
+                        label: Text(
+                          "Partager",
+                          style: TextStyle(
+                            color: _darkColor.withOpacity(0.9),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          side: BorderSide(
+                            color: _primaryColor.withOpacity(0.3),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async => await _downloadReservationPdf(reservation),
+                        icon: Icon(Icons.download_rounded, color: _primaryColor),
+                        label: Text(
+                          "Télécharger",
+                          style: TextStyle(
+                            color: _darkColor.withOpacity(0.9),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          side: BorderSide(
+                            color: _primaryColor.withOpacity(0.3),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 12),
+
+                // Actions spécifiques au statut
                 if (isPending)
                   Column(
                     children: [
-                      // Boutons Partager et Télécharger
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async => await _shareReservationPdf(reservation),
-                              icon: Icon(Icons.ios_share_rounded, color: _primaryColor),
-                              label: Text(
-                                "Partager",
-                                style: TextStyle(
-                                  color: _darkColor.withOpacity(0.9),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                side: BorderSide(
-                                  color: _primaryColor.withOpacity(0.3),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async => await _downloadReservationPdf(reservation),
-                              icon: Icon(Icons.download_rounded, color: _primaryColor),
-                              label: Text(
-                                "Télécharger",
-                                style: TextStyle(
-                                  color: _darkColor.withOpacity(0.9),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                side: BorderSide(
-                                  color: _primaryColor.withOpacity(0.3),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -2640,6 +2643,16 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
   Future<Uint8List> _buildReservationPdfBytes(ReservationModel reservation) async {
     final doc = pw.Document();
+    
+    // Charger une police qui supporte l'Unicode (accents français)
+    pw.Font? ttf;
+    try {
+      final fontData = await rootBundle.load('assets/fonts/Outfit-SemiBold.ttf');
+      ttf = pw.Font.ttf(fontData);
+    } catch (e) {
+      print("Erreur chargement police PDF: $e");
+    }
+
     final now = DateFormat('dd/MM/yy HH:mm').format(DateTime.now());
     
     final property = reservation.property;
@@ -2655,7 +2668,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         : (typeAccountName.contains('commission') || typeAccountName.contains('commissionnaire')
             ? 'Commissionnaire'
             : 'Annonceur');
-
+    var publisherRoleMiniscule= publisherRole.toLowerCase();
     // Localisation enrichie - utiliser les valeurs *Value en priorité (elles contiennent les noms)
     final quartierName = (property?.quartierValue?.toString()?.isNotEmpty ?? false)
         ? property!.quartierValue!.toString()
@@ -2666,8 +2679,24 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     final cityName = property?.cityValue?.toString() ?? '';
     final countryName = property?.countryValue?.toString() ?? '';
     
+    // Nettoyage de l'adresse si c'est un String qui ressemble à une Map (cas API)
+    String getCleanAddress(dynamic rawAddress) {
+      if (rawAddress == null) return '';
+      final str = rawAddress.toString();
+      if (str.startsWith('{') && str.endsWith('}')) {
+         // Si c'est une map brute, essayer de n'extraire que le champ 'address'
+         try {
+           // On ne peut pas parser du JSON direct avec jsonDecode car ce n'est pas forcément du JSON strict (keys sans quotes)
+           // On fait un petit nettoyage manuel
+           final match = RegExp(r'address:\s?([^,}]+)').firstMatch(str);
+           if (match != null) return match.group(1)?.trim() ?? '';
+         } catch (_) {}
+      }
+      return str;
+    }
+
     final addressParts = <String>[
-      property?.address?.toString() ?? '',
+      getCleanAddress(property?.address),
       quartierName,
       communeName,
       cityName,
@@ -2675,14 +2704,56 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     ].where((e) => e.isNotEmpty).toList();
     final fullAddress = addressParts.join(', ');
 
-    // Formatage des dates
-    String formatDate(String? dateStr) {
-      if (dateStr == null) return 'Non spécifiée';
+    // Parseur de date robuste
+    DateTime? parseDate(String? dateStr) {
+      if (dateStr == null || dateStr.isEmpty) return null;
       try {
-        final date = DateTime.parse(dateStr);
-        return DateFormat('dd-MM-yyyy').format(date);
+        return DateTime.parse(dateStr);
+      } catch (_) {
+        try {
+          // Tenter le format dd-MM-yyyy
+          return DateFormat('dd-MM-yyyy').parse(dateStr);
+        } catch (_) {
+          return null;
+        }
+      }
+    }
+
+    // Formatage des dates avec jours de la semaine (ex: Mercredi le 27-02-2026)
+    String formatElegantDate(String? dateStr, {String? heureStr}) {
+      final date = parseDate(dateStr);
+      if (date == null) return dateStr ?? 'Non spécifiée';
+      try {
+        // Utilisation du format français pour le nom du jour
+        String formatted = DateFormat("EEEE 'le' dd-MM-yyyy", 'fr_FR').format(date);
+        
+        // Capitaliser la première lettre du jour
+        formatted = formatted.replaceRange(0, 1, formatted[0].toUpperCase());
+        
+        if (heureStr != null && heureStr.isNotEmpty) {
+           return "$formatted à $heureStr";
+        }
+        return formatted;
       } catch (e) {
-        return dateStr;
+        return dateStr ?? 'Non spécifiée';
+      }
+    }
+
+    // Calcul de la fin estimée (+1h)
+    String getEstimatedEnd(String? dateStr, String? heureStr) {
+      if (dateStr == null || heureStr == null || heureStr.isEmpty) return 'Non spécifiée';
+      try {
+        final timeParts = heureStr.split(':');
+        if (timeParts.length >= 2) {
+          int hour = int.parse(timeParts[0]);
+          int minute = int.parse(timeParts[1]);
+          hour = (hour + 1) % 24;
+          final estimatedTime = "${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}";
+          return formatElegantDate(dateStr, heureStr: estimatedTime);
+        }
+        return formatElegantDate(dateStr, heureStr: heureStr);
+      } catch (_) {
+        return formatElegantDate(dateStr, heureStr: heureStr);
       }
     }
 
@@ -2692,6 +2763,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
     doc.addPage(
       pw.Page(
+        theme: ttf != null ? pw.ThemeData.withFont(base: ttf, bold: ttf) : null,
         build: (context) => pw.Container(
           padding: const pw.EdgeInsets.all(24),
           child: pw.Column(
@@ -2723,6 +2795,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                         style: pw.TextStyle(
                           fontSize: 14,
                         ),
+
                       ),
                     ],
                   ),
@@ -2735,16 +2808,18 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
               pw.Text('Propriété', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
               pw.Text(property?.title ?? 'Propriété'),
-              if (fullAddress.isNotEmpty) ...[
-                pw.SizedBox(height: 6),
-                pw.Text(fullAddress),
-              ],
+              pw.SizedBox(height: 6),
+              pw.Text("Adresse complete : ${getCleanAddress(property?.address)}"),
+              pw.Text("Commune : $communeName"),
+              pw.Text("Quartier : $quartierName"),
+              pw.Text("Ville : $cityName"),
+              pw.Text("Pays : $countryName"),
               pw.SizedBox(height: 16),
 
               pw.Text('Visite', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Date : ${formatDate(reservation.startDate)}'),
-              pw.Text('Heure : ${reservation.reservationHeure ?? 'Non spécifiée'}'),
-              pw.Text('Fin estimée : ${formatDate(reservation.endDate)}'),
+              pw.Text('Date : ${formatElegantDate(reservation.startDate)}'),
+              pw.Text('Heure : ${(reservation.reservationHeure ?? '14:00').split(':').take(2).join(':')}'),
+              pw.Text('Fin estimée : ${getEstimatedEnd(reservation.endDate ?? reservation.startDate, reservation.reservationHeure)}'),
               pw.SizedBox(height: 16),
 
               pw.Text('Client', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
@@ -2762,7 +2837,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
               pw.Text(
                 "Ce document constitue un aval préalable pour accéder à la visite. "
-                "Le $publisherRole doit encore valider la demande ; un document complémentaire sera émis après acceptation. "
+                "L'$publisherRoleMiniscule doit encore valider la demande ; un document complémentaire sera émis après acceptation. "
                 "Conservez ce PDF comme preuve de demande et présentez-le le jour de la visite.",
                 style: pw.TextStyle(fontSize: 12),
                 textAlign: pw.TextAlign.justify,
@@ -2772,8 +2847,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 "Coordonnées CasaNayo :",
                 style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
               ),
-              pw.Text("Siège : CasaNayo, Service Réservations"),
-              pw.Text("Téléphone : +243 820 000 000"),
+              pw.Text("Siège : Av. Sénégalais, Gare Centrale Kinshasa Gombe, RDC"),
+              pw.Text("Téléphone : +243 836 323 805"),
               pw.Text("Email : contact@casanayo.com"),
               pw.Text("CEO : Gaius Handjila"),
             ],
@@ -3224,13 +3299,25 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
   Future<Directory> _getExportDir() async {
     try {
-      // Sur Android, utiliser directement le chemin du stockage externe public
+      // Sur Android, on place le dossier casaNayo à la racine du stockage (hors Download)
       if (Platform.isAndroid) {
-        final dir = Directory('/storage/emulated/0/casa');
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
+        try {
+          // Dossier casaNayo à la racine du stockage externe
+          final dir = Directory('/storage/emulated/0/casaNayo');
+          if (!await dir.exists()) {
+            await dir.create(recursive: true);
+          }
+          return dir;
+        } catch (e) {
+          print("Erreur dossier casaNayo: $e");
+          // Fallback sur le stockage externe spécifique à l'app
+          final extDir = await getExternalStorageDirectory();
+          if (extDir != null) {
+            final appExtDir = Directory('${extDir.path}/casaNayo');
+            if (!await appExtDir.exists()) await appExtDir.create(recursive: true);
+            return appExtDir;
+          }
         }
-        return dir;
       }
       
       // Pour les autres plateformes, utiliser getExternalStorageDirectory
@@ -3245,7 +3332,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
           base = ext.path;
         }
         if (base.isEmpty) base = '/storage/emulated/0';
-        final dir = Directory('$base/casa');
+        final dir = Directory('$base/casaNayo');
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
@@ -3257,7 +3344,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
     // Fallback: répertoire documents applicatif
     final docs = await getApplicationDocumentsDirectory();
-    final fallbackDir = Directory('${docs.path}/casa');
+    final fallbackDir = Directory('${docs.path}/casaNayo');
     if (!await fallbackDir.exists()) {
       await fallbackDir.create(recursive: true);
     }
@@ -3268,15 +3355,18 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     try {
       final bytes = await _buildReservationPdfBytes(reservation);
       final dir = await _getExportDir();
-      final userName = reservation.user?.username?.toString() ?? 'Client';
-      final dateStr = reservation.startDate != null 
-          ? DateFormat('dd-MM-yyyy').format(DateTime.parse(reservation.startDate!))
-          : 'date';
-      final timeStr = reservation.reservationHeure?.replaceAll(':', '-') ?? 'heure';
-      final baseName = '${userName.replaceAll(' ', '_')}_$dateStr\_$timeStr';
-      final filePath = '${dir.path}/reservation_$baseName.pdf';
+      final generationDate = DateFormat('dd-MM-yyyy_HH-mm').format(DateTime.now());
+      final filePath = '${dir.path}/casaNayo_reservation_$generationDate.pdf';
       final file = File(filePath);
       await file.writeAsBytes(bytes, flush: true);
+      
+      // Ouvrir automatiquement le PDF
+      try {
+        await OpenFile.open(filePath);
+      } catch (e) {
+        print("Erreur ouverture PDF: $e");
+      }
+
       FancyNotification.show(
         context,
         "PDF enregistré dans ${dir.path}",
@@ -3291,16 +3381,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   Future<void> _shareReservationPdf(ReservationModel reservation) async {
     try {
       final bytes = await _buildReservationPdfBytes(reservation);
-      final userName = reservation.user?.username?.toString() ?? 'Client';
-      final dateStr = reservation.startDate != null 
-          ? DateFormat('dd-MM-yyyy').format(DateTime.parse(reservation.startDate!))
-          : 'date';
-      final timeStr = reservation.reservationHeure?.replaceAll(':', '-') ?? 'heure';
-      final baseName = '${userName.replaceAll(' ', '_')}_$dateStr\_$timeStr';
+      final generationDate = DateFormat('dd-MM-yyyy_HH-mm').format(DateTime.now());
+      final fileName = 'casaNayo_reservation_$generationDate.pdf';
       final xfile = XFile.fromData(
         bytes,
         mimeType: 'application/pdf',
-        name: 'reservation_$baseName.pdf',
+        name: fileName,
       );
       await Share.shareXFiles(
         [xfile],

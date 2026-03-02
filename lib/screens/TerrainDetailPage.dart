@@ -17,7 +17,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
 import '../screens/FullScreenProfileImage.dart';
-import '../models/PropertyImageModel.dart'; // For full screen viewer compatibility
+import '../models/PropertyImageModel.dart';
+import '../utils/FavoriteEartIcon.dart';
 
 class TerrainDetailPage extends StatefulWidget {
   final TerrainModel terrain;
@@ -220,13 +221,35 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
             onTap: () => Navigator.pop(context),
           ),
         ),
-        // Share Button
+        // Favorite & Share Buttons
         Positioned(
           top: 50,
           right: 20,
-          child: _buildCircleButton(
-            icon: Icons.share,
-            onTap: _shareTerrain,
+          child: Row(
+            children: [
+              if (widget.terrain.terrain?.id != null)
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.3),
+                    shape: BoxShape.circle,
+                  ),
+                  child: FavoriteHeartIcon(
+                    propertyId: widget.terrain.terrain!.id.toString(),
+                    propertyTypeId: 9, // Terrain
+                    size: 24,
+                    splashRadius: 20,
+                    activeColor: Colors.red,
+                    inactiveColor: Colors.white,
+                  ),
+                ),
+              const SizedBox(width: 12),
+              _buildCircleButton(
+                icon: Icons.share,
+                onTap: _shareTerrain,
+              ),
+            ],
           ),
         ),
       ],

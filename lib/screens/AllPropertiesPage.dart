@@ -635,6 +635,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                         ),
                         child: FavoriteHeartIcon(
                           propertyId: property.propertyId.toString(),
+                          propertyTypeId: property.propertyTypeId,
                           size: 20,
                           splashRadius: 18,
                           activeColor: Colors.red,
@@ -944,6 +945,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                           ),
                           child: FavoriteHeartIcon(
                             propertyId: property.propertyId.toString(),
+                            propertyTypeId: property.propertyTypeId,
                             size: 18,
                             splashRadius: 16,
                             activeColor: Colors.red,

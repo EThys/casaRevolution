@@ -9,6 +9,7 @@ import 'package:pull_to_refresh/pull_to_refresh.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../utils/FancyNotification.dart';
+import '../utils/FavoriteEartIcon.dart';
 
 class TerrainPropertiesPage extends StatefulWidget {
   const TerrainPropertiesPage({Key? key}) : super(key: key);
@@ -24,7 +25,7 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
   final Color _lightColor = Color(0xFFF5F6FA);
   final Color _greyColor = Color(0xFF7F8C8D);
 
-  bool _isGridView = false;
+  bool _isGridView = true;
   String _selectedFilter = 'Tous';
   final List<String> _filters = ['Tous', 'Location', 'Vente', 'Nouveautés'];
   final RefreshController _refreshController = RefreshController();
@@ -443,14 +444,28 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
                       ),
                     Spacer(),
 
-                    // Price
-                    Text(
-                      '${price.toStringAsFixed(0)} $deviseCode',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: _primaryColor,
-                      ),
+                    // Price & Favorite
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${price.toStringAsFixed(0)} $deviseCode',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: _primaryColor,
+                          ),
+                        ),
+                        if (terrain?['id'] != null)
+                          FavoriteHeartIcon(
+                            propertyId: terrain!['id'].toString(),
+                            propertyTypeId: 9, // Terrain
+                            size: 24,
+                            splashRadius: 20,
+                            activeColor: Colors.red,
+                            inactiveColor: _greyColor,
+                          ),
+                      ],
                     ),
                   ],
                 ),
@@ -533,6 +548,34 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
                             ),
                           ),
                   ),
+                  // Favorite Button
+                  if (terrain?['id'] != null)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.9),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 4,
+                              offset: Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: FavoriteHeartIcon(
+                          propertyId: terrain!['id'].toString(),
+                          propertyTypeId: 9, // Terrain
+                          size: 18,
+                          splashRadius: 16,
+                          activeColor: Colors.red,
+                          inactiveColor: _greyColor,
+                        ),
+                      ),
+                    ),
                   // Transaction Type Badge
                   Positioned(
                     top: 8,
