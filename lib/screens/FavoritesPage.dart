@@ -3,6 +3,7 @@ import 'package:casa/controllers/PropertyFavoriteCtrl.dart';
 import 'package:casa/controllers/provider/FavoriteProvider.dart';
 import 'package:casa/models/PropertyFavoriteModel.dart';
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/models/PrestationModel.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
@@ -163,7 +164,7 @@ class _FavoritesPageState extends State<FavoritesPage>
     }
   }
 
-  Future<void> _removeFavorite(int? propertyId) async {
+  Future<void> _removeFavorite(int? propertyId, {int? propertyTypeId, bool isPrestation = false}) async {
     if (propertyId == null) return;
 
     final authCtrl = context.read<AuthentificationCtrl>();
@@ -180,7 +181,7 @@ class _FavoritesPageState extends State<FavoritesPage>
 
     try {
       final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
-      final success = await propertyCtrl.removeFavorite(userId, propertyId.toString());
+      final success = await propertyCtrl.removeFavorite(userId, propertyId.toString(), propertyTypeId: propertyTypeId, isPrestation: isPrestation);
 
       if (success) {
         final favoriteProvider = Provider.of<FavoriteProvider>(context, listen: false);
@@ -403,7 +404,10 @@ class _FavoritesPageState extends State<FavoritesPage>
   List<PropertyFavoriteModel> _filterFavorites(List<PropertyFavoriteModel> favorites, String filter) {
     switch (filter) {
       case 'available':
-        return favorites.where((fav) => !(fav.property?.sold ?? true)).toList();
+        return favorites.where((fav) {
+          if (fav.prestation != null) return fav.prestation?.isActive ?? true;
+          return !(fav.property?.sold ?? true);
+        }).toList();
       case 'rent':
         return favorites.where((fav) => fav.property?.transactionType == 'location').toList();
       case 'all':
@@ -505,7 +509,9 @@ class _FavoritesPageState extends State<FavoritesPage>
                 final favorite = favorites[index];
                 return AnimatedSwitcher(
                   duration: Duration(milliseconds: 300),
-                  child: _buildFavoriteCard(favorite),
+                  child: favorite.prestation != null 
+                    ? _buildPrestationCard(favorite)
+                    : _buildFavoriteCard(favorite),
                 );
               },
             ),
@@ -526,7 +532,9 @@ class _FavoritesPageState extends State<FavoritesPage>
         final favorite = favorites[index];
         return AnimatedSwitcher(
           duration: Duration(milliseconds: 300),
-          child: _buildFavoriteGridCard(favorite),
+          child: favorite.prestation != null 
+            ? _buildPrestationGridCard(favorite)
+            : _buildFavoriteGridCard(favorite),
         );
       },
     );
@@ -631,6 +639,36 @@ class _FavoritesPageState extends State<FavoritesPage>
                       Positioned(
                         top: 8,
                         right: 8,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.9),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: FavoriteHeartIcon(
+                            propertyId: propertyData!.propertyId.toString(),
+                            propertyTypeId: propertyData.propertyTypeId,
+                            size: 16,
+                            splashRadius: 16,
+                            activeColor: Colors.red,
+                            inactiveColor: _mediumGrey,
+                            onLikeChanged: (isLiked) {
+                              if (!isLiked) {
+                                _removeFavorite(propertyData.propertyId);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        left: 8,
                         child: Container(
                           padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
@@ -894,6 +932,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                               ),
                               child: FavoriteHeartIcon(
                                 propertyId: propertyData!.propertyId.toString(),
+                                propertyTypeId: propertyData.propertyTypeId,
                                 size: 20,
                                 splashRadius: 18,
                                 activeColor: Colors.red,
@@ -1000,10 +1039,317 @@ class _FavoritesPageState extends State<FavoritesPage>
           ? SizedBox.shrink(key: ValueKey('empty-${propertyData?.propertyId}'))
           : Container(
               key: ValueKey('content-${propertyData?.propertyId}'),
+              margin: const EdgeInsets.only(bottom: 20),
               child: cardContent,
-              margin: EdgeInsets.only(bottom: 20), // Déplacer le margin ici pour qu'il s'anime aussi
             ),
     );
+  }
+
+  Widget _buildPrestationCard(PropertyFavoriteModel favorite) {
+    final prestation = favorite.prestation;
+    if (prestation == null) return const SizedBox();
+    
+    final imageUrl = prestation.profile;
+    final priceText = "${prestation.minPrice?.toStringAsFixed(0) ?? '0'} ${prestation.currency}";
+    final isDeleting = _deletingIds.contains(prestation.id);
+
+    final cardContent = InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () {
+        Navigator.pushNamed(context, Routes.serviceDetail, arguments: prestation);
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          color: _cardBackground,
+          boxShadow: [
+             BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 20,
+              spreadRadius: 1,
+              offset: Offset(0, 10),
+            )
+          ],
+        ),
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    Container(
+                      height: 180,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        color: _lightGrey,
+                      ),
+                      child: imageUrl != null && imageUrl.isNotEmpty
+                          ? ClipRRect(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        child: CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          placeholder: (context, url) => Container(
+                            color: _lightGrey,
+                            child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            color: _lightGrey,
+                            child: const Icon(Icons.person, size: 50, color: Colors.grey),
+                          ),
+                        ),
+                      )
+                          : Container(
+                        color: _lightGrey,
+                        child: const Center(child: Icon(Icons.person, size: 50, color: Colors.grey)),
+                      ),
+                    ),
+                    Positioned(
+                      top: 15,
+                      right: 15,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.7),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              priceText,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.9),
+                              shape: BoxShape.circle,
+                            ),
+                            child: FavoriteHeartIcon(
+                              propertyId: prestation.id.toString(),
+                              isPrestation: true,
+                              size: 20,
+                              onLikeChanged: (isLiked) {
+                                if (!isLiked) _removeFavorite(prestation.id, isPrestation: true);
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        prestation.title ?? 'Service',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: _darkColor),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(Icons.location_on_outlined, size: 16, color: _mediumGrey),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              "${prestation.cityValue}, ${prestation.communeValue}",
+                              style: TextStyle(color: _mediumGrey, fontSize: 14),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 15),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _buildPrestationFeatureChips(prestation),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 400),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return SizeTransition(sizeFactor: animation, axis: Axis.vertical, child: FadeTransition(opacity: animation, child: child));
+      },
+      child: isDeleting
+          ? SizedBox.shrink(key: ValueKey('empty-prestation-${prestation.id}'))
+          : Container(
+              key: ValueKey('content-prestation-${prestation.id}'),
+              margin: const EdgeInsets.only(bottom: 20),
+              child: cardContent,
+            ),
+    );
+  }
+
+  Widget _buildPrestationGridCard(PropertyFavoriteModel favorite) {
+    final prestation = favorite.prestation;
+    if (prestation == null) return const SizedBox();
+    
+    final imageUrl = prestation.profile;
+    final priceText = "${prestation.minPrice?.toStringAsFixed(0) ?? '0'} ${prestation.currency}";
+    final isDeleting = _deletingIds.contains(prestation.id);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () {
+        Navigator.pushNamed(context, Routes.serviceDetail, arguments: prestation);
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: _cardBackground,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              spreadRadius: 1,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                          color: _lightGrey,
+                        ),
+                        child: imageUrl != null && imageUrl.isNotEmpty
+                            ? ClipRRect(
+                                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                                child: CachedNetworkImage(
+                                  imageUrl: imageUrl,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                  errorWidget: (context, url, error) => const Icon(Icons.person, size: 30, color: Colors.grey),
+                                ),
+                              )
+                            : const Center(child: Icon(Icons.person, size: 30, color: Colors.grey)),
+                      ),
+                      Positioned(
+                        bottom: 8,
+                        left: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: (prestation.isActive ?? true) ? _successColor.withOpacity(0.9) : _errorColor.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            (prestation.isActive ?? true) ? 'Disponible' : 'Indisponible',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.9),
+                            shape: BoxShape.circle,
+                          ),
+                          child: FavoriteHeartIcon(
+                            propertyId: prestation.id.toString(),
+                            isPrestation: true,
+                            size: 16,
+                            onLikeChanged: (isLiked) {
+                              if (!isLiked) _removeFavorite(prestation.id, isPrestation: true);
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          prestation.title ?? 'Service',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: _darkColor),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          priceText,
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: _primaryColor),
+                        ),
+                        Row(
+                          children: [
+                            Icon(Icons.location_on_rounded, size: 12, color: _mediumGrey),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                "${prestation.cityValue}",
+                                style: TextStyle(fontSize: 11, color: _mediumGrey),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (isDeleting)
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.black.withOpacity(0.5),
+                ),
+                child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildPrestationFeatureChips(PrestationModel prestation) {
+    final features = <Widget>[];
+    if (prestation.experience != null && prestation.experience!.isNotEmpty) {
+      features.add(_buildFeatureChip('${prestation.experience} ans exp.'));
+    }
+    if (prestation.isCertified ?? false) {
+      features.add(_buildFeatureChip('Certifié'));
+    }
+    return features;
   }
 
   List<Widget> _buildFeatureChips(PropertyModel? propertyData) {
