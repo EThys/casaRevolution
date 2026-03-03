@@ -53,39 +53,37 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   int _currentImageIndex = 0;
   Timer? _autoScrollTimer;
 
-  bool get _showSurface {
-    final surface = widget.property.surface;
+  bool _showSurfaceFor(PropertyModel property) {
+    final surface = property.surface;
     return surface != null && surface > 0;
   }
-  bool get _showFloor => (widget.property.floor ?? 0) > 0;
-  bool get _isAvailable => widget.property.transactionType?.toLowerCase() != 'vente' &&
-      widget.property.transactionType?.toLowerCase() != 'location';
-
-  bool get _shouldHideBedrooms {
-    final typeId = widget.property.propertyTypeId;
+  bool _showFloorFor(PropertyModel property) => (property.floor ?? 0) > 0;
+  
+  bool _shouldHideBedroomsFor(PropertyModel property) {
+    final typeId = property.propertyTypeId;
     // 4: Bureau, 7: Salle funéraire, 8: Salle de fête, 9: Terrain
     return typeId == 4 || typeId == 7 || typeId == 8 || typeId == 9;
   }
 
-  bool get _shouldHideSalons {
-    final typeId = widget.property.propertyTypeId;
+  bool _shouldHideSalonsFor(PropertyModel property) {
+    final typeId = property.propertyTypeId;
     // 7: Salle funéraire, 8: Salle de fête, 9: Terrain
     return typeId == 7 || typeId == 8 || typeId == 9;
   }
 
-  bool get _shouldHideKitchen {
-    final typeId = widget.property.propertyTypeId;
+  bool _shouldHideKitchenFor(PropertyModel property) {
+    final typeId = property.propertyTypeId;
     // 4: Bureau, 7: Salle funéraire, 9: Terrain
     return typeId == 4 || typeId == 7 || typeId == 9;
   }
 
-  bool get _isFestiveOrFuneraire {
-    final typeId = widget.property.propertyTypeId;
+  bool _isFestiveOrFuneraireFor(PropertyModel property) {
+    final typeId = property.propertyTypeId;
     if (typeId != null) {
       // 7: Salle funéraire, 8: Salle de fête
       return typeId == 7 || typeId == 8;
     }
-    final name = widget.property.propertyType?.name?.toLowerCase() ?? '';
+    final name = property.propertyType?.name?.toLowerCase() ?? '';
     return name.contains('fête') || name.contains('festive') || name.contains('funéra') || name.contains('deuil');
   }
 
@@ -123,12 +121,19 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     _favoriteController.addListener(() {
       setState(() {});
     });
+    
     // Démarrer le défilement automatique après l'initialisation
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startAutoScroll();
-      // Charger la propriété et ses similaires depuis l'API détail
+      
       final ctrl = context.read<PropertyController>();
       if (widget.property.propertyId != null) {
+        // Reset current property to signal loading if it's different
+        if (ctrl.currentProperty?.propertyId != widget.property.propertyId) {
+          ctrl.currentProperty = null;
+        }
+        
+        // Charger la propriété complète et ses similaires depuis l'API détail
         ctrl.getPropertyById(widget.property.propertyId!);
         
         // SYNC: Vérifier l'état du favori pour cette propriété
@@ -171,7 +176,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   // Grouper les images par catégorie
-  Map<String, List<PropertyImageModel>> _getGroupedImages() {
+  Map<String, List<PropertyImageModel>> _getGroupedImagesFor(PropertyModel property) {
     final groupedImages = <String, List<PropertyImageModel>>{};
 
     // Initialiser toutes les catégories
@@ -180,27 +185,27 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     }
 
     // Grouper les images principales
-    if (widget.property.propertyImage != null && widget.property.propertyImage!.isNotEmpty) {
-      groupedImages['propertyImage'] = widget.property.propertyImage!;
+    if (property.propertyImage != null && property.propertyImage!.isNotEmpty) {
+      groupedImages['propertyImage'] = property.propertyImage!;
     }
 
     // Grouper les images des chambres
-    if (widget.property.propertyImageRoom != null && widget.property.propertyImageRoom!.isNotEmpty && !_shouldHideBedrooms) {
-      groupedImages['propertyImageRoom'] = widget.property.propertyImageRoom!
+    if (property.propertyImageRoom != null && property.propertyImageRoom!.isNotEmpty && !_shouldHideBedroomsFor(property)) {
+      groupedImages['propertyImageRoom'] = property.propertyImageRoom!
           .map((roomImage) => PropertyImageModel(path: roomImage.path))
           .toList();
     }
 
     // Grouper les images du salon
-    if (widget.property.propertyImageLivingRoom != null && widget.property.propertyImageLivingRoom!.isNotEmpty && !_shouldHideSalons) {
-      groupedImages['propertyImageLivingRoom'] = widget.property.propertyImageLivingRoom!
+    if (property.propertyImageLivingRoom != null && property.propertyImageLivingRoom!.isNotEmpty && !_shouldHideSalonsFor(property)) {
+      groupedImages['propertyImageLivingRoom'] = property.propertyImageLivingRoom!
           .map((livingRoomImage) => PropertyImageModel(path: livingRoomImage.path))
           .toList();
     }
 
     // Grouper les images de la cuisine
-    if (widget.property.propertyImageKitchen != null && widget.property.propertyImageKitchen!.isNotEmpty && !_shouldHideKitchen) {
-      groupedImages['propertyImageKitchen'] = widget.property.propertyImageKitchen!
+    if (property.propertyImageKitchen != null && property.propertyImageKitchen!.isNotEmpty && !_shouldHideKitchenFor(property)) {
+      groupedImages['propertyImageKitchen'] = property.propertyImageKitchen!
           .map((kitchenImage) => PropertyImageModel(path: kitchenImage.path))
           .toList();
     }
@@ -212,22 +217,22 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   // Obtenir toutes les images pour le carousel principal
-  List<PropertyImageModel> _getAllImages() {
+  List<PropertyImageModel> _getAllImagesFor(PropertyModel property) {
     final allImages = <PropertyImageModel>[];
 
-    if (widget.property.propertyImage != null && widget.property.propertyImage!.isNotEmpty) {
-      allImages.addAll(widget.property.propertyImage!);
+    if (property.propertyImage != null && property.propertyImage!.isNotEmpty) {
+      allImages.addAll(property.propertyImage!);
     }
-    if (widget.property.propertyImageRoom != null && widget.property.propertyImageRoom!.isNotEmpty) {
-      allImages.addAll(widget.property.propertyImageRoom!.map((roomImage) =>
+    if (property.propertyImageRoom != null && property.propertyImageRoom!.isNotEmpty) {
+      allImages.addAll(property.propertyImageRoom!.map((roomImage) =>
           PropertyImageModel(path: roomImage.path)));
     }
-    if (widget.property.propertyImageLivingRoom != null && widget.property.propertyImageLivingRoom!.isNotEmpty) {
-      allImages.addAll(widget.property.propertyImageLivingRoom!.map((livingRoomImage) =>
+    if (property.propertyImageLivingRoom != null && property.propertyImageLivingRoom!.isNotEmpty) {
+      allImages.addAll(property.propertyImageLivingRoom!.map((livingRoomImage) =>
           PropertyImageModel(path: livingRoomImage.path)));
     }
-    if (widget.property.propertyImageKitchen != null && widget.property.propertyImageKitchen!.isNotEmpty) {
-      allImages.addAll(widget.property.propertyImageKitchen!.map((kitchenImage) =>
+    if (property.propertyImageKitchen != null && property.propertyImageKitchen!.isNotEmpty) {
+      allImages.addAll(property.propertyImageKitchen!.map((kitchenImage) =>
           PropertyImageModel(path: kitchenImage.path)));
     }
 
@@ -236,62 +241,104 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final groupedImages = _getGroupedImages();
-    final allImages = _getAllImages();
-    final similar = context.watch<PropertyController>().similarProperties;
+    final propertyCtrl = context.watch<PropertyController>();
+    final similar = propertyCtrl.similarProperties;
+    
+    // Use full property from controller if it's the correct one
+    final bool hasFullData = propertyCtrl.currentProperty?.propertyId == widget.property.propertyId;
+    final PropertyModel property = hasFullData ? propertyCtrl.currentProperty! : widget.property;
+    final bool isLoading = propertyCtrl.loading && !hasFullData;
+
+    final groupedImages = _getGroupedImagesFor(property);
+    final allImages = _getAllImagesFor(property);
 
     return Scaffold(
       backgroundColor: _lightColor,
       extendBody: true,
       body: CustomScrollView(
-        physics: ClampingScrollPhysics(), // Empêche l'effet de rebond blanc
+        physics: ClampingScrollPhysics(),
         slivers: [
           SliverToBoxAdapter(
-            child: _buildImageCarousel(allImages),
+            child: isLoading && allImages.length <= 1
+                ? _buildShimmerCarousel()
+                : _buildImageCarousel(allImages, property),
           ),
           SliverPadding(
             padding: EdgeInsets.symmetric(horizontal: 20),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
                 SizedBox(height: 20),
-                _buildHeaderSection(),
+                _buildHeaderSectionFor(property),
                 SizedBox(height: 16),
-                _buildAnimatedStatsSection(),
+                _buildAnimatedStatsSectionFor(property),
                 SizedBox(height: 16),
-                _buildHighlightsSection(),
+                _buildHighlightsSectionFor(property),
                 SizedBox(height: 16),
-                _buildDetailedCharacteristicsSection(),
+                _buildDetailedCharacteristicsSectionFor(property),
                 SizedBox(height: 16),
-                _buildPublicationInfoSection(),
+                _buildPublicationInfoSectionFor(property),
                 SizedBox(height: 16),
-                _buildDescriptionSection(),
+                _buildDescriptionSectionFor(property),
                 SizedBox(height: 16),
-                _buildAdditionalFeaturesSection(),
+                _buildAdditionalFeaturesSectionFor(property),
                 SizedBox(height: 16),
-                _buildEssentialServicesSection(),
+                _buildEssentialServicesSectionFor(property),
                 SizedBox(height: 16),
-                _buildLocationPreview(),
+                _buildLocationPreviewFor(property),
                 SizedBox(height: 16),
-                if (widget.property.propertyTypeId == 5) ...[
-                  _buildHotelRoomsSection(),
+                if (property.propertyTypeId == 5) ...[
+                  _buildHotelRoomsSectionFor(property),
                   SizedBox(height: 16),
                 ],
                 if (groupedImages.isNotEmpty) _buildGroupedImagesSection(groupedImages),
                 SizedBox(height: 16),
                 _buildSimilarProperties(similar),
                 SizedBox(height: 24),
-                _buildBottomActionBar(), // Moved from bottomSheet
+                _buildBottomActionBarFor(property),
                 SizedBox(height: 40),
-              ].where((widget) => widget != null).toList()),
+              ].where((widget) => widget != null).toList().cast<Widget>()),
             ),
           ),
         ],
       ),
-      // bottomSheet: _buildBottomActionBar(), // Removed
     );
   }
 
-  Widget _buildImageCarousel(List<PropertyImageModel> images) {
+  Widget _buildShimmerCarousel() {
+    final carouselHeight = MediaQuery.of(context).size.height * 0.4;
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[300]!,
+      highlightColor: Colors.grey[100]!,
+      child: Container(
+        height: carouselHeight,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+        ),
+        child: Stack(
+          children: [
+            Center(
+              child: Icon(Icons.photo, color: Colors.grey[400], size: 100),
+            ),
+            Positioned(
+              bottom: 20,
+              left: 20,
+              child: Container(
+                width: 150,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageCarousel(List<PropertyImageModel> images, PropertyModel property) {
     final carouselHeight = MediaQuery.of(context).size.height * 0.4;
 
     Future<void> _shareProperty() async {
@@ -299,21 +346,21 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           ? '${images.first.path ?? images.first.path}'
           : null;
 
-      bool isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
+      bool isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
 
-      final priceText = isForRent && !_isFestiveOrFuneraire
-          ? '${widget.property.price?.toStringAsFixed(0) ?? '0'} ${widget.property.currency}/mois'
-          : '${widget.property.price?.toStringAsFixed(0) ?? '0'} ${widget.property.currency}';
+      final priceText = isForRent && !_isFestiveOrFuneraireFor(property)
+          ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+          : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
 
-      final surfaceText = _showSurface ? '📐 ${widget.property.surface?.toInt() ?? 0} m²' : '';
+      final surfaceText = _showSurfaceFor(property) ? '📐 ${property.surface?.toInt() ?? 0} m²' : '';
       
-      final bedroomsText = _shouldHideBedrooms ? '' : '🛏️ ${widget.property.bedrooms ?? 0} chambres\n';
+      final bedroomsText = _shouldHideBedroomsFor(property) ? '' : '🛏️ ${property.bedrooms ?? 0} chambres\n';
       
       final shareText = '''
-        🏠 ${widget.property.title ?? 'Belle propriété'}
+        🏠 ${property.title ?? 'Belle propriété'}
         
         💰 ${priceText}
-        $bedroomsText        🚿 ${widget.property.bathroom ?? 0} salles de bain
+        $bedroomsText        🚿 ${property.bathroom ?? 0} salles de bain
         ${surfaceText.isNotEmpty ? '$surfaceText\n' : ''}
         Découvrez plus de détails sur Yinzo!
 ''';
@@ -347,7 +394,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             onPageChanged: (index) {
               setState(() => _currentImageIndex = index);
               // Redémarrer le timer après chaque changement de page
-              _startAutoScroll();
+              _startAutoScrollFor(images);
             },
             itemBuilder: (context, index) {
               final image = images[index];
@@ -372,7 +419,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 child: Hero(
                   tag: index == 0 && widget.heroTag != null 
                       ? widget.heroTag! 
-                      : 'property_image_${widget.property.propertyId}_$index',
+                      : 'property_image_${property.propertyId}_$index',
                   child: CachedNetworkImage(
                     imageUrl: imageUrl,
                     fit: BoxFit.cover,
@@ -459,7 +506,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           child: Row(
             children: [
               // Favorite button
-              if (widget.property.propertyId != null)
+              if (property.propertyId != null)
                 Material(
                   color: Colors.transparent,
                   child: Container(
@@ -470,8 +517,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                       shape: BoxShape.circle,
                     ),
                     child: FavoriteHeartIcon(
-                      propertyId: widget.property.propertyId.toString(),
-                      propertyTypeId: widget.property.propertyTypeId, // Pass propertyTypeId
+                      propertyId: property.propertyId.toString(),
+                      propertyTypeId: property.propertyTypeId, // Pass propertyTypeId
                       size: 24,
                       splashRadius: 20,
                       activeColor: Colors.red,
@@ -771,9 +818,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  Widget _buildHeaderSection() {
-    final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
-    final isAvailable = widget.property.available ?? true;
+  Widget _buildHeaderSectionFor(PropertyModel property) {
+    final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
+    final isAvailable = property.available ?? true;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -795,11 +842,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               shape: StadiumBorder(),
               padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             ),
-            if (widget.property.propertyTypeId != null)
+            if (property.propertyTypeId != null)
               Chip(
                 backgroundColor: _secondaryColor.withOpacity(0.1),
                 label: Text(
-                  _getPropertyTypeFromTitle(widget.property.propertyType?.name),
+                  _getPropertyTypeFromTitleFor(property.propertyType?.name, property),
                   style: TextStyle(
                     color: _secondaryColor,
                     fontSize: 12,
@@ -840,7 +887,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         ),
         SizedBox(height: 16),
         Text(
-          widget.property.title ?? 'Sans titre',
+          property.title ?? 'Sans titre',
           style: TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.bold,
@@ -855,7 +902,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             SizedBox(width: 6),
             Expanded(
                 child: Text(
-                  _formatLocation(),
+                  _formatLocationFor(property),
                   style: TextStyle(
                     color: _greyColor,
                     fontSize: 15,
@@ -868,12 +915,12 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  String _formatLocation() {
-    final city = widget.property.cityValue;
-    final commune = widget.property.communeValue;
+  String _formatLocationFor(PropertyModel property) {
+    final city = property.cityValue;
+    final commune = property.communeValue;
 
     if ((city == null || city.isEmpty) && (commune == null || commune.isEmpty)) {
-      return widget.property.address ?? 'Adresse non disponible';
+      return property.address ?? 'Adresse non disponible';
     }
 
     List<String> parts = [];
@@ -883,9 +930,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     return parts.join(', ');
   }
 
-  String _getPropertyTypeFromTitle(String? title) {
+  String _getPropertyTypeFromTitleFor(String? title, PropertyModel property) {
     // 1. D'abord vérifier le propertyTypeId si disponible
-    final typeId = widget.property.propertyTypeId;
+    final typeId = property.propertyTypeId;
     if (typeId != null) {
       if (typeId == 1) return 'Studio';
       if (typeId == 2) return 'Appartement';
@@ -1212,9 +1259,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
   // NEW: Main Price Section
   // NEW: Main Price Section
-  Widget _buildAnimatedStatsSection() {
-    final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
-    final price = widget.property.price?.toInt() ?? 0;
+  Widget _buildAnimatedStatsSectionFor(PropertyModel property) {
+    final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
+    final price = property.price?.toInt() ?? 0;
     
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -1257,7 +1304,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
               SizedBox(width: 4),
               Text(
-                (isForRent && !_isFestiveOrFuneraire) ? '${widget.property.currency ?? '\$'}/mois' : '${widget.property.currency ?? '\$'}',
+                (isForRent && !_isFestiveOrFuneraireFor(property)) ? '${property.currency ?? '\$'}/mois' : '${property.currency ?? '\$'}',
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.9),
                   fontSize: 16,
@@ -1272,101 +1319,101 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   // NEW: Detailed Characteristics Section
-  Widget _buildDetailedCharacteristicsSection() {
+  Widget _buildDetailedCharacteristicsSectionFor(PropertyModel property) {
     final stats = <Map<String, dynamic>>[];
     
     // Bedrooms (chambres)
-    if (widget.property.bedrooms != null && widget.property.bedrooms! > 0 && !_shouldHideBedrooms) {
+    if (property.bedrooms != null && property.bedrooms! > 0 && !_shouldHideBedroomsFor(property)) {
       stats.add({
         'icon': Icons.bed_outlined,
         'label': 'Chambres',
-        'value': '${widget.property.bedrooms}',
-        'unit': widget.property.bedrooms! > 1 ? 'chambres' : 'chambre',
+        'value': '${property.bedrooms}',
+        'unit': property.bedrooms! > 1 ? 'chambres' : 'chambre',
         'color': Color(0xFF1976D2),
       });
     }
     
     // Living Room (salon)
-    if (widget.property.livingRoom != null && widget.property.livingRoom! > 0 && !_shouldHideSalons) {
+    if (property.livingRoom != null && property.livingRoom! > 0 && !_shouldHideSalonsFor(property)) {
       stats.add({
         'icon': Icons.weekend_outlined,
         'label': 'Salon',
-        'value': '${widget.property.livingRoom}',
-        'unit': widget.property.livingRoom! > 1 ? 'salons' : 'salon',
+        'value': '${property.livingRoom}',
+        'unit': property.livingRoom! > 1 ? 'salons' : 'salon',
         'color': Color(0xFF42A5F5),
       });
     }
     
     // Kitchen (cuisine)
-    if (widget.property.kitchen != null && widget.property.kitchen! > 0 && !_shouldHideKitchen) {
+    if (property.kitchen != null && property.kitchen! > 0 && !_shouldHideKitchenFor(property)) {
       stats.add({
         'icon': Icons.kitchen_outlined,
         'label': 'Cuisine',
-        'value': '${widget.property.kitchen}',
-        'unit': widget.property.kitchen! > 1 ? 'cuisines' : 'cuisine',
+        'value': '${property.kitchen}',
+        'unit': property.kitchen! > 1 ? 'cuisines' : 'cuisine',
         'color': Color(0xFF64B5F6),
       });
     }
     
     // Bathroom (salles de bain)
-    if (widget.property.bathroom != null && widget.property.bathroom! > 0) {
+    if (property.bathroom != null && property.bathroom! > 0) {
       stats.add({
         'icon': Icons.bathroom_outlined,
         'label': 'Salle de bain',
-        'value': '${widget.property.bathroom}',
-        'unit': widget.property.bathroom! > 1 ? 'SDB' : 'SDB',
+        'value': '${property.bathroom}',
+        'unit': property.bathroom! > 1 ? 'SDB' : 'SDB',
         'color': Color(0xFF90CAF9),
       });
     }
 
     // SPECIAL FIELDS
     // Bureau
-    if (widget.property.propertyTypeId == 4) {
-      if (widget.property.roomMeet != null && widget.property.roomMeet! > 0) {
+    if (property.propertyTypeId == 4) {
+      if (property.roomMeet != null && property.roomMeet! > 0) {
         stats.add({
           'icon': Icons.meeting_room_outlined,
           'label': 'Réunions',
-          'value': '${widget.property.roomMeet}',
-          'unit': widget.property.roomMeet! > 1 ? 'salles' : 'salle',
+          'value': '${property.roomMeet}',
+          'unit': property.roomMeet! > 1 ? 'salles' : 'salle',
           'color': Color(0xFF42A5F5),
         });
       }
-      if (widget.property.isEquip != null) {
+      if (property.isEquip != null) {
         stats.add({
-          'icon': widget.property.isEquip == true ? Icons.chair : Icons.chair_outlined,
+          'icon': property.isEquip == true ? Icons.chair : Icons.chair_outlined,
           'label': 'Meublé',
-          'value': widget.property.isEquip == true ? 'Oui' : 'Non',
-          'unit': widget.property.isEquip == true ? 'Équipé' : 'Vide',
+          'value': property.isEquip == true ? 'Oui' : 'Non',
+          'unit': property.isEquip == true ? 'Équipé' : 'Vide',
           'color': Color(0xFF42A5F5),
         });
       }
     }
 
     // Festive/Funeraire
-    if (widget.property.propertyTypeId == 7 || widget.property.propertyTypeId == 8) {
-      if (widget.property.capacityPeople != null && widget.property.capacityPeople! > 0) {
+    if (property.propertyTypeId == 7 || property.propertyTypeId == 8) {
+      if (property.capacityPeople != null && property.capacityPeople! > 0) {
         stats.add({
           'icon': Icons.people_outline,
           'label': 'Capacité',
-          'value': '${widget.property.capacityPeople}',
+          'value': '${property.capacityPeople}',
           'unit': 'pers.',
           'color': Color(0xFF42A5F5),
         });
       }
-      if (widget.property.propertyTypeId == 8 && widget.property.pisteDanse != null) {
+      if (property.propertyTypeId == 8 && property.pisteDanse != null) {
           stats.add({
             'icon': Icons.music_note_outlined,
             'label': 'Piste',
-            'value': widget.property.pisteDanse == true ? 'Oui' : 'Non',
+            'value': property.pisteDanse == true ? 'Oui' : 'Non',
             'unit': 'Danse',
             'color': Color(0xFF42A5F5),
           });
       }
-      if (widget.property.isDecore != null) {
+      if (property.isDecore != null) {
           stats.add({
             'icon': Icons.auto_awesome_outlined,
             'label': 'Décoré',
-            'value': widget.property.isDecore == true ? 'Oui' : 'Non',
+            'value': property.isDecore == true ? 'Oui' : 'Non',
             'unit': 'Déco',
             'color': Color(0xFF42A5F5),
           });
@@ -1522,11 +1569,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   // NEW: Highlights Section
-  Widget _buildHighlightsSection() {
+  Widget _buildHighlightsSectionFor(PropertyModel property) {
     final highlights = <Map<String, dynamic>>[];
     
     // Add highlights based on property features
-    if (widget.property.isVerified ?? false) {
+    if (property.isVerified ?? false) {
       highlights.add({
         'icon': Icons.verified_outlined,
         'label': 'Vérifié',
@@ -1534,7 +1581,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       });
     }
     
-    if ((widget.property.viewCount ?? 0) > 50) {
+    if ((property.viewCount ?? 0) > 50) {
       highlights.add({
         'icon': Icons.trending_up,
         'label': 'Populaire',
@@ -1542,7 +1589,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       });
     }
     
-    final hasPool = widget.property.features?.any((f) => f.name?.toLowerCase().contains('piscine') ?? false) ?? false;
+    final hasPool = property.features?.any((f) => f.name?.toLowerCase().contains('piscine') ?? false) ?? false;
     if (hasPool) {
       highlights.add({
         'icon': Icons.pool_outlined,
@@ -1551,7 +1598,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       });
     }
     
-    final hasParking = widget.property.features?.any((f) => f.name?.toLowerCase().contains('parking') ?? false) ?? false;
+    final hasParking = property.features?.any((f) => f.name?.toLowerCase().contains('parking') ?? false) ?? false;
     if (hasParking) {
       highlights.add({
         'icon': Icons.local_parking_outlined,
@@ -1560,7 +1607,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       });
     }
     
-    final hasGarden = widget.property.features?.any((f) => f.name?.toLowerCase().contains('jardin') ?? false) ?? false;
+    final hasGarden = property.features?.any((f) => f.name?.toLowerCase().contains('jardin') ?? false) ?? false;
     if (hasGarden) {
       highlights.add({
         'icon': Icons.yard_outlined,
@@ -1641,8 +1688,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   // NEW: Location Preview Section
-  Widget _buildLocationPreview() {
-    if (widget.property.address == null || widget.property.address!.isEmpty) {
+  Widget _buildLocationPreviewFor(PropertyModel property) {
+    if (property.address == null || property.address!.isEmpty) {
       return SizedBox();
     }
     
@@ -1710,18 +1757,18 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
             ],
           ),
-          if (widget.property.quartierValue != null || widget.property.communeValue != null || widget.property.cityValue != null) ...[
+          if (property.quartierValue != null || property.communeValue != null || property.cityValue != null) ...[
             SizedBox(height: 14),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                if (widget.property.quartierValue != null)
-                  _buildLocationChip(Icons.home_work_outlined, widget.property.quartierValue!),
-                if (widget.property.communeValue != null)
-                  _buildLocationChip(Icons.location_city_outlined, widget.property.communeValue!),
-                if (widget.property.cityValue != null)
-                  _buildLocationChip(Icons.place_outlined, widget.property.cityValue!),
+                if (property.quartierValue != null)
+                  _buildLocationChip(Icons.home_work_outlined, property.quartierValue!),
+                if (property.communeValue != null)
+                  _buildLocationChip(Icons.location_city_outlined, property.communeValue!),
+                if (property.cityValue != null)
+                  _buildLocationChip(Icons.place_outlined, property.cityValue!),
               ],
             ),
           ],
@@ -1763,8 +1810,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  Widget _buildDescriptionSection() {
-    final description = widget.property.description;
+  Widget _buildDescriptionSectionFor(PropertyModel property) {
+    final description = property.description;
     if (description == null || description.isEmpty) {
       return SizedBox();
     }
@@ -1875,15 +1922,15 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
 
-  Widget _buildPublicationInfoSection() {
-    final user = widget.property.user;
+  Widget _buildPublicationInfoSectionFor(PropertyModel property) {
+    final user = property.user;
     // Show section if we have postBy or user info
-    if (widget.property.postBy == null && user?.email == null) {
+    if (property.postBy == null && user?.email == null) {
       return SizedBox();
     }
 
     // Get publisher name from postBy or fallback to username
-    String publisherName = widget.property.postBy ?? user?.username ?? widget.property.username ?? '';
+    String publisherName = property.postBy ?? user?.username ?? property.username ?? '';
     // Remove @ symbol if present
     publisherName = publisherName.replaceAll('@', '').trim();
     
@@ -2158,26 +2205,26 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     }
   }
 
-  Widget _buildAdditionalFeaturesSection() {
-    final hasElevator = widget.property.features?.any((f) => f.name?.toLowerCase().contains('ascenseur') ?? false) ?? false;
-    final hasPool = widget.property.features?.any((f) => f.name?.toLowerCase().contains('piscine') ?? false) ?? false;
-    final hasGarden = widget.property.features?.any((f) => f.name?.toLowerCase().contains('jardin') ?? false) ?? false;
-    final hasTerrace = widget.property.features?.any((f) => f.name?.toLowerCase().contains('terrasse') ?? false) ?? false;
+  Widget _buildAdditionalFeaturesSectionFor(PropertyModel property) {
+    final hasElevator = property.features?.any((f) => f.name?.toLowerCase().contains('ascenseur') ?? false) ?? false;
+    final hasPool = property.features?.any((f) => f.name?.toLowerCase().contains('piscine') ?? false) ?? false;
+    final hasGarden = property.features?.any((f) => f.name?.toLowerCase().contains('jardin') ?? false) ?? false;
+    final hasTerrace = property.features?.any((f) => f.name?.toLowerCase().contains('terrasse') ?? false) ?? false;
 
     // Créer une map des caractéristiques avec leurs valeurs
     final features = <String, String>{};
 
-    if ((widget.property.bedrooms ?? 0) > 0) {
-      features['Chambres'] = '${widget.property.bedrooms ?? 0}';
+    if ((property.bedrooms ?? 0) > 0) {
+      features['Chambres'] = '${property.bedrooms ?? 0}';
     }
-    if ((widget.property.bathroom ?? 0) > 0) {
-      features['Salles de bain'] = '${widget.property.bathroom ?? 0}';
+    if ((property.bathroom ?? 0) > 0) {
+      features['Salles de bain'] = '${property.bathroom ?? 0}';
     }
-    if (_showSurface) {
-      features['Surface'] = '${widget.property.surface ?? 0} m²';
+    if (_showSurfaceFor(property)) {
+      features['Surface'] = '${property.surface ?? 0} m²';
     }
-    if (_showFloor) {
-      features['Étage'] = '${widget.property.floor ?? 0}';
+    if (_showFloorFor(property)) {
+      features['Étage'] = '${property.floor ?? 0}';
     }
     if (hasElevator) {
       features['Ascenseur'] = 'Oui';
@@ -2478,7 +2525,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                             ),
                             SizedBox(height: 8),
                             Text(
-                              prop.price != null ? "${prop.price} \$" : "--",
+                              prop.price != null ? "${prop.price} ${prop.currency ?? '\$'}" : "--",
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w800,
@@ -2499,9 +2546,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  Widget _buildEssentialServicesSection() {
-    final electric = widget.property.electric;
-    final water = widget.property.water;
+  Widget _buildEssentialServicesSectionFor(PropertyModel property) {
+    final electric = property.electric;
+    final water = property.water;
 
     // Si aucun service n'est défini, ne pas afficher la section
     if (electric == null && water == null) {
