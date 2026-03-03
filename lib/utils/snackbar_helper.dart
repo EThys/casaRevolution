@@ -22,9 +22,9 @@ class SnackbarHelper {
             ),
           ),
           duration: Duration(seconds: 3),
-          backgroundColor: backgroundColor, // Change background color
+          backgroundColor: backgroundColor, 
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10), // Rounded corners
+            borderRadius: BorderRadius.circular(10), 
           ),
           action: SnackBarAction(
             label: 'X',
