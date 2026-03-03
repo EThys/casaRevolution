@@ -16,6 +16,8 @@ import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../controllers/AuthentificationCtrl.dart';
+import '../controllers/PropertyCtrl.dart';
+import '../controllers/ServiceController.dart';
 import '../utils/Routes.dart';
 import '../utils/FavoriteEartIcon.dart';
 
@@ -211,6 +213,16 @@ class _FavoritesPageState extends State<FavoritesPage>
       message,
       isError: isError,
     );
+  }
+
+  void _navigateToPropertyDetail(PropertyModel? property) {
+    if (property == null) return;
+    Navigator.pushNamed(context, Routes.detailPageRoute, arguments: property);
+  }
+
+  void _navigateToPrestationDetail(PrestationModel? prestation) {
+    if (prestation == null) return;
+    Navigator.pushNamed(context, Routes.serviceDetail, arguments: prestation);
   }
 
   @override
@@ -557,9 +569,7 @@ class _FavoritesPageState extends State<FavoritesPage>
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
-      onTap: () {
-        Navigator.pushNamed(context, Routes.detailPageRoute, arguments: propertyData);
-      },
+      onTap: () => _navigateToPropertyDetail(propertyData),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
@@ -788,9 +798,7 @@ class _FavoritesPageState extends State<FavoritesPage>
 
     final cardContent = InkWell(
       borderRadius: BorderRadius.circular(20),
-      onTap: () {
-        Navigator.pushNamed(context, Routes.detailPageRoute, arguments: propertyData);
-      },
+      onTap: () => _navigateToPropertyDetail(propertyData),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
@@ -1055,9 +1063,7 @@ class _FavoritesPageState extends State<FavoritesPage>
 
     final cardContent = InkWell(
       borderRadius: BorderRadius.circular(20),
-      onTap: () {
-        Navigator.pushNamed(context, Routes.serviceDetail, arguments: prestation);
-      },
+      onTap: () => _navigateToPrestationDetail(prestation),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
@@ -1210,9 +1216,7 @@ class _FavoritesPageState extends State<FavoritesPage>
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
-      onTap: () {
-        Navigator.pushNamed(context, Routes.serviceDetail, arguments: prestation);
-      },
+      onTap: () => _navigateToPrestationDetail(prestation),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
