@@ -20,6 +20,7 @@ class ServiceController with ChangeNotifier {
   bool hasMoreData = true;
   List<ServiceModel> services = [];
   ServiceModel? currentService;
+  PrestationModel? currentPrestation;
   Map<int, String> serviceIdToNameMap = {};
 
   // Récupérer le nom du service depuis son ID (ex: 16 -> "Plombier")
@@ -133,6 +134,52 @@ class ServiceController with ChangeNotifier {
       }
     } catch (e) {
       print("Erreur lors de la récupération du service: $e");
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+    return null;
+  }
+
+  Future<PrestationModel?> getPrestationById(int prestationId) async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final url = "${Endpoints.prestations}/$prestationId";
+      var response = await getData(url);
+
+      if (response != null && response is Map<String, dynamic>) {
+        // Prestation structure check
+        // Check if response is the wrapped object {"prestation": ..., "image": ...}
+        PrestationModel? result;
+        if (response.containsKey('prestation')) {
+           final prestationData = response['prestation'] as Map<String, dynamic>;
+           result = PrestationModel.fromJson(prestationData);
+           
+           if (response.containsKey('image') && response['image'] is List) {
+             final images = (response['image'] as List).map((img) {
+               if (img is String) return img;
+               if (img is Map) return img['path'] ?? img['url'] ?? '';
+               return '';
+             }).where((path) => path.isNotEmpty).cast<String>().toList();
+             result.images = images;
+           }
+        } else {
+           final data = response.containsKey('data') ? response['data'] : response;
+           if (data is Map<String, dynamic>) {
+              result = PrestationModel.fromJson(data);
+           }
+        }
+
+        if (result != null) {
+          currentPrestation = result;
+          notifyListeners();
+          return result;
+        }
+      }
+    } catch (e) {
+      print("Erreur lors de la récupération de la prestation: $e");
     } finally {
       loading = false;
       notifyListeners();
