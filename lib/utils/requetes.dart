@@ -57,17 +57,15 @@ Future<HttpResponse> postDataOtp(String api_url, Map data, {String? token}) asyn
     if (tkn.isNotEmpty) {
       headers["Authorization"] = "Bearer $tkn";
     }
+    
     var response = await http.post(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
-    /* if(!kReleaseMode){
-        alice.onHttpResponse(response);
-      }*/
+
     var successList = [200, 201];
-    var msg = json.decode(response.body);
+    var msg = json.decode(utf8.decode(response.bodyBytes));
     var st = successList.contains(response.statusCode);
     return HttpResponse(status: st, data: msg);
   } catch (e, trace) {
-    print(e.toString());
-    print(trace.toString());
+    print("❌ [postDataOtp] Exception: $e");
     return HttpResponse(
         status: false, errorMsg: "Erreur inattendue", isException: true);
   }
@@ -86,23 +84,21 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
     if (tkn.isNotEmpty) {
       headers["Authorization"] = "Bearer $tkn";
     }
+    
     var response = await http.put(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
-    /* if(!kReleaseMode){
-        alice.onHttpResponse(response);
-      }*/
+
     var successList = [200, 201];
-    var msg = json.decode(response.body);
+    var msg = json.decode(utf8.decode(response.bodyBytes));
     var st = successList.contains(response.statusCode);
     
     String? errorMsg;
     if (!st && msg is Map) {
-      errorMsg = msg['message'] ?? msg['error'] ?? msg['errors']?.toString();
+      errorMsg = msg['message'] ?? msg['error'] ?? msg['detailMessage'] ?? msg['errors']?.toString();
     }
 
     return HttpResponse(status: st, data: msg, errorMsg: errorMsg);
   } catch (e, trace) {
-    print(e.toString());
-    print(trace.toString());
+    print("❌ [putData] Exception: $e");
     return HttpResponse(
         status: false, errorMsg: "Erreur inattendue", isException: true);
   }
@@ -287,12 +283,38 @@ Future<HttpResponse> postDataForAuth(String api_url, Map data, {String? token}) 
         alice.onHttpResponse(response);
       }*/
     var successList = [200, 201];
-    var msg = json.decode(response.body);
+    var msg = json.decode(utf8.decode(response.bodyBytes));
     var st = successList.contains(response.statusCode);
     return HttpResponse(status: st, data: msg);
   } catch (e, trace) {
     print(e.toString());
     print(trace.toString());
+    return HttpResponse(
+        status: false, errorMsg: "Erreur inattendue", isException: true);
+  }
+}
+
+Future<HttpResponse> putDataForAuth(String api_url, Map data, {String? token}) async {
+  try {
+    var url = Uri.parse("${Constantes.URL_BASE}$api_url");
+    String dataStr = json.encode(data);
+    var tkn = token ?? Constantes.DefaultToken;
+    var headers = {
+      "Content-Type": "application/json",
+    };
+    if (tkn.isNotEmpty) {
+      headers["Authorization"] = "Bearer $tkn";
+    }
+
+    var response = await http.put(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
+    
+    var successList = [200, 201];
+    var msg = json.decode(utf8.decode(response.bodyBytes));
+    var st = successList.contains(response.statusCode);
+    
+    return HttpResponse(status: st, data: msg);
+  } catch (e, trace) {
+    print("❌ [putDataForAuth] Exception: $e");
     return HttpResponse(
         status: false, errorMsg: "Erreur inattendue", isException: true);
   }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/Endpoints.dart';
-import '../utils/requetes.dart' show postData, HttpResponse, postDataOtp, putData;
+import '../utils/requetes.dart' show postData, HttpResponse, postDataOtp, putData, putDataForAuth;
 
 class ForgotPasswordController with ChangeNotifier {
   bool loading = false;
@@ -154,28 +154,19 @@ class ForgotPasswordController with ChangeNotifier {
     notifyListeners();
 
     try {
-      print("🔐 Réinitialisation du mot de passe pour User ID: $userUserId");
-      
       final url = Endpoints.resetPasswordEndpoint;
       final data = {
         "newPassword": newPassword,
         "userId": userUserId,
       };
-
-      HttpResponse response = await putData(url, data, token: "");
+      
+      HttpResponse response = await putDataForAuth(url, data); 
 
       if (response.status == true) {
-        print("✅ Mot de passe réinitialisé avec succès");
-        
         // Réinitialiser les variables après succès
         userId = null;
         phoneNumber = null;
         otpStatus = null;
-      } else {
-        print("❌ Erreur lors de la réinitialisation");
-        if (response.errorMsg != null) {
-          print("❌ Message d'erreur: ${response.errorMsg}");
-        }
       }
 
       loading = false;

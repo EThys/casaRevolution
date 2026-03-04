@@ -47,7 +47,7 @@ class AuthentificationCtrl with ChangeNotifier {
           _user = UserModel.fromJson(locale);
         }
       } catch (e) {
-        print("❌ Erreur de décodage de l'utilisateur: $e");
+        print("Erreur de décodage de l'utilisateur: $e");
         _user = UserModel();
       }
     }
@@ -60,7 +60,7 @@ class AuthentificationCtrl with ChangeNotifier {
       stockage?.write(StockageKeys.userKey, value.toJson());
       notifyListeners();
     } catch (e) {
-      print("❌ Erreur d'encodage de l'utilisateur: $e");
+      print("Erreur d'encodage de l'utilisateur: $e");
     }
   }
 
@@ -75,7 +75,7 @@ class AuthentificationCtrl with ChangeNotifier {
         _userAuth = UserModel.fromJson(locale);
       }
     } catch (e) {
-      print("❌ Erreur de décodage des préférences utilisateur: $e");
+      print("Erreur de décodage des préférences utilisateur: $e");
     }
     return _userAuth;
   }
@@ -90,9 +90,9 @@ class AuthentificationCtrl with ChangeNotifier {
     try {
       await GetStorage.init();
       stockage = GetStorage();
-      print("✅ Stockage initialisé avec succès");
+      print("Stockage initialisé avec succès");
     } catch (e) {
-      print("❌ Erreur d'initialisation du stockage: $e");
+      print("Erreur d'initialisation du stockage: $e");
     }
   }
   Future<HttpResponse> login(Map<String, dynamic> data) async {
@@ -116,7 +116,7 @@ class AuthentificationCtrl with ChangeNotifier {
       if (response.status != true) {
         loading = false;
         notifyListeners();
-        print("❌ Statut HTTP non valide: ${response.status}");
+        print("Statut HTTP non valide: ${response.status}");
         return response;
       }
 
@@ -125,7 +125,7 @@ class AuthentificationCtrl with ChangeNotifier {
       bool isSuccess = message.toLowerCase().contains('réussie');
 
         if (isSuccess) {
-        print("✅ Message de succès détecté: $message");
+        print("Message de succès détecté: $message");
 
         var token = response.data['token'];
         var refreshToken = response.data['refresh_token'];
@@ -149,14 +149,14 @@ class AuthentificationCtrl with ChangeNotifier {
           // Activer les notifications WebSocket
           NotificationController().loadForUser(user.userId.toString());
 
-          print("✅ Connexion et stockage réussis");
+          print("Connexion et stockage réussis");
         } else {
-          print("❌ Token ou données membre manquants dans la réponse");
+          print("Token ou données membre manquants dans la réponse");
           throw Exception("Données d'authentification incomplètes");
         }
       } else {
         String errorMessage = response.data['detailMessage'] ?? "Échec de la connexion";
-        print("❌ Échec connexion: $errorMessage");
+        print("Échec connexion: $errorMessage");
         throw Exception(errorMessage);
       }
 
@@ -167,8 +167,8 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e, stack) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur critique lors du login: $e");
-      print("🔍 Stack trace: $stack");
+      print("Erreur critique lors du login: $e");
+      print("Stack trace: $stack");
 
       // Retourner une réponse d'erreur cohérente
       return HttpResponse(
@@ -184,15 +184,15 @@ class AuthentificationCtrl with ChangeNotifier {
 // Méthode pour stocker les données d'authentification - VERSION CORRIGÉE
   Future<void> _storeAuthData(String token, String? refreshToken, Map<String, dynamic> userJson, Map<String, dynamic>? profileJson) async {
     try {
-      print("💾 Début du stockage des données d'authentification...");
+      print("Début du stockage des données d'authentification...");
 
       // Stockage des tokens
       await stockage?.write(StockageKeys.tokenKey, token);
-      print("✅ Token stocké");
+      print("Token stocké");
 
       if (refreshToken != null) {
         await stockage?.write(StockageKeys.refreshTokenKey, refreshToken);
-        print("✅ Refresh token stocké");
+        print("Refresh token stocké");
       }
 
       // Conversion et stockage de l'utilisateur
@@ -205,25 +205,25 @@ class AuthentificationCtrl with ChangeNotifier {
       userData['isCertified'] = isCertifiedValue == true;
       userData['certified'] = isCertifiedValue == true;
       user.isCertified = isCertifiedValue == true;
-      print("✅ Statut isCertified mis à jour depuis l'API lors de la connexion: $isCertifiedValue");
+      print("Statut isCertified mis à jour depuis l'API lors de la connexion: $isCertifiedValue");
       
       await stockage?.write(StockageKeys.userKey, userData);
-      print("✅ Données utilisateur stockées");
+      print("Données utilisateur stockées");
 
       // Stockage du profile si disponible - CORRECTION ICI
       if (profileJson != null) {
         // Vérifier que profileJson est bien un Map et non une String
         if (profileJson is Map<String, dynamic>) {
           await stockage?.write(StockageKeys.profileKey, profileJson);
-          print("✅ Données profile stockées");
+          print("Données profile stockées");
 
           // Afficher les infos du profile pour debug
           print("📋 Profile stocké - Prénom: ${profileJson['firstname']}, Nom: ${profileJson['lastname']}");
         } else {
-          print("⚠️ Format de profile invalide: ${profileJson.runtimeType}");
+          print("Format de profile invalide: ${profileJson.runtimeType}");
         }
       } else {
-        print("⚠️ Aucun profile reçu dans la réponse");
+        print("Aucun profile reçu dans la réponse");
       }
 
       // Mise à jour des propriétés en mémoire
@@ -234,8 +234,8 @@ class AuthentificationCtrl with ChangeNotifier {
       print("🎫 Token en mémoire: ${_token.substring(0, 20)}...");
 
     } catch (e, stack) {
-      print("❌ Erreur lors du stockage des données: $e");
-      print("🔍 Détails de l'erreur: $stack");
+      print("Erreur lors du stockage des données: $e");
+      print("Détails de l'erreur: $stack");
 
       // Nettoyage en cas d'erreur
       await _cleanupStorage();
@@ -253,11 +253,11 @@ class AuthentificationCtrl with ChangeNotifier {
       // Utilisation de l'endpoint PUT /api/members/{profileId}
       // Le profileId est passé depuis IdentityVerificationPage (profile.id depuis le stockage)
       final url = "members/$profileId";
-      print("📤 Envoi vérification d'identité vers $url (profileId: $profileId)");
+      print("Envoi vérification d'identité vers $url (profileId: $profileId)");
       
       final response = await putData(url, payload, token: token);
       
-      print("📥 Réponse vérification: ${response.data}");
+      print(" Réponse vérification: ${response.data}");
 
       // Vérifier le message de succès : doit contenir "updated" ET "successfully"
       final message = response.data['message']?.toString().toLowerCase() ?? "";
@@ -269,7 +269,7 @@ class AuthentificationCtrl with ChangeNotifier {
         final userData = response.data['user'];
         
         if (personData != null) {
-            print("✅ Identité mise à jour pour: ${personData['fullName']}");
+            print("Identité mise à jour pour: ${personData['fullName']}");
             
             // Mettre à jour le profil local
             try {
@@ -298,15 +298,15 @@ class AuthentificationCtrl with ChangeNotifier {
                   await stockage?.write(StockageKeys.profileKey, updatedProfile);
               }
               
-              print("💾 Profil local mis à jour avec les infos d'identité");
+              print("Profil local mis à jour avec les infos d'identité");
             } catch (e) {
-              print("⚠️ Erreur mise à jour profil local: $e");
+              print("Erreur mise à jour profil local: $e");
             }
         }
         
         // Mettre à jour le statut certified depuis la réponse user
         if (userData != null && userData['certified'] == true) {
-          print("✅ Utilisateur certifié: ${userData['certified']}");
+          print("Utilisateur certifié: ${userData['certified']}");
           _user.isCertified = true;
           
           // Mettre à jour le stockage local avec les données user complètes
@@ -331,9 +331,9 @@ class AuthentificationCtrl with ChangeNotifier {
             // Mettre à jour aussi l'objet user en mémoire
             _user.isCertified = true;
             
-            print("💾 Statut certified mis à jour dans le stockage local (isCertified = true)");
+            print("Statut certified mis à jour dans le stockage local (isCertified = true)");
           } catch (e) {
-            print("⚠️ Erreur mise à jour user local: $e");
+            print("Erreur mise à jour user local: $e");
           }
         }
         
@@ -341,7 +341,7 @@ class AuthentificationCtrl with ChangeNotifier {
       } else {
         // Si le message ne contient pas "updated" et "successfully", c'est une erreur
         final errorMsg = response.data['detailMessage'] ?? response.data['message'] ?? "Erreur lors de la vérification";
-        print("❌ Vérification échouée: $errorMsg");
+        print("Vérification échouée: $errorMsg");
         loading = false;
         notifyListeners();
         return HttpResponse(status: false, errorMsg: errorMsg.toString(), isException: false);
@@ -353,7 +353,7 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur verifyIdentity: $e");
+      print("Erreur verifyIdentity: $e");
       return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
     }
   }
@@ -435,7 +435,7 @@ class AuthentificationCtrl with ChangeNotifier {
       await stockage?.remove(StockageKeys.userKey);
       print("🧹 Stockage nettoyé après erreur");
     } catch (e) {
-      print("❌ Erreur lors du nettoyage: $e");
+      print("Erreur lors du nettoyage: $e");
     }
   }
 
@@ -460,7 +460,7 @@ class AuthentificationCtrl with ChangeNotifier {
         // Nettoyage local regardless de la réponse API
         await _clearLocalAuthData();
 
-        print("✅ Données locales supprimées");
+        print("Données locales supprimées");
       } else {
         print("Déconnexion API échouée, nettoyage local quand même");
         await _clearLocalAuthData();
@@ -473,7 +473,7 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur lors de la déconnexion: $e");
+      print("Erreur lors de la déconnexion: $e");
 
       // Nettoyage local même en cas d'erreur
       await _clearLocalAuthData();
@@ -494,15 +494,15 @@ class AuthentificationCtrl with ChangeNotifier {
       var url = Endpoints.deleteAccount;
       var tkn = token;
 
-      print("🛑 Suppression du compte en cours...");
+      print("Suppression du compte en cours...");
       // Habituellement on envoie le userId ou c'est géré via le token
       final response = await deleteData(url, token: tkn);
 
       if (response.status == true) {
-        print("✅ Compte supprimé avec succès sur le serveur");
+        print("Compte supprimé avec succès sur le serveur");
         await _clearLocalAuthData();
       } else {
-        print("❌ Échec de la suppression du compte");
+        print("Échec de la suppression du compte");
       }
 
       loading = false;
@@ -511,7 +511,7 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur lors de la suppression du compte: $e");
+      print("Erreur lors de la suppression du compte: $e");
       return HttpResponse(
         status: false,
         errorMsg: e.toString(),
@@ -544,7 +544,7 @@ class AuthentificationCtrl with ChangeNotifier {
       await stockage?.remove('referrals_count');
       await stockage?.remove('user_data'); 
 
-      // 🛑 NETTOYAGE RADICAL DES BASES DE DONNÉES SQL (Sécurité totale)
+      // NETTOYAGE RADICAL DES BASES DE DONNÉES SQL (Sécurité totale)
       try {
         print("🧹 Début du nettoyage radical des bases SQL...");
         
@@ -569,30 +569,30 @@ class AuthentificationCtrl with ChangeNotifier {
         await PropertyDatabaseHelper.instance.clearDatabase();
         await TerrainDatabaseHelper.instance.clearTerrains();
         
-        print("✅ Nettoyage radical terminé");
+        print("Nettoyage radical terminé");
       } catch (e) {
-        print("⚠️ Erreur lors du nettoyage radical SQL: $e");
+        print("Erreur lors du nettoyage radical SQL: $e");
       }
 
       // Supprimer les brouillons expirés
       try {
         await DraftHelper.clearAllDrafts();
-        print("✅ Brouillons expirés supprimés");
+        print("Brouillons expirés supprimés");
       } catch (e) {
-        print("⚠️ Erreur lors de la suppression des brouillons: $e");
+        print("Erreur lors de la suppression des brouillons: $e");
       }
 
       // Supprimer les agences en cache local (SQL database)
       try {
         await AgenceDatabaseHelper.instance.clearAgencies();
-        print("✅ Agences locales supprimées");
+        print("Agences locales supprimées");
       } catch (e) {
-        print("⚠️ Erreur lors de la suppression des agences locales: $e");
+        print("Erreur lors de la suppression des agences locales: $e");
       }
 
-      print("✅ Données d'authentification locales supprimées");
+      print("Données d'authentification locales supprimées");
     } catch (e) {
-      print("❌ Erreur lors du nettoyage des données locales: $e");
+      print("Erreur lors du nettoyage des données locales: $e");
     }
   }
 
@@ -613,17 +613,17 @@ class AuthentificationCtrl with ChangeNotifier {
           _token = storedToken;
           _user = UserModel.fromJson(userData);
           print("Session restaurée pour: ${_user.email}");
-          print("👤 User ID: ${_user.userId}");
+          print("User ID: ${_user.userId}");
           return true;
         } else {
-          print("❌ Données utilisateur non trouvées");
+          print("Données utilisateur non trouvées");
           await _clearLocalAuthData();
         }
       } else {
-        print("🔍 Aucun token trouvé dans le stockage");
+        print("Aucun token trouvé dans le stockage");
       }
     } catch (e) {
-      print("❌ Erreur lors de la vérification de l'authentification: $e");
+      print("Erreur lors de la vérification de l'authentification: $e");
       await _clearLocalAuthData();
     }
     return false;
@@ -635,7 +635,7 @@ class AuthentificationCtrl with ChangeNotifier {
   //     String? refreshToken = stockage?.read<String>(StockageKeys.refreshTokenKey);
   //
   //     if (refreshToken == null) {
-  //       print("❌ Aucun refresh token disponible");
+  //       print("Aucun refresh token disponible");
   //       return false;
   //     }
   //
@@ -652,15 +652,15 @@ class AuthentificationCtrl with ChangeNotifier {
   //       if (isSuccess) {
   //         String newToken = response.data['token'] ?? response.data['data']['token'];
   //         this.token = newToken;
-  //         print("✅ Token rafraîchi avec succès");
+  //         print("Token rafraîchi avec succès");
   //         return true;
   //       }
   //     }
   //
-  //     print("❌ Échec du rafraîchissement du token");
+  //     print("Échec du rafraîchissement du token");
   //     return false;
   //   } catch (e) {
-  //     print("❌ Erreur lors du rafraîchissement du token: $e");
+  //     print("Erreur lors du rafraîchissement du token: $e");
   //     return false;
   //   }
   // }
@@ -668,10 +668,10 @@ class AuthentificationCtrl with ChangeNotifier {
   // Méthode pour afficher les informations de debug
   void printAuthStatus() {
     print("=== ÉTAT AUTHENTIFICATION ===");
-    print("🔐 Token présent: ${token.isNotEmpty}");
-    print("👤 User ID: ${user.userId}");
-    print("📧 Email: ${user.email}");
-    print("✅ Connecté: $isLoggedIn");
+    print("Token présent: ${token.isNotEmpty}");
+    print("User ID: ${user.userId}");
+    print("Email: ${user.email}");
+    print("Connecté: $isLoggedIn");
     print("==============================");
   }
 
@@ -703,8 +703,8 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e, stack) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur lors de la demande de réinitialisation: $e");
-      print("🔍 Stack trace: $stack");
+      print("Erreur lors de la demande de réinitialisation: $e");
+      print("Stack trace: $stack");
 
       return HttpResponse(
         data: {
@@ -738,8 +738,8 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e, stack) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur lors de la vérification OTP: $e");
-      print("🔍 Stack trace: $stack");
+      print("Erreur lors de la vérification OTP: $e");
+      print("Stack trace: $stack");
 
       // Si l'endpoint verify-otp n'existe pas, vous pouvez essayer avec forgot-password/verify
       // ou ajuster selon votre API
@@ -760,7 +760,7 @@ class AuthentificationCtrl with ChangeNotifier {
       notifyListeners();
 
       final url = "members/$userId";
-      print("📤 Mise à jour profil vers $url");
+      print("Mise à jour profil vers $url");
       
       // S'assurer que la clé "user" est toujours présente avec toutes ses propriétés
       if (!payload.containsKey('user')) {
@@ -796,18 +796,18 @@ class AuthentificationCtrl with ChangeNotifier {
       if (!payload.containsKey('parrainId')) payload['parrainId'] = 0;
       if (!payload.containsKey('numberCard')) payload['numberCard'] = "";
       
-      print("📤 Payload (avec user, sans cartes): ${payload.keys.toList()}");
+      print("Payload (avec user, sans cartes): ${payload.keys.toList()}");
 
       final response = await putData(url, payload, token: token);
       
-      print("📥 Réponse mise à jour profil: ${response.data}");
+      print(" Réponse mise à jour profil: ${response.data}");
 
       // Vérifier le message de succès : doit contenir "updated" ET "successfully"
       final message = response.data['message']?.toString().toLowerCase() ?? "";
       final isSuccess = message.contains('updated') && message.contains('successfully');
 
       if (response.status == true && isSuccess) {
-        print("✅ Profil mis à jour avec succès");
+        print("Profil mis à jour avec succès");
         
         // Mettre à jour le profil et user local
         final personData = response.data['person'];
@@ -831,7 +831,7 @@ class AuthentificationCtrl with ChangeNotifier {
               await stockage?.write(StockageKeys.profileKey, currentProfile);
             }
           } catch (e) {
-            print("⚠️ Erreur mise à jour profil local: $e");
+            print("Erreur mise à jour profil local: $e");
           }
         }
         
@@ -847,9 +847,9 @@ class AuthentificationCtrl with ChangeNotifier {
             
             // Mettre à jour l'objet user
             _user = UserModel.fromJson(userData);
-            print("💾 User local mis à jour");
+            print("User local mis à jour");
           } catch (e) {
-            print("⚠️ Erreur mise à jour user local: $e");
+            print("Erreur mise à jour user local: $e");
           }
         }
         
@@ -857,7 +857,7 @@ class AuthentificationCtrl with ChangeNotifier {
       } else {
         // Si le message ne contient pas "updated" et "successfully", c'est une erreur
         final errorMsg = response.data['detailMessage'] ?? response.data['message'] ?? "Erreur lors de la mise à jour du profil";
-        print("❌ Mise à jour profil échouée: $errorMsg");
+        print("Mise à jour profil échouée: $errorMsg");
         loading = false;
         notifyListeners();
         return HttpResponse(status: false, errorMsg: errorMsg.toString(), isException: false);
@@ -869,7 +869,7 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur updateProfile: $e");
+      print("Erreur updateProfile: $e");
       return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
     }
   }
@@ -881,13 +881,8 @@ class AuthentificationCtrl with ChangeNotifier {
       notifyListeners();
 
       var url = "${Endpoints.resetPassword}";
-      print("URL reset password: $url");
-      print("Données envoyées: ${data.containsKey('new_password') ? 'new_password: ***, confirm_password: ***' : data}");
-
-      HttpResponse response = await postDataForAuth(url, data, token: "");
-
-      print("Statut de la réponse: ${response.status}");
-      print("Réponse API: ${response.data}");
+      
+      HttpResponse response = await putDataForAuth(url, data);
 
       loading = false;
       notifyListeners();
@@ -895,14 +890,12 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e, stack) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur lors de la réinitialisation du mot de passe: $e");
-      print("🔍 Stack trace: $stack");
+      print("Erreur lors de la réinitialisation du mot de passe: $e");
 
       return HttpResponse(
-        data: {
-          'message': e.toString(),
-        },
+        data: {'message': e.toString()},
         status: false,
+        errorMsg: e.toString()
       );
     }
   }
@@ -914,7 +907,7 @@ class AuthentificationCtrl with ChangeNotifier {
       notifyListeners();
 
       final url = "${Endpoints.updateProfilePicture}$profileId/profile";
-      print("📤 Upload image de profil vers $url");
+      print("Upload image de profil vers $url");
       
       final payload = {
         "image": base64Image,
@@ -922,7 +915,7 @@ class AuthentificationCtrl with ChangeNotifier {
 
       final response = await putData(url, payload, token: token);
       
-      print("📥 Réponse upload image de profil: ${response.data}");
+      print(" Réponse upload image de profil: ${response.data}");
 
       // Vérifier le message de succès
       final message = response.data['message']?.toString().toLowerCase() ?? "";
@@ -940,10 +933,10 @@ class AuthentificationCtrl with ChangeNotifier {
               currentProfile['image'] = imageUrl.toString();
               currentProfile['images'] = imageUrl.toString();
               await stockage?.write(StockageKeys.profileKey, currentProfile);
-              print("💾 Image de profil mise à jour dans le stockage local: $imageUrl");
+              print("Image de profil mise à jour dans le stockage local: $imageUrl");
             }
           } catch (e) {
-            print("⚠️ Erreur mise à jour profil local: $e");
+            print("Erreur mise à jour profil local: $e");
           }
         }
         
@@ -952,7 +945,7 @@ class AuthentificationCtrl with ChangeNotifier {
         return response;
       } else {
         final errorMsg = response.data['detailMessage'] ?? response.data['message'] ?? "Erreur lors de l'upload de l'image de profil";
-        print("❌ Upload image de profil échoué: $errorMsg");
+        print("Upload image de profil échoué: $errorMsg");
         loading = false;
         notifyListeners();
         return HttpResponse(status: false, errorMsg: errorMsg.toString(), isException: false);
@@ -960,7 +953,7 @@ class AuthentificationCtrl with ChangeNotifier {
     } catch (e) {
       loading = false;
       notifyListeners();
-      print("❌ Erreur updateProfilePicture: $e");
+      print("Erreur updateProfilePicture: $e");
       return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
     }
   }
@@ -971,7 +964,7 @@ class AuthentificationCtrl with ChangeNotifier {
   Future<bool> checkUserAgency(int userId) async {
     try {
       final url = "agences/owner/$userId";
-      print("🔍 Vérification agence pour user $userId: $url");
+      print("Vérification agence pour user $userId: $url");
       
       // getData retourne le body JSON décodé (Map ou List) si 200, sinon null
       final response = await getData(url, token: token);
@@ -979,7 +972,7 @@ class AuthentificationCtrl with ChangeNotifier {
       if (response != null && response is Map && response['data'] != null) {
         final data = response['data'];
         if (data is List && data.isNotEmpty) {
-           print("✅ Agence trouvée: ${data.length} agence(s)");
+           print("Agence trouvée: ${data.length} agence(s)");
            hasAgence = true;
            notifyListeners();
            return true; 
