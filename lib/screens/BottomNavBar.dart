@@ -12,6 +12,7 @@ import '../utils/StockageKeys.dart';
 import '../utils/Routes.dart';
 import '../utils/AppColors.dart';
 import 'package:casa/screens/auth/IdentityVerificationPage.dart';
+import '../controllers/provider/FavoriteProvider.dart';
 
 class BottomNavBar extends StatefulWidget {
   final bool shouldRefresh;
@@ -39,10 +40,18 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-      final authCtr = context.read<AuthentificationCtrl>();
-      final idUser = 1; //authCtr.user;
-      final storage = GetStorage();
-      print("User ID: $idUser");
+      if (mounted) {
+        final authCtr = context.read<AuthentificationCtrl>();
+        final idUser = authCtr.user.userId;
+        
+        if (idUser != null) {
+          print("📡 [BottomNavBar] User ID: $idUser. Initialisation silencieuse des favoris...");
+          // Chargement global et silencieux des favoris pour synchroniser les cœurs sur toutes les pages
+          context.read<FavoriteProvider>().initialize(idUser.toString());
+        } else {
+          print("📡 [BottomNavBar] Utilisateur non connecté, pas de sync favoris.");
+        }
+      }
     });
   }
 
