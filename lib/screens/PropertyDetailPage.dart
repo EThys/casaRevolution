@@ -18,6 +18,7 @@ import '../models/PropertyFeatureModel.dart';
 import '../utils/FancyNotification.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
+import 'package:shimmer/shimmer.dart';
 import '../controllers/PropertyCtrl.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../controllers/provider/FavoriteProvider.dart';
@@ -122,9 +123,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       setState(() {});
     });
     
-    // Démarrer le défilement automatique après l'initialisation
+    // Démarrer le défilement automatique dès le début
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _startAutoScroll();
+      if (mounted) {
+        _startAutoScrollForProperty(widget.property);
+      }
       
       final ctrl = context.read<PropertyController>();
       if (widget.property.propertyId != null) {
@@ -154,8 +157,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   // Défilement automatique du carousel d'images
-  void _startAutoScroll() {
-    final allImages = _getAllImages();
+  void _startAutoScrollForProperty(PropertyModel property) {
+    final allImages = _getAllImagesFor(property);
     if (allImages.length <= 1) return; // Pas besoin de défilement si une seule image
 
     _autoScrollTimer?.cancel(); // Annuler le timer existant s'il y en a un
@@ -166,7 +169,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         return;
       }
       
-      final nextIndex = (_currentImageIndex + 1) % allImages.length;
+      final int nextIndex = (_currentImageIndex + 1) % allImages.length;
       _imageController.animateToPage(
         nextIndex,
         duration: Duration(milliseconds: 500),
@@ -274,7 +277,12 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 SizedBox(height: 16),
                 _buildHighlightsSectionFor(property),
                 SizedBox(height: 16),
-                _buildDetailedCharacteristicsSectionFor(property),
+                // Caractéristiques Détaillées
+                if (_showSurfaceFor(property))
+                  Padding(
+                    padding: EdgeInsets.only(top: 24),
+                    child: _buildDetailedCharacteristicsSectionFor(property),
+                  ),
                 SizedBox(height: 16),
                 _buildPublicationInfoSectionFor(property),
                 SizedBox(height: 16),
@@ -394,7 +402,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             onPageChanged: (index) {
               setState(() => _currentImageIndex = index);
               // Redémarrer le timer après chaque changement de page
-              _startAutoScrollFor(images);
+              _startAutoScrollForProperty(property);
             },
             itemBuilder: (context, index) {
               final image = images[index];
@@ -962,8 +970,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     return 'Propriété';
   }
 
-  Widget _buildPriceSection() {
-    final isForRent = widget.property.transactionType?.toLowerCase().contains('location') ?? false;
+  Widget _buildPriceSectionFor(PropertyModel property) {
+    final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
 
     return Container(
       padding: EdgeInsets.all(20),
@@ -1019,7 +1027,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '${widget.property.price?.toInt() ?? 0}',
+                      '${property.price?.toInt() ?? 0}',
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
@@ -1028,14 +1036,14 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                       ),
                     ),
                     Text(
-                      widget.property.currency ?? '\$',
+                      property.currency ?? '\$',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: _primaryColor,
                       ),
                     ),
-                    if (isForRent && !_isFestiveOrFuneraire)
+                    if (isForRent && !_isFestiveOrFuneraireFor(property))
                       Padding(
                         padding: EdgeInsets.only(left: 4, bottom: 2),
                         child: Text(
@@ -1052,7 +1060,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ],
             ),
           ),
-          if (_showSurface)
+          if (_showSurfaceFor(property))
             Container(
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
@@ -1093,7 +1101,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        '${widget.property.surface?.toInt() ?? 0}',
+                        '${property.surface?.toInt() ?? 0}',
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
@@ -1122,37 +1130,37 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  Widget _buildFeaturesSection() {
-    final hasWifi = widget.property.features?.any((f) => f.name?.toLowerCase().contains('wifi') ?? false) ?? false;
-    final hasClim = widget.property.features?.any((f) => f.name?.toLowerCase().contains('climatisation') ?? false) ?? false;
-    final hasParking = widget.property.features?.any((f) => f.name?.toLowerCase().contains('parking') ?? false) ?? false;
+  Widget _buildFeaturesSectionFor(PropertyModel property) {
+    final hasWifi = property.features?.any((f) => f.name?.toLowerCase().contains('wifi') ?? false) ?? false;
+    final hasClim = property.features?.any((f) => f.name?.toLowerCase().contains('climatisation') ?? false) ?? false;
+    final hasParking = property.features?.any((f) => f.name?.toLowerCase().contains('parking') ?? false) ?? false;
 
     // Créer une liste dynamique des éléments à afficher avec le bon type
     final List<Widget> featureItems = <Widget>[];
 
     // Ajouter les chambres seulement si > 0 et si on ne doit pas les cacher
-    if ((widget.property.bedrooms ?? 0) > 0 && !_shouldHideBedrooms) {
+    if ((property.bedrooms ?? 0) > 0 && !_shouldHideBedroomsFor(property)) {
       featureItems.add(_buildFeatureItem(
         'assets/images/bed.png',
-        '${widget.property.bedrooms ?? 0}',
+        '${property.bedrooms ?? 0}',
         'Chambres',
       ));
     }
 
     // Ajouter les salles de bain seulement si > 0
-    if ((widget.property.bathroom ?? 0) > 0) {
+    if ((property.bathroom ?? 0) > 0) {
       featureItems.add(_buildFeatureItem(
         'assets/images/douche.png',
-        '${widget.property.bathroom ?? 0}',
+        '${property.bathroom ?? 0}',
         'SDB',
       ));
     }
 
     // Ajouter l'étage seulement si > 0
-    if (_showFloor) {
+    if (_showFloorFor(property)) {
       featureItems.add(_buildFeatureItem(
         'assets/images/wifi.png',
-        '${widget.property.floor ?? 0}',
+        '${property.floor ?? 0}',
         'Étage',
       ));
     }
@@ -1925,40 +1933,29 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   Widget _buildPublicationInfoSectionFor(PropertyModel property) {
     final user = property.user;
     // Show section if we have postBy or user info
-    if (property.postBy == null && user?.email == null) {
-      return SizedBox();
+    // Obtenir le nom de l'utilisateur
+    String publisherName = '';
+    if (property.user?.username != null) {
+      publisherName = property.user!.username!;
+    } else if (property.postBy != null) {
+      publisherName = property.postBy!;
+    } else if (property.username != null) {
+      publisherName = property.username!;
     }
-
-    // Get publisher name from postBy or fallback to username
-    String publisherName = property.postBy ?? user?.username ?? property.username ?? '';
-    // Remove @ symbol if present
-    publisherName = publisherName.replaceAll('@', '').trim();
     
-    if (publisherName.isEmpty) {
-      return SizedBox();
-    }
+    // Nettoyer le nom (enlever @ si présent)
+    publisherName = publisherName.replaceAll('@', '').trim();
 
     return Container(
-      padding: EdgeInsets.all(18),
+      padding: EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.white,
-            _primaryColor.withOpacity(0.02),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: _primaryColor.withOpacity(0.1),
-          width: 1,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 4),
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 15,
+            offset: Offset(0, 5),
           ),
         ],
       ),
@@ -2006,9 +2003,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 ),
                   child: GestureDetector(
                     onTap: () {
-                      final imageUrl = (widget.property.image != null && widget.property.image!.isNotEmpty)
-                          ? widget.property.image!
-                          : (widget.property.user?.profilePicture ?? '');
+                      final imageUrl = (property.image != null && property.image!.isNotEmpty)
+                          ? property.image!
+                          : (property.user?.profilePicture ?? '');
                       
                       if (imageUrl.isNotEmpty) {
                         Navigator.push(
@@ -2016,19 +2013,19 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                           MaterialPageRoute(
                             builder: (context) => FullScreenProfileImage(
                               imageUrl: imageUrl,
-                              heroTag: 'profile_image_${widget.property.propertyId}',
+                              heroTag: 'profile_image_${property.propertyId}',
                             ),
                           ),
                         );
                       }
                     },
                     child: Hero(
-                      tag: 'profile_image_${widget.property.propertyId}',
+                      tag: 'profile_image_${property.propertyId}',
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(23),
-                        child: (widget.property.image != null && widget.property.image!.isNotEmpty)
+                        child: (property.image != null && property.image!.isNotEmpty)
                             ? CachedNetworkImage(
-                                imageUrl: widget.property.image!,
+                                imageUrl: property.image!,
                                 fit: BoxFit.cover,
                                 placeholder: (context, url) => Center(
                                   child: CircularProgressIndicator(
@@ -2049,9 +2046,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                                   ),
                                 ),
                               )
-                            : (widget.property.user?.profilePicture != null && widget.property.user!.profilePicture!.isNotEmpty)
+                            : (property.user?.profilePicture != null && property.user!.profilePicture!.isNotEmpty)
                                 ? CachedNetworkImage(
-                                    imageUrl: widget.property.user!.profilePicture!,
+                                    imageUrl: property.user!.profilePicture!,
                                     fit: BoxFit.cover,
                                     placeholder: (context, url) => Center(
                                       child: CircularProgressIndicator(
@@ -2107,7 +2104,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                           ),
                         ),
                         SizedBox(width: 6),
-                        if (widget.property.isVerified ?? false)
+                        if (property.isVerified ?? false)
                           Icon(
                             Icons.verified,
                             size: 16,
@@ -2116,7 +2113,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                       ],
                     ),
                     SizedBox(height: 6),
-                    if (widget.property.createdAt != null || widget.property.createdStart != null)
+                    if (property.createdAt != null || property.createdStart != null)
                       Row(
                         children: [
                           Icon(
@@ -2127,7 +2124,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                           SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              'Publié le ${_formatPublicationDate(widget.property.createdAt ?? widget.property.createdStart!)}',
+                              'Publié le ${_formatPublicationDate(property.createdAt ?? property.createdStart!)}',
                               style: TextStyle(
                                 color: _greyColor,
                                 fontSize: 13,
@@ -2782,7 +2779,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     }
   }
 
-  Widget _buildHotelRoomsSection() {
+  Widget _buildHotelRoomsSectionFor(PropertyModel property) {
     final rooms = widget.property.hotelStructure;
     if (rooms == null || rooms.isEmpty) return SizedBox.shrink();
 
@@ -3035,7 +3032,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     }
   }
 
-  Widget _buildBottomActionBar() {
+  Widget _buildBottomActionBarFor(PropertyModel property) {
     final isAvailable = widget.property.available ?? true;
     
     return Column(

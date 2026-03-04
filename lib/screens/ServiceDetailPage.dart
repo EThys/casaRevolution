@@ -58,6 +58,13 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     if (images.length > 1) {
       _startAutoScroll();
     }
+
+    // SILENT LOADING: Charger la prestation complète en arrière-plan
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.service.id != null) {
+        context.read<ServiceController>().getPrestationById(widget.service.id!);
+      }
+    });
   }
 
   void _startAutoScroll() {
@@ -87,14 +94,14 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     super.dispose();
   }
 
-  Future<void> _shareService() async {
-    final priceText = _getPriceRange(widget.service);
+  Future<void> _shareService(PrestationModel service) async {
+    final priceText = _getPriceRange(service);
 
     final shareText = '''
-🔧 ${widget.service.title ?? 'Service professionnel'} - ${widget.service.cityValue}, ${widget.service.communeValue}
+🔧 ${service.title ?? 'Service professionnel'} - ${service.cityValue}, ${service.communeValue}
 
 💰 ${priceText}
-${widget.service.description != null ? '\n${widget.service.description}\n' : ''}
+${service.description != null ? '\n${service.description}\n' : ''}
 Découvrez ce service sur Casa!
 ''';
 
@@ -103,13 +110,13 @@ Découvrez ce service sur Casa!
       if (box != null) {
         await Share.share(
           shareText,
-          subject: 'Service ${widget.service.title ?? ''}',
+          subject: 'Service ${service.title ?? ''}',
           sharePositionOrigin: box.localToGlobal(Offset.zero) & box.size,
         );
       } else {
         await Share.share(
           shareText,
-          subject: 'Service ${widget.service.title ?? ''}',
+          subject: 'Service ${service.title ?? ''}',
         );
       }
     } catch (e) {
@@ -125,12 +132,10 @@ Découvrez ce service sur Casa!
 
   @override
   Widget build(BuildContext context) {
+    // SILENT LOADING: Ecouter le controller pour mettre à jour les données dès qu'elles arrivent
     final serviceCtrl = context.watch<ServiceController>();
-    
-    // Choose the best data available
     final bool hasFullData = serviceCtrl.currentPrestation?.id == widget.service.id;
     final PrestationModel service = hasFullData ? serviceCtrl.currentPrestation! : widget.service;
-    final bool isLoading = serviceCtrl.loading && !hasFullData;
 
     final images = service.images ?? [];
     final hasImages = images.isNotEmpty;
@@ -145,28 +150,26 @@ Découvrez ce service sur Casa!
             expandedHeight: 300,
             pinned: true,
             flexibleSpace: FlexibleSpaceBar(
-              background: isLoading && !hasImages
-                  ? _buildShimmerCarousel()
-                  : hasImages && images.length > 1
-                      ? _buildImageCarousel(images)
-                      : firstImage != null
-                          ? GestureDetector(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => ServiceFullScreenImageViewer(
-                                      imageUrls: images,
-                                      initialIndex: 0,
-                                    ),
-                                  ),
-                                );
-                              },
-                              child: CachedNetworkImage(
-                                imageUrl: firstImage,
-                                fit: BoxFit.cover,
-                                placeholder: (context, url) => Container(
-                                  color: primaryColor.withOpacity(0.1),
+              background: hasImages && images.length > 1
+                  ? _buildImageCarousel(images)
+                  : firstImage != null
+                      ? GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ServiceFullScreenImageViewer(
+                                  imageUrls: images,
+                                  initialIndex: 0,
+                                ),
+                              ),
+                            );
+                          },
+                          child: CachedNetworkImage(
+                            imageUrl: firstImage,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => Container(
+                              color: primaryColor.withOpacity(0.1),
                               child: Center(
                                 child: CircularProgressIndicator(
                                   valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
@@ -216,7 +219,7 @@ Découvrez ce service sur Casa!
               Container(
                 margin: EdgeInsets.only(right: 8),
               child: FavoriteHeartIcon(
-                propertyId: widget.service.id.toString(),
+                propertyId: service.id.toString(),
                 isPrestation: true,
                 size: 24,
                 activeColor: Colors.red,
@@ -233,7 +236,7 @@ Découvrez ce service sur Casa!
                   ),
                   child: Icon(Icons.share, color: Colors.white, size: 18),
                 ),
-                onPressed: () => _shareServiceFor(service),
+                onPressed: () => _shareService(service),
               ),
             ],
           ),
@@ -400,32 +403,53 @@ Découvrez ce service sur Casa!
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey[200]!),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.work_outline, color: primaryColor, size: 20),
-                              SizedBox(width: 8),
-                              Text(
-                                'Expérience professionnelle',
-                                style: GoogleFonts.inter(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: darkBlue,
-                                ),
-                              ),
-                            ],
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
                           ),
-                          SizedBox(height: 12),
-                          Text(
-                            _formatExperience(service.experience),
-                            style: GoogleFonts.inter(
-                              fontSize: 15,
-                              color: Colors.grey[800],
-                              fontWeight: FontWeight.w500,
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [primaryColor.withOpacity(0.1), accentColor.withOpacity(0.1)],
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              Icons.work_history,
+                              color: primaryColor,
+                              size: 28,
+                            ),
+                          ),
+                          SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Expérience professionnelle',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                 Text(
+                                  _formatExperience(service.experience),
+                                  style: GoogleFonts.inter(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: darkBlue,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -434,107 +458,325 @@ Découvrez ce service sur Casa!
                     SizedBox(height: 24),
                   ],
 
-                  // Localisation
-                  Text(
-                    'Localisation',
-                    style: GoogleFonts.inter(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: darkBlue,
+                  // Informations du publicateur
+                  _buildPublicationInfoSectionFor(service),
+                  SizedBox(height: 24),
+
+                  // Informations de contact
+                  Container(
+                    padding: EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 8,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
                     ),
-                  ),
-                  SizedBox(height: 16),
-                  _buildInfoRow(
-                    Icons.location_on_outlined, 
-                    service.communeId != null 
-                        ? '${service.quartier ?? ''}, ${service.communeId}'
-                        : (service.quartier ?? 'Localisation non spécifiée'), 
-                    Colors.red
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Informations de contact',
+                          style: GoogleFonts.inter(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: darkBlue,
+                          ),
+                        ),
+                        SizedBox(height: 16),
+                        if (service.address != null && service.address!.isNotEmpty)
+                          _buildInfoRow(
+                            Icons.location_on,
+                            "${service.cityValue}, ${service.communeValue}",
+                            Colors.red,
+                          ),
+                        SizedBox(height: 12),
+                        _buildInfoRow(
+                          Icons.lock,
+                          'Les contacts seront partagés après validation de votre demande.',
+                          Colors.orange,
+                          onTap: null,
+                        ),
+                      ],
+                    ),
                   ),
                   SizedBox(height: 24),
-                  
-                  // Infos de contact
-                  Text(
-                    'Contact',
-                    style: GoogleFonts.inter(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: darkBlue,
+
+                  // Disponibilité
+                  if (service.plageJourPrestation != null ||
+                      service.plageHeurePrestation != null)
+                    Container(
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Disponibilité',
+                            style: GoogleFonts.inter(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: darkBlue,
+                            ),
+                          ),
+                          SizedBox(height: 12),
+                          if (service.plageJourPrestation != null &&
+                              service.plageJourPrestation!.isNotEmpty)
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: service.plageJourPrestation!
+                                  .split(',')
+                                  .map((day) {
+                                return Container(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: primaryColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    day.trim(),
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: primaryColor,
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          if (service.plageHeurePrestation != null &&
+                              service.plageHeurePrestation!.isNotEmpty) ...[
+                            SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Icon(Icons.access_time,
+                                    size: 16, color: primaryColor),
+                                SizedBox(width: 8),
+                                Text(
+                                  service.plageHeurePrestation!,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    color: Colors.grey[700],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  SizedBox(height: 24),
+
+                  // Réalisations précédentes (galerie)
+                  if (hasImages && images.length > 1) ...[
+                    SizedBox(height: 24),
+                    Text(
+                      'Réalisations précédentes',
+                      style: GoogleFonts.inter(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: darkBlue,
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      'Quelques travaux déjà réalisés par ce prestataire.',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    SizedBox(
+                      height: 120,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: images.length,
+                        itemBuilder: (context, index) {
+                          return GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ServiceFullScreenImageViewer(
+                                    imageUrls: images,
+                                    initialIndex: index,
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              width: 120,
+                              margin: EdgeInsets.only(right: 12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: primaryColor.withOpacity(0.2),
+                                  width: 2,
+                                ),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: CachedNetworkImage(
+                                  imageUrl: images[index],
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => Container(
+                                    color: primaryColor.withOpacity(0.1),
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                            primaryColor),
+                                      ),
+                                    ),
+                                  ),
+                                  errorWidget: (context, url, error) =>
+                                      Container(
+                                    color: primaryColor.withOpacity(0.1),
+                                    child: Icon(
+                                      Icons.image,
+                                      color: primaryColor.withOpacity(0.3),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+
+                  // Avis clients (statiques)
+                  SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Avis des clients',
+                        style: GoogleFonts.inter(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: darkBlue,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pushNamed(
+                            context,
+                            Routes.allReviewsRoute,
+                            arguments: service,
+                          );
+                        },
+                        icon: Icon(Icons.arrow_forward_ios, size: 14),
+                        label: Text(
+                          'Voir tous',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: primaryColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 12),
+                  _buildReviewCard(
+                    name: 'Patrick K.',
+                    rating: 4.8,
+                    comment:
+                        'Travail propre et rapide, très professionnel. Je recommande.',
+                    datePosted: DateTime.now().subtract(Duration(days: 5)),
+                  ),
+                  SizedBox(height: 8),
+                  _buildReviewCard(
+                    name: 'Mireille N.',
+                    rating: 4.7,
+                    comment:
+                        'Ponctuel et soigneux, les finitions sont impeccables.',
+                    datePosted: DateTime.now().subtract(Duration(days: 12)),
+                  ),
+                  SizedBox(height: 8),
+                  _buildReviewCard(
+                    name: 'Arnaud T.',
+                    rating: 4.9,
+                    comment:
+                        'Très bonne communication et respect des délais.',
+                    datePosted: DateTime.now().subtract(Duration(days: 3)),
+                  ),
+
+                  // Bouton principal : Demander une intervention
+                  SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        final storage = GetStorage();
+                        final token = storage.read(StockageKeys.tokenKey);
+                        
+                        if (token == null) {
+                          FancyNotification.show(
+                            context, 
+                            "Vous devez être connecté pour demander une intervention",
+                            type: NotificationType.info
+                          );
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => LoginScreen()),
+                          );
+                        } else {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => RequestInterventionPage(
+                                service: service,
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      icon: Icon(Icons.handshake),
+                      label: Text('Demander une intervention'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
                     ),
                   ),
-                  SizedBox(height: 16),
-                  if (service.email != null)
-                    _buildInfoRow(Icons.email_outlined, service.email!, Colors.blue),
-                  if (service.phone != null)
-                    _buildInfoRow(Icons.phone_outlined, service.phone!, Colors.green, 
-                        onTap: () => _makePhoneCall(context, service.phone!)),
-                  if (service.whatsapp != null)
-                    _buildInfoRow(Icons.message_outlined, 'WhatsApp', Color(0xFF25D366), 
-                        onTap: () => _openWhatsApp(context, service.whatsapp!)),
-                  
-                  SizedBox(height: 32),
-
-                  // Infos Publication
-                  _buildPublicationInfoSectionFor(service),
-                  
-                  SizedBox(height: 40),
+                  SizedBox(height: 12),
+                  Text(
+                    'Les coordonnées seront partagées après validation de votre demande.',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  SizedBox(height: 24),
                 ],
               ),
             ),
           ),
         ],
-      ),
-      bottomNavigationBar: Container(
-        padding: EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: Offset(0, -5),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            if (service.phone != null)
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () => _makePhoneCall(context, service.phone!),
-                  icon: Icon(Icons.phone, size: 20),
-                  label: Text('Appeler'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                ),
-              ),
-            if (service.phone != null && service.whatsapp != null)
-              SizedBox(width: 12),
-            if (service.whatsapp != null)
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _openWhatsApp(context, service.whatsapp!),
-                  icon: Icon(Icons.message, size: 20),
-                  label: Text('WhatsApp'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Color(0xFF25D366),
-                    side: BorderSide(color: Color(0xFF25D366)),
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }
@@ -668,6 +910,22 @@ Découvrez ce service sur Casa!
     final displayCurrency = service.currency;
 
     return 'À partir de ${_formatPrice(minPrice)} $displayCurrency';
+  }
+
+  String _formatExperience(String? experience) {
+    if (experience == null || experience.isEmpty) {
+      return 'Non spécifié';
+    }
+    // Assuming experience is a number string representing years
+    try {
+      final int years = int.parse(experience);
+      if (years > 0) {
+        return '$years ${years > 1 ? 'ans' : 'an'}';
+      }
+    } catch (e) {
+      // Not a number, return as is
+    }
+    return experience;
   }
 
   void _makePhoneCall(BuildContext context, String phone) {
@@ -808,31 +1066,34 @@ Découvrez ce service sur Casa!
   }
 
   Widget _buildPublicationInfoSectionFor(PrestationModel service) {
-    final user = service.user;
-    
-    // Get publisher name from user info or fallback
-    String publisherName = user?.username ?? service.username ?? '';
-    // Remove @ symbol if present
-    publisherName = publisherName.replaceAll('@', '').trim();
-    
-    if (publisherName.isEmpty) {
-      return SizedBox();
-    }
+    // Modified to use properties available in PrestationModel only
+    final String? username = service.username;
+    final String? postBy = service.postBy;
+    final String? profilePicture = service.profile;
 
-    final String? profilePicture = user?.profilePicture;
-    final String? createdAt = service.createdAt;
+    String publisherName = '';
+    
+    // Essayer postBy d'abord car souvent plus fiable (ex: @LéaReckiel)
+    if (postBy != null && postBy.isNotEmpty && postBy != 'null') {
+      publisherName = postBy.replaceAll('@', '').trim();
+    } 
+    // Sinon essayer username
+    else if (username != null && username.isNotEmpty && username != 'null') {
+      publisherName = username.replaceAll('@', '').trim();
+    }
+    
+    if (publisherName.isEmpty) publisherName = 'Prestataire';
 
     return Container(
-      padding: EdgeInsets.all(20),
+      padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[100]!),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 10,
-            offset: Offset(0, 4),
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: Offset(0, 2),
           ),
         ],
       ),
@@ -842,68 +1103,80 @@ Découvrez ce service sur Casa!
           Text(
             'Publié par',
             style: GoogleFonts.inter(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[500],
-              letterSpacing: 0.5,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: darkBlue,
             ),
           ),
           SizedBox(height: 16),
           Row(
             children: [
-              // Photo de profil
               Container(
-                width: 56,
-                height: 56,
+                width: 50,
+                height: 50,
                 decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: primaryColor.withOpacity(0.1),
-                      blurRadius: 8,
-                    ),
-                  ],
+                  gradient: LinearGradient(
+                    colors: [
+                      primaryColor.withOpacity(0.2),
+                      accentColor.withOpacity(0.2)
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(25),
+                  border: Border.all(
+                      color: primaryColor.withOpacity(0.3), width: 2),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(28),
-                  child: profilePicture != null && profilePicture.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: profilePicture,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => Center(
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                  child: GestureDetector(
+                    onTap: () {
+                      if (profilePicture != null && profilePicture.isNotEmpty) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ServiceFullScreenImageViewer(
+                              imageUrls: [profilePicture],
+                              initialIndex: 0,
                             ),
                           ),
-                          errorWidget: (context, url, error) => Center(
-                            child: Text(
-                              publisherName[0].toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: primaryColor,
+                        );
+                      }
+                    },
+                    child: Hero(
+                      tag: 'service_profile_${service.id}',
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(23),
+                        child: profilePicture != null &&
+                                profilePicture.isNotEmpty
+                            ? CachedNetworkImage(
+                                imageUrl: profilePicture,
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => Center(
+                                    child: CircularProgressIndicator(strokeWidth: 2)),
+                                errorWidget: (context, url, error) => Center(
+                                    child: Text(
+                                  publisherName.isNotEmpty
+                                      ? publisherName[0].toUpperCase()
+                                      : 'A',
+                                  style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: primaryColor),
+                                )),
+                              )
+                            : Center(
+                                child: Text(
+                                  publisherName.isNotEmpty
+                                      ? publisherName[0].toUpperCase()
+                                      : 'A',
+                                  style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: primaryColor),
+                                ),
                               ),
-                            ),
-                          ),
-                        )
-                      : Center(
-                          child: Text(
-                            publisherName.isNotEmpty
-                                ? publisherName[0].toUpperCase()
-                                : 'A',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: primaryColor,
-                            ),
-                          ),
-                        ),
-                ),
+                      ),
+                    ),
+                  ),
               ),
-              SizedBox(width: 16),
+              SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -913,30 +1186,27 @@ Découvrez ce service sur Casa!
                         Flexible(
                           child: Text(
                             publisherName,
-                            style: GoogleFonts.inter(
+                            style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                              color: darkBlue,
+                              fontSize: 17,
+                              color: Colors.black87,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (service.isCertified == true) ...[
-                          SizedBox(width: 6),
-                          Icon(Icons.verified, size: 18, color: Colors.blue),
-                        ],
+                        SizedBox(width: 6),
+                        if (service.isCertified ?? false)
+                          Icon(Icons.verified, size: 16, color: Colors.blue),
                       ],
                     ),
-                    if (createdAt != null) ...[
-                      SizedBox(height: 4),
+                    if (service.dateCreated != null)
                       Text(
-                        'Publication : ${DateFormat('dd/MM/yyyy').format(DateTime.parse(createdAt))}',
-                        style: GoogleFonts.inter(
-                          color: Colors.grey[500],
-                          fontSize: 13,
-                        ),
+                        'Publié le ${DateFormat('dd MMM yyyy', 'fr_FR').format(service.dateCreated!)}',
+                        style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500),
                       ),
-                    ],
                   ],
                 ),
               ),
@@ -947,25 +1217,5 @@ Découvrez ce service sur Casa!
     );
   }
 
-  Widget _buildShimmerCarousel() {
-    return Shimmer.fromColors(
-      baseColor: Colors.grey[300]!,
-      highlightColor: Colors.grey[100]!,
-      child: Container(
-        height: 300,
-        color: Colors.white,
-        child: Center(
-          child: Icon(Icons.photo, size: 80, color: Colors.grey[400]),
-        ),
-      ),
-    );
-  }
-
-  String _formatExperience(String? experience) {
-    if (experience == null || experience.isEmpty) return 'Non précisée';
-    final n = int.tryParse(experience);
-    if (n == null) return experience; // Return original if not a pure number
-    if (n == 1) return '1 an';
-    return '$n ans';
-  }
 }
+

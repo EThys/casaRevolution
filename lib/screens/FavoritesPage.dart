@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/controllers/PropertyFavoriteCtrl.dart';
 import 'package:casa/controllers/provider/FavoriteProvider.dart';
@@ -766,15 +767,41 @@ class _FavoritesPageState extends State<FavoritesPage>
               ],
             ),
             if (isDeleting)
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  color: Colors.black.withOpacity(0.5),
-                ),
-                child: Center(
-                  child: CircularProgressIndicator(color: Colors.white),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                    ),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                            )
+                          ],
+                        ),
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            color: _primaryColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
+
           ],
         ),
       ),
@@ -783,18 +810,20 @@ class _FavoritesPageState extends State<FavoritesPage>
 
   Widget _buildFavoriteCard(PropertyFavoriteModel favorite) {
     final propertyData = favorite.property;
-    final isForRent = propertyData?.transactionType == 'location';
-    final isAvailable = !(propertyData?.sold ?? true);
-    final isDeleting = _deletingIds.contains(propertyData?.propertyId);
+    if (propertyData == null) return const SizedBox();
+    
+    final isForRent = propertyData.transactionType == 'location';
+    final isAvailable = !(propertyData.sold ?? true);
+    final isDeleting = _deletingIds.contains(propertyData.propertyId);
 
-    final firstImage = propertyData?.propertyImage?.isNotEmpty ?? false
-        ? propertyData?.propertyImage?.first
+    final firstImage = propertyData.propertyImage?.isNotEmpty ?? false
+        ? propertyData.propertyImage?.first
         : null;
     final imageUrl = firstImage?.path;
 
     final priceText = isForRent
-        ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}/mois'
-        : '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}';
+        ? '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}/mois'
+        : '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}';
 
     final cardContent = InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -808,7 +837,7 @@ class _FavoritesPageState extends State<FavoritesPage>
               color: Colors.black.withOpacity(0.05),
               blurRadius: 20,
               spreadRadius: 1,
-              offset: Offset(0, 10),
+              offset: const Offset(0, 10),
             )
           ],
         ),
@@ -822,80 +851,51 @@ class _FavoritesPageState extends State<FavoritesPage>
                     Container(
                       height: 180,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                         color: _lightGrey,
                       ),
-                      child: imageUrl != null
+                      child: imageUrl != null && imageUrl.isNotEmpty
                           ? ClipRRect(
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                        child: CachedNetworkImage(
-                          imageUrl: imageUrl,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          placeholder: (context, url) => Container(
-                            color: _lightGrey,
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: _primaryColor,
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                              child: CachedNetworkImage(
+                                imageUrl: imageUrl,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                placeholder: (context, url) => Container(
+                                  color: _lightGrey,
+                                  child: const Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => Container(
+                                  color: _lightGrey,
+                                  child: const Center(
+                                    child: Icon(Icons.home, size: 50, color: Colors.grey),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Container(
+                              color: _lightGrey,
+                              child: const Center(
+                                child: Icon(Icons.home, size: 50, color: Colors.grey),
                               ),
                             ),
-                          ),
-                          errorWidget: (context, url, error) {
-                            return Container(
-                              color: _lightGrey,
-                              child: Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.home, size: 50, color: _mediumGrey),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      'Image non disponible',
-                                      style: TextStyle(
-                                        color: _mediumGrey,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      )
-                          : Container(
-                        color: _lightGrey,
-                        child: Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.home, size: 50, color: _mediumGrey),
-                              SizedBox(height: 8),
-                              Text(
-                                'Aucune image',
-                                style: TextStyle(
-                                  color: _mediumGrey,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
                     ),
                     Positioned(
                       bottom: 15,
                       left: 15,
                       child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: isAvailable ? _successColor.withOpacity(0.9) : _errorColor.withOpacity(0.9),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
                           isAvailable ? 'Disponible' : 'Indisponible',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                             fontSize: 12,
@@ -910,61 +910,47 @@ class _FavoritesPageState extends State<FavoritesPage>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               color: Colors.black.withOpacity(0.7),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
                               priceText,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
                               ),
                             ),
                           ),
-                          SizedBox(width: 8),
-                          if (propertyData?.propertyId != null)
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.9),
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
-                                    blurRadius: 4,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: FavoriteHeartIcon(
-                                propertyId: propertyData!.propertyId.toString(),
-                                propertyTypeId: propertyData.propertyTypeId,
-                                size: 20,
-                                splashRadius: 18,
-                                activeColor: Colors.red,
-                                inactiveColor: _mediumGrey,
-                                onLikeChanged: (isLiked) {
-                                  if (!isLiked) {
-                                    // Si l'utilisateur a désaimé, on déclenche la suppression
-                                    _removeFavorite(propertyData.propertyId);
-                                  }
-                                },
-                              ),
+                          const SizedBox(width: 8),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.9),
+                              shape: BoxShape.circle,
                             ),
+                            child: FavoriteHeartIcon(
+                              propertyId: propertyData.propertyId.toString(),
+                              propertyTypeId: propertyData.propertyTypeId,
+                              size: 20,
+                              onLikeChanged: (isLiked) {
+                                if (!isLiked) _removeFavorite(propertyData.propertyId);
+                              },
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ],
                 ),
                 Padding(
-                  padding: EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "${propertyData?.title ?? 'Propriété sans titre'}",
+                        propertyData.title ?? 'Propriété',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 18,
@@ -973,83 +959,73 @@ class _FavoritesPageState extends State<FavoritesPage>
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
-                          Icon(
-                            Icons.location_on_outlined,
-                            size: 16,
-                            color: _mediumGrey,
-                          ),
-                          SizedBox(width: 5),
+                          Icon(Icons.location_on_outlined, size: 16, color: _mediumGrey),
+                          const SizedBox(width: 5),
                           Expanded(
                             child: Text(
-                              "${propertyData?.cityValue}, ${propertyData?.communeValue}",
-                              style: TextStyle(
-                                color: _mediumGrey,
-                                fontSize: 14,
-                              ),
+                              "${propertyData.cityValue}, ${propertyData.communeValue}",
+                              style: TextStyle(color: _mediumGrey, fontSize: 14),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
                       ),
-                      SizedBox(height: 15),
+                      const SizedBox(height: 15),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: _buildFeatureChips(propertyData),
-                      ),
-                      SizedBox(height: 15),
-                      Divider(height: 1, color: _lightGrey),
-                      SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Icon(Icons.favorite, size: 16, color: _primaryColor),
-                          SizedBox(width: 6),
-                          Text(
-                            'Ajouté le ${_dateFormat.format(DateTime.now())}',
-                            style: TextStyle(
-                              color: _mediumGrey,
-                              fontSize: 12,
-                            ),
-                          ),
-                          Spacer(),
-                          // Bouton supprimer retiré
-                        ],
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-            // Overlay de suppression visuelle (optionnel, maintenant on fait disparaitre)
+            if (isDeleting)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                  child: Container(
+                    color: Colors.white.withOpacity(0.2),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                            )
+                          ],
+                        ),
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            color: _primaryColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
 
-    // Animation plus fluide avec changement de taille et fondu
-    return AnimatedSwitcher(
-      duration: Duration(milliseconds: 400),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        return SizeTransition(
-          sizeFactor: animation,
-          axis: Axis.vertical,
-          child: FadeTransition(
-            opacity: animation,
-            child: child,
-          ),
-        );
-      },
-      child: isDeleting
-          ? SizedBox.shrink(key: ValueKey('empty-${propertyData?.propertyId}'))
-          : Container(
-              key: ValueKey('content-${propertyData?.propertyId}'),
-              margin: const EdgeInsets.only(bottom: 20),
-              child: cardContent,
-            ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      child: cardContent,
     );
   }
 
@@ -1073,7 +1049,7 @@ class _FavoritesPageState extends State<FavoritesPage>
               color: Colors.black.withOpacity(0.05),
               blurRadius: 20,
               spreadRadius: 1,
-              offset: Offset(0, 10),
+              offset: const Offset(0, 10),
             )
           ],
         ),
@@ -1087,12 +1063,12 @@ class _FavoritesPageState extends State<FavoritesPage>
                     Container(
                       height: 180,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                         color: _lightGrey,
                       ),
                       child: imageUrl != null && imageUrl.isNotEmpty
                           ? ClipRRect(
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                         child: CachedNetworkImage(
                           imageUrl: imageUrl,
                           fit: BoxFit.cover,
@@ -1103,7 +1079,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                           ),
                           errorWidget: (context, url, error) => Container(
                             color: _lightGrey,
-                            child: const Icon(Icons.person, size: 50, color: Colors.grey),
+                            child: const Center(child: Icon(Icons.person, size: 50, color: Colors.grey)),
                           ),
                         ),
                       )
@@ -1186,23 +1162,47 @@ class _FavoritesPageState extends State<FavoritesPage>
                 ),
               ],
             ),
+            if (isDeleting)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                  child: Container(
+                    color: Colors.white.withOpacity(0.2),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                            )
+                          ],
+                        ),
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            color: _primaryColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 400),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        return SizeTransition(sizeFactor: animation, axis: Axis.vertical, child: FadeTransition(opacity: animation, child: child));
-      },
-      child: isDeleting
-          ? SizedBox.shrink(key: ValueKey('empty-prestation-${prestation.id}'))
-          : Container(
-              key: ValueKey('content-prestation-${prestation.id}'),
-              margin: const EdgeInsets.only(bottom: 20),
-              child: cardContent,
-            ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      child: cardContent,
     );
   }
 
@@ -1332,12 +1332,39 @@ class _FavoritesPageState extends State<FavoritesPage>
               ],
             ),
             if (isDeleting)
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  color: Colors.black.withOpacity(0.5),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                    ),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                            )
+                          ],
+                        ),
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            color: _primaryColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-                child: const Center(child: CircularProgressIndicator(color: Colors.white)),
               ),
           ],
         ),

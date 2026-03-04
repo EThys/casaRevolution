@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'UserModel.dart';
 
 PrestationModel prestationModelFromJson(String str) => PrestationModel.fromJson(json.decode(str));
 String prestationModelToJson(PrestationModel data) => json.encode(data.toJson());
@@ -54,6 +55,10 @@ class PrestationModel {
   String? username; // Nom du publicateur
   String? postBy; // Champ explicite pour postBy
   List<String>? images; // Pour stocker les images
+  String? phone;
+  String? email;
+  String? whatsapp;
+  UserModel? user;
 
   PrestationModel({
     this.id,
@@ -82,6 +87,10 @@ class PrestationModel {
     this.username,
     this.postBy,
     this.images,
+    this.phone,
+    this.email,
+    this.whatsapp,
+    this.user,
   });
 
   factory PrestationModel.fromJson(Map<String, dynamic> json) => PrestationModel(
@@ -115,6 +124,10 @@ class PrestationModel {
             ? List<String>.from(json["images"].map((img) => img is String ? img : (img["path"] ?? img["url"] ?? "")))
             : [])
         : null,
+    phone: json["phone"],
+    email: json["email"],
+    whatsapp: json["whatsapp"],
+    user: json["user"] != null ? UserModel.fromJson(json["user"]) : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -144,7 +157,14 @@ class PrestationModel {
     "username": username,
     "postBy": postBy,
     "images": images,
+    "phone": phone,
+    "email": email,
+    "whatsapp": whatsapp,
+    "user": user?.toJson(),
   };
+
+  // Compatibility getter
+  String? get createdAt => dateCreated?.toIso8601String();
   
   // Currency getter similar to PropertyModel and ServiceModel
   String get currency => (deviseId == 1) ? "FC" : "\$";

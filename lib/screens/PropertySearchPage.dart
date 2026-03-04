@@ -243,9 +243,15 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     
     if (mounted) {
       setState(() {
-        // Extraire les catégories uniques des prestations
+        // Extraire les catégories uniques des prestations et trier par date décroissante
         _allPrestations = List.from(serviceController.prestations);
-        _filteredPrestations = List.from(serviceController.prestations);
+        _allPrestations.sort((a, b) {
+          final dateA = a.dateCreated ?? DateTime(2000);
+          final dateB = b.dateCreated ?? DateTime(2000);
+          return dateB.compareTo(dateA); // Récent en premier
+        });
+        
+        _filteredPrestations = List.from(_allPrestations);
         
         // Extraire les catégories dynamiquement depuis le mapping si disponible
         if (serviceController.serviceIdToNameMap.isNotEmpty) {
@@ -425,6 +431,14 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                  return title.contains(query) || desc.contains(query);
                }).toList();
              }
+             
+             // Trier par date la plus récente
+             _filteredPrestations.sort((a, b) {
+               final dateA = a.dateCreated ?? DateTime(2000);
+               final dateB = b.dateCreated ?? DateTime(2000);
+               return dateB.compareTo(dateA);
+             });
+             
              _showSearchLoader = false;
            });
          }
@@ -1460,8 +1474,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         city: cityId,
         commune: communeId,
         room: bedrooms,
-        sortBy: 'price',
-        sortOrder: 'asc',
+        sortBy: 'id',
+        sortOrder: 'desc',
       );
     } else {
       // Filtrage local des services
@@ -1498,6 +1512,13 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           
           return true;
         }).toList();
+        
+        // Trier par date la plus récente
+        _filteredPrestations.sort((a, b) {
+           final dateA = a.dateCreated ?? DateTime(2000);
+           final dateB = b.dateCreated ?? DateTime(2000);
+           return dateB.compareTo(dateA);
+        });
       });
     }
 
@@ -1916,7 +1937,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                   ),
                 ),
                 Positioned(
-                  top: 8,
+                  bottom: 8,
                   left: 8,
                   child: Container(
                     padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
