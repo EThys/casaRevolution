@@ -1,6 +1,8 @@
 class Endpoints {
   // Authentication Endpoints
   static const String register = "members";
+
+  static const String allUsers = "users";
   static const String login = "login";
   static const String forgotPassword = "forgot-password";
   static const String verifyOTP = "verify-otp";
