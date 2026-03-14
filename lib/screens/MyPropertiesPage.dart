@@ -642,8 +642,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
     final imageUrl = firstImage?.path;
 
     final priceText = isForRent
-        ? 'A partir de ${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
-        : 'A partir de ${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
+        ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
+        : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -826,8 +826,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
     final imageUrl = firstImage?.path;
 
     final priceText = isForRent
-        ? 'A partir de ${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
-        : 'A partir de ${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
+        ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
+        : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
 
     return InkWell(
       borderRadius: BorderRadius.circular(20),

@@ -102,7 +102,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
 
 💰 ${priceText}
 ${service.description != null ? '\n${service.description}\n' : ''}
-Découvrez ce service sur Casa!
+Découvrez ce service sur CasaNayo!
 ''';
 
     try {

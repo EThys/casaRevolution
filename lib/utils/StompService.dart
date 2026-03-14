@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:casa/utils/Constantes.dart';
+import 'package:casa/utils/Endpoints.dart';
 import   'package:stomp_dart_client/stomp_dart_client.dart';
 
 class StompService {
@@ -18,9 +19,13 @@ class StompService {
   void connect(String token) {
     if (_stompClient != null && _stompClient!.connected) return;
 
-    // Convert http(s):// to ws(s)://
-    String baseUrl = Constantes.activeServer;
-    String wsUrl = baseUrl.replaceFirst('http', 'ws') + '/websocket';
+    // 1. Nettoyage radical de l'URL de base
+    String rawBase = Constantes.activeServer.trim();
+    String host = rawBase.replaceFirst(RegExp(r'https?://'), '').replaceAll(RegExp(r'/.*$'), '');
+    String protocol = rawBase.startsWith('https') ? 'wss' : 'ws';
+    
+    // 2. Construction de l'URL WebSocket forcée vers le chemin versionné v1
+    String wsUrl = "$protocol://$host/api/${Endpoints.version}/websocket";
 
     print("🔌 [StompService] Tentative de connexion WebSocket à: $wsUrl");
 
@@ -41,7 +46,8 @@ class StompService {
       ),
     );
 
-    _stompClient!.activate();
+    // Désactivé temporairement pour éviter les boucles d'erreurs pendant les tests du backend
+    // _stompClient!.activate(); AWAAAAAA
   }
 
   void _onConnect(StompFrame frame) {

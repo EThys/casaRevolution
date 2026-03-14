@@ -478,7 +478,7 @@ class ServiceController with ChangeNotifier {
 
     try {
       final token = stockage?.read<String>(StockageKeys.tokenKey);
-      final url = "prestations"; // Resolves to /api/prestations via base URL
+      final url = "${Endpoints.prestations}";
       
       HttpResponse response = await postData(url, data, token: token);
 
@@ -782,10 +782,9 @@ class ServiceController with ChangeNotifier {
         }
       }
       
-      // Ensuite, charger depuis l'API
-      final url = "${Endpoints.prestations}?page=${isLoadMore ? currentPage + 1 : page}&size=$size";
-      String? token = stockage?.read(StockageKeys.tokenKey);
-      var response = await getData(url, token: token);
+      // Ensuite, charger depuis l'API avec l'endpoint public (pas besoin de token)
+      final url = "${Endpoints.publicPrestations}?page=${isLoadMore ? currentPage + 1 : page}&size=$size";
+      var response = await getData(url);
 
       if (response != null && response is Map<String, dynamic>) {
         dynamic prestationsData;

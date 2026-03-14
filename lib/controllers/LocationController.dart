@@ -288,7 +288,7 @@ class LocationController extends ChangeNotifier {
       }
     }
 
-    print("🎯 ${allQuartiers.length} quartiers extraits des communes");
+    print("${allQuartiers.length} quartiers extraits des communes");
     return allQuartiers;
   }
 
@@ -334,7 +334,8 @@ class LocationController extends ChangeNotifier {
     }
 
     try {
-        final response = await getData('quartiers');
+        var url="${Endpoints.quartiers}";
+        final response = await getData(url);
         if (response != null && response is Map && response.containsKey('quartiers')) {
             final List<dynamic> list = response['quartiers'];
             List<QuartierModel> fetchedQuartiers = list.map((e) => QuartierModel.fromJson(e)).toList();

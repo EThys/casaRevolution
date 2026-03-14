@@ -15,21 +15,21 @@ import 'package:vibration/vibration.dart';
 class NotificationController with ChangeNotifier {
   static final NotificationController _instance = NotificationController._internal();
   factory NotificationController() => _instance;
-  
+
   final GetStorage _storage = GetStorage();
   String _storageKey = 'user_notifications'; // Default key
   String? _currentUserId;
-  
+
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _hasVibrator = false;
-  
+
   // Pour éviter les doublons
   String? _lastNotificationFingerprint;
   DateTime? _lastNotificationTime;
-  
+
   List<NotificationItem> _notifications = [];
   List<NotificationItem> get notifications => _notifications;
-  
+
   int get unreadCount => _notifications.where((n) => !n.isRead).length;
 
   NotificationController._internal() {
@@ -42,7 +42,7 @@ class NotificationController with ChangeNotifier {
     _checkVibrator();
     _loadNotifications();
     _initStompListener();
-    
+
     // Tenter de se connecter automatiquement si on a déjà un token
     final token = _storage.read(StockageKeys.tokenKey);
     if (token != null) {
@@ -86,27 +86,27 @@ class NotificationController with ChangeNotifier {
   void _initStompListener() {
     StompService().messages.listen((data) {
       print("🔔 [NotificationController] Message reçu via WebSocket: $data");
-      
+
       // Protection contre les doublons (2 secondes de fenêtre)
       final String title = data['title']?.toString() ?? 'Notification';
       final String body = (data['message'] ?? data['body'] ?? '').toString();
       final String fingerprint = "$title-$body";
-      
+
       final now = DateTime.now();
-      if (_lastNotificationFingerprint == fingerprint && 
-          _lastNotificationTime != null && 
+      if (_lastNotificationFingerprint == fingerprint &&
+          _lastNotificationTime != null &&
           now.difference(_lastNotificationTime!).inSeconds < 2) {
         print("🚫 [NotificationController] Doublon ignoré: $fingerprint");
         return;
       }
-      
+
       _lastNotificationFingerprint = fingerprint;
       _lastNotificationTime = now;
 
       // Filtrage : Ne pas jouer de son ni afficher de bannière si c'est une auto-confirmation (ex: l'hôte qui valide)
       // En général, ces messages commencent par "Vous avez" ou "Succès"
-      final bool isAutoConfirmation = body.toLowerCase().startsWith("vous avez") || 
-                                     title.toLowerCase().contains("succès");
+      final bool isAutoConfirmation = body.toLowerCase().startsWith("vous avez") ||
+          title.toLowerCase().contains("succès");
 
       if (!isAutoConfirmation) {
         // Feedback sonore et haptique amélioré pour le destinataire réel
@@ -116,7 +116,7 @@ class NotificationController with ChangeNotifier {
 
       String category = data['category']?.toString() ?? 'Système';
       final NotificationType itemType = _parseType(data['type']);
-      
+
       // Forcer le tag "Demandes" pour les réservations
       if (itemType == NotificationType.appointment) {
         category = 'Demandes';
@@ -171,8 +171,8 @@ class NotificationController with ChangeNotifier {
     if (propertyId != null) {
       print("🚀 [NotificationController] Navigation vers la propriété $propertyId");
       MonApplication.navigatorKey.currentState?.pushNamed(
-        Routes.detailPageRoute, 
-        arguments: {'propertyId': propertyId}
+          Routes.detailPageRoute,
+          arguments: {'propertyId': propertyId}
       );
     } else {
       MonApplication.navigatorKey.currentState?.pushNamed(Routes.notificationPageRoute);
@@ -204,7 +204,7 @@ class NotificationController with ChangeNotifier {
   NotificationType _parseType(String? type) {
     if (type == null) return NotificationType.system;
     final t = type.toLowerCase();
-    
+
     if (t.contains('message') || t.contains('chat')) return NotificationType.message;
     if (t.contains('appoint') || t.contains('rdv')) return NotificationType.appointment;
     if (t.contains('pay') || t.contains('argent')) return NotificationType.payment;
@@ -216,7 +216,7 @@ class NotificationController with ChangeNotifier {
     if (t.contains('complete') || t.contains('fini')) return NotificationType.serviceCompleted;
     if (t.contains('warn') || t.contains('attention')) return NotificationType.warning;
     if (t.contains('reserva') || t.contains('validation')) return NotificationType.appointment; // Mapper réservation sur rendez-vous pour l'icône
-    
+
     return NotificationType.system;
   }
 
@@ -234,7 +234,7 @@ class NotificationController with ChangeNotifier {
     _currentUserId = userId;
     _storageKey = 'user_notifications_$userId';
     _loadNotifications();
-    
+
     // Connect Stomp if token available
     final token = _storage.read(StockageKeys.tokenKey);
     if (token != null) {
@@ -255,11 +255,11 @@ class NotificationController with ChangeNotifier {
     // Si aucun utilisateur n'est identifié, on ne charge rien ou une liste vide
     if (_currentUserId == null) {
       // Tenter de récupérer depuis le stockage si pas déjà fait
-       final user = _storage.read(StockageKeys.userKey);
-       if (user != null && user['userId'] != null) {
-          _currentUserId = user['userId'].toString();
-          _storageKey = 'user_notifications_$_currentUserId';
-       }
+      final user = _storage.read(StockageKeys.userKey);
+      if (user != null && user['userId'] != null) {
+        _currentUserId = user['userId'].toString();
+        _storageKey = 'user_notifications_$_currentUserId';
+      }
     }
 
     final List<dynamic>? storedList = _storage.read(_storageKey);
@@ -275,8 +275,8 @@ class NotificationController with ChangeNotifier {
 
   void _saveNotifications() {
     if (_currentUserId == null) return; // Ne pas sauvegarder si pas d'user
-    final List<Map<String, dynamic>> listToStore = 
-        _notifications.map((item) => _toJson(item)).toList();
+    final List<Map<String, dynamic>> listToStore =
+    _notifications.map((item) => _toJson(item)).toList();
     _storage.write(_storageKey, listToStore);
   }
 

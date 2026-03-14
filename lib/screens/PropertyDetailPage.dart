@@ -370,7 +370,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         💰 ${priceText}
         $bedroomsText        🚿 ${property.bathroom ?? 0} salles de bain
         ${surfaceText.isNotEmpty ? '$surfaceText\n' : ''}
-        Découvrez plus de détails sur Yinzo!
+        Découvrez plus de détails sur CasaNayo!
 ''';
 
       try {

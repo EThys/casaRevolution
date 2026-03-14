@@ -1909,11 +1909,11 @@ class _HomePageState extends State<HomePage> {
     const String androidLink = "https://play.google.com/store/apps/details?id=com.casa.casa.casa&pcampaignid=web_share";
     const String iosLink = "https://apps.apple.com/fr/app/casanayo/id6757759953?l=en-GB";
 
-    final String message = "⭐️ Découvrez CasaNayo ! ⭐️\n\n"
+    final String message = "Découvrez CasaNayo !\n\n"
         "Votre plateforme de référence pour trouver une propriété, réserver un hôtel ou solliciter des services professionnels de qualité.\n\n"
         "Téléchargez l'application dès maintenant :\n\n"
-        "🤖 Android : $androidLink\n\n"
-        "🍎 iOS : $iosLink\n\n"
+        "Android : $androidLink\n\n"
+        "iOS : $iosLink\n\n"
         "CasaNayo, l'immobilier en toute simplicité !";
 
     Share.share(message, subject: "Partagez l'application CasaNayo");

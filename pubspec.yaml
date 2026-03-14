@@ -99,8 +99,6 @@ flutter:
   assets:
     - assets/fonts/
     - assets/images/
-    - assets/images/ -51.jpg
-    - assets/images/'Abstract Art 1' Poster, picture, metal print, paint by DM Photography | Displate.jpg
     - assets/images/abstract.jpg
     - assets/sounds/
 

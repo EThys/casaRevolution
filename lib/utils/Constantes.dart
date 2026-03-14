@@ -1,6 +1,6 @@
 class Constantes {
   // URLs dynamiques basées sur le serveur actif
-  static String _activeBaseUrl = "http://91.99.168.226:8083";
+  static String _activeBaseUrl = "https://migration.casanayo.com";
   
   // Getters dynamiques qui utilisent le serveur actif
   static String get BASE_URL => "$_activeBaseUrl/api/";
