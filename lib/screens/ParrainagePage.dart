@@ -3,10 +3,12 @@ import 'package:casa/controllers/RegisterBailleurCtrl.dart';
 import 'package:casa/screens/termsAndPrivacy/TermsAndPrivacyPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
-import 'package:casa/utils/country_codes.dart'; // Added
+import 'package:casa/utils/country_codes.dart';
 import 'package:casa/utils/networkCheck.dart';
+import 'package:casa/utils/city_suggestions.dart';
 import 'package:casa/utils/requetes.dart';
-import 'package:casa/controllers/TypeAccountController.dart'; // Added
+import 'package:casa/controllers/TypeAccountController.dart';
+import 'package:casa/models/CityModel.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -55,18 +57,21 @@ class _ParrainagePageState extends State<ParrainagePage> {
   // Variables pour suivre l'interaction utilisateur avec chaque champ
   bool _firstNameTouched = false;
   bool _lastNameTouched = false;
-  bool _contactTouched = false; // Unified
-  // bool _phoneTouched = removed
-  // bool _emailTouched = removed
+  bool _contactTouched = false;
   bool _cityTouched = false;
   bool _passwordTouched = false;
+
+  // Sélection du type de compte (identique à RegisterScreen)
+  bool _isLocataireSelected = false;
+  int? _selectedOwnerAccountId;
+  int? _selectedPrestataireAccountId;
 
   // Unified contact field logic
   bool _isPhoneInput = false;
   String _selectedCountryCode = '+243'; 
   final Map<String, String> _countryFlags = Map<String, String>.from(countryFlags); // Needs import
 
-  // Couleurs cohérentes avec le login - uniquement bleu
+  // Couleurs cohérentes avec le login
   final Color primaryColor = Color(0xFF1976D2);
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
@@ -76,9 +81,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
   final Color errorColor = Color(0xFFD63031);
   final Color successColor = Color(0xFF38B000);
 
-  String _selectedAccountType = 'Bailleur';
-  // Dynamic Map from TypeAccountController can represent this, but for now we keep UI logic simple
-  // We will load types dynamically.
+  // Liste de villes pour l'autocomplete (identique à RegisterScreen)
+  static final List<String> _allCities = List<String>.from(citySuggestions);
+  String? _selectedCountryName;
 
   @override
   void initState() {
@@ -130,8 +135,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
     });
 
     _cityFocus.addListener(() {
-      if (!_cityFocus.hasFocus && _cityController.text.isNotEmpty) {
-        setState(() => _cityTouched = true);
+      if (!_cityFocus.hasFocus) {
+         // Pour l'autocomplete, on attend un peu
       }
     });
 
@@ -237,14 +242,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
 
   void _updatePasswordStrength() {
     final password = _passwordController.text;
-    int strength = 0;
-
-    if (password.length >= 6) strength++;
-    if (password.length >= 8) strength++;
-    if (RegExp(r'[A-Z]').hasMatch(password)) strength++;
-    if (RegExp(r'[a-z]').hasMatch(password)) strength++;
-    if (RegExp(r'[0-9]').hasMatch(password)) strength++;
-    if (RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)) strength++;
+    final strength = password.length;
 
     if (mounted && _passwordStrength != strength) {
       setState(() {
@@ -330,21 +328,31 @@ class _ParrainagePageState extends State<ParrainagePage> {
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // Arrière-plan identique au login
+          // Arrière-plan identique au login/register
           _buildBackground(),
 
           // Contenu principal
           SafeArea(
-            child: SingleChildScrollView(
-              physics: BouncingScrollPhysics(),
-              padding: EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  SizedBox(height: 20),
-                  _buildLogo(),
-                  SizedBox(height: 30),
-                  _buildAuthCard(),
-                ],
+            child: AbsorbPointer(
+              absorbing: _isLoading,
+              child: SingleChildScrollView(
+                physics: BouncingScrollPhysics(),
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 24),
+                child: Column(
+                  children: [
+                    Align(
+                      alignment: Alignment.topLeft,
+                      child: IconButton(
+                        icon: Icon(Icons.arrow_back_ios, color: textColor),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    _buildLogo(),
+                    SizedBox(height: 30),
+                    _buildAuthCard(),
+                  ],
+                ),
               ),
             ),
           ),
@@ -386,8 +394,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
               shape: BoxShape.circle,
               gradient: RadialGradient(
                 colors: [
-                  primaryColor.withOpacity(0.06),
-                  primaryColor.withOpacity(0.02),
+                  accentColor.withOpacity(0.06),
+                  accentColor.withOpacity(0.02),
                 ],
               ),
             ),
@@ -420,7 +428,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // Logo container avec badge de parrainage
+        // Logo container
         Stack(
           children: [
             Container(
@@ -428,7 +436,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
-                  colors: [primaryColor, darkBlue],
+                  colors: [accentColor, primaryColor],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -443,27 +451,18 @@ class _ParrainagePageState extends State<ParrainagePage> {
               ),
               child: Stack(
                 children: [
-                  Icon(Icons.people_alt_rounded, size: 40, color: Colors.white),
-                  Positioned(
-                    top: 4,
-                    left: 4,
-                    child: Icon(Icons.people_alt_rounded, size: 40, color: Colors.white.withOpacity(0.3)),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      image: DecorationImage(
+                        image: AssetImage('assets/images/icon.png'),
+                        fit: BoxFit.contain,
+                      ),
+                    ),
                   ),
                 ],
-              ),
-            ),
-            // Badge parrainage
-            Positioned(
-              top: -2,
-              right: -2,
-              child: Container(
-                padding: EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white,
-                  border: Border.all(color: primaryColor, width: 2),
-                ),
-                child: Icon(Icons.star, size: 12, color: primaryColor),
               ),
             ),
           ],
@@ -471,9 +470,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
             .scale(delay: 500.ms, duration: 800.ms, curve: Curves.elasticOut)
             .shake(delay: 1500.ms, duration: 1000.ms),
 
-        SizedBox(width: 16),
-
-        // Texte avec séparateur
+        SizedBox(width: 8),
         Container(
           height: 40,
           width: 1,
@@ -493,9 +490,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
                   end: Alignment.centerRight,
                 ).createShader(bounds),
                 child: Text(
-                  'Parrainage',
+                  'CasaNayo',
                   style: TextStyle(
-                    fontSize: 28,
+                    fontSize: 30,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                     letterSpacing: 1.0,
@@ -504,7 +501,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
               ),
               SizedBox(height: 4),
               Text(
-                'Rejoignez Casa grâce à un parrain',
+                'Rejoignez notre communauté',
                 style: TextStyle(
                   color: secondaryTextColor,
                   fontSize: 13,
@@ -549,11 +546,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
               ),
             ],
           ),
-          SizedBox(height: 8),
-          _buildBenefitItem('✓ Commission réduite sur votre première location'),
-          _buildBenefitItem('✓ Accompagnement personnalisé par votre parrain'),
-          _buildBenefitItem('✓ Le commissionnaire parrain reçoit un % sur tous vos nouveaux contrats'),
-          _buildBenefitItem('✓ Support dédié pour vos premières locations'),
+          SizedBox(height: 12),
+          _buildBenefitItem('✓ Participation automatique à notre Grand Jeu Tombola'),
+          _buildBenefitItem('✓ Chance de gagner des prix incroyables (Smartphones, Bons d\'achat, etc.)'),
         ],
       ),
     );
@@ -580,97 +575,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
     );
   }
 
-  Widget _buildAccountTypeOption(String type, Map<String, dynamic> config) {
-    final isSelected = _selectedAccountType == type;
-    final Color color = config['color'] as Color;
-
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 300),
-      margin: EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          colors: [color.withOpacity(0.15), color.withOpacity(0.05)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(
-          color: color,
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.2),
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: null, // ← Rendre non cliquable
-          child: Container(
-            padding: EdgeInsets.all(16),
-            child: Row(
-              children: [
-                AnimatedContainer(
-                  duration: Duration(milliseconds: 300),
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    config['icon'] as IconData,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        type,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: color,
-                          fontSize: 15,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        config['description'] as String,
-                        style: TextStyle(
-                          color: color.withOpacity(0.8),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Toujours afficher la coche puisque c'est sélectionné par défaut
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color,
-                  ),
-                  child: Icon(Icons.check_rounded, color: Colors.white, size: 12),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildParrainField() {
     return Column(
@@ -706,7 +610,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
             controller: _parrainSearchController,
             focusNode: _parrainFocus,
             style: TextStyle(color: textColor, fontSize: 16),
-            textInputAction: TextInputAction.done,
+            onTapOutside: (event) {
+              _parrainFocus.unfocus();
+            },
             onChanged: (value) {
               _searchParrains(value);
             },
@@ -868,86 +774,125 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   Widget _buildAccountTypeField() {
-    // Utiliser le contrôleur pour récupérer les types dynamiquement
-    final typeAccountCtrl = context.watch<TypeAccountController>();
-    final ownerTypes = typeAccountCtrl.ownerTypes;
-    
-    // Filtrer pour ne garder que "Bailleur" si possible, sinon afficher tous les types propriétaires
-    // Si la liste est vide (chargement), on affiche un indicateur ou rien
-    if (ownerTypes.isEmpty) {
-        return SizedBox.shrink(); 
+    final typeCtrl = context.watch<TypeAccountController>();
+    if (typeCtrl.loading && typeCtrl.allAccounts.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(primaryColor)),
+        ),
+      );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // En-tête avec badge "Recommandé"
-        Row(
-          children: [
-            Text(
-              'Type de compte*',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            SizedBox(width: 8),
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: primaryColor.withOpacity(0.3)),
-              ),
-              child: Text(
-                "Obligatoire",
-                style: TextStyle(fontSize: 10, color: primaryColor, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
+        Text(
+          'Type de compte*',
+          style: TextStyle(
+            color: secondaryTextColor,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        SizedBox(height: 8),
+        SizedBox(height: 16),
 
-        // Message informatif
-        Container(
-          padding: EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: primaryColor.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: primaryColor.withOpacity(0.2)),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.info_outline_rounded, color: primaryColor, size: 16),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Le parrainage est disponible uniquement pour les bailleurs',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-            ],
-          ),
+        // SECTION 1: LOCATAIRE (CLIENT)
+        _buildCategoryHeader(
+          title: "Vous êtes Locataire ?",
+          icon: Icons.person_pin_rounded,
+          isSelected: _isLocataireSelected,
+          onTap: () {
+            setState(() {
+              _isLocataireSelected = !_isLocataireSelected;
+              if (_isLocataireSelected) {
+                _selectedOwnerAccountId = null; // Exclusivité
+              }
+            });
+          },
         ),
+        if (_isLocataireSelected)
+          Padding(
+            padding: const EdgeInsets.only(left: 12, top: 4, bottom: 8),
+            child: Text(
+              "Compte client activé (Locataire)",
+              style: TextStyle(color: primaryColor, fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+          ),
+        
         SizedBox(height: 12),
 
-        // Options de compte dynamiques
-        ...ownerTypes.map((type) {
-            // Mapping simple pour l'icône et la couleur si besoin, sinon par défaut
-            return _buildAccountTypeOption(
-                type['name'] ?? 'Bailleur', 
-                {
-                  'value': type['typeAccountId'],
-                  'icon': Icons.house_siding_rounded,
-                  'description': type['description'] ?? 'Compte propriétaire',
-                  'color': Color(0xFF2196F3),
-                }
-            );
-        }).toList(),
+        // SECTION 2: PROPRIÉTAIRE (IMMOBILIER)
+        _buildCategoryHeader(
+          title: "Vous proposez de l'immobilier ?",
+          icon: Icons.home_work_rounded,
+          isSelected: _selectedOwnerAccountId != null,
+          showBadge: true,
+          onTap: () async {
+            if (typeCtrl.ownerTypes.isEmpty) {
+               await typeCtrl.fetchTypeAccounts();
+            }
+            setState(() {
+              if (_selectedOwnerAccountId != null) {
+                _selectedOwnerAccountId = null;
+              } else {
+                _isLocataireSelected = false; // Exclusivité
+                _selectedOwnerAccountId = typeCtrl.ownerTypes.isNotEmpty ? typeCtrl.ownerTypes[0]['id'] : null;
+              }
+            });
+          },
+        ),
+        if (_selectedOwnerAccountId != null)
+          _buildSubOptionsGrid(
+            options: typeCtrl.ownerTypes,
+            selectedId: _selectedOwnerAccountId,
+            onSelected: (id) => setState(() => _selectedOwnerAccountId = id),
+          ),
+
+        SizedBox(height: 12),
+
+        // SECTION 3: PRESTATAIRE DE SERVICE
+        _buildCategoryHeader(
+          title: "Vous proposez des services ?",
+          icon: Icons.handyman_rounded,
+          isSelected: _selectedPrestataireAccountId != null,
+          onTap: () async {
+            if (typeCtrl.serviceTypes.isEmpty) {
+               await typeCtrl.fetchTypeAccounts();
+            }
+            setState(() {
+              if (_selectedPrestataireAccountId != null) {
+                _selectedPrestataireAccountId = null;
+              } else {
+                _selectedPrestataireAccountId = typeCtrl.serviceTypes.isNotEmpty ? typeCtrl.serviceTypes[0]['id'] : null;
+              }
+            });
+          },
+        ),
+        if (_selectedPrestataireAccountId != null)
+          _buildSubOptionsGrid(
+            options: typeCtrl.serviceTypes,
+            selectedId: _selectedPrestataireAccountId,
+            onSelected: (id) => setState(() => _selectedPrestataireAccountId = id),
+          ),
+
+        if (_autoValidateMode == AutovalidateMode.always &&
+            !_isLocataireSelected &&
+            _selectedOwnerAccountId == null &&
+            _selectedPrestataireAccountId == null)
+          Padding(
+            padding: const EdgeInsets.only(top: 12, left: 8),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline_rounded, color: errorColor, size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'Sélectionnez au moins une catégorie',
+                  style: TextStyle(color: errorColor, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
       ],
     ).animate().slideY(
       begin: 0.2,
@@ -955,6 +900,97 @@ class _ParrainagePageState extends State<ParrainagePage> {
       delay: 1600.ms,
       curve: Curves.easeOut,
     );
+  }
+
+  Widget _buildCategoryHeader({
+    required String title,
+    required IconData icon,
+    required bool isSelected,
+    bool showBadge = false,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: 300.ms,
+        padding: EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? primaryColor.withOpacity(0.08) : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? primaryColor : Colors.grey.shade300,
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: isSelected ? primaryColor : Colors.grey.shade600, size: 24),
+            SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: isSelected ? primaryColor : Colors.black87,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+            Icon(
+              isSelected ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
+              color: isSelected ? primaryColor : Colors.grey.shade400,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubOptionsGrid({
+    required List<dynamic> options,
+    required int? selectedId,
+    required Function(int) onSelected,
+  }) {
+    return Container(
+      margin: EdgeInsets.only(top: 8, left: 16),
+      padding: EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: options.map((type) {
+          final id = type['id'] as int;
+          final name = type['name'] as String;
+          final isItemSelected = selectedId == id;
+          
+          return InkWell(
+            onTap: () => onSelected(id),
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isItemSelected ? primaryColor : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: isItemSelected ? primaryColor : Colors.grey.shade300),
+              ),
+              child: Text(
+                name,
+                style: TextStyle(
+                  color: isItemSelected ? Colors.white : Colors.black87,
+                  fontSize: 13,
+                  fontWeight: isItemSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    ).animate().fadeIn(duration: 300.ms).slideY(begin: -0.1);
   }
   Widget _buildPasswordStrengthIndicator() {
     return AnimatedContainer(
@@ -1026,7 +1062,10 @@ class _ParrainagePageState extends State<ParrainagePage> {
             hint: 'Jean',
             focusNode: _firstNameFocus,
             nextFocus: _lastNameFocus,
-            isFirstField: true,
+            isTouched: _firstNameTouched,
+            onChanged: (val) {
+               if (!_firstNameTouched && val.isNotEmpty) setState(() => _firstNameTouched = true);
+            },
           ),
           SizedBox(height: 15),
           _buildNameField(
@@ -1034,19 +1073,20 @@ class _ParrainagePageState extends State<ParrainagePage> {
             label: 'Nom',
             hint: 'Baka',
             focusNode: _lastNameFocus,
-            nextFocus: _contactFocus, 
+            nextFocus: _contactFocus,
+            isTouched: _lastNameTouched,
+            onChanged: (val) {
+               if (!_lastNameTouched && val.isNotEmpty) setState(() => _lastNameTouched = true);
+            },
           ),
-          SizedBox(height: 15),
           SizedBox(height: 15),
           // Contact Unifié
           _buildContactField(),
           SizedBox(height: 15),
-          // Ville removed phone and email calls
-          SizedBox(height: 15),
           // Ville
           _buildCityField(),
           SizedBox(height: 15),
-          // Type de compte (fixé à Bailleur)
+          // Type de compte
           _buildAccountTypeField(),
           SizedBox(height: 15),
           // Champ de parrain
@@ -1150,7 +1190,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
                               },
                           ),
                           TextSpan(
-                            text: ' de Casa',
+                            text: ' de CasaNayo',
                             style: TextStyle(
                               color: secondaryTextColor,
                               fontSize: 14,
@@ -1159,15 +1199,31 @@ class _ParrainagePageState extends State<ParrainagePage> {
                         ],
                       ),
                     ),
+                    // Message d'erreur amélioré
                     if (_autoValidateMode == AutovalidateMode.always && !_acceptConditions)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          'Veuillez accepter les conditions pour continuer',
-                          style: TextStyle(
-                            color: errorColor,
-                            fontSize: 12,
-                          ),
+                      Container(
+                        margin: EdgeInsets.only(top: 6),
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: errorColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: errorColor.withOpacity(0.3)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.error_outline_rounded, color: errorColor, size: 14),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Vous devez accepter les conditions pour continuer',
+                                style: TextStyle(
+                                  color: errorColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],
@@ -1175,69 +1231,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
               ),
             ],
           ),
-        ),
-        SizedBox(height: 15),
-        // Texte informatif supplémentaire
-        Wrap(
-          spacing: 4,
-          children: [
-            Text(
-              'En continuant, vous acceptez nos',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 12,
-              ),
-            ),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
-                    ),
-                  );
-                },
-                child: Text(
-                  'Conditions',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-            Text(
-              'et',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 12,
-              ),
-            ),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
-                    ),
-                  );
-                },
-                child: Text(
-                  'Politique de confidentialité',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
         ),
       ],
     ).animate().fadeIn(delay: 2200.ms);
@@ -1249,7 +1242,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
       padding: EdgeInsets.all(30),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(10), // Reduced radius to match RegisterScreen
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
@@ -1262,35 +1255,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
       ),
       child: Column(
         children: [
-          // Badge de parrainage
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [primaryColor, darkBlue],
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.emoji_events_rounded, color: Colors.white, size: 16),
-                SizedBox(width: 6),
-                Text(
-                  'Programme de Parrainage',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          SizedBox(height: 15),
 
           Text(
             'Inscription avec Parrain',
@@ -1304,7 +1268,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
           SizedBox(height: 10),
 
           Text(
-            'Créez votre compte Bailleur et bénéficiez des avantages du parrainage',
+            'Créez votre compte et bénéficiez des avantages du parrainage',
             style: TextStyle(
               color: secondaryTextColor,
               fontSize: 14,
@@ -1319,14 +1283,20 @@ class _ParrainagePageState extends State<ParrainagePage> {
 
           SizedBox(height: 25),
 
-          _buildAuthForm(),
-          SizedBox(height: 20),
-          // Case à cocher pour les conditions
-          _buildPrivacyText(),
-          SizedBox(height: 25),
-          _buildAuthButton(),
-          SizedBox(height: 20),
-          _buildLoginLink(),
+          AbsorbPointer(
+            absorbing: _isLoading,
+            child: Column(
+              children: [
+                _buildAuthForm(),
+                SizedBox(height: 25),
+                _buildPrivacyText(),
+                SizedBox(height: 25),
+                _buildAuthButton(),
+                SizedBox(height: 20),
+                _buildLoginLink(),
+              ],
+            ),
+          ),
         ],
       ),
     ).animate().slideY(
@@ -1343,11 +1313,11 @@ class _ParrainagePageState extends State<ParrainagePage> {
     required String hint,
     required FocusNode focusNode,
     FocusNode? nextFocus,
-    bool isFirstField = false,
+    required bool isTouched,
+    required Function(String) onChanged,
   }) {
     // Déterminer si ce champ doit afficher les erreurs
-    bool shouldValidate = _autoValidateMode == AutovalidateMode.always ||
-        (isFirstField ? _firstNameTouched : _lastNameTouched);
+    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || isTouched;
 
     return Container(
       decoration: BoxDecoration(
@@ -1366,17 +1336,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
         autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
         style: TextStyle(color: textColor, fontSize: 16),
         textInputAction: nextFocus != null ? TextInputAction.next : TextInputAction.done,
-        onFieldSubmitted: nextFocus != null ? (_) => _goToNextField(focusNode, nextFocus!) : null,
-        onChanged: (value) {
-          // Marquer comme touché seulement si l'utilisateur a vraiment tapé quelque chose
-          if (value.isNotEmpty) {
-            if (isFirstField && !_firstNameTouched) {
-              setState(() => _firstNameTouched = true);
-            } else if (!isFirstField && !_lastNameTouched) {
-              setState(() => _lastNameTouched = true);
-            }
-          }
-        },
+        onFieldSubmitted: nextFocus != null ? (_) => _goToNextField(focusNode, nextFocus) : null,
+        onChanged: onChanged,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: secondaryTextColor),
@@ -1384,7 +1345,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
             padding: EdgeInsets.all(12),
             child: Icon(Icons.person_rounded, color: primaryColor),
           ),
-          suffixIcon: nextFocus != null ? _buildNextButton(() => _goToNextField(focusNode, nextFocus!)) : null,
+          suffixIcon: nextFocus != null ? _buildNextButton(() => _goToNextField(focusNode, nextFocus)) : null,
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -1405,8 +1366,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
           fillColor: lightBlue.withOpacity(0.3),
           hintText: hint,
           hintStyle: TextStyle(color: Colors.grey.shade500),
+          errorText: shouldValidate ? _validateName(controller.text, label.toLowerCase()) : null,
         ),
-        validator: (value) => _validateName(value, label.toLowerCase()),
       ),
     ).animate().slideX(
       begin: -0.3,
@@ -1416,53 +1377,53 @@ class _ParrainagePageState extends State<ParrainagePage> {
     );
   }
 
-  Widget _buildCountryCodePicker() {
+  Widget _buildCountryCodeDropdown() {
     return Container(
-      decoration: BoxDecoration(
-        color: lightBlue.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: PopupMenuButton<String>(
-        onSelected: (value) {
-          setState(() {
-            _selectedCountryCode = value;
-            _contactController.notifyListeners(); // Re-validate if needed
-          });
-        },
-        itemBuilder: (BuildContext context) {
-          return _countryFlags.keys.map((String code) {
-            return PopupMenuItem<String>(
-              value: code,
+      width: 140, // Légèrement plus large pour accommoder le nom
+      padding: EdgeInsets.only(left: 8, right: 4),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedCountryCode,
+          isExpanded: true,
+          icon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor, size: 20),
+          style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.w500),
+          items: _countryFlags.entries.map((entry) {
+            String countryName = entry.key == '+243' ? 'RDC' : ''; // simplified or use a map
+            return DropdownMenuItem(
+              value: entry.key,
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(_countryFlags[code]!, style: TextStyle(fontSize: 18)),
+                  Text(entry.value, style: TextStyle(fontSize: 16)), // Drapeau
                   SizedBox(width: 8),
-                  Text(code, style: TextStyle(fontSize: 14)),
+                  Text(entry.key, style: TextStyle(fontSize: 13)), // Indicatif
+                  if (countryName.isNotEmpty) ...[
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        countryName,
+                        style: TextStyle(fontSize: 12, color: secondaryTextColor),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             );
-          }).toList();
-        },
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_countryFlags[_selectedCountryCode]!, style: TextStyle(fontSize: 18)),
-              SizedBox(width: 4),
-              Text(_selectedCountryCode, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textColor)),
-              Icon(Icons.arrow_drop_down, size: 18, color: textColor),
-            ],
-          ),
+          }).toList(),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              setState(() {
+                _selectedCountryCode = newValue;
+              });
+            }
+          },
         ),
       ),
     );
   }
 
   Widget _buildContactField() {
-    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _contactTouched;
-
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
@@ -1477,34 +1438,20 @@ class _ParrainagePageState extends State<ParrainagePage> {
       child: TextFormField(
         controller: _contactController,
         focusNode: _contactFocus,
-        autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
-        style: TextStyle(color: textColor, fontSize: 16),
-        keyboardType: _isPhoneInput ? TextInputType.phone : TextInputType.emailAddress,
+        autovalidateMode: AutovalidateMode.disabled,
+        style: TextStyle(color: Colors.black87, fontSize: 16),
         textInputAction: TextInputAction.next,
         onFieldSubmitted: (_) => _goToNextField(_contactFocus, _cityFocus),
-        onChanged: (value) {
-          if (value.isNotEmpty && !_contactTouched) {
-            setState(() => _contactTouched = true);
-          }
-           // IMPORTANT: Trigger logic to detect if phone/email
-           _updateContactType();
-        },
         decoration: InputDecoration(
           labelText: 'Email ou Téléphone*',
-          labelStyle: TextStyle(color: secondaryTextColor),
-          prefixIcon: Container(
-            padding: EdgeInsets.all(12),
-            child: Icon(
-               _isPhoneInput ? Icons.phone_iphone_rounded : Icons.email_rounded,
-               color: primaryColor
-            ),
-          ),
-          prefix: _isPhoneInput 
-            ? Container(
-                margin: EdgeInsets.only(right: 8),
-                child: _buildCountryCodePicker(),
-              ) 
-            : null,
+          labelStyle: TextStyle(color: Colors.black87),
+          prefixIcon: _isPhoneInput && _contactController.text.isNotEmpty
+              ? _buildCountryCodeDropdown()
+              : Container(
+                  padding: EdgeInsets.all(12),
+                  child: Icon(Icons.email_rounded, color: primaryColor),
+                ),
+
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -1523,10 +1470,22 @@ class _ParrainagePageState extends State<ParrainagePage> {
           ),
           filled: true,
           fillColor: lightBlue.withOpacity(0.3),
-          hintText: _isPhoneInput ? '81 000 0000' : 'exemple@email.com',
+          hintText: 'exemple@email.com ou 810000000',
           hintStyle: TextStyle(color: Colors.grey.shade500),
+          errorText: _contactTouched ? _validateContact(_contactController.text) : null,
         ),
-        validator: _validateContact,
+        keyboardType: _isPhoneInput ? TextInputType.phone : TextInputType.emailAddress,
+        onChanged: (String value) {
+          if (!_contactTouched && value.isNotEmpty) {
+            setState(() => _contactTouched = true);
+          }
+          _updateContactType();
+          _forceRevalidation();
+        },
+        onEditingComplete: () {
+          setState(() => _contactTouched = true);
+        },
+        validator: null,
       ),
     ).animate().slideX(
       begin: 0.3,
@@ -1537,8 +1496,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   Widget _buildCityField() {
-    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _cityTouched;
-
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
@@ -1550,56 +1507,140 @@ class _ParrainagePageState extends State<ParrainagePage> {
           ),
         ],
       ),
-      child: TextFormField(
-        controller: _cityController,
-        focusNode: _cityFocus,
-        autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
-        style: TextStyle(color: textColor, fontSize: 16),
-        textInputAction: TextInputAction.next,
-        onFieldSubmitted: (_) => _goToNextField(_cityFocus, _parrainFocus),
-        onChanged: (value) {
-          if (value.isNotEmpty && !_cityTouched) {
-            setState(() => _cityTouched = true);
+      child: Autocomplete<CityModel>(
+        optionsBuilder: (TextEditingValue textEditingValue) {
+          if (textEditingValue.text.isEmpty) {
+            return const Iterable<CityModel>.empty();
           }
+          final query = textEditingValue.text.toLowerCase();
+          final baseCities = _allCities.map((name) => CityModel(name: name)).toList();
+          return baseCities.where((CityModel city) {
+            final cityName = city.name?.toLowerCase() ?? '';
+            return cityName.contains(query);
+          }).take(10);
         },
-        decoration: InputDecoration(
-          labelText: 'Ville*',
-          labelStyle: TextStyle(color: secondaryTextColor),
-          prefixIcon: Container(
-            padding: EdgeInsets.all(12),
-            child: Icon(Icons.location_city_rounded, color: primaryColor),
-          ),
-          suffixIcon: _buildNextButton(() => _goToNextField(_cityFocus, _parrainFocus)),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: primaryColor, width: 2),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red, width: 2),
-          ),
-          filled: true,
-          fillColor: lightBlue.withOpacity(0.3),
-          hintText: 'Kinshasa',
-          hintStyle: TextStyle(color: Colors.grey.shade500),
-        ),
-        validator: _validateCity,
+        displayStringForOption: (CityModel city) => city.name ?? '',
+        onSelected: (CityModel city) {
+          setState(() {
+            _cityController.text = city.name ?? '';
+            _cityTouched = true;
+            FocusScope.of(context).requestFocus(_parrainFocus);
+          });
+        },
+        fieldViewBuilder: (
+          BuildContext context,
+          TextEditingController textEditingController,
+          FocusNode focusNode,
+          VoidCallback onFieldSubmitted,
+        ) {
+          // Synchroniser avec _cityController
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (textEditingController.text != _cityController.text && mounted) {
+              textEditingController.text = _cityController.text;
+            }
+          });
+          
+          return TextFormField(
+            controller: textEditingController,
+            focusNode: focusNode,
+            textInputAction: TextInputAction.next,
+            style: TextStyle(color: Colors.black87, fontSize: 16),
+            onTapOutside: (event) {
+              focusNode.unfocus();
+            },
+            onFieldSubmitted: (String value) {
+              onFieldSubmitted();
+              _goToNextField(focusNode, _parrainFocus);
+            },
+            onChanged: (String value) {
+              setState(() {
+                _cityController.text = value;
+                _cityTouched = true;
+              });
+              _forceRevalidation();
+            },
+            decoration: InputDecoration(
+              labelText: 'Ville*',
+              labelStyle: TextStyle(color: Colors.black87),
+              prefixIcon: Container(
+                padding: EdgeInsets.all(12),
+                child: Icon(Icons.search_rounded, color: primaryColor),
+              ),
+              suffixIcon: _cityController.text.isNotEmpty
+                  ? IconButton(
+                      icon: Icon(Icons.clear_rounded, color: Colors.grey.shade400),
+                      onPressed: () {
+                        setState(() {
+                          _cityController.clear();
+                          textEditingController.clear();
+                        });
+                      },
+                    )
+                  : null,
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: primaryColor, width: 2),
+              ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.red),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.red, width: 2),
+              ),
+              filled: true,
+              fillColor: lightBlue.withOpacity(0.3),
+              hintText: 'Rechercher une ville...',
+              hintStyle: TextStyle(color: Colors.grey.shade500),
+              errorText: _cityTouched ? _validateCity(_cityController.text) : null,
+            ),
+          );
+        },
+        optionsViewBuilder: (BuildContext context, AutocompleteOnSelected<CityModel> onSelected, Iterable<CityModel> options) {
+          if (options.isEmpty) return SizedBox.shrink();
+
+          return Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 8.0,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                constraints: BoxConstraints(maxHeight: 250),
+                width: MediaQuery.of(context).size.width - 80,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white,
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: ListView.separated(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  shrinkWrap: true,
+                  itemCount: options.length,
+                  separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey.shade100),
+                  itemBuilder: (BuildContext context, int index) {
+                    final CityModel city = options.elementAt(index);
+                    return ListTile(
+                      leading: Icon(Icons.location_city_rounded, color: primaryColor, size: 20),
+                      title: Text(city.name ?? '', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                      onTap: () => onSelected(city),
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+        },
       ),
     ).animate().slideX(
-      begin: 0.3,
-      duration: 500.ms,
-      delay: 1550.ms,
-      curve: Curves.easeOut,
+      begin: 0.3, duration: 500.ms, delay: 1550.ms, curve: Curves.easeOut,
     );
   }
+
 
   Widget _buildNextButton(VoidCallback onPressed) {
     return Container(
@@ -1647,8 +1688,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   Widget _buildPasswordField() {
-    bool shouldValidate = _autoValidateMode == AutovalidateMode.always || _passwordTouched;
-
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
@@ -1663,19 +1702,23 @@ class _ParrainagePageState extends State<ParrainagePage> {
       child: TextFormField(
         controller: _passwordController,
         focusNode: _passwordFocus,
-        style: TextStyle(color: textColor, fontSize: 16),
+        style: TextStyle(color: Colors.black87, fontSize: 16),
         obscureText: !_showPassword,
-        autovalidateMode: shouldValidate ? AutovalidateMode.always : AutovalidateMode.disabled,
+        autovalidateMode: AutovalidateMode.disabled,
         textInputAction: TextInputAction.done,
         onFieldSubmitted: (_) => _passwordFocus.unfocus(),
-        onChanged: (value) {
-          if (value.isNotEmpty && !_passwordTouched) {
+        onChanged: (val) {
+          if (!_passwordTouched && val.isNotEmpty) {
             setState(() => _passwordTouched = true);
           }
+          _forceRevalidation();
+        },
+        onEditingComplete: () {
+          setState(() => _passwordTouched = true);
         },
         decoration: InputDecoration(
           labelText: 'Mot de passe*',
-          labelStyle: TextStyle(color: secondaryTextColor),
+          labelStyle: TextStyle(color: Colors.black87),
           prefixIcon: Container(
             padding: EdgeInsets.all(12),
             child: Icon(Icons.lock_rounded, color: primaryColor),
@@ -1709,8 +1752,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
           ),
           filled: true,
           fillColor: lightBlue.withOpacity(0.3),
+          errorText: _passwordTouched ? _validatePassword(_passwordController.text) : null,
         ),
-        validator: _validatePassword,
       ),
     ).animate().slideX(
       begin: 0.3,
@@ -1723,12 +1766,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
   List<Widget> _buildPasswordCriteria() {
     final password = _passwordController.text;
     final criteria = [
-      {'text': '6+ caractères', 'met': password.length >= 6},
-      {'text': '8+ caractères', 'met': password.length >= 8},
-      {'text': 'Majuscule', 'met': RegExp(r'[A-Z]').hasMatch(password)},
-      {'text': 'Minuscule', 'met': RegExp(r'[a-z]').hasMatch(password)},
-      {'text': 'Chiffre', 'met': RegExp(r'[0-9]').hasMatch(password)},
-      {'text': 'Spécial', 'met': RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)},
+      {'text': 'Au moins 6 caractères', 'met': password.length >= 6},
     ];
 
     return criteria.map((criterion) {
@@ -1756,39 +1794,37 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   String _getPasswordStrengthText(int strength) {
-    if (strength == 0) return 'Commencez à taper votre mot de passe';
-    if (strength <= 2) return 'Faible - Ajoutez des chiffres et caractères spéciaux';
-    if (strength <= 4) return 'Moyen - Presque là !';
-    return 'Fort - Excellent mot de passe !';
+    if (strength == 0) return 'Entrez votre mot de passe';
+    if (strength < 6) return 'Mot de passe trop court (min. 6)';
+    return 'Mot de passe valide';
   }
 
   Color _getPasswordStrengthColor(int strength) {
     if (strength == 0) return secondaryTextColor;
-    if (strength <= 2) return errorColor;
-    if (strength <= 4) return Colors.orange;
+    if (strength < 3) return errorColor;
+    if (strength < 6) return Colors.orange;
     return successColor;
   }
 
   Widget _buildAuthButton() {
-    // Vérifier si tous les champs sont valides
-    final isFormValid = _isFormValid();
+    final hasRequiredFields = _firstNameController.text.isNotEmpty &&
+        _lastNameController.text.isNotEmpty &&
+        _contactController.text.isNotEmpty &&
+        _cityController.text.isNotEmpty &&
+        _passwordController.text.isNotEmpty;
 
-    // Le bouton est activé seulement si le formulaire est valide ET les conditions sont acceptées
-    final isButtonEnabled = isFormValid && _acceptConditions && !_isLoading;
+    final isFormValid = _isFormValid();
+    final isButtonEnabled = hasRequiredFields && isFormValid && _acceptConditions && !_isLoading;
 
     return Container(
       width: double.infinity,
       height: 56,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        gradient: isButtonEnabled
-            ? LinearGradient(
-          colors: [primaryColor, darkBlue],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        )
-            : LinearGradient(
-          colors: [Colors.grey.shade400, Colors.grey.shade600],
+        gradient: LinearGradient(
+          colors: isButtonEnabled
+              ? [primaryColor, darkBlue]
+              : [primaryColor.withOpacity(0.4), darkBlue.withOpacity(0.4)],
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
         ),
@@ -1801,7 +1837,14 @@ class _ParrainagePageState extends State<ParrainagePage> {
             offset: Offset(0, 5),
           ),
         ]
-            : null,
+            : [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.2),
+            blurRadius: 8,
+            spreadRadius: 1,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: ElevatedButton(
         onPressed: isButtonEnabled ? _handleRegister : null,
@@ -1824,21 +1867,25 @@ class _ParrainagePageState extends State<ParrainagePage> {
             : Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.people_alt_rounded, size: 20, color: Colors.white),
-            SizedBox(width: 10),
             Text(
               'Créer mon compte',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.white,
+                color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7),
                 fontWeight: FontWeight.bold,
               ),
+            ),
+            SizedBox(width: 10),
+            Icon(
+              Icons.person_add_rounded,
+              size: 20,
+              color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7),
             ),
           ],
         ),
       ),
     ).animate().scale(
-      delay: 1900.ms,
+      delay: 2100.ms,
       duration: 500.ms,
     ).then().shake(
       delay: 100.ms,
@@ -1846,25 +1893,18 @@ class _ParrainagePageState extends State<ParrainagePage> {
     );
   }
 
-  // CORRECTION : Méthode améliorée pour vérifier la validité du formulaire
   bool _isFormValid() {
-    // Vérifier d'abord que tous les champs requis sont remplis
-    if (_firstNameController.text.isEmpty ||
-        _lastNameController.text.isEmpty ||
-        _contactController.text.isEmpty ||
-        _cityController.text.isEmpty ||
-        _passwordController.text.isEmpty) {
-      return false;
-    }
+    final isFirstNameValid = _firstNameController.text.isEmpty || _validateName(_firstNameController.text, 'prénom') == null;
+    final isLastNameValid = _lastNameController.text.isEmpty || _validateName(_lastNameController.text, 'nom') == null;
+    final isContactValid = _contactController.text.isEmpty || _validateContact(_contactController.text) == null;
+    final isCityValid = _cityController.text.isEmpty || _validateCity(_cityController.text) == null;
+    final isPasswordValid = _passwordController.text.isEmpty || _validatePassword(_passwordController.text) == null;
 
-    // Ensuite vérifier que chaque champ est valide en utilisant les validateurs
-    if (_validateName(_firstNameController.text, 'prénom') != null) return false;
-    if (_validateName(_lastNameController.text, 'nom') != null) return false;
-    if (_validateContact(_contactController.text) != null) return false;
-    if (_validateCity(_cityController.text) != null) return false;
-    if (_validatePassword(_passwordController.text) != null) return false;
-
-    return true;
+    return isFirstNameValid &&
+        isLastNameValid &&
+        isContactValid &&
+        isCityValid &&
+        isPasswordValid;
   }
 
   Widget _buildLoginLink() {
@@ -1974,7 +2014,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
     // Activer la validation pour tous les champs
     setState(() {
       _autoValidateMode = AutovalidateMode.always;
-      // Marquer tous les champs comme touchés pour forcer l'affichage des erreurs
       _firstNameTouched = true;
       _lastNameTouched = true;
       _contactTouched = true;
@@ -1984,29 +2023,53 @@ class _ParrainagePageState extends State<ParrainagePage> {
 
     await Future.delayed(Duration(milliseconds: 50));
 
-    // Vérifier la validation avec la méthode standard du formulaire
-    if (!(_formKey.currentState?.validate() ?? false)) {
+    // Vérifier la validation
+    final isNameFieldsValid = _validateName(_firstNameController.text, 'prénom') == null &&
+        _validateName(_lastNameController.text, 'nom') == null;
+    final isContactValid = _validateContact(_contactController.text) == null;
+    final isCityValid = _validateCity(_cityController.text) == null;
+    final isPasswordValid = _validatePassword(_passwordController.text) == null;
+
+    if (!isNameFieldsValid || !isContactValid || !isCityValid || !isPasswordValid) {
       FancyNotification.show(context, "Veuillez corriger les erreurs ci-dessus");
       return;
     }
+
+    if (!_isLocataireSelected && _selectedOwnerAccountId == null && _selectedPrestataireAccountId == null) {
+      FancyNotification.show(context, "Veuillez sélectionner au moins un type de compte");
+      return;
+    }
+
     if (!_acceptConditions) {
       FancyNotification.show(context, "Veuillez accepter les conditions d'utilisation");
       return;
     }
+
     if (!mounted || _isLoading) return;
     setState(() => _isLoading = true);
 
     FocusScope.of(context).unfocus();
 
-    final isConnected = await NetworkUtils.checkInternetConnectivity();
-    if (!isConnected) {
+    if (!await NetworkUtils.checkInternetConnectivity()) {
       FancyNotification.show(context, "Pas de connexion internet");
       setState(() => _isLoading = false);
       return;
     }
 
     try {
-      // Recalculer si c'est un téléphone ou email pour la soumission
+      // Trouver les IDs des comptes sélectionnés
+      List<Map<String, int>> accountsPayload = [];
+      if (_isLocataireSelected) {
+        accountsPayload.add({"typeAccount": 4}); // Locataire (ID standard)
+      }
+      if (_selectedOwnerAccountId != null) {
+        accountsPayload.add({"typeAccount": _selectedOwnerAccountId!}); 
+      }
+      if (_selectedPrestataireAccountId != null) {
+        accountsPayload.add({"typeAccount": _selectedPrestataireAccountId!});
+      }
+
+      // Préparer les données de contact
       String phoneField = '';
       String emailField = '';
       
@@ -2014,47 +2077,23 @@ class _ParrainagePageState extends State<ParrainagePage> {
       final isPhone = _looksLikePhoneNumber(contactValue);
 
       if (isPhone) {
-        // C'est un numéro de téléphone
         final cleanedPhone = contactValue.replaceAll(RegExp(r'[^\d]'), '');
         phoneField = cleanedPhone.startsWith('0') 
             ? '${_selectedCountryCode}${cleanedPhone.substring(1)}'
             : '${_selectedCountryCode}$cleanedPhone';
-        // S'assurer que le champ phone ne soit pas vide s'il y a un souci de parsing
         if (phoneField == _selectedCountryCode) phoneField = contactValue;
       } else {
-        // C'est un email
         emailField = contactValue;
-      }
-
-      // Récupérer l'ID du type de compte Bailleur dynamiquement
-      int accountTypeId = 3; // Fallback
-      final typeAccountCtrl = context.read<TypeAccountController>();
-      if (typeAccountCtrl.ownerTypes.isNotEmpty) {
-           final validTypes = typeAccountCtrl.ownerTypes.where(
-              (t) => (t['name'] ?? '').toString().toLowerCase().contains('bailleur')
-           ).toList();
-           if (validTypes.isNotEmpty) {
-               accountTypeId = validTypes.first['typeAccountId'] ?? 3;
-           } else {
-               // Si pas de "Bailleur" explicite, prendre le premier type propriétaire (ex: Propriétaire)
-               accountTypeId = typeAccountCtrl.ownerTypes.first['typeAccountId'] ?? 3;
-           }
       }
 
       final Map<String, dynamic> userData = {
         "password": _passwordController.text,
         "city": _cityController.text.trim(),
-        "country": "RDC",
+        "country": _selectedCountryName ?? "RDC",
         "username": "${_firstNameController.text.trim()}${_lastNameController.text.trim()}".replaceAll(' ', '').toLowerCase(),
+        "phone": isPhone ? phoneField : "",
+        "email": isPhone ? "" : emailField,
       };
-      
-      if (isPhone) {
-        userData["phone"] = phoneField;
-        userData["email"] = "";
-      } else {
-        userData["phone"] = "";
-        userData["email"] = emailField;
-      }
       
       final actorData = {
           "lastName": _lastNameController.text.trim(),
@@ -2068,10 +2107,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
           "numberCard": ""
       };
       
-      // Payload unifié standard
       final Map<String, dynamic> payload = {
         "user": userData,
-        "account": [{"typeAccount": accountTypeId}],
+        "account": accountsPayload,
         "actor": actorData
       };
 
@@ -2081,34 +2119,21 @@ class _ParrainagePageState extends State<ParrainagePage> {
       if (!mounted) return;
 
       if (response.status == true) {
-        String successMessage = "Inscription réussie!";
+        String successMessage = "Inscription réussie ! Bravo pour votre participation à notre Tombola !";
         if (_selectedParrain != null) {
           successMessage += " Votre parrain ${_selectedParrain!['name']} a été notifié.";
         }
-
         FancyNotification.show(context, successMessage, isError: false);
         await Future.delayed(const Duration(milliseconds: 1500));
-
-        if (mounted) {
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            Routes.loginRoute,
-                (route) => false,
-          );
-        }
+        if (mounted) Navigator.pushNamedAndRemoveUntil(context, Routes.loginRoute, (route) => false);
       } else {
-        String errorMsg = _sanitizeError(response.errorMsg);
-        FancyNotification.show(context, errorMsg);
+        FancyNotification.show(context, _sanitizeError(response.errorMsg));
       }
     } catch (e) {
       FancyNotification.show(context, "Une erreur est survenue. Veuillez réessayer.");
       print("Register error: $e");
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
   String _sanitizeError(String? error) {
