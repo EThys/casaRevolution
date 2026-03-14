@@ -250,9 +250,8 @@ class AuthentificationCtrl with ChangeNotifier {
       loading = true;
       notifyListeners();
 
-      // Utilisation de l'endpoint PUT /api/members/{profileId}
-      // Le profileId est passé depuis IdentityVerificationPage (profile.id depuis le stockage)
-      final url = "members/$profileId";
+      // Utilisation de l'endpoint PUT /api/{version}/protected/members/{profileId}
+      final url = "${Endpoints.protectedMembers}/$profileId";
       print("Envoi vérification d'identité vers $url (profileId: $profileId)");
       
       final response = await putData(url, payload, token: token);
@@ -723,11 +722,11 @@ class AuthentificationCtrl with ChangeNotifier {
 
       // Si votre API utilise un endpoint séparé pour la vérification, utilisez-le
       // Sinon, vous pouvez utiliser le même endpoint que forgot-password avec un paramètre action
-      var url = "${Endpoints.verifyOTP}";
+      var url = "${Endpoints.otpVerify}";
       print("URL verify OTP: $url");
       print("Données envoyées: ${data.containsKey('otp') ? 'phone: ${data['phone']}, otp: ***' : data}");
 
-      HttpResponse response = await postDataForAuth(url, data, token: "");
+      HttpResponse response = await postData(url, data, token: "");
 
       print("Statut de la réponse: ${response.status}");
       print("Réponse API: ${response.data}");
@@ -759,7 +758,8 @@ class AuthentificationCtrl with ChangeNotifier {
       loading = true;
       notifyListeners();
 
-      final url = "members/$userId";
+      // Utilisation de l'endpoint PUT /api/{version}/protected/members/{userId}
+      final url = "${Endpoints.protectedMembers}/$userId";
       print("Mise à jour profil vers $url");
       
       // S'assurer que la clé "user" est toujours présente avec toutes ses propriétés
@@ -900,13 +900,13 @@ class AuthentificationCtrl with ChangeNotifier {
     }
   }
 
-  // Mise à jour de l'image de profil via l'endpoint /api/members/{id}/profile
+  // Mise à jour de l'image de profil via l'endpoint /api/{version}/protected/members/{id}/profile
   Future<HttpResponse> updateProfilePicture(String profileId, String base64Image) async {
     try {
       loading = true;
       notifyListeners();
 
-      final url = "${Endpoints.updateProfilePicture}$profileId/profile";
+      final url = "${Endpoints.updateProfilePicture}/$profileId/profile";
       print("Upload image de profil vers $url");
       
       final payload = {
@@ -963,7 +963,8 @@ class AuthentificationCtrl with ChangeNotifier {
   // Vérifier si l'utilisateur a une agence
   Future<bool> checkUserAgency(int userId) async {
     try {
-      final url = "agences/owner/$userId";
+      // Utilisation de l'endpoint GET /api/{version}/protected/agences/owner/{userId}
+      final url = "${Endpoints.protectedAgencesByOwner}/$userId";
       print("Vérification agence pour user $userId: $url");
       
       // getData retourne le body JSON décodé (Map ou List) si 200, sinon null
