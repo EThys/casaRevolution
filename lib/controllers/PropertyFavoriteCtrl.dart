@@ -248,7 +248,7 @@ class PropertyFavoriteCtrl with ChangeNotifier {
 
     // Si c'est une prestation, on utilise l'endpoint et le body spécifiques
     if (isPrestation) {
-      url = Endpoints.favoritePrestation;
+      url = Endpoints.AddfavoritePrestation;
       data = {
         "userId": uid,
         "prestationId": pid,
@@ -312,7 +312,9 @@ class PropertyFavoriteCtrl with ChangeNotifier {
     final pid = int.tryParse(propertyId);
     
     if (isPrestation) {
-      url = "${Endpoints.favoritePrestationDelete}/$uid/$pid";
+      // DELETE /api/{version}/protected/prestation/favorite/{id}
+      // pid = l'ID de la prestation (favoriteId)
+      url = "${Endpoints.favoritePrestationDelete}/$pid";
     } else {
       // Utiliser l'endpoint spécifique selon le type pour les propriétés classiques
       if (propertyTypeId != null) {

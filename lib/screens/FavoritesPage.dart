@@ -167,7 +167,7 @@ class _FavoritesPageState extends State<FavoritesPage>
     }
   }
 
-  Future<void> _removeFavorite(int? propertyId, {int? propertyTypeId, bool isPrestation = false}) async {
+  void _removeFavorite(int? propertyId, {int? propertyTypeId, bool isPrestation = false}) {
     if (propertyId == null) return;
 
     final authCtrl = context.read<AuthentificationCtrl>();
@@ -178,31 +178,56 @@ class _FavoritesPageState extends State<FavoritesPage>
       return;
     }
 
-    setState(() {
-      _deletingIds.add(propertyId);
-    });
+    final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
+    PropertyFavoriteModel? removedItem;
+    int index = -1;
 
+    // Trouver l'élément à supprimer
+    for (int i = 0; i < propertyCtrl.propertyFavorites.length; i++) {
+      final fav = propertyCtrl.propertyFavorites[i];
+      if (isPrestation && fav.prestation?.id == propertyId) {
+        removedItem = fav;
+        index = i;
+        break;
+      } else if (!isPrestation && fav.property?.propertyId == propertyId) {
+        removedItem = fav;
+        index = i;
+        break;
+      }
+    }
+
+    // Suppression optimiste de l'interface
+    if (index != -1) {
+      setState(() {
+        propertyCtrl.propertyFavorites.removeAt(index);
+      });
+    }
+
+    // Exécution de l'appel API en arrière-plan
+    _performBackgroundRemoval(userId, propertyId, propertyCtrl, propertyTypeId: propertyTypeId, isPrestation: isPrestation, removedItem: removedItem, index: index);
+  }
+
+  Future<void> _performBackgroundRemoval(String userId, int propertyId, PropertyFavoriteCtrl propertyCtrl, {int? propertyTypeId, bool isPrestation = false, PropertyFavoriteModel? removedItem, int? index}) async {
     try {
-      final propertyCtrl = Provider.of<PropertyFavoriteCtrl>(context, listen: false);
       final success = await propertyCtrl.removeFavorite(userId, propertyId.toString(), propertyTypeId: propertyTypeId, isPrestation: isPrestation);
 
       if (success) {
         final favoriteProvider = Provider.of<FavoriteProvider>(context, listen: false);
-        await favoriteProvider.syncFavorites(userId);
-
-        await Future.delayed(Duration(milliseconds: 300));
-        // _showNotification("Supprimé des favoris", isError: false); // Silent
-
-        // Recharger les données
-        await _loadFavorites();
+        favoriteProvider.syncFavorites(userId);
+      } else if (removedItem != null && index != null) {
+        // En cas d'échec non géré par le cache hors ligne, restaurer l'élément
+        if (mounted) {
+          setState(() {
+            propertyCtrl.propertyFavorites.insert(index, removedItem);
+          });
+          _showNotification("Échec de la suppression", isError: true);
+        }
       }
     } catch (e) {
-      // _showNotification("Échec de la suppression", isError: true); // Silent
-      print("Erreur lors de la suppression: $e");
-    } finally {
-      if (mounted) {
+      print("Erreur lors de la suppression en arrière-plan: $e");
+      if (removedItem != null && index != null && mounted) {
         setState(() {
-          _deletingIds.remove(propertyId);
+          propertyCtrl.propertyFavorites.insert(index, removedItem);
         });
       }
     }
