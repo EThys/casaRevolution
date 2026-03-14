@@ -342,14 +342,10 @@ class PropertyModel {
           ((json["features"] ?? json["feature"] ?? dataNode["features"]) as List).where((x) => x != null).map((x) => PropertyFeatureModel.fromJson(x)))
           : <PropertyFeatureModel>[],
           
-      propertyImage: _parseImages(imagesNode),
-      
-      propertyImageRoom: _parseRoomImages(imagesNode),
-      
-      propertyImageLivingRoom: _parseLivingRoomImages(imagesNode),
-      
-      propertyImageKitchen: _parseKitchenImages(imagesNode),
-
+      propertyImage: _parseImages(container["propertyImage"] ?? json["propertyImage"] ?? container["images"] ?? json["images"] ?? dataNode["profile"]),
+      propertyImageRoom: _parseRoomImages(container["propertyImageRoom"] ?? json["propertyImageRoom"] ?? (container["images"] is Map ? container["images"] : null)),
+      propertyImageLivingRoom: _parseLivingRoomImages(container["propertyImageLivingRoom"] ?? json["propertyImageLivingRoom"] ?? (container["images"] is Map ? container["images"] : null)),
+      propertyImageKitchen: _parseKitchenImages(container["propertyImageKitchen"] ?? json["propertyImageKitchen"] ?? (container["images"] is Map ? container["images"] : null)),
     );
   }
 

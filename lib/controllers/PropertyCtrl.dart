@@ -101,7 +101,7 @@ class PropertyController with ChangeNotifier {
       }
 
       String? token = stockage?.read(StockageKeys.tokenKey);
-      var response = await getData("${Constantes.URL_BASE}${Endpoints.devises}", token: token);
+      var response = await getData("${Constantes.BASE_URL}${Endpoints.devises}", token: token);
       if (response != null && response is Map && response['devises'] != null) {
           devisesList = (response['devises'] as List).map((e) => DeviseModel.fromJson(e)).toList();
           stockage?.write(StockageKeys.devisesKey, response);
@@ -484,7 +484,7 @@ class PropertyController with ChangeNotifier {
           await _syncWithLocalDatabase(onlineProperties);
           properties = onlineProperties;
         } else {
-          print("⚠️ Réponse properties vide ou invalide");
+          print("⚠Réponse properties vide ou invalide");
           if (!forceSync) await _loadFromCache();
         }
       } else {
@@ -514,7 +514,7 @@ class PropertyController with ChangeNotifier {
       // Loguer l'événement
      // await _logSyncEvent(onlineProperties.length, localProperties.length, true);
     } else {
-      print("✅ Aucun changement détecté, utilisation du cache");
+      print("Aucun changement détecté, utilisation du cache");
       properties = localProperties;
 
       // Petit délai pour une meilleure UX même sans changement
@@ -528,7 +528,7 @@ class PropertyController with ChangeNotifier {
   Future<bool> _detectChanges(List<PropertyModel> local, List<PropertyModel> online) async {
     // 1. Vérification rapide du nombre d'éléments
     if (local.length != online.length) {
-      print("📊 Différence de nombre: local=${local.length}, online=${online.length}");
+      print("Différence de nombre: local=${local.length}, online=${online.length}");
       return true;
     }
 
@@ -540,7 +540,7 @@ class PropertyController with ChangeNotifier {
     final missingInOnline = localIds.difference(onlineIds);
 
     if (missingInLocal.isNotEmpty || missingInOnline.isNotEmpty) {
-      print("🆔 Différence d'IDs: +${missingInLocal.length}, -${missingInOnline.length}");
+      print("Différence d'IDs: +${missingInLocal.length}, -${missingInOnline.length}");
       return true;
     }
 
@@ -555,7 +555,7 @@ class PropertyController with ChangeNotifier {
 
       // Comparaison des champs critiques
       if (_hasPropertyChanged(localProp, onlineProp)) {
-        print("📝 Propriété ${onlineProp.propertyId} a changé");
+        print("Propriété ${onlineProp.propertyId} a changé");
         return true;
       }
     }
@@ -640,7 +640,7 @@ class PropertyController with ChangeNotifier {
     // Mettre à jour la liste en mémoire
     properties = await db.getAllProperties();
 
-    print("🔄 Sync terminée: +$insertedCount nouveau, $updatedCount modifié, ${toDelete.length} supprimé");
+    print("Sync terminée: +$insertedCount nouveau, $updatedCount modifié, ${toDelete.length} supprimé");
   }
 
   // Méthode pour forcer une synchronisation complète
@@ -649,12 +649,12 @@ class PropertyController with ChangeNotifier {
   }
 
   void _logSyncEvent(int onlineCount, int localCount, bool hadChanges) {
-    print("📊 Sync - En ligne: $onlineCount, Local: $localCount, Changements: $hadChanges");
+    print("Sync - En ligne: $onlineCount, Local: $localCount, Changements: $hadChanges");
   }
 
   void _showErrorNotification(String message) {
     // Cette méthode sera utilisée par l'UI pour afficher les erreurs
-    print("❌ $message");
+    print("$message");
   }
 
 
@@ -673,7 +673,7 @@ class PropertyController with ChangeNotifier {
 
       loading = false;
       notifyListeners();
-      print("📦 Cache initial: ${properties.length} standard + ${bureaux.length} bureaux + ${festives.length} festives + ${funeraires.length} funéraires + ${terrains.length} terrains");
+      print("Cache initial: ${properties.length} standard + ${bureaux.length} bureaux + ${festives.length} festives + ${funeraires.length} funéraires + ${terrains.length} terrains");
 
       // 2. Sync online en arrière-plan
       // syncProperties() re-fusionnera automatiquement les spéciales après l'écrasement
@@ -800,7 +800,7 @@ class PropertyController with ChangeNotifier {
       print("🚀 Envoi de la requête createProperty...");
       print("📊 Données envoyées: ${propertyData.keys.toList()}");
 
-      final url = Endpoints.properties;
+      final url = Endpoints.storeProperty;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
       HttpResponse response = await postData(url, propertyData, token: tkn);
@@ -1090,7 +1090,7 @@ class PropertyController with ChangeNotifier {
       loading = true;
       notifyListeners();
 
-      final url = "${Endpoints.propertiesByOwner}$userId/$propertyId";
+      final url = "${Endpoints.updatePropertyOwner}$userId/$propertyId";
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
       print("🔄 Mise à jour propriété: $url");
@@ -1859,8 +1859,9 @@ class PropertyController with ChangeNotifier {
     notifyListeners();
 
     try {
-      final url = "${Endpoints.properties}/features"; // Correct endpoint
-      var response = await getData(url);
+      final url = "${Endpoints.features}"; // Correct endpoint
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      var response = await getData(url, token: tkn);
 
       if (response != null && response is Map<String, dynamic>) {
         dynamic featuresData;
