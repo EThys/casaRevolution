@@ -9,6 +9,14 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:casa/controllers/TypeAccountController.dart';
+import 'package:casa/utils/Constantes.dart';
+import 'package:casa/controllers/LocationController.dart';
+import 'package:casa/models/CityModel.dart';
+import 'package:casa/models/CommuneModel.dart';
+import 'package:casa/models/DistrictModel.dart';
+import 'package:casa/models/QuartierModel.dart';
+import 'package:casa/utils/city_suggestions.dart';
 import 'package:casa/utils/StockageKeys.dart';
 
 class CreateAgencePage extends StatefulWidget {
@@ -27,9 +35,146 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
   File? _logoImage;
   final _picker = ImagePicker();
   bool _isLoading = false;
+  
+  // Location variables
+  List<CityModel> _availableCities = [];
+  List<DistrictModel> _availableDistricts = [];
+  List<CommuneModel> _availableCommunes = [];
+  List<QuartierModel> _availableQuartiers = [];
+  List<QuartierModel> _kinshasaQuartiers = [];
+
+  CityModel? _selectedCity;
+  DistrictModel? _selectedDistrict;
+  CommuneModel? _selectedCommune;
+  QuartierModel? _selectedQuartier;
+  QuartierModel? _selectedKinshasaQuartier;
+
+  final TextEditingController _cityTextController = TextEditingController();
+  final TextEditingController _quartierTextController = TextEditingController();
+  
+  bool _isLoadingQuartiers = false;
+  Map<String, bool> _fieldTouched = {};
 
   final Color primaryColor = Color(0xFF1976D2);
   final Color secondaryColor = Color(0xFF64B5F6);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocationData();
+  }
+
+  Future<void> _loadLocationData() async {
+    try {
+      final locationCtrl = Provider.of<LocationController>(context, listen: false);
+      await locationCtrl.loadAllData();
+      
+      if (mounted) {
+        setState(() async {
+          _availableCities = await locationCtrl.getAllCities();
+          if (_availableCities.isNotEmpty) {
+            _selectedCity = _availableCities.firstWhere(
+              (c) => c.name?.toLowerCase() == 'kinshasa',
+              orElse: () => _availableCities.first,
+            );
+            
+            if (_selectedCity != null) {
+              _cityTextController.text = _selectedCity!.name ?? '';
+              _updateDistrictsForCity();
+              if (_selectedCity!.name?.toLowerCase().trim() == 'kinshasa') {
+                _loadKinshasaQuartiers();
+              }
+            }
+          }
+        });
+      }
+    } catch (e) {
+      print("Erreur chargement localisation Agence: $e");
+    }
+  }
+
+  void _updateDistrictsForCity() {
+    if (_selectedCity == null) return;
+    final locationCtrl = Provider.of<LocationController>(context, listen: false);
+    
+    setState(() {
+      _availableDistricts = locationCtrl.getDistrictsForCity(_selectedCity!.cityId!);
+      if (_availableDistricts.isNotEmpty) {
+        _selectedDistrict = _availableDistricts.first;
+        _availableCommunes = locationCtrl.getCommunesForDistrict(_selectedDistrict!.districtId!);
+        if (_availableCommunes.isNotEmpty) {
+          _selectedCommune = _availableCommunes.first;
+          _availableQuartiers = locationCtrl.getQuartiersForCommune(_selectedCommune!.communeId!);
+          if (_availableQuartiers.isNotEmpty) {
+            _selectedQuartier = _availableQuartiers.first;
+          } else {
+            _selectedQuartier = null;
+          }
+        } else {
+          _selectedCommune = null;
+          _availableQuartiers = [];
+          _selectedQuartier = null;
+        }
+      } else {
+        _selectedDistrict = null;
+        _availableCommunes = [];
+        _selectedCommune = null;
+        _availableQuartiers = [];
+        _selectedQuartier = null;
+      }
+    });
+  }
+
+  Future<void> _loadKinshasaQuartiers() async {
+    if (_selectedCity?.name?.toLowerCase().trim() != 'kinshasa') return;
+    
+    setState(() => _isLoadingQuartiers = true);
+    try {
+      final locationCtrl = Provider.of<LocationController>(context, listen: false);
+      final list = await locationCtrl.getKinshasaQuartiers();
+      if (mounted) {
+        setState(() {
+          _kinshasaQuartiers = list;
+          _isLoadingQuartiers = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingQuartiers = false);
+    }
+  }
+
+  void _onCityChanged(String selection) {
+    if (selection.isEmpty) return;
+    
+    _fieldTouched['city'] = true;
+    setState(() {
+      _cityTextController.text = selection;
+      final query = selection.toLowerCase().trim();
+      
+      final kin = _availableCities.firstWhere(
+          (c) => (c.name ?? '').toLowerCase() == query,
+          orElse: () => _availableCities.isNotEmpty 
+              ? _availableCities.first 
+              : CityModel(cityId: 1, name: 'Kinshasa'));
+      
+      if (query == 'kinshasa') {
+        _selectedCity = kin;
+        _updateDistrictsForCity();
+        _loadKinshasaQuartiers();
+      } else {
+        _selectedCity = null;
+        _selectedDistrict = null;
+        _selectedCommune = null;
+        _selectedQuartier = null;
+      }
+    });
+  }
+
+  void _markFieldTouched(String field) {
+    setState(() {
+      _fieldTouched[field] = true;
+    });
+  }
 
   @override
   void dispose() {
@@ -38,6 +183,8 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
     _phone1Controller.dispose();
     _phone2Controller.dispose();
     _addressController.dispose();
+    _cityTextController.dispose();
+    _quartierTextController.dispose();
     super.dispose();
   }
 
@@ -119,7 +266,14 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
         "phone1": _phone1Controller.text.trim(),
         "phone2": _phone2Controller.text.trim(),
         "address": _addressController.text.trim(),
-        "logo": logoBase64
+        "logo": logoBase64,
+        "cityId": _selectedCity?.cityId ?? 0,
+        "communeId": _selectedCommune?.communeId ?? 0,
+        "districtId": _selectedDistrict?.districtId ?? 0,
+        "quartierId": _selectedQuartier?.quartierId ?? _selectedKinshasaQuartier?.quartierId ?? 0,
+        "cityValue": _cityTextController.text,
+        "communeValue": _selectedCommune?.name ?? "",
+        "quartierValue": _selectedQuartier?.name ?? _quartierTextController.text,
       };
 
       final agenceCtrl = Provider.of<AgenceController>(context, listen: false);
@@ -308,9 +462,17 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
                       keyboardType: TextInputType.phone,
                     ),
                     SizedBox(height: 16),
+                    _buildCitySuggestionField(),
+                    SizedBox(height: 16),
+                    if (_selectedCity?.name?.toLowerCase().trim() == 'kinshasa') ...[
+                       _buildLocationDropdowns(),
+                       SizedBox(height: 16),
+                       _buildKinshasaQuartierDropdown(),
+                       SizedBox(height: 16),
+                    ],
                     _buildTextField(
                       controller: _addressController,
-                      label: "Adresse",
+                      label: "Adresse complète",
                       icon: Icons.location_on,
                       validator: (value) =>
                           value!.isEmpty ? "L'adresse est obligatoire" : null,
@@ -393,6 +555,138 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
     );
   }
 
+  Widget _buildCitySuggestionField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Autocomplete<String>(
+          initialValue: TextEditingValue(text: _cityTextController.text),
+          optionsBuilder: (TextEditingValue textEditingValue) {
+            if (textEditingValue.text.isEmpty) return const Iterable<String>.empty();
+            return CitySuggestions.cities.where((String option) {
+              return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+            });
+          },
+          onSelected: (String selection) {
+            _onCityChanged(selection);
+          },
+          fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+            if (controller.text.isEmpty && _cityTextController.text.isNotEmpty) {
+               controller.text = _cityTextController.text;
+            }
+            return TextField(
+              controller: controller,
+              focusNode: focusNode,
+              onTapOutside: (event) => focusNode.unfocus(),
+              onChanged: (value) => _onCityChanged(value),
+              style: TextStyle(color: Colors.black87),
+              decoration: InputDecoration(
+                labelText: "Ville*",
+                prefixIcon: Icon(Icons.location_city_rounded, color: primaryColor),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                filled: true,
+                fillColor: Colors.grey[50],
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocationDropdowns() {
+    return Column(
+      children: [
+        _buildPremiumDropdown<DistrictModel>(
+          label: "District*",
+          value: _selectedDistrict,
+          items: _availableDistricts,
+          displayText: (d) => d.name ?? "",
+          onChanged: (val) {
+             setState(() {
+                _selectedDistrict = val;
+                if (val != null) {
+                  final locationCtrl = Provider.of<LocationController>(context, listen: false);
+                  _availableCommunes = locationCtrl.getCommunesForDistrict(val.districtId!);
+                  _selectedCommune = _availableCommunes.isNotEmpty ? _availableCommunes.first : null;
+                }
+             });
+          },
+        ),
+        SizedBox(height: 16),
+        _buildPremiumDropdown<CommuneModel>(
+          label: "Commune*",
+          value: _selectedCommune,
+          items: _availableCommunes,
+          displayText: (c) => c.name ?? "",
+          onChanged: (val) {
+             setState(() => _selectedCommune = val);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildKinshasaQuartierDropdown() {
+    return Autocomplete<QuartierModel>(
+      optionsBuilder: (TextEditingValue textEditingValue) {
+        if (textEditingValue.text.isEmpty) return const Iterable<QuartierModel>.empty();
+        return _kinshasaQuartiers.where((option) {
+          return (option.name ?? '').toString().toLowerCase().contains(textEditingValue.text.toLowerCase());
+        });
+      },
+      displayStringForOption: (option) => option.name ?? '',
+      onSelected: (selection) {
+        setState(() {
+          _selectedKinshasaQuartier = selection;
+          _quartierTextController.text = selection.name ?? '';
+        });
+      },
+      fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+        return TextField(
+          controller: controller,
+          focusNode: focusNode,
+          onTapOutside: (event) => focusNode.unfocus(),
+          onChanged: (value) => _quartierTextController.text = value,
+          decoration: InputDecoration(
+            labelText: "Quartier*",
+            prefixIcon: Icon(Icons.place_rounded, color: primaryColor),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            filled: true,
+            fillColor: Colors.grey[50],
+            hintText: _isLoadingQuartiers ? "Chargement..." : "Rechercher...",
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPremiumDropdown<T>({
+    required String label,
+    required T? value,
+    required List<T> items,
+    required String Function(T) displayText,
+    required void Function(T?) onChanged,
+  }) {
+    return DropdownButtonFormField<T>(
+      value: value,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(Icons.map_rounded, color: primaryColor),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        filled: true,
+        fillColor: Colors.grey[50],
+      ),
+      items: items.map((T item) {
+        return DropdownMenuItem<T>(
+          value: item,
+          child: Text(displayText(item)),
+        );
+      }).toList(),
+      onChanged: onChanged,
+    );
+  }
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -425,8 +719,12 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
         filled: true,
         fillColor: Colors.grey[50],
       ),
+      onTapOutside: (event) {
+        FocusScope.of(context).unfocus();
+      },
     );
   }
+
   String _sanitizeError(String? error) {
     if (error == null || error.isEmpty) return "Une erreur est survenue lors de la création.";
     final lower = error.toLowerCase();
