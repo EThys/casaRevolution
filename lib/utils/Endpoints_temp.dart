@@ -1,0 +1,200 @@
+
+
+
+
+
+class Endpoints {
+  // Authentication Endpoints
+  static const String register = "members";
+
+  static const String allUsers = "users";
+  static const String login = "login";
+  static const String forgotPassword = "forgot-password";
+  static const String verifyOTP = "verify-otp";
+  static const String resetPassword = "reset/password";
+  static const String updateProfilePicture = "members/"; // {id}/profile
+
+  // OTP Endpoints
+  static const String otpGenerate = "otp/generate";
+  static const String otpVerify = "otp/verify";
+  static const String resetPasswordEndpoint = "reset/password";
+  static const String profile = "profile";
+  static const String reservations = "reservations";
+
+  static const String reservationsByUser = "user";
+
+  static const String updateProfile = "profile";
+  static const String logout = "logout";
+  static const String changePassword = "change/password";
+  static const String deleteAccount = "delete/user";
+  static const String accounts = "accounts";
+
+  static const String bailleur = "bailleurs";
+  static const String commissionnaire = "commissionnaires";
+  static const String locataire = "locataires";
+  static const String majordomes = "majordomes";
+  static const String plombiers = "plombiers";
+  static const String electriciens = "electriciens";
+  static const String salubrites = "salubrites";
+  static const String peintres = "peintres";
+  static const String carreleurs = "carreleurs";
+  static const String menuisiers = "menuisiers";
+  static const String frigoristes = "frigoristes";
+  static const String ajusteurs = "ajusteurs";
+  static const String architectes = "architectes";
+  static const String chauffeurs = "chauffeurs";
+  static const String demenagements = "demenagements";
+
+  // location Endpoints
+  static const String cities = "cities";
+  static const String communes = "communes";
+  static const String districts = "districts";
+  static const String quartiers = "quartiers";
+
+  // Property Endpoints
+  static const String properties = "property";
+  static const String propertyDetail = "properties/";
+  static const String storeProperty = "property";
+  static const String updateProperty = "properties/";
+  static const String deleteProperty = "properties/";
+  static const String propertiesByOwner = "property/owner/";
+  static const String propertyBureaux = "property/bureaux";
+  static const String propertyBureau = "property/bureau";
+  static const String propertyFestives = "property/festives";
+  static const String propertyFuneraires = "property/funeraires";
+  static const String propertyVacances = "property/vacances";
+  static const String propertyTerrains = "property/terrains";
+  static const String propertyHotels = "property/hotels";
+
+  // Specialized properties by owner
+  static const String propertyBureauxByOwner = "property/bureaux/owner/";
+  static const String propertyFestivesByOwner = "property/festives/owner/";
+  static const String propertyFunerairesByOwner = "property/funeraires/owner/";
+
+  // Property Feature Endpoints
+  static const String features = "features";
+  static const String featureDetail = "features/";
+  static const String featureProperties = "features/";
+  static const String storeFeature = "features";
+  static const String updateFeature = "features/";
+  static const String deleteFeature = "features/";
+
+  // Property Type Endpoints
+  static const String propertyTypesList = "property/types";
+  static const String propertyTypes = "property";
+  static const String propertyTypeDetail = "property/";
+  static const String propertiesByType = "propertyType/";
+  static const String storePropertyType = "propertyType";
+  static const String updatePropertyType = "propertyType/";
+  static const String deletePropertyType = "propertyType/";
+
+  // Property favorites Endpoints
+  static const String allFavories = "favorite";
+  static const String AddFavorite = "favorite";
+  static const String getMyfavorites = "favorite/user";
+  static const String removeMyfavorites = "favorite/delete";
+
+  // Specific Favorites
+  static const String favoriteHotel = "hotel/favorite";
+  static const String favoriteFestive = "festive/favorite";
+  static const String favoriteVacance = "vacance/favorite";
+  static const String favoritePrestation = "prestation/favorite";
+  static const String favoriteFuneraire = "funeraire/favorite";
+  static const String favoriteTerrain = "terrain/favorite";
+  static const String favoriteBureau = "bureau/favorite";
+
+  // Specific Favorites GET by User
+  static const String favoriteHotelByUser = "hotel/favorite/user";
+  static const String favoriteFestiveByUser = "festive/favorite/user";
+  static const String favoriteVacanceByUser = "vacance/favorite/user";
+  static const String favoritePrestationByUser = "prestation/favorite/user";
+  static const String favoriteFuneraireByUser = "funeraire/favorite/user";
+  static const String favoriteTerrainByUser = "terrain/favorite/user";
+  static const String favoriteBureauByUser = "bureau/favorite/user";
+
+  // Specific Favorites DELETE
+  static const String favoriteHotelDelete = "hotel/favorite/delete";
+  static const String favoriteFestiveDelete = "festive/favorite/delete";
+  static const String favoriteVacanceDelete = "vacance/favorite/delete";
+  static const String favoritePrestationDelete = "prestation/favorite/delete";
+  static const String favoriteFuneraireDelete = "funeraire/favorite/delete";
+  static const String favoriteTerrainDelete = "terrain/favorite/delete";
+  static const String favoriteBureauDelete = "bureau/favorite/delete";
+
+  // Visit Endpoints
+  static const String allReservations = "reservations/";
+  static const String addReservations= "reservations";
+  static const String addReservationVacance = "reservations/vacance";
+  static const String addReservationTerrain = "reservations/terrain";
+  static const String addReservationFuneraire = "reservations/funeraire";
+  static const String addReservationFestive = "reservations/festive";
+  static const String addReservationBureau = "reservations/bureau";
+  static const String addReservationHotel = "reservations/hotel";
+  static const String validateReservationNotification = "reservations/notification/state/"; // {reservationId}/true
+
+  // Get specialized reservations by user
+  static const String reservationsVacanceByUser = "reservations/vacance/user/";
+  static const String reservationsTerrainByUser = "reservations/terrain/user/";
+  static const String reservationsFuneraireByUser = "reservations/funeraire/user/";
+  static const String reservationsFestiveByUser = "reservations/festive/user/";
+  static const String reservationsBureauByUser = "reservations/bureau/user/";
+  static const String reservationsHotelByUser = "reservations/hotel/user/";
+
+  // Get specialized reservations by host (property owner)
+  static const String reservationsHost = "reservations/host/";
+  static const String reservationsVacanceByHost = "reservations/vacance/host/";
+  static const String reservationsTerrainByHost = "reservations/terrain/host/";
+  static const String reservationsFuneraireByHost = "reservations/funeraire/host/";
+  static const String reservationsFestiveByHost = "reservations/festive/host/";
+  static const String reservationsBureauByHost = "reservations/bureau/host/";
+  static const String reservationsHotelByHost = "reservations/hotel/host/";
+
+  // Search Endpoints
+  static const String propertyFilter = "property/filter";
+  static const String propertySearch = "property/search";
+
+  // Service Endpoints
+  static const String services = "services";
+  static const String serviceDetail = "services/";
+  static const String storeService = "services";
+  static const String updateService = "services/";
+  static const String deleteService = "services/";
+  static const String servicesByType = "services/type/";
+  static const String myServices = "services/my";
+
+  // Prestation Endpoints
+  static const String prestations = "prestations";
+  static const String prestationsByServiceId = "prestations/service/";
+  static const String prestationsByOwner = "prestations/owner/";
+  static const String deletePrestation = "prestations/";
+
+  // Service Requests Endpoints
+  static const String serviceRequests = "service-requests";
+  static const String createServiceRequest = "service-requests";
+  static const String getServiceRequests = "service-requests/user"; // Pour le demandeur
+  static const String getServiceRequestsForProviders = "service-requests/for-providers"; // Pour les prestataires
+  static const String serviceRequestDetail = "service-requests/";
+  static const String respondToRequest = "service-requests"; // POST avec requestId dans le body
+  static const String acceptResponse = "service-requests"; // PUT avec requestId et responseId
+  static const String cancelRequest = "service-requests"; // DELETE avec requestId
+
+  static const String sollicitation = "sollicitation"; // For creating service solicitations
+  static const String sollicitationsByUser = "sollicitation/user/";
+  static const String sollicitationsByHost = "sollicitation/user/host/"; // For service providers
+  static const String updateSollicitation = "sollicitation/"; // PATCH /{id} with status
+
+  // Notifications Endpoints
+  static const String notifications = "notifications";
+  static const String markNotificationRead = "notifications/"; // PUT avec id
+  static const String markAllNotificationsRead = "notifications/read-all";
+  static const String deleteNotification = "notifications/"; // DELETE avec id
+
+  // Card Types Endpoint
+  static const String cards = "cards";
+
+  // Agency Endpoints
+  static const String agences = "agences";
+  static const String agencesByOwner = "agences/owner/";
+  static const String devises = "devises";
+
+}
