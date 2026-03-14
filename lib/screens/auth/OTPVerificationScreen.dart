@@ -620,6 +620,28 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
       return;
     }
 
+    // --- VÉRIFICATION : Limite globale de tentatives de vérification par jour ---
+    final now = DateTime.now();
+    final lastVerifyStr = box.read('global_verify_date') as String?;
+    int verifyCount = box.read('global_verify_count') ?? 0;
+
+    if (lastVerifyStr == null || DateTime.parse(lastVerifyStr).day != now.day) {
+      verifyCount = 0;
+      box.write('global_verify_date', now.toIso8601String());
+    }
+
+    if (verifyCount >= 3) {
+      SnackbarForCasa.error(
+        context,
+        "Limite de sécurité atteinte. Vous avez dépassé les 3 tentatives de vérification pour aujourd'hui."
+      );
+      return;
+    }
+
+    // On incrémente la tentative
+    box.write('global_verify_count', verifyCount + 1);
+    // ---------------------------------------------------------------------------
+
     if (!mounted || _isLoading) return;
     setState(() => _isLoading = true);
 
@@ -645,6 +667,11 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
         
         if (status == "approved" && ctrl.userId != null) {
           SnackbarForCasa.success(context, "Code vérifié avec succès");
+          
+          // ✅ Enregistrer timestamp + incrémenter le compteur de réinitialisations réussies
+          box.write('last_successful_reset', DateTime.now().toIso8601String());
+          final currentCount = box.read('reset_success_count') as int? ?? 0;
+          box.write('reset_success_count', currentCount + 1);
           
           // Naviguer vers la page de réinitialisation du mot de passe avec l'ID utilisateur
           Navigator.push(

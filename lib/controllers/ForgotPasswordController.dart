@@ -21,7 +21,7 @@ class ForgotPasswordController with ChangeNotifier {
         "identifier": identifier,
       };
 
-      HttpResponse response = await postDataOtp(url, data, token: "");
+      HttpResponse response = await postData(url, data, token: "");
 
       if (response.status == true && response.data != null) {
         // Vérifier la structure de la réponse
@@ -81,7 +81,7 @@ class ForgotPasswordController with ChangeNotifier {
         "code": code,
       };
 
-      HttpResponse response = await postDataOtp(url, data, token: "");
+      HttpResponse response = await postData(url, data, token: "");
 
       if (response.status == true && response.data != null) {
         // Vérifier la structure de la réponse
@@ -160,7 +160,7 @@ class ForgotPasswordController with ChangeNotifier {
         "userId": userUserId,
       };
       
-      HttpResponse response = await putDataForAuth(url, data); 
+      HttpResponse response = await putData(url, data);
 
       if (response.status == true) {
         // Réinitialiser les variables après succès

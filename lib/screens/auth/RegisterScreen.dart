@@ -849,6 +849,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
               onFieldSubmitted();
               _goToNextField(focusNode, _passwordFocus);
             },
+            onTapOutside: (event) {
+              focusNode.unfocus();
+            },
             onChanged: (String value) {
               setState(() {
                 _cityController.text = value;
@@ -914,16 +917,18 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
               borderRadius: BorderRadius.circular(12),
               shadowColor: Colors.black.withOpacity(0.2),
               child: Container(
-                constraints: BoxConstraints(maxHeight: 300),
+                constraints: BoxConstraints(maxHeight: 250),
+                width: MediaQuery.of(context).size.width - 80, // Adapt to screen width
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   color: Colors.white,
+                  border: Border.all(color: Colors.grey.shade200),
                 ),
                 child: ListView.separated(
                   padding: EdgeInsets.symmetric(vertical: 8),
                   shrinkWrap: true,
                   itemCount: options.length > 8 ? 8 : options.length,
-                  separatorBuilder: (context, index) => Divider(height: 1, thickness: 1),
+                  separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey.shade100),
                   itemBuilder: (BuildContext context, int index) {
                     final CityModel city = options.elementAt(index);
                     final cityName = city.name ?? '';
@@ -931,7 +936,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
                     return InkWell(
                       onTap: () => onSelected(city),
                       child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         child: Row(
                           children: [
                             Container(
@@ -942,41 +947,24 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
                               ),
                               child: Icon(
                                 Icons.location_city_rounded,
-                                size: 20,
+                                size: 18,
                                 color: primaryColor,
                               ),
                             ),
-                            SizedBox(width: 16),
+                            SizedBox(width: 12),
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    cityName,
-                                    style: TextStyle(
-                                      color: Colors.black87,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                  if (city.country?.name != null && city.country!.name!.isNotEmpty)
-                                  if (city.country?.name != null && city.country!.name!.isNotEmpty)
-                                    Padding(
-                                      padding: EdgeInsets.only(top: 2),
-                                      child: Text(
-                                        city.country!.name!,
-                                        style: TextStyle(
-                                          color: Colors.grey.shade600,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                    ),
-                                ],
+                              child: Text(
+                                cityName,
+                                style: TextStyle(
+                                  color: Colors.black87,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
                             Icon(
                               Icons.arrow_forward_ios_rounded,
-                              size: 16,
+                              size: 14,
                               color: Colors.grey.shade400,
                             ),
                           ],

@@ -28,6 +28,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   String _selectedCountryCode = '+243';
   final box = GetStorage();
   final int maxDeviceDailyRequests = 10; // Limite globale du téléphone par jour
+  static const int maxSuccessfulResets = 3; // Limite de réinitialisations réussies par 24h
+  static const String _resetCountKey = 'reset_success_count';
+  static const String _resetTimestampKey = 'last_successful_reset';
 
   // Dictionnaire des indicatifs avec drapeaux
   final Map<String, String> _countryFlags = {
@@ -594,6 +597,33 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         box.write('global_otp_reset_date', now.toIso8601String());
         box.write('global_otp_count', 0);
       }
+
+      // --- VÉRIFICATION : Limite de réinitialisations réussies (3 maxi toutes les 24h) ---
+      final lastResetStr = box.read(_resetTimestampKey) as String?;
+      int resetCount = box.read(_resetCountKey) as int? ?? 0;
+
+      if (lastResetStr != null) {
+        final lastResetTime = DateTime.parse(lastResetStr);
+        final hoursSinceLast = now.difference(lastResetTime).inHours;
+
+        if (hoursSinceLast < 24) {
+          // Toujours dans la fenêtre de 24h
+          if (resetCount >= maxSuccessfulResets) {
+            final remaining = 24 - hoursSinceLast;
+            SnackbarForCasa.error(
+              context,
+              "Limite de sécurité atteinte. Vous avez effectué $maxSuccessfulResets réinitialisations. Réessayez dans ${remaining}h."
+            );
+            setState(() => _isLoading = false);
+            return;
+          }
+        } else {
+          // Plus de 24h écoulées → réinitialiser le compteur
+          box.write(_resetCountKey, 0);
+          resetCount = 0;
+        }
+      }
+      // -----------------------------------------------------------
 
       if (globalCount >= maxDeviceDailyRequests) {
         SnackbarForCasa.error(context, "Limite quotidienne de sécurité atteinte pour cet appareil.");
