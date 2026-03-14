@@ -54,11 +54,25 @@ class ProfilePage extends StatefulWidget {
   _ProfilePageState createState() => _ProfilePageState();
 
   // Static method to be called from anywhere (e.g. HomePage)
-  static Future<int> updatePublicationCount(BuildContext context) async {
+  static Future<int> updatePublicationCount(BuildContext context, {bool force = false}) async {
     try {
       final storage = GetStorage();
-      final userData = storage.read(StockageKeys.userKey);
       
+      // Check for cache validity (TTL of 5 minutes)
+      if (!force) {
+        final lastUpdateTime = storage.read('publication_count_last_update');
+        final cachedCount = storage.read('published_properties_count');
+        
+        if (lastUpdateTime != null && cachedCount != null) {
+          final lastUpdate = DateTime.fromMillisecondsSinceEpoch(lastUpdateTime);
+          if (DateTime.now().difference(lastUpdate).inMinutes < 5) {
+            print("📦 [ProfilePage] Utilisant le cache (TTL < 5min): $cachedCount");
+            return int.tryParse(cachedCount.toString()) ?? 0;
+          }
+        }
+      }
+
+      final userData = storage.read(StockageKeys.userKey);
       dynamic userId;
       if (userData != null && userData is Map) {
          userId = userData['user']?['userId'] ?? userData['userId'];
@@ -67,57 +81,42 @@ class ProfilePage extends StatefulWidget {
       if (userId == null) return 0;
 
       int total = 0;
+      final results = await Future.wait([
+        (() async {
+          try {
+            final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+            final myProps = await propertyCtrl.getMyProperties();
+            return myProps.length;
+          } catch (e) { return 0; }
+        })(),
+        (() async {
+          try {
+            final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+            final services = await serviceCtrl.getMyPrestations();
+            return services.length;
+          } catch (e) { return 0; }
+        })(),
+        (() async {
+          try {
+            final agenceCtrl = Provider.of<AgenceController>(context, listen: false);
+            await agenceCtrl.fetchAgencesByUser(userId);
+            int agencyTotal = 0;
+            if (agenceCtrl.agences.isNotEmpty) {
+               for (var agency in agenceCtrl.agences) {
+                 if (agency.sites != null) agencyTotal += agency.sites!.length;
+               }
+            }
+            return agencyTotal;
+          } catch (e) { return 0; }
+        })(),
+      ]);
 
-      // 1. Properties Count
-      try {
-        final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
-        // Check if properties are already loaded to avoid unnecessary fetch if possible,
-        // but for "fresh" count we might want to check the list length.
-        // If properties list is empty, maybe fetch? 
-        // Best approach: If properties are empty, fetch. Else use current length.
-        if (propertyCtrl.properties.isEmpty && !propertyCtrl.loading) {
-           await propertyCtrl.getMyProperties(); // Verify if getMyProperties updates the main list 'properties' which might be 'all properties' vs 'my properties'.
-           // PropertyController.getMyProperties() returns a list, does not necessarily set 'properties'.
-           // Let's rely on the return value.
-           final myProps = await propertyCtrl.getMyProperties();
-           total += myProps.length;
-        } else {
-           // If 'properties' contains ALL properties (feed), we can't use it for valid count.
-           // We must call getMyProperties explicitly.
-           final myProps = await propertyCtrl.getMyProperties();
-           total += myProps.length;
-        }
-      } catch (e) {
-        print("Error fetching property count: $e");
-      }
+      total = results.reduce((a, b) => a + b);
 
-      // 2. Services Count
-      try {
-        final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
-        final services = await serviceCtrl.getMyPrestations();
-        total += services.length;
-      } catch (e) {
-        print("Error fetching service count: $e");
-      }
-
-      // 3. Agency Sites Count
-      try {
-        final agenceCtrl = Provider.of<AgenceController>(context, listen: false);
-        await agenceCtrl.fetchAgencesByUser(userId);
-        if (agenceCtrl.agences.isNotEmpty) {
-           for (var agency in agenceCtrl.agences) {
-             if (agency.sites != null) {
-               total += agency.sites!.length;
-             }
-           }
-        }
-      } catch (e) {
-        print("Error fetching agency count: $e");
-      }
-
-      // Cache the count globally
+      // Cache the count and the time
       storage.write('published_properties_count', total.toString());
-      print("✅ [ProfilePage] Compteur global mis à jour: $total");
+      storage.write('publication_count_last_update', DateTime.now().millisecondsSinceEpoch);
+      print("✅ [ProfilePage] Compteur mis à jour depuis API: $total");
       
       return total;
     } catch (e) {
@@ -184,6 +183,14 @@ class _ProfilePageState extends State<ProfilePage> {
           _profileImageUrl = null;
         });
       }
+    }
+
+    // Charger le compteur de publications mis en cache pour un affichage immédiat
+    final cachedCount = storage.read('published_properties_count');
+    if (cachedCount != null) {
+      setState(() {
+        _publicationsCount = cachedCount.toString();
+      });
     }
   }
 
@@ -504,11 +511,11 @@ class _ProfilePageState extends State<ProfilePage> {
     const String androidLink = "https://play.google.com/store/apps/details?id=com.casa.casa.casa&pcampaignid=web_share";
     const String iosLink = "https://apps.apple.com/fr/app/casanayo/id6757759953?l=en-GB";
 
-    final String message = "⭐️ Découvrez CasaNayo ! ⭐️\n\n"
+    final String message = "Découvrez CasaNayo ! \n\n"
         "Votre plateforme de référence pour trouver une propriété, réserver un hôtel ou solliciter des services professionnels de qualité.\n\n"
         "Téléchargez l'application dès maintenant :\n\n"
-        "🤖 Android : $androidLink\n\n"
-        "🍎 iOS : $iosLink\n\n"
+        "Android : $androidLink\n\n"
+        "iOS : $iosLink\n\n"
         "CasaNayo, l'immobilier en toute simplicité !";
 
     Share.share(message, subject: "Partagez l'application CasaNayo");
@@ -880,37 +887,42 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildStatsCard() {
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 20),
-      padding: EdgeInsets.all(20),
+      padding: EdgeInsets.symmetric(vertical: 20, horizontal: 10),
       decoration: BoxDecoration(
         color: _cardColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: Offset(0, 4),
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 20,
+            offset: Offset(0, 8),
           ),
         ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
+          // Stat des Publications (Améliorée et cliquable)
           _buildStatItem(
-            value: publishedProperties,
+            value: _publicationsCount,
             label: 'Publications',
-            icon: Icons.home_work_outlined,
+            icon: Icons.auto_awesome_motion_rounded,
             color: _primaryColor,
+            isClickable: true,
+            onTap: () => Navigator.pushNamed(context, Routes.myPropertiesRoute),
           ),
+          
           _buildStatItem(
             value: referralsCount,
             label: 'Parrainages',
-            icon: Icons.people_outline,
+            icon: Icons.people_alt_rounded,
             color: _secondaryColor,
           ),
+          
           _buildStatItem(
             value: '${(_profileCompletion * 100).toInt()}%',
             label: 'Profil',
-            icon: Icons.person_outline,
+            icon: Icons.verified_user_rounded,
             color: _successColor,
           ),
         ],
@@ -923,37 +935,92 @@ class _ProfilePageState extends State<ProfilePage> {
     required String label,
     required IconData icon,
     required Color color,
+    bool isClickable = false,
+    VoidCallback? onTap,
   }) {
-    return Column(
-      children: [
-        Container(
-          width: 50,
-          height: 50,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child: Icon(icon, color: color, size: 24),
-          ),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Icon(icon, color: color, size: 26),
+                  ),
+                ),
+                if (isClickable)
+                  Positioned(
+                    bottom: -2,
+                    right: -2,
+                    child: Container(
+                      padding: EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 4,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Icon(Icons.open_in_new_rounded, size: 10, color: color),
+                    ),
+                  ),
+              ],
+            ),
+            SizedBox(height: 10),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: _darkColor,
+                letterSpacing: -0.5,
+              ),
+            ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: _greyColor,
+                letterSpacing: 0.2,
+              ),
+            ),
+            if (isClickable)
+              Container(
+                margin: EdgeInsets.only(top: 4),
+                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'GÉRER',
+                  style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+          ],
         ),
-        SizedBox(height: 8),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: _darkColor,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: _greyColor,
-          ),
-        ),
-      ],
+      ),
     );
   }
 
