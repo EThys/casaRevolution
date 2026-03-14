@@ -150,6 +150,35 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       // For now we just load data and let them continue, validation happens at submit
     }
   }
+  void _onCityChanged(String selection) {
+    if (selection.isEmpty) return;
+    
+    _markFieldTouched('city');
+    setState(() {
+      _cityTextController.text = selection;
+      final query = selection.toLowerCase().trim();
+      
+      // Mapping to CityModel if possible
+      final kin = _availableCities.firstWhere(
+          (c) => (c.name ?? '').toLowerCase() == query,
+          orElse: () => _availableCities.isNotEmpty 
+              ? _availableCities.first 
+              : CityModel(cityId: 1, name: 'Kinshasa'));
+      
+      if (query == 'kinshasa') {
+        _selectedCity = kin;
+        _updateDistrictsForCity();
+        _loadKinshasaQuartiers();
+      } else {
+        // Reset related fields for other cities or partial input
+        _selectedCity = null;
+        _selectedDistrict = null;
+        _selectedCommune = null;
+        _selectedQuartier = null;
+      }
+      _validateStep(2);
+    });
+  }
 
   Future<void> _loadUserData() async {
     try {
@@ -1021,11 +1050,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             ),
             SizedBox(height: 4),
             Text(
-              "Un selfie clair (Obligatoire)",
+              "Une photo claire de vous",
               style: GoogleFonts.inter(fontSize: 12, color: _greyColor),
             ),
             SizedBox(height: 16),
-
           ],
         ),
       ),
@@ -1946,40 +1974,19 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             return _filterSuggestions(textEditingValue.text, CitySuggestions.cities);
           },
           onSelected: (String selection) {
-            _markFieldTouched('city');
-            setState(() {
-              _cityTextController.text = selection;
-              // si Kinshasa, utiliser la sélection stricte et garder le workflow existant
-              final kin = _availableCities.firstWhere(
-                  (c) => (c.name ?? '').toLowerCase() == selection.toLowerCase(),
-                  orElse: () => _selectedCity ?? (_availableCities.isNotEmpty ? _availableCities.first : CityModel(cityId: 1, name: 'Kinshasa')));
-              if (selection.toLowerCase().trim() == 'kinshasa') {
-                _selectedCity = kin.name == null ? _selectedCity : kin;
-                _updateDistrictsForCity();
-                _loadKinshasaQuartiers();
-              } else {
-                _selectedCity = null;
-                _selectedDistrict = null;
-                _selectedCommune = null;
-                _selectedQuartier = null;
-              }
-              _validateStep(2);
-            });
+            _onCityChanged(selection);
           },
           fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
             _cityTextController.value = controller.value;
             return TextField(
               controller: controller,
               focusNode: focusNode,
+              onTapOutside: (event) {
+                focusNode.unfocus();
+              },
               style: TextStyle(color: Colors.black87, fontSize: _bodySize),
               onChanged: (value) {
-                if (mounted) {
-                  setState(() {
-                    _markFieldTouched('city');
-                    _cityTextController.text = value;
-                    _validateStep(2);
-                  });
-                }
+                _onCityChanged(value);
               },
               decoration: InputDecoration(
                 hintText: 'Ex: Kinshasa, Lubumbashi...',
@@ -2074,6 +2081,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             return TextField(
               controller: textController,
               focusNode: focusNode,
+              onTapOutside: (event) {
+                focusNode.unfocus();
+              },
               onChanged: (value) {
                 if (mounted) {
                   setState(() {
@@ -2757,23 +2767,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               color: _darkColor,
             ),
           ),
-          if (_serviceId != null) ...[
-            SizedBox(height: 4),
-            Text(
-              'ID du compte: $_serviceId',
-              style: GoogleFonts.inter(
-                fontSize: 10,
-                color: _greyColor,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-          ],
           SizedBox(height: 4),
           Text(
-            'Ce champ est lié à votre type de compte et ne peut pas être modifié.',
+            'Vous vous êtes inscrit avec un compte ${_userServiceType ?? "Prestataire"}, donc vous ne pouvez proposer qu\'un service lié à ce compte ${_userServiceType ?? "Prestataire"}, pas un autre.',
             style: GoogleFonts.inter(
-              fontSize: 10,
-              color: Colors.grey[500],
+              fontSize: 11,
+              color: Colors.grey[600],
               fontStyle: FontStyle.italic,
             ),
           ),
