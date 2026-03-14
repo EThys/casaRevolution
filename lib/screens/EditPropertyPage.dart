@@ -111,6 +111,9 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
   List<CommuneModel> _availableCommunes = [];
   List<QuartierModel> _availableQuartiers = [];
 
+  List<Map<String, dynamic>> _propertyTypes = [];
+  bool _loadingTypes = false;
+
   // Categories d'images
   final List<ImageCategory> _imageCategories = [
     ImageCategory(
@@ -185,6 +188,7 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadPropertyData();
       _loadLocationData();
+      _loadPropertyTypes();
     });
   }
 
@@ -211,7 +215,9 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     _isForRent = property.transactionType?.toLowerCase() == 'location';
 
     // Type de propriété - convertir l'ID en nom
-    if (property.propertyTypeId != null) {
+    if (property.propertyType != null && property.propertyType?.name != null) {
+      _selectedCategory = property.propertyType?.name;
+    } else if (property.propertyTypeId != null) {
       final Map<int, String> typeMap = {
         1: 'Studio',
         2: 'Apparts',
@@ -219,6 +225,9 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
         4: 'Bureau',
         5: 'Hotels',
         6: 'Vacances',
+        7: 'Funéraire',
+        8: 'Festive',
+        9: 'Terrain',
       };
       _selectedCategory = typeMap[property.propertyTypeId] ?? 'Apparts';
     }
@@ -401,7 +410,9 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
           SliverToBoxAdapter(child: SizedBox(height: 120)),
         ],
       ),
-      bottomSheet: _buildBottomActionBar(),
+      bottomNavigationBar: MediaQuery.of(context).viewInsets.bottom == 0 
+          ? _buildBottomActionBar() 
+          : null,
     );
   }
 
@@ -839,8 +850,6 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
             ],
           ),
         ),
-        SizedBox(height: 20),
-        _buildModernTextField(_postalCodeController, 'Code postal', Icons.markunread_mailbox_rounded),
       ],
     );
   }
@@ -1000,24 +1009,88 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
   }
 
   Widget _buildPropertyTypeSelector() {
-    final types = [
-      {'val': 'Studio', 'lab': 'Studio', 'icon': Icons.home_outlined},
-      {'val': 'Apparts', 'lab': 'Appart', 'icon': Icons.apartment_rounded},
-      {'val': 'Maisons', 'lab': 'Maison', 'icon': Icons.cottage_outlined},
-      {'val': 'Bureau', 'lab': 'Bureau', 'icon': Icons.work_outline_rounded},
-    ];
+    if (_loadingTypes) {
+      return Container(
+        height: 90,
+        alignment: Alignment.center,
+        child: CircularProgressIndicator(color: _primaryColor),
+      );
+    }
+
+    if (_propertyTypes.isEmpty) {
+      return Container(
+        height: 90,
+        alignment: Alignment.center,
+        child: Text('Aucun type de propriété disponible', style: TextStyle(color: _greyColor)),
+      );
+    }
+
+    final categories = _propertyTypes.where((type) {
+      final typeName = type['name']?.toString().toLowerCase();
+      // Types "Basiques" pour Commissionnaire/Bailleur (incluant Terrain)
+      final isBasicType = ['studio', 'apparts', 'maisons', 'bureau', 'terrain', 'terrains'].contains(typeName);
+      
+      final userAccounts = stockage.read('user_accounts');
+      bool isGerant = false;
+      bool isSimpleProprietaire = false;
+
+      if (userAccounts != null && userAccounts is List) {
+        isGerant = userAccounts.any((acc) {
+           final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+           final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+           return typeId == 2 && (name.contains('gerant') || acc['id'] == 3);
+        });
+        
+        isSimpleProprietaire = userAccounts.any((acc) {
+          final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+          final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+          return typeId == 2 && !name.contains('gerant');
+        });
+      }
+
+      if (isGerant && isSimpleProprietaire) return true;
+      if (isGerant && !isSimpleProprietaire) return !isBasicType;
+      if (isSimpleProprietaire && !isGerant) return isBasicType;
+      
+      return true;
+    }).map((type) {
+      IconData icon;
+      final typeName = type['name']?.toString() ?? '';
+      
+      switch (typeName.toLowerCase()) {
+        case 'studio': icon = Icons.apartment_rounded; break;
+        case 'apparts': icon = Icons.home_work_rounded; break;
+        case 'maisons': icon = Icons.house_rounded; break;
+        case 'bureau': icon = Icons.business_center_rounded; break;
+        case 'hotels': icon = Icons.hotel_rounded; break;
+        case 'vacances': icon = Icons.beach_access_rounded; break;
+        case 'terrain': case 'terrains': icon = Icons.map_rounded; break;
+        case 'fête': case 'fêtes': case 'festive': case 'salle de fête': icon = Icons.celebration_rounded; break;
+        case 'funérariams': case 'funérailles': case 'deuil': case 'salle de deuil': case 'funéraire': icon = Icons.church_rounded; break;
+        default: icon = Icons.home_rounded;
+      }
+
+      return {
+        'id': type['propertyTypeId'],
+        'name': typeName,
+        'label': typeName == 'Apparts' ? 'Appartement' : typeName,
+        'icon': icon,
+      };
+    }).toList();
 
     return Container(
       height: 90,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: types.length,
+        itemCount: categories.length,
         separatorBuilder: (_, __) => SizedBox(width: 12),
         itemBuilder: (context, index) {
-          final t = types[index];
-          final sel = _selectedCategory == t['val'];
+          final c = categories[index];
+          final typeName = c['name'] as String;
+          final sel = _selectedCategory == typeName;
+          
           return GestureDetector(
-            onTap: () => setState(() => _selectedCategory = t['val'] as String),
+            onTap: () => setState(() => _selectedCategory = typeName),
             child: AnimatedContainer(
               duration: Duration(milliseconds: 200),
               width: 85,
@@ -1029,14 +1102,20 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(t['icon'] as IconData, color: sel ? Colors.white : _primaryColor, size: 24),
+                  Icon(c['icon'] as IconData, color: sel ? Colors.white : _primaryColor, size: 24),
                   SizedBox(height: 6),
-                  Text(
-                    t['lab'] as String,
-                    style: GoogleFonts.outfit(
-                      fontSize: 12, 
-                      fontWeight: sel ? FontWeight.bold : FontWeight.w500,
-                      color: sel ? Colors.white : _darkColor
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                    child: Text(
+                      c['label'] as String,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.outfit(
+                        fontSize: 12, 
+                        fontWeight: sel ? FontWeight.bold : FontWeight.w500,
+                        color: sel ? Colors.white : _darkColor
+                      ),
                     ),
                   )
                 ],
@@ -1046,6 +1125,27 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
         },
       ),
     );
+  }
+
+  Future<void> _loadPropertyTypes() async {
+    if (!mounted) return;
+    setState(() => _loadingTypes = true);
+
+    try {
+      final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+      final types = await propertyCtrl.getPropertyTypes();
+      
+      if (mounted) {
+        setState(() {
+          _propertyTypes = types;
+          _loadingTypes = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadingTypes = false);
+      }
+    }
   }
 
   Widget _buildElectricWaterSelector() {
