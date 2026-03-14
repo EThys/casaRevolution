@@ -643,8 +643,42 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       } catch (e) {
         _availableQuartiers = [];
         _selectedQuartier = null;
+          _selectedQuartier = null;
       }
     });
+  }
+
+  void _onCityChanged(String selection) {
+    if (selection.isEmpty) return;
+    
+    _markFieldTouched('city');
+    setState(() {
+      _cityTextController.text = selection;
+      final query = selection.toLowerCase().trim();
+      
+      final kin = _availableCities.firstWhere(
+          (c) => (c.name ?? '').toLowerCase() == query,
+          orElse: () => _availableCities.isNotEmpty 
+              ? _availableCities.first 
+              : CityModel(cityId: 1, name: 'Kinshasa'));
+          
+      if (query == 'kinshasa') {
+        _selectedCity = kin;
+        _updateDistrictsForCity();
+        _loadKinshasaQuartiers();
+      } else {
+        _selectedCity = null;
+        _selectedDistrict = null;
+        _selectedCommune = null;
+        _selectedQuartier = null;
+        _selectedKinshasaQuartier = null;
+        _kinshasaQuartiers = [];
+      }
+      _removeFieldError(1, 'city');
+      _validateStep1();
+      _saveDraft();
+    });
+    _trackSelection('city', selection);
   }
 
   void _updateDistrictsForCity() {
@@ -2402,7 +2436,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
   Widget _buildMainImagesCard() {
     final mainImages = _selectedImages['propertyImage'] ?? [];
-    final hasError = _getFieldError(0, 'photos') != null;
+    final hasError = _getFieldError(2, 'photos') != null || (_hasAttemptedSubmit && mainImages.length < 3);
 
     return Container(
       decoration: BoxDecoration(
@@ -2601,12 +2635,32 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             fontSize: _bodySize,
           ),
         ),
-        subtitle: Text(
-          'Chambres, cuisine, salon, salle de bain...',
-          style: TextStyle(
-            color: _greyColor,
-            fontSize: _captionSize,
-          ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Chambres, cuisine, salon, salle de bain...',
+              style: TextStyle(
+                color: _greyColor,
+                fontSize: _captionSize,
+              ),
+            ),
+            SizedBox(height: _smallSpace),
+            Row(
+              children: [
+                Icon(Icons.touch_app_rounded, size: 14, color: _primaryColor),
+                SizedBox(width: 4),
+                Text(
+                  'Appuyez ici pour dérouler',
+                  style: TextStyle(
+                    color: _primaryColor,
+                    fontSize: _captionSize - 2,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
         trailing: Container(
           padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -3733,42 +3787,19 @@ Widget _buildStep3() {
             return _filterSuggestions(textEditingValue.text, CitySuggestions.cities);
           },
           onSelected: (String selection) {
-            _markFieldTouched('city');
-            _clickCount++;
-            setState(() {
-              _cityTextController.text = selection;
-              // si Kinshasa, utiliser la sélection stricte et garder le workflow existant
-              final kin = _availableCities.firstWhere(
-                  (c) => (c.name ?? '').toLowerCase() == selection.toLowerCase(),
-                  orElse: () => _selectedCity ?? (_availableCities.isNotEmpty ? _availableCities.first : CityModel(cityId: 1, name: 'Kinshasa')));
-              if (selection.toLowerCase().trim() == 'kinshasa') {
-                _selectedCity = kin.name == null ? _selectedCity : kin;
-                _updateDistrictsForCity();
-                // Charger les quartiers de Kinshasa depuis l'API
-                _loadKinshasaQuartiers();
-              } else {
-                _selectedCity = null;
-                _selectedDistrict = null;
-                _selectedCommune = null;
-                _selectedQuartier = null;
-                _selectedKinshasaQuartier = null;
-                _kinshasaQuartiers = [];
-              }
-              _removeFieldError(1, 'city');
-              _validateStep1();
-              _saveDraft();
-            });
-            _trackSelection('city', selection);
+            _onCityChanged(selection);
           },
           fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
             _cityTextController.value = controller.value;
             return TextField(
               controller: controller,
               focusNode: focusNode,
+              onTapOutside: (event) {
+                focusNode.unfocus();
+              },
               style: TextStyle(color: Colors.black87, fontSize: _bodySize),
               onChanged: (value) {
-                _markFieldTouched('city');
-                _removeFieldError(1, 'city');
+                _onCityChanged(value);
               },
               decoration: InputDecoration(
                 hintText: 'Ex: Kinshasa, Lubumbashi...',
@@ -3878,6 +3909,9 @@ Widget _buildStep3() {
               return TextField(
                 controller: controller,
                 focusNode: focusNode,
+                onTapOutside: (event) {
+                  focusNode.unfocus();
+                },
                 style: TextStyle(fontSize: _bodySize),
                 decoration: InputDecoration(
                   hintText: _isLoadingQuartiers ? 'Chargement...' : 'Rechercher un quartier...',
@@ -4107,6 +4141,9 @@ Widget _buildStep3() {
             return TextField(
               controller: textController,
               focusNode: focusNode,
+              onTapOutside: (event) {
+                focusNode.unfocus();
+              },
               onChanged: (value) {
                 _markFieldTouched(fieldKey);
                 _removeFieldError(1, fieldKey);
