@@ -18,9 +18,12 @@ import 'package:casa/controllers/RegisterArchitecteCtrl.dart';
 import 'package:casa/controllers/RegisterChauffeurCtrl.dart';
 import 'package:casa/controllers/RegisterDemenagementCtrl.dart';
 import 'package:casa/controllers/TypeAccountController.dart';
+import 'package:casa/controllers/NotificationController.dart';
+import 'package:casa/controllers/DeviseController.dart';
+import 'package:casa/controllers/PaymentController.dart';
+import 'package:casa/controllers/AgenceController.dart';
 import 'package:casa/controllers/ServiceController.dart';
 import 'package:casa/controllers/ServiceRequestController.dart';
-import 'package:casa/controllers/AgenceController.dart';
 import 'package:casa/controllers/provider/FavoriteProvider.dart';
 import 'package:casa/utils/database/FavoriteDatabaseHelper.dart';
 import 'package:flutter/material.dart';
@@ -38,6 +41,8 @@ import '../utils/Routes.dart';
 import '../utils/RoutesManager.dart';
 import '../utils/StockageKeys.dart';
 import 'package:casa/controllers/NotificationController.dart';
+import 'package:casa/controllers/TutorialController.dart';
+
 
 class MonApplication extends StatelessWidget {
   final GetStorage _stockage = GetStorage();
@@ -55,7 +60,9 @@ class MonApplication extends StatelessWidget {
 
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => TutorialController()),
         ChangeNotifierProvider(create: (_) => ThemeController()),
+
         ChangeNotifierProvider(create: (_) => AuthentificationCtrl(stockage: _stockage)),
         ChangeNotifierProvider(create: (_) => ForgotPasswordController()),
         ChangeNotifierProvider(create: (_) => RegisterCommissionnaireCtrl()),
@@ -83,6 +90,8 @@ class MonApplication extends StatelessWidget {
 
         ChangeNotifierProvider(create: (_) => AgenceController()),
         ChangeNotifierProvider(create: (_) => NotificationController()), // Add this
+        ChangeNotifierProvider(create: (_) => DeviseController(stockage: _stockage)),
+        ChangeNotifierProvider(create: (_) => PaymentController(stockage: _stockage)),
         ChangeNotifierProvider<PropertyFavoriteCtrl>(
           create: (_) => PropertyFavoriteCtrl(stockage: _stockage),
         ),

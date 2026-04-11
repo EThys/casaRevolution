@@ -1,5 +1,6 @@
 
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/utils/property_detail_navigation.dart';
 import 'package:casa/screens/FavoritesPage.dart';
 import 'package:casa/screens/ParrainagePage.dart';
 import 'package:casa/screens/BookingHistoryPage.dart';
@@ -8,6 +9,7 @@ import 'package:casa/screens/CommissionDashboardPage.dart';
 import 'package:casa/screens/CreatePropertyPostPage.dart';
 import 'package:casa/screens/EditPropertyPage.dart';
 import 'package:casa/screens/HomePage.dart';
+import 'package:casa/screens/HotelDetailPage.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/screens/MyPropertiesPage.dart';
 import 'package:casa/screens/MyServicesPage.dart';
@@ -33,6 +35,8 @@ import '../screens/NotificationPage.dart';
 import '../screens/ServiceDetailPage.dart';
 import '../screens/CreateAgencePage.dart';
 import '../screens/HelpSupportPage.dart';
+import '../screens/PaymentSubscriptionPage.dart';
+import '../screens/PaymentHistoryPage.dart';
 import '../models/ServiceModel.dart';
 import '../models/ServiceRequestModel.dart';
 import '../models/PrestationModel.dart';
@@ -49,17 +53,104 @@ class RoutesManager {
       case Routes.registerRoute:
         return MaterialPageRoute(builder: (_)=>UserRegistrationPage());
       case Routes.detailPageRoute:
-        if (r.arguments is Map<String, dynamic>) {
-          final Map<String, dynamic> args = r.arguments as Map<String, dynamic>;
+        final Object? args = r.arguments;
+        if (args is Map<String, dynamic>) {
+          final map = args;
+          final raw = map['property'];
+          if (raw is PropertyModel) {
+            final p = raw;
+            if (p.propertyTypeId == 9) {
+              return MaterialPageRoute(
+                builder: (_) => EnrichedTerrainDetailHost(
+                  property: p,
+                  heroTag: map['heroTag'] as String?,
+                ),
+              );
+            }
+            if (p.propertyTypeId == 5) {
+              return MaterialPageRoute(
+                builder: (_) => HotelDetailPage(
+                  property: p,
+                  heroTag: map['heroTag'] as String?,
+                ),
+              );
+            }
+            return MaterialPageRoute(
+              builder: (_) => PropertyDetailPage(
+                property: p,
+                heroTag: map['heroTag'] as String?,
+              ),
+            );
+          }
+          final pid = map['propertyId'] ?? map['property_id'];
+          if (pid != null) {
+            final id = int.tryParse(pid.toString());
+            if (id != null) {
+              final tidRaw = map['propertyTypeId'] ?? map['property_type_id'];
+              final typeId =
+                  tidRaw != null ? int.tryParse(tidRaw.toString()) : null;
+              return MaterialPageRoute(
+                builder: (_) => PropertyIdDetailLoader(
+                  propertyId: id,
+                  propertyTypeId: typeId,
+                ),
+              );
+            }
+          }
           return MaterialPageRoute(
-            builder: (_) => PropertyDetailPage(
-              property: args['property'] as PropertyModel,
-              heroTag: args['heroTag'] as String?,
+            builder: (_) => const Scaffold(
+              body: Center(
+                child: Text('Navigation vers le détail : données invalides.'),
+              ),
             ),
           );
         }
-        final PropertyModel property = r.arguments as PropertyModel;
-        return MaterialPageRoute(builder: (_) => PropertyDetailPage(property: property));
+        if (args is PropertyModel) {
+          final property = args;
+          if (property.propertyTypeId == 9) {
+            return MaterialPageRoute(
+              builder: (_) => EnrichedTerrainDetailHost(property: property),
+            );
+          }
+          if (property.propertyTypeId == 5) {
+            return MaterialPageRoute(
+              builder: (_) => HotelDetailPage(property: property),
+            );
+          }
+          return MaterialPageRoute(
+            builder: (_) => PropertyDetailPage(property: property),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const Scaffold(
+            body: Center(
+              child: Text('Navigation vers le détail : arguments manquants.'),
+            ),
+          ),
+        );
+      case Routes.hotelDetailPageRoute:
+        final Object? hArgs = r.arguments;
+        if (hArgs is Map<String, dynamic>) {
+          final raw = hArgs['property'];
+          if (raw is PropertyModel) {
+            return MaterialPageRoute(
+              builder: (_) => HotelDetailPage(
+                property: raw,
+                heroTag: hArgs['heroTag'] as String?,
+              ),
+            );
+          }
+        }
+        if (hArgs is PropertyModel) {
+          return MaterialPageRoute(
+            builder: (_) => HotelDetailPage(property: hArgs),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const Scaffold(
+            body: Center(child: Text('Hôtel : données invalides.')),
+          ),
+        );
       case Routes.homeRoute:
         return MaterialPageRoute(builder: (_)=>HomePage());
       case Routes.splashRoute:
@@ -71,10 +162,32 @@ class RoutesManager {
       case Routes.commissionnaireDashboardPageRoute:
         return MaterialPageRoute(builder: (_)=>CommissionDashboardPage());
       case Routes.bookingVisitPageRoute:
-        final dynamic property = r.arguments;
-        return MaterialPageRoute(builder: (_)=>BookingVisitPage(property: property));
+        final dynamic args = r.arguments;
+        if (args is Map<String, dynamic>) {
+          final prop = args['property'];
+          final cid = args['chambreId'];
+          final int? chambreId = cid is int
+              ? cid
+              : (cid != null ? int.tryParse(cid.toString()) : null);
+          return MaterialPageRoute(
+            builder: (_) => BookingVisitPage(
+              property: prop ?? args,
+              chambreId: chambreId,
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => BookingVisitPage(property: args),
+        );
       case Routes.bookingHistoryPageRoute:
-        return MaterialPageRoute(builder: (_)=>BookingHistoryPage());
+        final bhArgs = r.arguments;
+        var initialHostView = false;
+        if (bhArgs is Map && bhArgs['initialHostView'] == true) {
+          initialHostView = true;
+        }
+        return MaterialPageRoute(
+          builder: (_) => BookingHistoryPage(initialHostView: initialHostView),
+        );
       case Routes.ParrainagePageRoute:
         return MaterialPageRoute(builder: (_)=>ParrainagePage());
       case Routes.favoriteRoute:
@@ -82,7 +195,16 @@ class RoutesManager {
       case Routes.myPropertiesRoute:
         return MaterialPageRoute(builder: (_)=>MyPropertiesPage());
       case Routes.myServicesRoute:
-        return MaterialPageRoute(builder: (_)=>MyServicesPage());
+        final msArgs = r.arguments;
+        int? msTab;
+        if (msArgs is Map && msArgs['tab'] is int) {
+          msTab = msArgs['tab'] as int;
+        } else if (msArgs is int) {
+          msTab = msArgs;
+        }
+        return MaterialPageRoute(
+          builder: (_) => MyServicesPage(initialTabIndex: msTab),
+        );
       case Routes.createPropertyRoute:
         return MaterialPageRoute(builder: (_)=>CreatePropertyPostPage());
       case Routes.editPropertyRoute:
@@ -139,6 +261,20 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>CreateAgencePage());
       case Routes.helpSupportRoute:
         return MaterialPageRoute(builder: (_)=>HelpSupportPage());
+      case Routes.subscriptionPaymentRoute:
+        return MaterialPageRoute(
+          builder: (_) => const PaymentSubscriptionPage(),
+        );
+      case Routes.paymentHistoryRoute:
+        final phArgs = r.arguments;
+        int? highlightId;
+        if (phArgs is Map) {
+          final h = phArgs['highlightPaymentId'];
+          if (h != null) highlightId = int.tryParse(h.toString());
+        }
+        return MaterialPageRoute(
+          builder: (_) => PaymentHistoryPage(highlightPaymentId: highlightId),
+        );
       // case Routes.visitPageRoute:
       //   final PropertyModel property = r.arguments as PropertyModel;
       //   return MaterialPageRoute(builder: (_)=>BookingVisitPage(property: property));
