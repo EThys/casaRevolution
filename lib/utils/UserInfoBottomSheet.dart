@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:photo_view/photo_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/UserModel.dart';
 
@@ -19,33 +20,62 @@ class UserInfoBottomSheet extends StatelessWidget {
   }
 
   Future<void> _makePhoneCall(String phoneNumber) async {
-    final Uri launchUri = Uri(
-      scheme: 'tel',
-      path: phoneNumber,
-    );
-    if (await canLaunchUrl(launchUri)) {
-      await launchUrl(launchUri);
-    }
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(launchUri)) await launchUrl(launchUri);
   }
 
   Future<void> _sendEmail(String email) async {
-    final Uri launchUri = Uri(
-      scheme: 'mailto',
-      path: email,
+    final Uri launchUri = Uri(scheme: 'mailto', path: email);
+    if (await canLaunchUrl(launchUri)) await launchUrl(launchUri);
+  }
+
+  void _openPhotoZoom(BuildContext context) {
+    if (user.profilePicture == null || user.profilePicture!.isEmpty) return;
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierColor: Colors.black87,
+        pageBuilder: (_, __, ___) => GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              children: [
+                PhotoView(
+                  imageProvider: CachedNetworkImageProvider(user.profilePicture!),
+                  minScale: PhotoViewComputedScale.contained,
+                  maxScale: PhotoViewComputedScale.covered * 3,
+                  heroAttributes: const PhotoViewHeroAttributes(tag: 'user-avatar'),
+                ),
+                Positioned(
+                  top: 48,
+                  right: 16,
+                  child: GestureDetector(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
-    if (await canLaunchUrl(launchUri)) {
-      await launchUrl(launchUri);
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final primaryColor = Color(0xFF1976D2);
-    
+    const primaryColor = Color(0xFF1976D2);
+
     return Container(
-      height: size.height * 0.6,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(30),
@@ -53,136 +83,190 @@ class UserInfoBottomSheet extends StatelessWidget {
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Header handle
-          Container(
-            margin: EdgeInsets.only(top: 12),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(2),
+          // Handle bar + close button
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
+            child: Row(
+              children: [
+                const Spacer(),
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded, size: 22),
+                  color: Colors.grey[500],
+                  splashRadius: 20,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+              ],
             ),
           ),
-          
-          Expanded(
+
+          Flexible(
             child: SingleChildScrollView(
-              padding: EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Profile Picture
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: primaryColor.withOpacity(0.2), width: 4),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 20,
-                          offset: Offset(0, 10),
-                        )
-                      ],
-                    ),
-                    child: ClipOval(
-                      child: user.profilePicture != null && user.profilePicture!.isNotEmpty
-                          ? CachedNetworkImage(
-                              imageUrl: user.profilePicture!,
-                              fit: BoxFit.cover,
-                              placeholder: (context, url) => Container(
-                                color: Colors.grey[100],
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                  // ── Compact header row ──────────────────────────────────
+                  Row(
+                    children: [
+                      // Tappable avatar with hero tag
+                      GestureDetector(
+                        onTap: () => _openPhotoZoom(context),
+                        child: Hero(
+                          tag: 'user-avatar',
+                          child: Container(
+                            width: 72,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: primaryColor.withOpacity(0.25),
+                                width: 3,
                               ),
-                              errorWidget: (context, url, error) => _buildDefaultAvatar(),
-                            )
-                          : _buildDefaultAvatar(),
-                    ),
-                  ),
-                  
-                  SizedBox(height: 16),
-                  
-                  // User Name
-                  Text(
-                    user.displayFullName,
-                    style: GoogleFonts.outfit(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1D26),
-                    ),
-                  ),
-                  
-                  // User Role / Status
-                  if (user.isProUser)
-                    Container(
-                      margin: EdgeInsets.only(top: 8),
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: primaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        user.userStatus,
-                        style: GoogleFonts.outfit(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: primaryColor,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.12),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: ClipOval(
+                              child: user.profilePicture != null &&
+                                      user.profilePicture!.isNotEmpty
+                                  ? CachedNetworkImage(
+                                      imageUrl: user.profilePicture!,
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, __) => Container(
+                                        color: Colors.grey[100],
+                                        child: const Center(
+                                          child: SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          ),
+                                        ),
+                                      ),
+                                      errorWidget: (_, __, ___) => _buildDefaultAvatar(),
+                                    )
+                                  : _buildDefaultAvatar(),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    
-                  SizedBox(height: 32),
-                  
-                  // Info Rows
+
+                      const SizedBox(width: 16),
+
+                      // Name + badge
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              user.displayFullName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.outfit(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF1A1D26),
+                              ),
+                            ),
+                            if (user.isProUser) ...[
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: primaryColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.verified_rounded,
+                                        size: 13, color: primaryColor),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      user.userStatus,
+                                      style: GoogleFonts.outfit(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: primaryColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+
+                      // Zoom hint icon
+                      if (user.profilePicture != null &&
+                          user.profilePicture!.isNotEmpty)
+                        GestureDetector(
+                          onTap: () => _openPhotoZoom(context),
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.zoom_in_rounded,
+                                size: 20, color: Color(0xFF7F8C8D)),
+                          ),
+                        ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 28),
+
+                  // ── Info Rows ────────────────────────────────────────────
                   _buildInfoRow(
                     icon: Icons.phone_rounded,
                     label: "Téléphone",
-                    value: user.phone ?? "Non renseigné",
-                    onTap: user.phone != null ? () => _makePhoneCall(user.phone!) : null,
+                    value: (user.phone == null || user.phone!.isEmpty || user.phone == 'null')
+                        ? "Numéro de téléphone non renseigné"
+                        : user.phone!,
+                    onTap: (user.phone != null && user.phone!.isNotEmpty && user.phone != 'null')
+                        ? () => _makePhoneCall(user.phone!)
+                        : null,
                   ),
-                  
                   _buildDivider(),
-                  
                   _buildInfoRow(
                     icon: Icons.email_rounded,
                     label: "Email",
                     value: user.email ?? "Non renseigné",
-                    onTap: user.email != null ? () => _sendEmail(user.email!) : null,
+                    onTap: user.email != null
+                        ? () => _sendEmail(user.email!)
+                        : null,
                   ),
-                  
                   _buildDivider(),
-                  
                   _buildInfoRow(
                     icon: Icons.location_on_rounded,
                     label: "Localisation",
-                    value: user.formattedLocation.isNotEmpty ? user.formattedLocation : "Non renseigné",
+                    value: user.formattedLocation.isNotEmpty
+                        ? user.formattedLocation
+                        : "Non renseigné",
                   ),
-                  
-                  SizedBox(height: 40),
-                  
-                  // Large Action Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: Text(
-                        "Fermer",
-                        style: GoogleFonts.outfit(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
+
+                  const SizedBox(height: 16),
                 ],
               ),
             ),
@@ -194,8 +278,8 @@ class UserInfoBottomSheet extends StatelessWidget {
 
   Widget _buildDefaultAvatar() {
     return Container(
-      color: Color(0xFFF5F6FA),
-      child: Icon(Icons.person_rounded, size: 60, color: Color(0xFFBDC3C7)),
+      color: const Color(0xFFF5F6FA),
+      child: const Icon(Icons.person_rounded, size: 40, color: Color(0xFFBDC3C7)),
     );
   }
 
@@ -209,18 +293,18 @@ class UserInfoBottomSheet extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         child: Row(
           children: [
             Container(
-              padding: EdgeInsets.all(10),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Color(0xFFF5F6FA),
+                color: const Color(0xFFF5F6FA),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon, size: 20, color: Color(0xFF7F8C8D)),
+              child: Icon(icon, size: 20, color: const Color(0xFF7F8C8D)),
             ),
-            SizedBox(width: 16),
+            const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -229,22 +313,23 @@ class UserInfoBottomSheet extends StatelessWidget {
                     label,
                     style: GoogleFonts.outfit(
                       fontSize: 12,
-                      color: Color(0xFF7F8C8D),
+                      color: const Color(0xFF7F8C8D),
                     ),
                   ),
                   Text(
                     value,
                     style: GoogleFonts.outfit(
-                      fontSize: 16,
+                      fontSize: 15,
                       fontWeight: FontWeight.w500,
-                      color: Color(0xFF1A1D26),
+                      color: const Color(0xFF1A1D26),
                     ),
                   ),
                 ],
               ),
             ),
             if (onTap != null)
-              Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey[400]),
+              Icon(Icons.arrow_forward_ios_rounded,
+                  size: 14, color: Colors.grey[400]),
           ],
         ),
       ),
