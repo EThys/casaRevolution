@@ -10,6 +10,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
 import '../../utils/FancyNotification.dart';
+import '../../utils/api_error_message.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -928,8 +929,21 @@ class _LoginScreenState extends State<LoginScreen> {
           );
         }
       } else {
-        String errorMsg = _sanitizeLoginError(res.data['message']?.toString());
-        print("Login error: ${res.data['message']}");
+        final rawError = res.data is Map
+            ? (res.data['message']?.toString() ?? '')
+            : '';
+        print("Login error: $rawError");
+
+        if (rawError.contains("Idenfiant invalide.")) {
+          SnackbarForCasa.error(context, "Ce numéro ne correspond à aucun compte dans CasaNayo. Veuillez d'abord créer un compte.");
+          await Future.delayed(const Duration(seconds: 2));
+          if (mounted) {
+            Navigator.pushNamed(context, Routes.registerRoute);
+          }
+          return;
+        }
+
+        final errorMsg = ApiErrorMessages.fromResponse(res);
         SnackbarForCasa.error(context, errorMsg);
       }
     } catch (e) {
@@ -943,38 +957,5 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     }
-  }
-
-  String _sanitizeLoginError(String? error) {
-    if (error == null) return "Une erreur est survenue. Veuillez réessayer.";
-    final lower = error.toLowerCase();
-    
-    // Technical errors to mask
-    if (lower.contains("internal server error") ||
-        lower.contains("exception") ||
-        lower.contains("socketexception") ||
-        lower.contains("status code") ||
-        lower.contains("timeout") ||
-        lower.contains("<html>")) {
-      return "Une erreur est survenue. Veuillez réessayer.";
-    }
-
-    // Known user messages
-    if (lower.contains("identifiants incorrects") || lower.contains("invalid credentials")) {
-      return "Identifiants incorrects ou compte inexistant.";
-    }
-    if (lower.contains("compte désactivé") || lower.contains("user disabled")) {
-      return "Votre compte a été désactivé.";
-    }
-    if (lower.contains("compte non vérifié")) {
-      return "Votre compte n'est pas encore vérifié.";
-    }
-
-    // Default mask if it looks technical (contains specialized chars)
-    if (error.contains("{") || error.contains("}") || error.contains("[") || error.contains("]")) {
-       return "Une erreur est survenue. Veuillez réessayer.";
-    }
-
-    return error;
   }
 }

@@ -1,5 +1,6 @@
 import 'package:casa/controllers/ForgotPasswordController.dart';
 import 'package:casa/screens/auth/OTPVerificationScreen.dart';
+import 'package:casa/screens/auth/RegisterScreen.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -676,6 +677,19 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             ? (res.data as Map)['message'] ?? "Erreur lors de l'envoi du code"
             : res.errorMsg ?? "Erreur lors de l'envoi du code";
         print("Forgot password error: $errorMessage");
+
+        if (errorMessage.contains("Idenfiant invalide.")) {
+          SnackbarForCasa.error(context, "Ce numéro ne correspond à aucun compte dans CasaNayo. Veuillez d'abord créer un compte.");
+          await Future.delayed(const Duration(seconds: 2));
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => UserRegistrationPage()),
+            );
+          }
+          return;
+        }
+
         // Ne pas afficher les erreurs techniques du serveur
         SnackbarForCasa.error(context, "Une erreur est survenue lors de l'envoi du code. Veuillez vérifier votre numéro et réessayer.");
       }

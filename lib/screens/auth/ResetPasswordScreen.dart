@@ -1,3 +1,4 @@
+import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/controllers/ForgotPasswordController.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
@@ -626,24 +627,22 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
 
     try {
-      final ctrl = context.read<ForgotPasswordController>();
-      final res = await ctrl.resetPassword(
-        _newPasswordController.text.trim(),
-        widget.userId,
+      final forgot = context.read<ForgotPasswordController>();
+      final auth = context.read<AuthentificationCtrl>();
+      final res = await auth.resetPasswordAfterOtp(
+        newPassword: _newPasswordController.text.trim(),
+        userId: widget.userId,
       );
 
       if (!mounted) return;
 
       if (res.status == true) {
         SnackbarForCasa.success(context, "Mot de passe réinitialisé avec succès");
-        
-        // Réinitialiser le contrôleur
-        ctrl.reset();
-        
-        // Attendre un peu avant de rediriger
+
+        forgot.reset();
+
         await Future.delayed(Duration(milliseconds: 500));
-        
-        // Rediriger vers la page de connexion
+
         if (mounted) {
           Navigator.pushNamedAndRemoveUntil(
             context,
@@ -652,9 +651,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
           );
         }
       } else {
-        String errorMessage = res.data != null && res.data is Map
-            ? (res.data as Map)['message'] ?? "Erreur lors de la réinitialisation"
-            : res.errorMsg ?? "Erreur lors de la réinitialisation";
+        final errorMessage =
+            AuthentificationCtrl.userMessageForResetPasswordFailure(res);
         SnackbarForCasa.error(context, errorMessage);
       }
     } catch (e) {

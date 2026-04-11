@@ -29,6 +29,7 @@ import '../../utils/FancyNotification.dart';
 import '../../utils/country_codes.dart';
 import '../../utils/city_suggestions.dart';
 import '../../utils/requetes.dart';
+import '../../utils/api_error_message.dart';
 import '../../controllers/TypeAccountController.dart';
 import '../termsAndPrivacy/TermsAndPrivacyPage.dart';
 
@@ -2062,8 +2063,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
          await Future.delayed(Duration(milliseconds: 500));
          Navigator.of(context).pushReplacementNamed(Routes.loginRoute);
       } else {
-         String errorMessage = response.errorMsg ?? response.data?['message'] ?? "Une erreur est survenue. Veuillez réessayer";
-         SnackbarForCasa.error(context, _sanitizeError(errorMessage));
+         SnackbarForCasa.error(context, ApiErrorMessages.fromResponse(response));
       }
 
     } catch (e) {
@@ -2076,22 +2076,5 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         });
       }
     }
-  }
-
-  String _sanitizeError(String? error) {
-    if (error == null || error.isEmpty) return "Erreur lors de l'inscription. Veuillez réessayer.";
-    final lower = error.toLowerCase();
-    
-    // Masquer les erreurs techniques
-    if (lower.contains("internal server error") || 
-        lower.contains("exception") || 
-        lower.contains("status") || 
-        lower.contains("timeout") ||
-        lower.contains("connection refused") ||
-        error.startsWith("{") ||
-        error.startsWith("<html>")) {
-      return "Une erreur est survenue. Veuillez réessayer.";
-    }
-    return error; 
   }
 }

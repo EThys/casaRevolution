@@ -1,10 +1,11 @@
 import 'package:casa/controllers/ForgotPasswordController.dart';
 import 'package:casa/screens/auth/ResetPasswordScreen.dart';
+import 'package:casa/screens/auth/RegisterScreen.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:sms_autofill/sms_autofill.dart';
+import 'package:sms_autofill/sms_autofill.dart' ;
 import 'package:get_storage/get_storage.dart';
 import 'package:provider/provider.dart';
 import '../../utils/FancyNotification.dart';
@@ -705,6 +706,18 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
           errorMessage = "Ce code est invalide ou a déjà été utilisé. Veuillez en demander un nouveau si nécessaire.";
         }
         
+        if (errorMessage.contains("Idenfiant invalide.")) {
+          SnackbarForCasa.error(context, "Ce numéro ne correspond à aucun compte dans CasaNayo. Veuillez d'abord créer un compte.");
+          await Future.delayed(const Duration(seconds: 2));
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => UserRegistrationPage()),
+            );
+          }
+          return;
+        }
+
         SnackbarForCasa.error(context, errorMessage);
         
         // Effacer les champs en cas d'erreur
@@ -791,6 +804,18 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
           errorMessage = "Le service d'envoi est momentanément indisponible. Veuillez réessayer.";
         }
         
+        if (errorMessage.contains("Idenfiant invalide.")) {
+          SnackbarForCasa.error(context, "Ce numéro ne correspond à aucun compte dans CasaNayo. Veuillez d'abord créer un compte.");
+          await Future.delayed(const Duration(seconds: 2));
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => UserRegistrationPage()),
+            );
+          }
+          return;
+        }
+
         SnackbarForCasa.error(context, errorMessage);
       }
     } catch (e) {
