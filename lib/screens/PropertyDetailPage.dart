@@ -16,6 +16,9 @@ import '../models/PropertyModel.dart';
 import '../models/PropertyImageModel.dart';
 import '../models/PropertyFeatureModel.dart';
 import '../utils/FancyNotification.dart';
+import '../utils/SubscriptionHelper.dart';
+import '../utils/property_availability_ui.dart';
+import '../utils/property_snapshot_merge.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
@@ -53,6 +56,22 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   late final PageController _imageController;
   int _currentImageIndex = 0;
   Timer? _autoScrollTimer;
+  PropertyModel? _localPropertySnapshot;
+
+  PropertyModel _resolvedDetailProperty(PropertyController c) {
+    final nav = widget.property;
+    final id = nav.propertyId;
+    if (id == null) return nav;
+    final cur = c.currentProperty;
+    PropertyModel? fill;
+    if (cur != null && cur.propertyId == id) {
+      fill = cur;
+    } else {
+      fill = _localPropertySnapshot;
+    }
+    if (fill == null) return nav;
+    return PropertySnapshotMerge.mergeFillMissing(nav, fill);
+  }
 
   bool _showSurfaceFor(PropertyModel property) {
     final surface = property.surface;
@@ -74,8 +93,23 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
   bool _shouldHideKitchenFor(PropertyModel property) {
     final typeId = property.propertyTypeId;
-    // 4: Bureau, 7: Salle funéraire, 9: Terrain
-    return typeId == 4 || typeId == 7 || typeId == 9;
+    // 4: Bureau, 7: Salle funéraire, 8: Salle de fête, 9: Terrain
+    return typeId == 4 || typeId == 7 || typeId == 8 || typeId == 9;
+  }
+
+  bool _shouldShowDetailedCharacteristics(PropertyModel property) {
+    if (_showSurfaceFor(property)) return true;
+    final id = property.propertyTypeId;
+    return id == 7 || id == 8;
+  }
+
+  List<String> _parseUsageTokens(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return [];
+    return raw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
   }
 
   bool _isFestiveOrFuneraireFor(PropertyModel property) {
@@ -111,7 +145,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       id: 'propertyImageKitchen',
       name: 'Cuisine',
       icon: FontAwesomeIcons.kitchenSet,
-      color: Color(0xFFFF9800),
+      color: Color(0xFF4CAF50),
     ),
   ];
 
@@ -135,9 +169,20 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         if (ctrl.currentProperty?.propertyId != widget.property.propertyId) {
           ctrl.currentProperty = null;
         }
-        
+
+        final pid = widget.property.propertyId!;
+        final tid = widget.property.propertyTypeId;
+        ctrl.findCachedPropertySnapshot(pid, typeId: tid).then((snap) {
+          if (!mounted || snap == null) return;
+          setState(() => _localPropertySnapshot = snap);
+          _startAutoScrollForProperty(
+            PropertySnapshotMerge.mergeFillMissing(widget.property, snap),
+          );
+        });
+
         // Charger la propriété complète et ses similaires depuis l'API détail
-        ctrl.getPropertyById(widget.property.propertyId!);
+        ctrl.getPropertyById(pid,
+            propertyTypeId: tid, mergeWith: widget.property);
         
         // SYNC: Vérifier l'état du favori pour cette propriété
         final authCtrl = context.read<AuthentificationCtrl>();
@@ -226,15 +271,21 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     if (property.propertyImage != null && property.propertyImage!.isNotEmpty) {
       allImages.addAll(property.propertyImage!);
     }
-    if (property.propertyImageRoom != null && property.propertyImageRoom!.isNotEmpty) {
+    if (property.propertyImageRoom != null &&
+        property.propertyImageRoom!.isNotEmpty &&
+        !_shouldHideBedroomsFor(property)) {
       allImages.addAll(property.propertyImageRoom!.map((roomImage) =>
           PropertyImageModel(path: roomImage.path)));
     }
-    if (property.propertyImageLivingRoom != null && property.propertyImageLivingRoom!.isNotEmpty) {
+    if (property.propertyImageLivingRoom != null &&
+        property.propertyImageLivingRoom!.isNotEmpty &&
+        !_shouldHideSalonsFor(property)) {
       allImages.addAll(property.propertyImageLivingRoom!.map((livingRoomImage) =>
           PropertyImageModel(path: livingRoomImage.path)));
     }
-    if (property.propertyImageKitchen != null && property.propertyImageKitchen!.isNotEmpty) {
+    if (property.propertyImageKitchen != null &&
+        property.propertyImageKitchen!.isNotEmpty &&
+        !_shouldHideKitchenFor(property)) {
       allImages.addAll(property.propertyImageKitchen!.map((kitchenImage) =>
           PropertyImageModel(path: kitchenImage.path)));
     }
@@ -246,10 +297,10 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   Widget build(BuildContext context) {
     final propertyCtrl = context.watch<PropertyController>();
     final similar = propertyCtrl.similarProperties;
-    
-    // Use full property from controller if it's the correct one
-    final bool hasFullData = propertyCtrl.currentProperty?.propertyId == widget.property.propertyId;
-    final PropertyModel property = hasFullData ? propertyCtrl.currentProperty! : widget.property;
+
+    final bool hasFullData =
+        propertyCtrl.currentProperty?.propertyId == widget.property.propertyId;
+    final PropertyModel property = _resolvedDetailProperty(propertyCtrl);
     final bool isLoading = propertyCtrl.loading && !hasFullData;
 
     final groupedImages = _getGroupedImagesFor(property);
@@ -277,8 +328,12 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 SizedBox(height: 16),
                 _buildHighlightsSectionFor(property),
                 SizedBox(height: 16),
+                if (property.propertyTypeId == 8 && _parseUsageTokens(property.usage).isNotEmpty) ...[
+                  _buildEventUsageSectionFor(property),
+                  SizedBox(height: 16),
+                ],
                 // Caractéristiques Détaillées
-                if (_showSurfaceFor(property))
+                if (_shouldShowDetailedCharacteristics(property))
                   Padding(
                     padding: EdgeInsets.only(top: 24),
                     child: _buildDetailedCharacteristicsSectionFor(property),
@@ -552,7 +607,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
     final displayedCategories = _showAllImages
         ? groupedImages.entries.toList()
-        : groupedImages.entries.take(3).toList();
+        : groupedImages.entries.take(5).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -828,7 +883,17 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
   Widget _buildHeaderSectionFor(PropertyModel property) {
     final isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
-    final isAvailable = property.available ?? true;
+    final listingStatus = PropertyAvailabilityUi.listingStatusLabel(
+      sold: property.sold,
+      available: property.available,
+      transactionType: property.transactionType,
+      listingAllowed: property.listingAllowed,
+    );
+    final canVisit = PropertyAvailabilityUi.isListingAvailableForVisit(
+      sold: property.sold,
+      available: property.available,
+      listingAllowed: property.listingAllowed,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -864,24 +929,24 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 shape: StadiumBorder(),
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               ),
-            // Availability badge
+            // Disponibilité (aligné FavoritesPage / PropertyListingStatusChip)
             Chip(
-              backgroundColor: isAvailable 
-                  ? Colors.green.withOpacity(0.1) 
-                  : Colors.red.withOpacity(0.1),
+              backgroundColor: canVisit
+                  ? const Color(0xFF00B894).withOpacity(0.12)
+                  : const Color(0xFFD63031).withOpacity(0.12),
               label: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    isAvailable ? Icons.check_circle : Icons.cancel,
+                    canVisit ? Icons.check_circle : Icons.cancel,
                     size: 14,
-                    color: isAvailable ? Colors.green : Colors.red,
+                    color: canVisit ? const Color(0xFF00B894) : const Color(0xFFD63031),
                   ),
                   SizedBox(width: 4),
                   Text(
-                    isAvailable ? 'DISPONIBLE' : 'OCCUPÉ',
+                    (listingStatus ?? 'Disponible').toUpperCase(),
                     style: TextStyle(
-                      color: isAvailable ? Colors.green : Colors.red,
+                      color: canVisit ? const Color(0xFF00B894) : const Color(0xFFD63031),
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
@@ -926,16 +991,78 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   String _formatLocationFor(PropertyModel property) {
     final city = property.cityValue;
     final commune = property.communeValue;
-
-    if ((city == null || city.isEmpty) && (commune == null || commune.isEmpty)) {
-      return property.address ?? 'Adresse non disponible';
-    }
-
-    List<String> parts = [];
+    final parts = <String>[];
     if (city != null && city.isNotEmpty) parts.add(city);
     if (commune != null && commune.isNotEmpty) parts.add(commune);
-    
+    if (parts.isEmpty) return 'Ville / commune non renseignée';
     return parts.join(', ');
+  }
+
+  Widget _buildEventUsageSectionFor(PropertyModel property) {
+    final tokens = _parseUsageTokens(property.usage);
+    if (tokens.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _greyColor.withOpacity(0.15)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.celebration_outlined, size: 20, color: _primaryColor),
+              const SizedBox(width: 8),
+              Text(
+                'TYPES D\'ÉVÉNEMENT',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _greyColor,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.1,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: tokens
+                .map(
+                  (t) => Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _primaryColor.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: _primaryColor.withOpacity(0.2)),
+                    ),
+                    child: Text(
+                      t,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _darkColor,
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
   }
 
   String _getPropertyTypeFromTitleFor(String? title, PropertyModel property) {
@@ -1695,12 +1822,14 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  // NEW: Location Preview Section
+  // NEW: Location Preview Section (ville + commune uniquement, jamais l'adresse complète)
   Widget _buildLocationPreviewFor(PropertyModel property) {
-    if (property.address == null || property.address!.isEmpty) {
-      return SizedBox();
+    final hasCity = property.cityValue != null && property.cityValue!.trim().isNotEmpty;
+    final hasCommune = property.communeValue != null && property.communeValue!.trim().isNotEmpty;
+    if (!hasCity && !hasCommune) {
+      return const SizedBox.shrink();
     }
-    
+
     return Container(
       padding: EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -1751,7 +1880,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                        '',
+                      _formatLocationFor(property),
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -1765,18 +1894,16 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
             ],
           ),
-          if (property.quartierValue != null || property.communeValue != null || property.cityValue != null) ...[
+          if (hasCommune || hasCity) ...[
             SizedBox(height: 14),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                if (property.quartierValue != null)
-                  _buildLocationChip(Icons.home_work_outlined, property.quartierValue!),
-                if (property.communeValue != null)
-                  _buildLocationChip(Icons.location_city_outlined, property.communeValue!),
-                if (property.cityValue != null)
-                  _buildLocationChip(Icons.place_outlined, property.cityValue!),
+                if (hasCommune)
+                  _buildLocationChip(Icons.location_city_outlined, property.communeValue!.trim()),
+                if (hasCity)
+                  _buildLocationChip(Icons.place_outlined, property.cityValue!.trim()),
               ],
             ),
           ],
@@ -2512,7 +2639,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                             ),
                             SizedBox(height: 6),
                             Text(
-                              prop.address ?? prop.cityValue ?? prop.communeValue ?? "Adresse inconnue",
+                              _formatLocationFor(prop),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -2780,7 +2907,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
   }
 
   Widget _buildHotelRoomsSectionFor(PropertyModel property) {
-    final rooms = widget.property.hotelStructure;
+    final rooms = property.hotelStructure;
     if (rooms == null || rooms.isEmpty) return SizedBox.shrink();
 
     return Column(
@@ -2821,14 +2948,14 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           itemCount: rooms.length,
           separatorBuilder: (context, index) => SizedBox(height: 16),
           itemBuilder: (context, index) {
-            return _buildRoomCard(rooms[index]);
+            return _buildRoomCard(rooms[index], property);
           },
         ),
       ],
     );
   }
 
-  Widget _buildRoomCard(HotelRoomStructure roomStructure) {
+  Widget _buildRoomCard(HotelRoomStructure roomStructure, PropertyModel hotelProperty) {
     final room = roomStructure.chambre;
     final images = roomStructure.images ?? [];
     if (room == null) return SizedBox.shrink();
@@ -2906,7 +3033,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                       ),
                     ),
                     Text(
-                      '${room.price?.toStringAsFixed(0) ?? '0'} ${widget.property.currency ?? '\$'}',
+                      '${room.price?.toStringAsFixed(0) ?? '0'} ${hotelProperty.currency ?? '\$'}',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -2941,7 +3068,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 ),
                 SizedBox(height: 20),
                 ElevatedButton(
-                  onPressed: () => _reserveRoom(room),
+                  onPressed: () => _reserveRoom(hotelProperty, room),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _primaryColor,
                     foregroundColor: Colors.white,
@@ -2977,7 +3104,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
-  void _reserveRoom(HotelRoomModel room) {
+  void _reserveRoom(PropertyModel displayProperty, HotelRoomModel room) {
      final token = storage.read(StockageKeys.tokenKey);
      if (token == null) {
        FancyNotification.show(
@@ -2990,28 +3117,42 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
          MaterialPageRoute(builder: (context) => LoginScreen()),
        );
      } else {
-       // On passe le bien complet mais idéalement on devrait aussi passer l'ID de la chambre
-       // Pour l'instant on utilise le flux standard de visite/réservation de l'app
-       Navigator.pushNamed(
-           context,
-           Routes.bookingVisitPageRoute,
-           arguments: widget.property
+       SubscriptionHelper.checkPremiumForPropertyReservation(
+         context: context,
+         onProceed: () {
+           Navigator.pushNamed(
+             context,
+             Routes.bookingVisitPageRoute,
+             arguments: {
+               'property': displayProperty,
+               'chambreId': room.id,
+             },
+           );
+         },
        );
      }
   }
 
-  void _navigateToBookingPage() {
-    final isAvailable = widget.property.available ?? true;
-    
-    // Check if property is available
-    if (!isAvailable) {
-      SnackbarForCasa.error(
-        context,
-        "Cette propriété est déjà occupée et n'est plus disponible",
-      );
+  void _navigateToBookingPage(PropertyModel displayProperty) {
+    final p = displayProperty;
+    if (PropertyAvailabilityUi.blocksSchedulingVisit(
+      sold: p.sold,
+      available: p.available,
+      listingAllowed: p.listingAllowed,
+    )) {
+      String msg;
+      if (p.sold == true) {
+        final t = p.transactionType?.toLowerCase() ?? '';
+        msg = t.contains('vente')
+            ? 'Ce bien a été vendu.'
+            : "Ce bien n'est plus disponible pour une visite.";
+      } else {
+        msg = "Ce bien n'est plus disponible pour une visite.";
+      }
+      SnackbarForCasa.error(context, msg);
       return;
     }
-    
+
     final token = storage.read(StockageKeys.tokenKey);
     if (token == null) {
       FancyNotification.show(
@@ -3024,40 +3165,60 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         MaterialPageRoute(builder: (context) => LoginScreen()),
       );
     } else {
-      Navigator.pushNamed(
-          context,
-          Routes.bookingVisitPageRoute,
-          arguments: widget.property
+      SubscriptionHelper.checkPremiumForPropertyReservation(
+        context: context,
+        onProceed: () {
+          Navigator.pushNamed(
+            context,
+            Routes.bookingVisitPageRoute,
+            arguments: displayProperty,
+          );
+        },
       );
     }
   }
 
   Widget _buildBottomActionBarFor(PropertyModel property) {
-    final isAvailable = widget.property.available ?? true;
-    
+    final blocked = PropertyAvailabilityUi.blocksSchedulingVisit(
+      sold: property.sold,
+      available: property.available,
+      listingAllowed: property.listingAllowed,
+    );
+    final statusLabel = PropertyAvailabilityUi.listingStatusLabel(
+      sold: property.sold,
+      available: property.available,
+      transactionType: property.transactionType,
+      listingAllowed: property.listingAllowed,
+    );
+    final buttonLabel = !blocked
+        ? 'PLANIFIER UNE VISITE'
+        : (statusLabel ?? 'NON DISPONIBLE').toUpperCase();
+
     return Column(
       children: [
         ElevatedButton(
-          onPressed: _navigateToBookingPage,
+          onPressed: blocked ? null : () => _navigateToBookingPage(property),
           style: ElevatedButton.styleFrom(
-            backgroundColor: isAvailable ? _primaryColor : _greyColor,
+            backgroundColor: blocked ? _greyColor : _primaryColor,
             foregroundColor: Colors.white,
+            disabledForegroundColor: Colors.white.withOpacity(0.9),
+            disabledBackgroundColor: _greyColor,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
             padding: EdgeInsets.symmetric(vertical: 16),
-            elevation: isAvailable ? 2 : 0,
+            elevation: blocked ? 0 : 2,
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                isAvailable ? Icons.calendar_today : Icons.block,
+                blocked ? Icons.block : Icons.calendar_today,
                 size: 20,
               ),
               SizedBox(width: 8),
               Text(
-                isAvailable ? 'PLANIFIER UNE VISITE' : 'NON DISPONIBLE',
+                buttonLabel,
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,

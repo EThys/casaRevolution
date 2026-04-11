@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/models/TerrainModel.dart';
 import 'package:casa/screens/FullScreenImageViewer.dart'; // Ensure this exists or use placeholder
 import 'package:casa/screens/auth/LoginScreen.dart';
@@ -8,6 +7,7 @@ import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
@@ -16,9 +16,60 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
+import '../controllers/PropertyCtrl.dart';
 import '../screens/FullScreenProfileImage.dart';
 import '../models/PropertyImageModel.dart';
 import '../utils/FavoriteEartIcon.dart';
+import '../utils/property_availability_ui.dart';
+import '../utils/listing_fields_parse.dart';
+
+/// Complète [incoming] avec les champs encore présents dans [base] (navigation depuis liste partielle).
+TerrainModel _mergeTerrainSnapshot(TerrainModel base, TerrainModel incoming) {
+  String? coalesceStr(String? a, String? b) {
+    if (a != null && a.trim().isNotEmpty) return a;
+    return b;
+  }
+
+  final bt = base.terrain;
+  final it = incoming.terrain;
+
+  TerrainData? mergedTerrain;
+  if (it != null && bt != null) {
+    mergedTerrain = TerrainData(
+      id: it.id ?? bt.id,
+      userId: it.userId ?? bt.userId,
+      title: coalesceStr(it.title, bt.title),
+      description: coalesceStr(it.description, bt.description),
+      price: it.price ?? bt.price,
+      surface: coalesceStr(it.surface, bt.surface),
+      transactionType: coalesceStr(it.transactionType, bt.transactionType),
+      isAvailable:
+          ListingFieldsParse.mergeAvailable(it.isAvailable, bt.isAvailable) ??
+              it.isAvailable ??
+              bt.isAvailable,
+      sold: ListingFieldsParse.mergeSold(it.sold, bt.sold) ?? it.sold ?? bt.sold,
+      createdAt: coalesceStr(it.createdAt, bt.createdAt),
+    );
+  } else {
+    mergedTerrain = it ?? bt;
+  }
+
+  final mergedImages = (incoming.images != null && incoming.images!.isNotEmpty)
+      ? incoming.images
+      : base.images;
+
+  return TerrainModel(
+    terrain: mergedTerrain,
+    devise: incoming.devise ?? base.devise,
+    postBy: coalesceStr(incoming.postBy, base.postBy),
+    address: incoming.address ?? base.address,
+    localAddress: incoming.localAddress ?? base.localAddress,
+    geoZone: incoming.geoZone ?? base.geoZone,
+    images: mergedImages,
+    typeProperty: incoming.typeProperty ?? base.typeProperty,
+    publisherImage: coalesceStr(incoming.publisherImage, base.publisherImage),
+  );
+}
 
 class TerrainDetailPage extends StatefulWidget {
   final TerrainModel terrain;
@@ -46,13 +97,42 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
   int _currentImageIndex = 0;
   Timer? _autoScrollTimer;
   bool _isDescriptionExpanded = false;
+  late TerrainModel _displayTerrain;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    _displayTerrain = widget.terrain;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       _startAutoScroll();
+      final ctrl = context.read<PropertyController>();
+      final id = _displayTerrain.terrain?.id;
+      if (id != null) {
+        final snap = await ctrl.findCachedPropertySnapshot(id, typeId: 9);
+        if (mounted && snap != null) {
+          setState(() {
+            _displayTerrain = _mergeTerrainSnapshot(
+              _displayTerrain,
+              TerrainModel.fromPropertyListing(snap),
+            );
+          });
+          _startAutoScroll();
+        }
+      }
+      await _refreshTerrainFromApi();
     });
+  }
+
+  Future<void> _refreshTerrainFromApi() async {
+    final id = _displayTerrain.terrain?.id;
+    if (id == null) return;
+    final ctrl = context.read<PropertyController>();
+    final fresh = await ctrl.fetchTerrainById(id);
+    if (!mounted || fresh == null) return;
+    setState(() {
+      _displayTerrain = _mergeTerrainSnapshot(_displayTerrain, fresh);
+    });
+    _startAutoScroll();
   }
 
   @override
@@ -63,7 +143,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
   }
 
   void _startAutoScroll() {
-    final images = widget.terrain.images ?? [];
+    final images = _displayTerrain.images ?? [];
     if (images.length <= 1) return;
 
     _autoScrollTimer?.cancel();
@@ -100,6 +180,8 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
                 SizedBox(height: 16),
                 _buildLocationPreview(),
                 SizedBox(height: 16),
+                _buildTerrainTypeSection(),
+                SizedBox(height: 16),
                 _buildCharacteristicsSection(),
                 SizedBox(height: 16),
                 _buildPublicationInfoSection(),
@@ -117,7 +199,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
   }
 
   Widget _buildImageCarousel() {
-    final images = widget.terrain.images ?? [];
+    final images = _displayTerrain.images ?? [];
     final carouselHeight = MediaQuery.of(context).size.height * 0.45;
 
     return Stack(
@@ -161,7 +243,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
                       child: Hero(
                         tag: index == 0 && widget.heroTag != null
                             ? widget.heroTag!
-                            : 'terrain_image_${widget.terrain.terrain?.id}_$index',
+                            : 'terrain_image_${_displayTerrain.terrain?.id}_$index',
                         child: CachedNetworkImage(
                           imageUrl: img.path ?? '',
                           fit: BoxFit.cover,
@@ -227,7 +309,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
           right: 20,
           child: Row(
             children: [
-              if (widget.terrain.terrain?.id != null)
+              if (_displayTerrain.terrain?.id != null)
                 Container(
                   width: 44,
                   height: 44,
@@ -236,7 +318,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
                     shape: BoxShape.circle,
                   ),
                   child: FavoriteHeartIcon(
-                    propertyId: widget.terrain.terrain!.id.toString(),
+                    propertyId: _displayTerrain.terrain!.id.toString(),
                     propertyTypeId: 9, // Terrain
                     size: 24,
                     splashRadius: 20,
@@ -270,9 +352,9 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
   }
 
   Future<void> _shareTerrain() async {
-    final title = widget.terrain.terrain?.title ?? 'Terrain';
-    final price = widget.terrain.terrain?.price ?? 0;
-    final rawCurrency = widget.terrain.devise?.code ?? 'USD';
+    final title = _displayTerrain.terrain?.title ?? 'Terrain';
+    final price = _displayTerrain.terrain?.price ?? 0;
+    final rawCurrency = _displayTerrain.devise?.code ?? 'USD';
     final currency = (rawCurrency == 'USD') ? '\$' : (rawCurrency == 'CDF' ? 'FC' : rawCurrency);
     
     await Share.share(
@@ -281,12 +363,35 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
     );
   }
 
+  bool _terrainIsVente(TerrainData? t) =>
+      t?.transactionType?.toLowerCase().contains('vente') ?? false;
+
+  bool _terrainVisitBlocked(TerrainData? t) {
+    return PropertyAvailabilityUi.blocksSchedulingVisit(
+      sold: t?.sold,
+      available: t?.isAvailable,
+      listingAllowed: true,
+    );
+  }
+
+  String _terrainAvailabilityTitleCase(TerrainData? t) {
+    final lbl = PropertyAvailabilityUi.listingStatusLabel(
+      sold: t?.sold,
+      available: t?.isAvailable,
+      transactionType: t?.transactionType,
+      listingAllowed: true,
+    );
+    return lbl ?? 'Disponible';
+  }
+
   Widget _buildHeaderSection() {
-    final t = widget.terrain.terrain;
-    final isVente = t?.transactionType?.toLowerCase().contains('vente') ?? false;
-    final isAvailable = t?.isAvailable ?? true;
+    final t = _displayTerrain.terrain;
+    final isVente = _terrainIsVente(t);
+    final blocked = _terrainVisitBlocked(t);
+    final canVisit = !blocked;
+    final availLabel = _terrainAvailabilityTitleCase(t);
     final price = t?.price ?? 0;
-    final rawCurrency = widget.terrain.devise?.code ?? 'USD';
+    final rawCurrency = _displayTerrain.devise?.code ?? 'USD';
     final currency = (rawCurrency == 'USD') ? '\$' : (rawCurrency == 'CDF' ? 'FC' : rawCurrency);
     final title = t?.title ?? 'Terrain';
     
@@ -314,18 +419,24 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
             Container(
                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                decoration: BoxDecoration(
-                 color: isAvailable ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                 color: canVisit
+                     ? const Color(0xFF00B894).withOpacity(0.12)
+                     : const Color(0xFFD63031).withOpacity(0.12),
                  borderRadius: BorderRadius.circular(8),
                ),
                child: Row(
                  mainAxisSize: MainAxisSize.min,
                  children: [
-                   Icon(isAvailable ? Icons.check_circle : Icons.cancel, size: 14, color: isAvailable ? Colors.green : Colors.red),
+                   Icon(
+                     canVisit ? Icons.check_circle : Icons.block,
+                     size: 14,
+                     color: canVisit ? const Color(0xFF00B894) : const Color(0xFFD63031),
+                   ),
                    SizedBox(width: 4),
                    Text(
-                     isAvailable ? 'DISPONIBLE' : 'INDISPONIBLE',
+                     availLabel.toUpperCase(),
                      style: TextStyle(
-                       color: isAvailable ? Colors.green : Colors.red,
+                       color: canVisit ? const Color(0xFF00B894) : const Color(0xFFD63031),
                        fontWeight: FontWeight.bold,
                        fontSize: 12,
                      ),
@@ -357,9 +468,12 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
     );
   }
 
+  /// Zone approximative uniquement : pas d’adresse précise ni quartier (confidentialité).
   Widget _buildLocationPreview() {
-    final addr = widget.terrain.address;
-    final locationText = "${addr?.cityValue}, ${addr?.communeValue}";
+    final addr = _displayTerrain.address;
+    final city = addr?.cityValue ?? _displayTerrain.localAddress?.city?.name ?? 'Kinshasa';
+    final commune = addr?.communeValue ?? _displayTerrain.localAddress?.commune?.name ?? '';
+    final locationText = commune.isNotEmpty ? "$city, $commune" : city;
 
     return Container(
       padding: EdgeInsets.all(16),
@@ -385,7 +499,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('LOCALISATION', style: TextStyle(
+                Text('ZONE APPROXIMATIVE', style: TextStyle(
                   fontSize: 10, fontWeight: FontWeight.bold, color: _greyColor, letterSpacing: 1.2
                 )),
                 SizedBox(height: 4),
@@ -394,6 +508,11 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
                 )),
                 if (addr?.countryValue != null)
                    Text(addr!.countryValue!, style: TextStyle(fontSize: 13, color: _greyColor)),
+                SizedBox(height: 6),
+                Text(
+                  'L’adresse exacte et les coordonnées GPS ne sont pas affichées sur les terrains.',
+                  style: TextStyle(fontSize: 12, color: _greyColor, height: 1.35),
+                ),
               ],
             ),
           ),
@@ -402,9 +521,68 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
     );
   }
 
+  Widget _buildTerrainTypeSection() {
+    final typeName = _displayTerrain.typeProperty?.name?.trim();
+    if (typeName == null || typeName.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: Offset(0, 4)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('TYPE DE BIEN', style: TextStyle(
+            fontSize: 10, fontWeight: FontWeight.bold, color: _greyColor, letterSpacing: 1.2,
+          )),
+          SizedBox(height: 8),
+          Text(typeName, style: TextStyle(fontSize: 14, color: _darkColor)),
+        ],
+      ),
+    );
+  }
+
+  String _formatTransactionLabel(String raw) {
+    final t = raw.toLowerCase();
+    if (t.contains('vente')) return 'Vente';
+    if (t.contains('locat')) return 'Location';
+    return raw;
+  }
+
+  Widget _characteristicRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: _secondaryColor, size: 22),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(label, style: TextStyle(color: _greyColor, fontSize: 14)),
+          ),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: _darkColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCharacteristicsSection() {
-    final surface = widget.terrain.terrain?.surface;
-    if (surface == null || surface.isEmpty) return SizedBox();
+    final t = _displayTerrain.terrain;
+    final surface = t?.surface;
+    final tt = t?.transactionType?.trim();
+    final hasSurface = surface != null && surface.isNotEmpty;
+    final hasTx = tt != null && tt.isNotEmpty;
+    if (!hasSurface && !hasTx) return const SizedBox.shrink();
 
     return Container(
       padding: EdgeInsets.all(16),
@@ -412,45 +590,44 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-           BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: Offset(0, 4)),
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: Offset(0, 4)),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('CARACTÉRISTIQUES', style: TextStyle(
-             fontSize: 10, fontWeight: FontWeight.bold, color: _greyColor, letterSpacing: 1.2
+            fontSize: 10, fontWeight: FontWeight.bold, color: _greyColor, letterSpacing: 1.2,
           )),
-          SizedBox(height: 12),
-          Row(
-            children: [
-              Icon(Icons.square_foot, color: _secondaryColor),
-              SizedBox(width: 8),
-              Text('Surface', style: TextStyle(color: _greyColor, fontSize: 14)),
-              Spacer(),
-              Text('$surface m²', style: TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 16, color: _darkColor
-              )),
-            ],
-          ),
+          SizedBox(height: 8),
+          if (hasTx) _characteristicRow(Icons.swap_horiz, 'Transaction', _formatTransactionLabel(tt!)),
+          if (hasSurface)
+            _characteristicRow(
+              Icons.square_foot,
+              'Surface',
+              surface!.contains('x') || surface.contains('×') ? surface : '$surface m²',
+            ),
         ],
       ),
     );
   }
 
   Widget _buildPublicationInfoSection() {
-    // Logic to resolve publisher info
     String publisherName = '';
-    String? publisherImage = widget.terrain.publisherImage;
+    String? publisherImage = _displayTerrain.publisherImage;
 
-    // Try postBy
-    if (widget.terrain.postBy != null && widget.terrain.postBy!.isNotEmpty) {
-      publisherName = widget.terrain.postBy!.replaceAll('@', '').trim();
+    if (_displayTerrain.postBy != null && _displayTerrain.postBy!.isNotEmpty) {
+      publisherName = _displayTerrain.postBy!.replaceAll('@', '').trim();
     }
-    
+
     if (publisherName.isEmpty) {
-      publisherName = 'Prestataire';
+      publisherName = 'Propriétaire';
     }
+
+    final published = _displayTerrain.terrain?.createdAt;
+    final publishedLabel = published != null && published.trim().isNotEmpty
+        ? _formatDate(published)
+        : '';
 
     return Container(
       padding: EdgeInsets.all(16),
@@ -481,7 +658,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
                   }
                 },
                 child: Hero(
-                   tag: 'publisher_profile_${widget.terrain.terrain?.id}',
+                   tag: 'publisher_profile_${_displayTerrain.terrain?.id}',
                    child: Container(
                      width: 50, height: 50,
                      decoration: BoxDecoration(
@@ -505,20 +682,27 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
               ),
               SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  publisherName,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _darkColor,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      publisherName,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: _darkColor,
+                      ),
+                    ),
+                    if (publishedLabel.isNotEmpty) ...[
+                      SizedBox(height: 6),
+                      Text(
+                        'Publié le $publishedLabel',
+                        style: TextStyle(color: _greyColor, fontSize: 13),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              if (widget.terrain.terrain?.createdAt != null)
-                Text(
-                  _formatDate(widget.terrain.terrain!.createdAt!),
-                  style: TextStyle(color: _greyColor, fontSize: 12),
-                ),
             ],
           ),
         ],
@@ -536,7 +720,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
   }
 
   Widget _buildDescriptionSection() {
-    final desc = widget.terrain.terrain?.description;
+    final desc = _displayTerrain.terrain?.description;
     if (desc == null || desc.isEmpty) return SizedBox();
 
     return Container(
@@ -572,48 +756,55 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
   }
 
   Widget _buildBottomActionBar() {
-    final isAvailable = widget.terrain.terrain?.isAvailable ?? true;
+    final t = _displayTerrain.terrain;
+    final blocked = _terrainVisitBlocked(t);
 
     return Column(
       children: [
         ElevatedButton(
-          onPressed: () {
-            if (!isAvailable) {
-              SnackbarForCasa.error(context, "Ce terrain n'est pas disponible.");
-              return;
-            }
-
-            final token = storage.read(StockageKeys.tokenKey);
-            if (token == null) {
-              FancyNotification.show(
-                context, 
-                "Vous devez être connecté pour planifier une visite",
-                type: NotificationType.info
-              );
-              Navigator.push(context, MaterialPageRoute(builder: (_) => LoginScreen()));
-            } else {
-              Navigator.pushNamed(
-                context,
-                Routes.bookingVisitPageRoute,
-                arguments: widget.terrain,
-              );
-            }
-          },
+          onPressed: blocked
+              ? null
+              : () {
+                  final token = storage.read(StockageKeys.tokenKey);
+                  if (token == null) {
+                    FancyNotification.show(
+                      context,
+                      "Vous devez être connecté pour planifier une visite",
+                      type: NotificationType.info,
+                    );
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => LoginScreen()));
+                  } else {
+                    SubscriptionHelper.checkPremiumForPropertyReservation(
+                      context: context,
+                      onProceed: () {
+                        Navigator.pushNamed(
+                          context,
+                          Routes.bookingVisitPageRoute,
+                          arguments: _displayTerrain,
+                        );
+                      },
+                    );
+                  }
+                },
           style: ElevatedButton.styleFrom(
-            backgroundColor: isAvailable ? _primaryColor : _greyColor,
+            backgroundColor: blocked ? Colors.red.shade700 : _primaryColor,
             foregroundColor: Colors.white,
+            disabledForegroundColor: Colors.white.withOpacity(0.95),
+            disabledBackgroundColor: Colors.red.shade800,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             padding: EdgeInsets.symmetric(vertical: 16),
-            elevation: isAvailable ? 2 : 0,
+            elevation: blocked ? 0 : 2,
             minimumSize: Size(double.infinity, 50),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(isAvailable ? Icons.calendar_today : Icons.block, size: 20),
+              Icon(blocked ? Icons.block : Icons.calendar_today, size: 20),
               SizedBox(width: 8),
               Text(
-                isAvailable ? 'PLANIFIER UNE VISITE' : 'NON DISPONIBLE',
+                blocked
+                    ? _terrainAvailabilityTitleCase(t).toUpperCase()
+                    : 'PLANIFIER UNE VISITE',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ],
