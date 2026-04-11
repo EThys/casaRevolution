@@ -155,6 +155,21 @@ class FavoriteDatabaseHelper {
       dataJson = favorite.property!.toJson();
     }
 
+    // Pour les prestations : supprimer l'ancienne entrée par prestationId avant d'insérer
+    // afin d'éviter les doublons quand on re-favori une prestation déjà supprimée
+    if (dataJson['__type'] == 'prestation' && dataJson['prestation'] != null) {
+      try {
+        final prestId = dataJson['prestation']['id']?.toString();
+        if (prestId != null) {
+          await db.delete(
+            table,
+            where: '$columnUserId = ? AND $columnData LIKE ?',
+            whereArgs: [userIdInt, '%"__type":"prestation"%"id":$prestId%'],
+          );
+        }
+      } catch (_) {}
+    }
+
     return await db.insert(
       table,
       {
@@ -216,7 +231,8 @@ class FavoriteDatabaseHelper {
     // Méthode 1 : Recherche par propertyId dans les données JSON
     final favorites = await getFavoritesByUser(userId);
     for (var favorite in favorites) {
-      if (favorite.property?.propertyId.toString() == propertyId) {
+      if (favorite.property?.propertyId.toString() == propertyId ||
+          favorite.prestation?.id.toString() == propertyId) {
         if (favorite.propertyFavoriteId != null) {
           return await db.delete(
             table,
@@ -265,7 +281,8 @@ class FavoriteDatabaseHelper {
   Future<PropertyFavoriteModel?> findFavoriteByPropertyId(String userId, String propertyId) async {
     final favorites = await getFavoritesByUser(userId);
     for (var favorite in favorites) {
-      if (favorite.property?.propertyId.toString() == propertyId) {
+      if (favorite.property?.propertyId.toString() == propertyId ||
+          favorite.prestation?.id.toString() == propertyId) {
         return favorite;
       }
     }

@@ -9,11 +9,12 @@ import 'dart:convert';
 
 class DatabaseHelper {
   static const _databaseName = "properties.db";
-  static const _databaseVersion = 7;
+  static const _databaseVersion = 8;
   static const table = 'properties';
   static const tableBureaux = 'bureaux';
   static const tableFestives = 'festives';
   static const tableFuneraires = 'funeraires';
+  static const tableVacances = 'vacances';
   static const tableHotels = 'hotels';
   static const tableSolicitationsUser = 'solicitations_user';
   static const tableSolicitationsHost = 'solicitations_host';
@@ -154,6 +155,15 @@ class DatabaseHelper {
         )
       ''');
     }
+
+    if (oldVersion < 8) {
+      await db.execute('''
+        CREATE TABLE $tableVacances (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+    }
   }
 
   Future _onCreate(Database db, int version) async {
@@ -222,6 +232,13 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE $tableHotels (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+    
+    await db.execute('''
+      CREATE TABLE $tableVacances (
         $columnId INTEGER PRIMARY KEY,
         $columnData TEXT NOT NULL
       )
@@ -338,6 +355,25 @@ class DatabaseHelper {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// Une entrée par id (liste ou détail hôtel / autre catégorie).
+  Future<PropertyModel?> getCategoryPropertyById(String tableName, int id) async {
+    final db = await database;
+    final maps = await db.query(
+      tableName,
+      where: '$columnId = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    final raw = maps.first[columnData];
+    if (raw == null) return null;
+    try {
+      return PropertyModel.fromJson(json.decode(raw as String));
+    } catch (_) {
+      return null;
+    }
   }
 
   // Méthode générique pour récupérer les propriétés d'une table spécifique
