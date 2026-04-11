@@ -7,6 +7,7 @@ import 'PropertyImageRoomModel.dart';
 import 'PropertyImageLivingRoomModel.dart';
 import 'PropertyImageKitchenModel.dart';
 import 'UserModel.dart';
+import '../utils/listing_fields_parse.dart';
 
 PropertyModel propertyModelFromJson(String str) => PropertyModel.fromJson(json.decode(str));
 String propertyModelToJson(PropertyModel data) => json.encode(data.toJson());
@@ -42,6 +43,32 @@ bool _parseBool(dynamic value) {
   return false;
 }
 
+bool? _coerceListingAvailability(dynamic v) {
+  if (v == null) return null;
+  if (v is bool) return v;
+  if (v is int) return v != 0;
+  if (v is String) {
+    final s = v.toLowerCase().trim();
+    if (s == 'true' || s == '1' || s == 'yes') return true;
+    if (s == 'false' || s == '0' || s == 'no') return false;
+  }
+  return null;
+}
+
+/// Catalogue public : exclure si `is_available` vaut explicitement false (clé API telle quelle).
+bool propertyListingAllowedFromJsonLayers(
+  Map<String, dynamic> dataNode,
+  Map<String, dynamic> container,
+  Map<String, dynamic> json,
+) {
+  const key = 'is_available';
+  for (final map in [dataNode, container, json]) {
+    if (!map.containsKey(key)) continue;
+    if (_coerceListingAvailability(map[key]) == false) return false;
+  }
+  return true;
+}
+
 class PropertyModel {
   int? propertyId;
   String? title;
@@ -74,7 +101,9 @@ class PropertyModel {
   int? capacityPeople;
   bool? isDecore;
   bool? pisteDanse;
-  
+  /// Types d'événement (festif, etc.) — chaîne séparée par virgules côté API.
+  String? usage;
+
   int? cityId;
   int? communeId;
   int? quartierId;
@@ -107,6 +136,8 @@ class PropertyModel {
   bool? isVerified;
   bool? isFeatured;
   bool? available;
+  /// false = retiré du catalogue (API `is_available` == false).
+  bool listingAllowed;
   String? status;
   String? rejectionReason;
   int? deviseId; // 1 for FC, 2 for USD
@@ -165,7 +196,8 @@ class PropertyModel {
     this.capacityPeople,
     this.isDecore,
     this.pisteDanse,
-    
+    this.usage,
+
     this.createdStart,
     this.updatedAt,
     this.createdAt,
@@ -184,6 +216,7 @@ class PropertyModel {
     this.isVerified,
     this.isFeatured,
     this.available,
+    this.listingAllowed = true,
     this.status,
     this.rejectionReason,
 
@@ -286,15 +319,24 @@ class PropertyModel {
       districtId: _parseInt(addressNode["districtId"]) ?? _parseInt(dataNode["districtId"]) ?? 0,
       postalCode: _parseString(addressNode["postalCode"]) ?? _parseString(dataNode["postalCode"]),
       quartier: _parseString(addressNode["quartier"]) ?? _parseString(dataNode["quartier"]),
-      sold: _parseBool(dataNode["sold"]),
+      sold: ListingFieldsParse.soldFromMaps([dataNode, container, json]),
       transactionType: _parseString(dataNode["transactionType"]),
       propertyTypeId: _parseInt(typeNode["propertyTypeId"]) ?? _parseInt(dataNode["propertyTypeId"]) ?? inferredTypeId ?? 0,
       
-      propertyType: typeNode.isNotEmpty && typeNode["propertyTypeId"] != null
+      propertyType: (typeNode.isNotEmpty && typeNode["propertyTypeId"] != null)
           ? PropertyTypeModel.fromJson(typeNode)
           : (dataNode["propertyType"] is Map<String, dynamic>
               ? PropertyTypeModel.fromJson(dataNode["propertyType"])
-              : (inferredTypeId != null ? PropertyTypeModel(propertyTypeId: inferredTypeId) : null)),
+              : (inferredTypeId != null 
+                  ? PropertyTypeModel(
+                      propertyTypeId: inferredTypeId, 
+                      name: inferredTypeId == 4 ? 'Bureau' : 
+                            inferredTypeId == 5 ? 'Hôtel' : 
+                            inferredTypeId == 7 ? 'Funéraire' : 
+                            inferredTypeId == 8 ? 'Salle de fête' : 
+                            inferredTypeId == 9 ? 'Terrain' : 
+                            inferredTypeId == 11 ? 'Vacance' : 'Produit') 
+                  : null)),
 
       userId: _parseInt(dataNode["userId"]) ?? 
               _parseInt(json["userId"]) ?? 
@@ -319,6 +361,7 @@ class PropertyModel {
       capacityPeople: _parseInt(_getVal("capacityPeople")),
       isDecore: _parseBool(_getVal("isDecore")) || _parseBool(_getVal("decore")),
       pisteDanse: _parseBool(_getVal("pisteDanse")),
+      usage: _parseString(_getVal("usage")),
 
       // NOUVELLES PROPRIÉTES STATISTIQUES
       viewCount: _parseInt(json["viewCount"]) ?? _parseInt(container["viewCount"]) ?? 0,
@@ -331,7 +374,10 @@ class PropertyModel {
       isActive: _parseBool(dataNode["isActive"]) ?? _parseBool(container["isActive"]) ?? true,
       isVerified: _parseBool(dataNode["isVerified"]) ?? _parseBool(container["isVerified"]) ?? false,
       isFeatured: _parseBool(dataNode["isFeatured"]) ?? _parseBool(container["isFeatured"]) ?? false,
-      available: _parseBool(dataNode["available"]) ?? _parseBool(container["available"]) ?? _parseBool(json["available"]) ?? true,
+      available:
+          ListingFieldsParse.availableFromMaps([dataNode, container, json]) ?? true,
+      listingAllowed:
+          propertyListingAllowedFromJsonLayers(dataNode, container, json),
       status: _parseString(dataNode["status"]) ?? "active",
       rejectionReason: _parseString(dataNode["rejectionReason"]),
       deviseId: _parseInt(dataNode["deviseId"]) ?? _parseInt(json["deviseId"]) ?? _parseInt(json["devise"]?["id"]),
@@ -343,9 +389,9 @@ class PropertyModel {
           : <PropertyFeatureModel>[],
           
       propertyImage: _parseImages(container["propertyImage"] ?? json["propertyImage"] ?? container["images"] ?? json["images"] ?? dataNode["profile"]),
-      propertyImageRoom: _parseRoomImages(container["propertyImageRoom"] ?? json["propertyImageRoom"] ?? (container["images"] is Map ? container["images"] : null)),
-      propertyImageLivingRoom: _parseLivingRoomImages(container["propertyImageLivingRoom"] ?? json["propertyImageLivingRoom"] ?? (container["images"] is Map ? container["images"] : null)),
-      propertyImageKitchen: _parseKitchenImages(container["propertyImageKitchen"] ?? json["propertyImageKitchen"] ?? (container["images"] is Map ? container["images"] : null)),
+      propertyImageRoom: _parseRoomImages(container["propertyImageRoom"] ?? json["propertyImageRoom"] ?? container["images"] ?? json["images"]),
+      propertyImageLivingRoom: _parseLivingRoomImages(container["propertyImageLivingRoom"] ?? json["propertyImageLivingRoom"] ?? container["images"] ?? json["images"]),
+      propertyImageKitchen: _parseKitchenImages(container["propertyImageKitchen"] ?? json["propertyImageKitchen"] ?? container["images"] ?? json["images"]),
     );
   }
 
@@ -402,6 +448,7 @@ class PropertyModel {
     "capacityPeople": capacityPeople,
     "isDecore": isDecore,
     "pisteDanse": pisteDanse,
+    "usage": usage,
 
     // NOUVELLES PROPRIÉTES STATISTIQUES
     "viewCount": viewCount,
@@ -412,9 +459,11 @@ class PropertyModel {
 
     // NOUVELLES PROPRIÉTES MÉTADONNÉES
     "isActive": isActive,
+    "sold": sold,
     "isVerified": isVerified,
     "isFeatured": isFeatured,
     "available": available,
+    "listingAllowed": listingAllowed,
     "status": status,
     "rejectionReason": rejectionReason,
 
@@ -598,6 +647,7 @@ class PropertyModel {
     int? capacityPeople,
     bool? isDecore,
     bool? pisteDanse,
+    String? usage,
     int? viewCount,
     int? favoriteCount,
     bool? isFavorite,
@@ -607,6 +657,7 @@ class PropertyModel {
     bool? isVerified,
     bool? isFeatured,
     bool? available,
+    bool? listingAllowed,
     String? status,
     String? rejectionReason,
     List<PropertyFeatureModel>? features,
@@ -614,11 +665,17 @@ class PropertyModel {
     List<PropertyImageRoomModel>? propertyImageRoom,
     List<PropertyImageLivingRoomModel>? propertyImageLivingRoom,
     List<PropertyImageKitchenModel>? propertyImageKitchen,
+    String? postBy,
+    String? image,
+    int? deviseId,
+    List<HotelRoomStructure>? hotelStructure,
   }) {
     return PropertyModel(
       propertyId: propertyId ?? this.propertyId,
       title: title ?? this.title,
       username: username ?? this.username,
+      postBy: postBy ?? this.postBy,
+      image: image ?? this.image,
       description: description ?? this.description,
       price: price ?? this.price,
       surface: surface ?? this.surface,
@@ -661,7 +718,8 @@ class PropertyModel {
       capacityPeople: capacityPeople ?? this.capacityPeople,
       isDecore: isDecore ?? this.isDecore,
       pisteDanse: pisteDanse ?? this.pisteDanse,
-      
+      usage: usage ?? this.usage,
+
       viewCount: viewCount ?? this.viewCount,
       favoriteCount: favoriteCount ?? this.favoriteCount,
       isFavorite: isFavorite ?? this.isFavorite,
@@ -671,6 +729,7 @@ class PropertyModel {
       isVerified: isVerified ?? this.isVerified,
       isFeatured: isFeatured ?? this.isFeatured,
       available: available ?? this.available,
+      listingAllowed: listingAllowed ?? this.listingAllowed,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
       features: features ?? this.features,
@@ -678,6 +737,8 @@ class PropertyModel {
       propertyImageRoom: propertyImageRoom ?? this.propertyImageRoom,
       propertyImageLivingRoom: propertyImageLivingRoom ?? this.propertyImageLivingRoom,
       propertyImageKitchen: propertyImageKitchen ?? this.propertyImageKitchen,
+      deviseId: deviseId ?? this.deviseId,
+      hotelStructure: hotelStructure ?? this.hotelStructure,
     );
   }
 
@@ -755,12 +816,26 @@ class HotelRoomStructure {
   HotelRoomStructure({this.chambre, this.images});
 
   factory HotelRoomStructure.fromJson(Map<String, dynamic> json) {
-    return HotelRoomStructure(
-      chambre: json["chambre"] != null ? HotelRoomModel.fromJson(json["chambre"]) : null,
-      images: (json["image"] ?? json["images"]) != null 
-          ? ((json["image"] ?? json["images"]) as List).map((i) => PropertyImageModel.fromJson(Map<String, dynamic>.from(i))).toList()
-          : [],
-    );
+    final raw = json["image"] ?? json["images"];
+    List<PropertyImageModel> images = [];
+    if (raw is List) {
+      for (final i in raw) {
+        if (i == null) continue;
+        if (i is String) {
+          images.add(PropertyImageModel(path: i));
+        } else if (i is Map) {
+          images.add(PropertyImageModel.fromJson(Map<String, dynamic>.from(i)));
+        }
+      }
+    }
+    HotelRoomModel? chambre;
+    if (json["chambre"] != null && json["chambre"] is Map) {
+      chambre = HotelRoomModel.fromJson(Map<String, dynamic>.from(json["chambre"] as Map));
+    } else if (json["id"] != null &&
+        (json["hotelId"] != null || json["title"] != null)) {
+      chambre = HotelRoomModel.fromJson(Map<String, dynamic>.from(json));
+    }
+    return HotelRoomStructure(chambre: chambre, images: images);
   }
 
   Map<String, dynamic> toJson() => {

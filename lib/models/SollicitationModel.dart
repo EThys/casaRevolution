@@ -19,6 +19,9 @@ class SollicitationModel {
   UserModel? user;
   PrestationModel? prestation;
 
+  /// Téléphone annonceur / prestataire (`postByTel`) renvoyé par l’API sur création / liste.
+  String? postByTel;
+
   SollicitationModel({
     this.id,
     this.userId,
@@ -32,7 +35,25 @@ class SollicitationModel {
     this.createdAt,
     this.user,
     this.prestation,
+    this.postByTel,
   });
+
+  static String? _parsePostByTel(
+    Map<String, dynamic> json,
+    Map<String, dynamic>? sollicitationData,
+  ) {
+    String? pick(dynamic v) {
+      if (v == null) return null;
+      final s = v.toString().trim();
+      if (s.isEmpty || s == 'null') return null;
+      return s;
+    }
+
+    final prest = json['prestation'];
+    return pick(json['postByTel']) ??
+        pick(sollicitationData?['postByTel']) ??
+        (prest is Map ? pick(prest['postByTel']) : null);
+  }
 
   factory SollicitationModel.fromJson(Map<String, dynamic> json) {
     Map<String, dynamic>? sollicitationData;
@@ -73,5 +94,6 @@ class SollicitationModel {
     "createdAt": createdAt,
     "user": user?.toJson(),
     "prestation": prestation?.toJson(),
+    "postByTel": postByTel,
   };
 }

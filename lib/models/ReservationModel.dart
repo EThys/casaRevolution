@@ -26,6 +26,12 @@ class ReservationModel {
   int? festiveId;
   int? funeraireId;
   int? hotelId;
+  int? chambreId;
+
+  String? userImage;
+
+  /// Téléphone annonceur renvoyé par l’API sur la réponse réservation réussie (`postByTel`).
+  String? postByTel;
 
   ReservationModel({
     this.reservationId,
@@ -46,7 +52,27 @@ class ReservationModel {
     this.festiveId,
     this.funeraireId,
     this.hotelId,
+    this.chambreId,
+    this.userImage,
+    this.postByTel,
   });
+
+  static String? _parsePostByTel(
+    Map<String, dynamic> json,
+    Map<String, dynamic>? reservationData,
+  ) {
+    String? pick(dynamic v) {
+      if (v == null) return null;
+      final s = v.toString().trim();
+      if (s.isEmpty || s == 'null') return null;
+      return s;
+    }
+
+    final prop = json['property'];
+    return pick(json['postByTel']) ??
+        pick(reservationData?['postByTel']) ??
+        (prop is Map ? pick(prop['postByTel']) : null);
+  }
 
   factory ReservationModel.fromJson(Map<String, dynamic> json) {
     // Gérer la structure imbriquée : l'API retourne {"reservation": {...}, "property": {...}}
@@ -94,6 +120,9 @@ class ReservationModel {
       festiveId: reservationData["festiveId"],
       funeraireId: reservationData["funeraireId"],
       hotelId: reservationData["hotelId"],
+      chambreId: reservationData["chambreId"],
+      userImage: json["userImage"]?.toString(),
+      postByTel: _parsePostByTel(json, reservationData),
     );
   }
 
@@ -116,6 +145,8 @@ class ReservationModel {
     "festiveId": festiveId,
     "funeraireId": funeraireId,
     "hotelId": hotelId,
+    "chambreId": chambreId,
+    "postByTel": postByTel,
   };
 
   @override

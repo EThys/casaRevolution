@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'PropertyImageModel.dart';
 import 'PropertyModel.dart';
 import 'UserModel.dart';
 import 'PrestationModel.dart';
@@ -46,13 +47,18 @@ class PropertyFavoriteModel {
     // Extraire l'ID de la propriété si non direct
     int? pId = json["propertyId"] ?? json["PropertyId"] ?? parsedProperty?.propertyId;
     if (pId == null && favoriteObj != null) {
-      pId = _parseInt(favoriteObj["propertyId"]) ?? 
-            _parseInt(favoriteObj["hotelId"]) ?? 
-            _parseInt(favoriteObj["funeraireId"]) ?? 
-            _parseInt(favoriteObj["festId"]) ?? 
-            _parseInt(favoriteObj["bureauId"]) ?? 
-            _parseInt(favoriteObj["terrainId"]) ?? 
+      pId = _parseInt(favoriteObj["propertyId"]) ??
+            _parseInt(favoriteObj["hotelId"]) ??
+            _parseInt(favoriteObj["funeraireId"]) ??
+            _parseInt(favoriteObj["festiveId"]) ??
+            _parseInt(favoriteObj["festId"]) ??
+            _parseInt(favoriteObj["bureauId"]) ??
+            _parseInt(favoriteObj["terrainId"]) ??
             _parseInt(favoriteObj["prestationId"]);
+    }
+
+    if (parsedProperty != null) {
+      parsedProperty = _mergeFavoriteRootImages(parsedProperty, json);
     }
 
     return PropertyFavoriteModel(
@@ -63,6 +69,45 @@ class PropertyFavoriteModel {
       property: parsedProperty,
       prestation: parsedPrestation,
     );
+  }
+
+  /// Favoris API : images des types spéciaux sont **à la racine** (`bureauImage`, `terrainImage`,
+  /// `festiveImage`, `funeraireImage`), pas dans l’objet `bureau` / `salle` / `terrain`.
+  static PropertyModel _mergeFavoriteRootImages(
+    PropertyModel property,
+    Map<String, dynamic> json,
+  ) {
+    final sidecar = _favoriteSidecarImageList(json);
+    if (sidecar.isEmpty) return property;
+    final existing = property.propertyImage ?? [];
+    return property.copyWith(propertyImage: [...sidecar, ...existing]);
+  }
+
+  static List<PropertyImageModel> _favoriteSidecarImageList(
+    Map<String, dynamic> json,
+  ) {
+    const keys = <String>[
+      'bureauImage',
+      'terrainImage',
+      'festiveImage',
+      'funeraireImage',
+    ];
+    final out = <PropertyImageModel>[];
+    for (final key in keys) {
+      final v = json[key];
+      if (v is! List) continue;
+      for (final x in v) {
+        if (x is! Map) continue;
+        final m = Map<String, dynamic>.from(x);
+        out.add(PropertyImageModel(
+          propertyImageId:
+              _parseInt(m['propertyImageId']) ?? _parseInt(m['id']),
+          name: m['name']?.toString(),
+          path: m['path']?.toString() ?? m['publicPath']?.toString(),
+        ));
+      }
+    }
+    return out;
   }
 
   static int? _parseInt(dynamic value) {

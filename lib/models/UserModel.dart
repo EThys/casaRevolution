@@ -54,7 +54,14 @@ class UserModel {
         phone: _safeParseString(source["phone"] ?? source["telephone"] ?? json["phone"] ?? json["telephone"]),
         city: _safeParseString(source["city"] ?? json["city"]),
         country: _safeParseString(source["country"] ?? json["country"]),
-        isPremium: _safeParseBool(source["isPremium"] ?? json["isPremium"]),
+        isPremium: _parsePremium(
+          source["isPremium"] ??
+              source["premium"] ??
+              source["is_premium"] ??
+              json["isPremium"] ??
+              json["premium"] ??
+              json["is_premium"],
+        ),
         isCertified: _safeParseBool(source["isCertified"] ?? source["certified"] ?? json["isCertified"] ?? json["certified"]),
         cityModel: _safeParseCityModel(source["cityModel"] ?? json["cityModel"]),
         createdStart: _safeParseString(json["createdStart"] ?? json["createdAt"]),
@@ -92,6 +99,12 @@ class UserModel {
     }
     if (value is int) return value == 1;
     return false;
+  }
+
+  /// Premium : BD/API souvent `is_premium` ; `null` si absent (ne pas forcer false).
+  static bool? _parsePremium(dynamic value) {
+    if (value == null) return null;
+    return _safeParseBool(value);
   }
 
   static TypeAccountModel? _safeParseTypeAccount(dynamic value) {
@@ -135,6 +148,8 @@ class UserModel {
     "city": city,
     "country": country,
     "isPremium": isPremium,
+    "premium": isPremium,
+    "is_premium": isPremium,
     "isCertified": isCertified,
     "cityModel": cityModel?.toJson(),
     "createdStart": createdStart,

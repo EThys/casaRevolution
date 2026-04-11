@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'PropertyModel.dart';
+import '../utils/listing_fields_parse.dart';
+
 TerrainModel terrainModelFromJson(String str) => TerrainModel.fromJson(json.decode(str));
 
 String terrainModelToJson(TerrainModel data) => json.encode(data.toJson());
@@ -28,7 +31,12 @@ class TerrainModel {
     });
 
     factory TerrainModel.fromJson(Map<String, dynamic> json) => TerrainModel(
-        terrain: json["terrain"] == null ? null : TerrainData.fromJson(json["terrain"]),
+        terrain: json["terrain"] == null
+            ? null
+            : TerrainData.fromJson(
+                Map<String, dynamic>.from(json["terrain"] as Map),
+                root: json,
+              ),
         devise: json["devise"] == null ? null : Devise.fromJson(json["devise"]),
         postBy: json["postBy"],
         address: json["address"] == null ? null : Address.fromJson(json["address"]),
@@ -38,6 +46,86 @@ class TerrainModel {
         typeProperty: json["typeProperty"] == null ? null : TypeProperty.fromJson(json["typeProperty"]),
         publisherImage: json["image"],
     );
+
+  static String? _publisherDisplayName(PropertyModel p) {
+    String? clean(String? s) {
+      if (s == null) return null;
+      final t = s.trim();
+      if (t.isEmpty) return null;
+      return t.replaceAll('@', '').trim();
+    }
+
+    return clean(p.postBy) ??
+        clean(p.username) ??
+        clean(p.user?.fullName) ??
+        clean(p.user?.username) ??
+        clean(p.user?.email);
+  }
+
+  static String? _publisherPhoto(PropertyModel p) {
+    final top = p.image?.trim();
+    if (top != null && top.isNotEmpty) return top;
+    final pp = p.user?.profilePicture?.trim();
+    if (pp != null && pp.isNotEmpty) return pp;
+    return null;
+  }
+
+  static String? _publishedAt(PropertyModel p) {
+    String? u(String? s) {
+      if (s == null) return null;
+      final t = s.trim();
+      return t.isEmpty ? null : t;
+    }
+
+    return u(p.createdAt) ?? u(p.createdStart) ?? u(p.updatedAt);
+  }
+
+  /// Pont recherche / listes unifiées → écran détail terrain (puis rechargement API).
+  factory TerrainModel.fromPropertyListing(PropertyModel p) {
+    String? surfaceStr;
+    final s = p.surface;
+    if (s != null) {
+      surfaceStr = s == s.roundToDouble() ? '${s.toInt()}' : s.toString();
+    }
+
+    String? deviseCode;
+    if (p.deviseId == 1) {
+      deviseCode = 'CDF';
+    } else if (p.deviseId == 2) {
+      deviseCode = 'USD';
+    }
+
+    return TerrainModel(
+      terrain: TerrainData(
+        id: p.propertyId,
+        userId: p.userId,
+        title: p.title,
+        description: p.description,
+        price: p.price,
+        surface: surfaceStr,
+        transactionType: p.transactionType,
+        isAvailable: p.available,
+        sold: p.sold,
+        createdAt: _publishedAt(p),
+      ),
+      devise: deviseCode != null ? Devise(id: p.deviseId, code: deviseCode) : null,
+      postBy: _publisherDisplayName(p),
+      publisherImage: _publisherPhoto(p),
+      address: Address(
+        address: p.address,
+        communeValue: p.communeValue,
+        quartierValue: p.quartierValue,
+        cityValue: p.cityValue,
+        countryValue: p.countryValue,
+        postalCode: p.postalCode,
+      ),
+      images: p.allImageUrls.map((path) => TerrainImage(path: path)).toList(),
+      typeProperty: TypeProperty(
+        propertyTypeId: p.propertyTypeId ?? p.propertyType?.propertyTypeId,
+        name: p.propertyType?.name,
+      ),
+    );
+  }
 
     Map<String, dynamic> toJson() => {
         "terrain": terrain?.toJson(),
@@ -52,6 +140,17 @@ class TerrainModel {
     };
 }
 
+bool? _parseTerrainSold(dynamic v) {
+  if (v == null) return null;
+  if (v is bool) return v;
+  if (v is num) return v != 0;
+  if (v is String) {
+    final s = v.toLowerCase().trim();
+    return s == '1' || s == 'true' || s == 'yes';
+  }
+  return null;
+}
+
 class TerrainData {
     final int? id;
     final int? userId;
@@ -61,6 +160,7 @@ class TerrainData {
     final String? surface;
     final String? transactionType;
     final bool? isAvailable;
+    final bool? sold;
     final String? createdAt;
 
     TerrainData({
@@ -72,10 +172,14 @@ class TerrainData {
         this.surface,
         this.transactionType,
         this.isAvailable,
+        this.sold,
         this.createdAt,
     });
 
-    factory TerrainData.fromJson(Map<String, dynamic> json) => TerrainData(
+    factory TerrainData.fromJson(Map<String, dynamic> json, {Map<String, dynamic>? root}) {
+      final maps = <Map<String, dynamic>>[json];
+      if (root != null) maps.add(root);
+      return TerrainData(
         id: json["id"],
         userId: json["userId"],
         title: json["title"],
@@ -83,9 +187,14 @@ class TerrainData {
         price: (json["price"] as num?)?.toDouble(),
         surface: json["surface"],
         transactionType: json["transactionType"],
-        isAvailable: json["available"] ?? json["isAvailable"],
+        isAvailable: ListingFieldsParse.availableFromMaps(maps) ??
+            _parseTerrainSold(json["available"]) ??
+            _parseTerrainSold(json["isAvailable"]) ??
+            _parseTerrainSold(json["is_available"]),
+        sold: ListingFieldsParse.soldFromMaps(maps) ?? _parseTerrainSold(json["sold"]),
         createdAt: json["createdAt"],
-    );
+      );
+    }
 
     Map<String, dynamic> toJson() => {
         "id": id,
@@ -96,6 +205,7 @@ class TerrainData {
         "surface": surface,
         "transactionType": transactionType,
         "available": isAvailable,
+        "sold": sold,
         "createdAt": createdAt,
     };
 }
