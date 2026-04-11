@@ -5,7 +5,9 @@ import 'package:casa/utils/TerrainDatabaseHelper.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart';
-import '../models/PropertyModel.dart';
+import '../models/PropertyModel.dart'
+    show PropertyModel, HotelRoomStructure, propertyListingAllowedFromJsonLayers;
+import '../models/TerrainModel.dart';
 import '../models/PropertyTypeModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
@@ -14,6 +16,8 @@ import '../utils/requetes.dart' show getData, postData, patchData, deleteData, p
 import '../models/DeviseModel.dart';
 import '../models/PropertyImageModel.dart';
 import '../models/PropertyFeatureModel.dart';
+import '../utils/property_snapshot_merge.dart';
+import '../utils/listing_fields_parse.dart';
 
 class PropertyController with ChangeNotifier {
   PropertyController({this.stockage});
@@ -35,6 +39,7 @@ class PropertyController with ChangeNotifier {
   List<PropertyModel> bureaux = [];
   List<PropertyModel> festives = [];
   List<PropertyModel> funeraires = [];
+  List<PropertyModel> vacances = [];
   List<PropertyModel> hotels = [];
   List<Map<String, dynamic>> terrains = [];       // données brutes (pour usage interne)
   List<PropertyModel> terrainProperties = [];     // terrains convertis en PropertyModel
@@ -43,12 +48,47 @@ class PropertyController with ChangeNotifier {
   int currentPage = 0;
   bool hasMoreData = true;
 
+  /// Exclut les annonces retirées (`is_available` == false côté API).
+  List<PropertyModel> _listedOnly(List<PropertyModel> list) =>
+      list.where((p) => p.listingAllowed).toList();
+
   /// Toutes les propriétés combinées (standard + bureaux + festives + funéraires + terrains).
   /// En mode filtré, on retourne uniquement la liste 'properties' qui contient les résultats unifiés.
   List<PropertyModel> get allProperties {
-    if (isFiltered) return properties;
-    return [...properties, ...bureaux, ...festives, ...funeraires, ...terrainProperties, ...hotels];
+    if (isFiltered) return _listedOnly(properties);
+    return [
+      ..._listedOnly(properties),
+      ..._listedOnly(bureaux),
+      ..._listedOnly(festives),
+      ..._listedOnly(funeraires),
+      ..._listedOnly(vacances),
+      ..._listedOnly(terrainProperties),
+      ..._listedOnly(hotels),
+    ];
   }
+
+  static bool? _parseBoolLoose(dynamic v) {
+    if (v == null) return null;
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    if (v is String) {
+      final s = v.toLowerCase().trim();
+      if (s == 'true' || s == '1' || s == 'yes') return true;
+      if (s == 'false' || s == '0' || s == 'no') return false;
+    }
+    return null;
+  }
+
+  /// Complète [sold] quand l’API envoie le flag dans une enveloppe (`funeraire`, `property`, etc.).
+  void _mergeSoldFromRaw(PropertyModel p, dynamic raw) {
+    if (raw is! Map) return;
+    final inferred =
+        ListingFieldsParse.soldFromListingRaw(Map<String, dynamic>.from(raw));
+    p.sold = ListingFieldsParse.mergeSold(p.sold, inferred) ?? p.sold;
+  }
+
+  Map<String, dynamic> _ownerPutBody(Map<String, dynamic> body) =>
+      ListingFieldsParse.deepOmitNull(body) as Map<String, dynamic>;
 
   /// Convertit un Map terrain (format API/DB) en PropertyModel pour l'affichage uniforme
   PropertyModel _terrainToPropertyModel(Map<String, dynamic> t) {
@@ -66,6 +106,26 @@ class PropertyController with ChangeNotifier {
     if (surfaceRaw is num)   surface = surfaceRaw.toDouble();
     if (surfaceRaw is String) surface = double.tryParse(surfaceRaw);
 
+    // Ne pas passer `false` quand l’API omet les champs (sinon badge « Non disponible » à tort).
+    bool? listingAvail;
+    if (terrainData['available'] == false ||
+        terrainData['isAvailable'] == false ||
+        terrainData['is_available'] == false) {
+      listingAvail = false;
+    } else if (terrainData['available'] == true ||
+        terrainData['isAvailable'] == true ||
+        terrainData['is_available'] == true) {
+      listingAvail = true;
+    }
+
+    final isActive = _parseBoolLoose(terrainData['isActive']) ??
+        _parseBoolLoose(terrainData['is_active']) ??
+        true;
+    final td = Map<String, dynamic>.from(terrainData);
+    final root = Map<String, dynamic>.from(t);
+    final sold = ListingFieldsParse.soldFromMaps([td, root]);
+    final availFromJson = ListingFieldsParse.availableFromMaps([td, root]);
+
     return PropertyModel(
       propertyId:      terrainData['id'] as int?,
       title:           terrainData['title'] as String?,
@@ -73,7 +133,10 @@ class PropertyController with ChangeNotifier {
       price:           (terrainData['price'] as num?)?.toDouble(),
       surface:         surface,
       transactionType: terrainData['transactionType'] as String?,
-      available:       terrainData['available'] == false || terrainData['isAvailable'] == false,
+      sold:            sold,
+      isActive:        isActive,
+      available:       availFromJson ?? listingAvail,
+      listingAllowed:  propertyListingAllowedFromJsonLayers(terrainData, t, t),
       cityValue:       address['cityValue'] as String?,
       communeValue:    address['communeValue'] as String?,
       address:         address['address'] as String?,
@@ -142,7 +205,9 @@ class PropertyController with ChangeNotifier {
               .where((e) => e != null)
               .map<PropertyModel>((e) {
             try {
-              return PropertyModel.fromJson(e);
+              final p = PropertyModel.fromJson(e);
+              _mergeSoldFromRaw(p, e);
+              return p;
             } catch (e) {
               print("Erreur lors du parsing d'une propriété: $e");
               return PropertyModel();
@@ -251,7 +316,8 @@ class PropertyController with ChangeNotifier {
         _syncSpecialCategory(Endpoints.propertyBureaux, DatabaseHelper.tableBureaux, (list) => bureaux = list),
         _syncSpecialCategory(Endpoints.propertyFestives, DatabaseHelper.tableFestives, (list) => festives = list),
         _syncSpecialCategory(Endpoints.propertyFuneraires, DatabaseHelper.tableFuneraires, (list) => funeraires = list),
-        _syncSpecialCategory(Endpoints.propertyHotels, DatabaseHelper.tableHotels, (list) => hotels = list),
+        _syncSpecialCategory(Endpoints.propertyVacances, DatabaseHelper.tableVacances, (list) => vacances = list),
+        _syncSpecialCategory(Endpoints.propertyHotelsPublic, DatabaseHelper.tableHotels, (list) => hotels = list),
         _syncTerrainCategory(),
       ]).then((_) {
         print("🎯 Synchronisation des catégories spéciales terminée");
@@ -272,6 +338,7 @@ class PropertyController with ChangeNotifier {
     bureaux = await db.getFromCategory(DatabaseHelper.tableBureaux);
     festives = await db.getFromCategory(DatabaseHelper.tableFestives);
     funeraires = await db.getFromCategory(DatabaseHelper.tableFuneraires);
+    vacances = await db.getFromCategory(DatabaseHelper.tableVacances);
     hotels = await db.getFromCategory(DatabaseHelper.tableHotels);
     
     // Load terrains from TerrainDatabaseHelper
@@ -287,6 +354,7 @@ class PropertyController with ChangeNotifier {
         if (response.containsKey('bureaux')) rawData = response['bureaux'];
         else if (response.containsKey('festives')) rawData = response['festives'];
         else if (response.containsKey('funeraires')) rawData = response['funeraires'];
+        else if (response.containsKey('vacances')) rawData = response['vacances'];
         else if (response.containsKey('hotels')) rawData = response['hotels'];
         else rawData = response['data'];
 
@@ -297,7 +365,8 @@ class PropertyController with ChangeNotifier {
           for (var e in rawData) {
             try {
               final p = PropertyModel.fromJson(e);
-              
+              _mergeSoldFromRaw(p, e);
+
               if (tableName == DatabaseHelper.tableBureaux) {
                  p.propertyTypeId = 4;
                  p.propertyType = PropertyTypeModel(propertyTypeId: 4, name: 'Bureau');
@@ -307,6 +376,9 @@ class PropertyController with ChangeNotifier {
               } else if (tableName == DatabaseHelper.tableFuneraires) {
                  p.propertyTypeId = 7;
                  p.propertyType = PropertyTypeModel(propertyTypeId: 7, name: 'Funéraire');
+              } else if (tableName == DatabaseHelper.tableVacances) {
+                 p.propertyTypeId = 10; // Assigning 10 for Vacance if not already defined
+                 p.propertyType = PropertyTypeModel(propertyTypeId: 10, name: 'Vacance');
               } else if (tableName == DatabaseHelper.tableHotels) {
                  p.propertyTypeId = 5;
                  p.propertyType = PropertyTypeModel(propertyTypeId: 5, name: 'Hôtel');
@@ -425,6 +497,22 @@ class PropertyController with ChangeNotifier {
     }
   }
 
+  /// Détail terrain à jour (sold / disponible) pour [TerrainDetailPage].
+  Future<TerrainModel?> fetchTerrainById(int terrainId) async {
+    try {
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final response = await getData('${Endpoints.propertyTerrains}/$terrainId', token: tkn);
+      if (response is! Map<String, dynamic>) return null;
+      if (response['terrain'] is Map<String, dynamic>) {
+        return TerrainModel.fromJson(response);
+      }
+      return TerrainModel.fromJson({'terrain': response});
+    } catch (e) {
+      print('⚠️ [PropertyCtrl] fetchTerrainById: $e');
+      return null;
+    }
+  }
+
   Future<bool> _detectTypeChanges(List<Map<String, dynamic>> local, List<Map<String, dynamic>> online) async {
     if (local.length != online.length) return true;
     for (int i = 0; i < online.length; i++) {
@@ -473,7 +561,9 @@ class PropertyController with ChangeNotifier {
               .where((e) => e != null)
               .map<PropertyModel>((e) {
             try {
-              return PropertyModel.fromJson(e);
+              final p = PropertyModel.fromJson(e);
+              _mergeSoldFromRaw(p, e);
+              return p;
             } catch (e) {
               return PropertyModel();
             }
@@ -715,14 +805,213 @@ class PropertyController with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<PropertyModel?> getPropertyById(int propertyId) async {
+  /// Recherche un [PropertyModel] déjà présent en mémoire ou en SQLite (toutes catégories).
+  Future<PropertyModel?> findCachedPropertySnapshot(int propertyId, {int? typeId}) async {
+    bool typeMatches(PropertyModel p) {
+      if (typeId == null) return true;
+      final tid = p.propertyTypeId;
+      if (tid == null) return true;
+      return tid == typeId;
+    }
+
+    PropertyModel? firstWithId(List<PropertyModel> list, {bool strictType = true}) {
+      for (final p in list) {
+        if (p.propertyId == propertyId && (!strictType || typeMatches(p))) {
+          return p;
+        }
+      }
+      return null;
+    }
+
+    final pools = <List<PropertyModel>>[
+      properties,
+      bureaux,
+      festives,
+      funeraires,
+      vacances,
+      hotels,
+      terrainProperties,
+    ];
+    for (final pool in pools) {
+      final hit = firstWithId(pool, strictType: true);
+      if (hit != null) return hit;
+    }
+    for (final pool in pools) {
+      final hit = firstWithId(pool, strictType: false);
+      if (hit != null) return hit;
+    }
+
+    final db = DatabaseHelper.instance;
+    final main = await db.getPropertyById(propertyId);
+    if (main != null) return main;
+
+    const categoryTables = [
+      DatabaseHelper.tableBureaux,
+      DatabaseHelper.tableFestives,
+      DatabaseHelper.tableFuneraires,
+      DatabaseHelper.tableVacances,
+      DatabaseHelper.tableHotels,
+    ];
+    for (final table in categoryTables) {
+      final rows = await db.getFromCategory(table);
+      final hit = firstWithId(rows, strictType: true) ?? firstWithId(rows, strictType: false);
+      if (hit != null) return hit;
+    }
+    return null;
+  }
+
+  Future<PropertyModel> enrichPropertySnapshot(PropertyModel partial) async {
+    final id = partial.propertyId;
+    if (id == null) return partial;
+    final snap = await findCachedPropertySnapshot(id, typeId: partial.propertyTypeId);
+    return PropertySnapshotMerge.mergeFillMissing(partial, snap);
+  }
+
+  /// Hôtels : pas de `GET /property/{id}` — catalogue [Endpoints.propertyHotelsPublic] puis détail chambre optionnel.
+  Future<PropertyModel?> _fetchHotelFromPublicCatalog(int hotelId,
+      {PropertyModel? mergeWith}) async {
+    try {
+      final response = await getData(Endpoints.propertyHotelsPublic);
+      if (response == null || response is! Map<String, dynamic>) return null;
+      final data = response['data'];
+      if (data is! List) return null;
+
+      Map<String, dynamic>? match;
+      for (final item in data) {
+        if (item is! Map) continue;
+        final hotel = item['hotel'];
+        if (hotel is! Map) continue;
+        final id = hotel['id'];
+        final same = id == hotelId ||
+            id.toString() == hotelId.toString();
+        if (same) {
+          match = Map<String, dynamic>.from(item);
+          break;
+        }
+      }
+      if (match == null) return null;
+
+      PropertyModel property = PropertyModel.fromJson(match);
+      if (mergeWith != null &&
+          mergeWith.propertyId != null &&
+          property.propertyId == mergeWith.propertyId) {
+        property = PropertySnapshotMerge.mergeFillMissing(mergeWith, property);
+      }
+
+      final structures = property.hotelStructure;
+      if (structures != null && structures.isNotEmpty) {
+        final List<HotelRoomStructure> updated = [];
+        for (final struct in structures) {
+          final cid = struct.chambre?.id;
+          if (cid == null) {
+            updated.add(struct);
+            continue;
+          }
+          try {
+            final chResp =
+                await getData("${Endpoints.propertyHotelRoomsPublic}/$cid");
+            if (chResp is Map<String, dynamic> && chResp['data'] is List) {
+              final arr = chResp['data'] as List;
+              if (arr.isNotEmpty && arr.first is Map) {
+                final enriched = HotelRoomStructure.fromJson(
+                  Map<String, dynamic>.from(arr.first as Map),
+                );
+                final catalogImgs = struct.images;
+                final apiImgs = enriched.images;
+                final mergedImages = (apiImgs != null && apiImgs.isNotEmpty)
+                    ? apiImgs
+                    : (catalogImgs ?? []);
+                updated.add(
+                  HotelRoomStructure(
+                    chambre: enriched.chambre ?? struct.chambre,
+                    images: mergedImages,
+                  ),
+                );
+                continue;
+              }
+            }
+          } catch (e) {
+            print('⚠️ Détail chambre $cid: $e');
+          }
+          updated.add(struct);
+        }
+        property = property.copyWith(hotelStructure: updated);
+      }
+
+      currentProperty = property;
+      final db = DatabaseHelper.instance;
+      await db.insertOrUpdateProperty(property);
+      await db.insertOrUpdateInCategory(DatabaseHelper.tableHotels, property);
+      return property;
+    } catch (e) {
+      print('❌ _fetchHotelFromPublicCatalog: $e');
+      return null;
+    }
+  }
+
+  Future<PropertyModel?> getPropertyById(int propertyId,
+      {int? propertyTypeId, PropertyModel? mergeWith}) async {
     loading = true;
     notifyListeners();
 
     try {
-      // Essayer d'abord de récupérer depuis l'API
-      var url = "${Endpoints.properties}/$propertyId";
-      var response = await getData(url);
+      var skipGenericPropertyGet = false;
+      if (propertyTypeId == 5) {
+        final hotel = await _fetchHotelFromPublicCatalog(propertyId,
+            mergeWith: mergeWith);
+        if (hotel != null) {
+          loading = false;
+          notifyListeners();
+          return hotel;
+        }
+        skipGenericPropertyGet = true;
+      }
+
+      dynamic response;
+      if (!skipGenericPropertyGet) {
+        // Déterminer l'URL appropriée selon le type si connu
+        String urlBase = Endpoints.properties;
+        if (propertyTypeId != null) {
+          if (propertyTypeId == 4) urlBase = Endpoints.propertyBureaux;
+          else if (propertyTypeId == 5) urlBase = Endpoints.properties;
+          else if (propertyTypeId == 7) urlBase = Endpoints.propertyFuneraires;
+          else if (propertyTypeId == 8) urlBase = Endpoints.propertyFestives;
+          else if (propertyTypeId == 9) urlBase = Endpoints.propertyTerrains;
+          else if (propertyTypeId == 11) urlBase = Endpoints.propertyVacances;
+        }
+
+        final url = "$urlBase/$propertyId";
+        response = await getData(url);
+      } else {
+        response = null;
+      }
+
+      // Si 404 sur le premier essai et qu'on n'avait pas de type, tenter les spécialisés
+      if (response == null && propertyTypeId == null) {
+         // Liste ordonnée des endpoints probables pour un ID donné
+         final fallbacks = [
+            Endpoints.propertyBureaux,
+            Endpoints.propertyFestives,
+            Endpoints.propertyFuneraires,
+            Endpoints.propertyVacances,
+            Endpoints.propertyTerrains,
+            Endpoints.propertyHotelsPublic,
+         ];
+         for (var fb in fallbacks) {
+            if (fb == Endpoints.propertyHotelsPublic) {
+              final hotel = await _fetchHotelFromPublicCatalog(propertyId,
+                  mergeWith: mergeWith);
+              if (hotel != null) {
+                loading = false;
+                notifyListeners();
+                return hotel;
+              }
+              continue;
+            }
+            response = await getData("$fb/$propertyId");
+            if (response != null) break;
+         }
+      }
 
       if (response != null) {
         // Nouvelle structure: { properties: {...}, similaires: [...] }
@@ -734,7 +1023,20 @@ class PropertyController with ChangeNotifier {
             propertyJson = response['properties'];
           } else if (response['data'] != null) {
             propertyJson = response['data'];
+          } else if (response['bureau'] != null) {
+            propertyJson = response['bureau'];
+          } else if (response['festive'] != null) {
+            propertyJson = response['festive'];
+          } else if (response['funeraire'] != null) {
+            propertyJson = response['funeraire'];
+          } else if (response['hotel'] != null) {
+            propertyJson = response;
+          } else if (response['terrain'] != null) {
+            propertyJson = response['terrain'];
+          } else if (response['vacance'] != null) {
+            propertyJson = response['vacance'];
           }
+          
           if (response['similaires'] != null) {
             similarJson = response['similaires'];
           }
@@ -742,6 +1044,15 @@ class PropertyController with ChangeNotifier {
 
         if (propertyJson != null) {
           PropertyModel property = PropertyModel.fromJson(Map<String, dynamic>.from(propertyJson));
+          _mergeSoldFromRaw(property, propertyJson);
+          if (response is Map<String, dynamic>) {
+            _mergeSoldFromRaw(property, response);
+          }
+          if (mergeWith != null &&
+              mergeWith.propertyId != null &&
+              property.propertyId == mergeWith.propertyId) {
+            property = PropertySnapshotMerge.mergeFillMissing(mergeWith, property);
+          }
           currentProperty = property;
 
           // Similar properties
@@ -750,7 +1061,9 @@ class PropertyController with ChangeNotifier {
                 .where((e) => e != null)
                 .map<PropertyModel>((e) {
                   try {
-                    return PropertyModel.fromJson(Map<String, dynamic>.from(e));
+                    final sp = PropertyModel.fromJson(Map<String, dynamic>.from(e));
+                    _mergeSoldFromRaw(sp, e);
+                    return sp;
                   } catch (_) {
                     return PropertyModel();
                   }
@@ -780,11 +1093,33 @@ class PropertyController with ChangeNotifier {
     final cachedProperty = await db.getPropertyById(propertyId);
 
     if (cachedProperty != null) {
-      currentProperty = cachedProperty;
+      PropertyModel out = cachedProperty;
+      if (mergeWith != null &&
+          mergeWith.propertyId != null &&
+          cachedProperty.propertyId == mergeWith.propertyId) {
+        out = PropertySnapshotMerge.mergeFillMissing(mergeWith, cachedProperty);
+      }
+      currentProperty = out;
       similarProperties = [];
       loading = false;
       notifyListeners();
-      return cachedProperty;
+      return out;
+    }
+
+    final hotelRow =
+        await db.getCategoryPropertyById(DatabaseHelper.tableHotels, propertyId);
+    if (hotelRow != null) {
+      PropertyModel out = hotelRow;
+      if (mergeWith != null &&
+          mergeWith.propertyId != null &&
+          hotelRow.propertyId == mergeWith.propertyId) {
+        out = PropertySnapshotMerge.mergeFillMissing(mergeWith, hotelRow);
+      }
+      currentProperty = out;
+      similarProperties = [];
+      loading = false;
+      notifyListeners();
+      return out;
     }
 
     loading = false;
@@ -910,7 +1245,7 @@ class PropertyController with ChangeNotifier {
       print("🚀 Envoi de la requête createBureau...");
       print("📊 Données envoyées: ${bureauData.keys.toList()}");
 
-      final url = Endpoints.propertyBureaux;
+      final url = Endpoints.storeBureau;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
       HttpResponse response = await postData(url, bureauData, token: tkn);
@@ -940,6 +1275,42 @@ class PropertyController with ChangeNotifier {
     }
   }
 
+  /// Création hôtel (`POST` [Endpoints.propertyHotels]) — aligné dashboard `hotels/new`.
+  Future<HttpResponse> createHotel(Map<String, dynamic> hotelData) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      print("🚀 Envoi de la requête createHotel...");
+      print("📊 Données envoyées: ${hotelData.keys.toList()}");
+
+      final url = Endpoints.propertyHotels;
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+
+      HttpResponse response = await postData(url, hotelData, token: tkn);
+
+      print("📊 Réponse createHotel - Status: ${response.status}, Error: ${response.errorMsg}");
+
+      if (response.status == true && response.data is Map) {
+        print("✅ Hôtel créé");
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      print("❌ Erreur critique dans createHotel: $e");
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: "Erreur lors de la création de l'hôtel: ${e.toString()}",
+        isException: true,
+        data: {'error': e.toString()},
+      );
+    }
+  }
+
   Future<HttpResponse> createFuneraire(Map<String, dynamic> funeraireData) async {
     try {
       loading = true;
@@ -948,7 +1319,7 @@ class PropertyController with ChangeNotifier {
       print("⚰️ Envoi de la requête createFuneraire...");
       print("📊 Données envoyées: ${funeraireData.keys.toList()}");
 
-      final url = Endpoints.propertyFuneraires; 
+      final url = Endpoints.storeFuneraire; 
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
       HttpResponse response = await postData(url, funeraireData, token: tkn);
@@ -984,7 +1355,7 @@ class PropertyController with ChangeNotifier {
       print("🚀 Envoi de la requête createFestive...");
       print("📊 Données envoyées: ${festiveData.keys.toList()}");
 
-      final url = Endpoints.propertyFestives;
+      final url = Endpoints.storeFestive;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
       HttpResponse response = await postData(url, festiveData, token: tkn);
@@ -1020,7 +1391,7 @@ class PropertyController with ChangeNotifier {
       print("🚀 Envoi de la requête createVacance...");
       print("📊 Données envoyées: ${vacancesData.keys.toList()}");
 
-      final url = Endpoints.propertyVacances;
+      final url = Endpoints.storeVacance;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
       HttpResponse response = await postData(url, vacancesData, token: tkn);
@@ -1056,7 +1427,7 @@ class PropertyController with ChangeNotifier {
       print("🚀 Envoi de la requête createTerrain...");
       print("📊 Données envoyées: ${terrainData.keys.toList()}");
 
-      final url = Endpoints.propertyTerrains;
+      final url = Endpoints.storeTerrain;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
 
       HttpResponse response = await postData(url, terrainData, token: tkn);
@@ -1084,6 +1455,45 @@ class PropertyController with ChangeNotifier {
     }
   }
 
+  /// Synchronise le flag `sold` via l’endpoint protégé adapté au type (standard, terrain, bureau, festive, funéraire).
+  Future<HttpResponse> syncPropertySoldFlag(int propertyId, int propertyTypeId, {required bool sold}) async {
+    try {
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final String base;
+      switch (propertyTypeId) {
+        case 9:
+          base = Endpoints.soldTerrain;
+          break;
+        case 4:
+          base = Endpoints.soldBureau;
+          break;
+        case 8:
+          base = Endpoints.soldFestive;
+          break;
+        case 7:
+          base = Endpoints.soldFuneraire;
+          break;
+        case 6:
+        case 10:
+        case 11:
+          base = Endpoints.soldVacance;
+          break;
+        default:
+          base = Endpoints.soldProperty;
+          break;
+      }
+      final url = '$base$propertyId';
+      print('📌 [PropertyCtrl] syncPropertySoldFlag PUT $url sold=$sold');
+      return await putData(url, {'sold': sold}, token: tkn);
+    } catch (e) {
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
+
   // Nouvelle méthode pour mettre à jour une propriété par owner
   Future<HttpResponse> updatePropertyByOwner(int userId, int propertyId, Map<String, dynamic> propertyData) async {
     try {
@@ -1096,7 +1506,11 @@ class PropertyController with ChangeNotifier {
       print("🔄 Mise à jour propriété: $url");
       print("📤 PAYLOAD COMPLET: ${jsonEncode(propertyData)}");
 
-      HttpResponse response = await putData(url, propertyData, token: tkn);
+      HttpResponse response = await putData(
+        url,
+        _ownerPutBody(propertyData),
+        token: tkn,
+      );
 
       if (response.status && response.data != null) {
         // Mettre à jour la propriété dans la liste locale
@@ -1129,6 +1543,170 @@ class PropertyController with ChangeNotifier {
         errorMsg: "Erreur lors de la mise à jour: ${e.toString()}",
         isException: true,
       );
+    }
+  }
+
+  /// PUT salles festives — même enveloppe que la création (`festive`, `images`, `features`).
+  /// URL API : `/api/{version}/protected/property/festives/owner/{festiveId}` (sans userId dans le chemin).
+  Future<HttpResponse> updateFestiveByOwner(int userId, int festiveId, Map<String, dynamic> body) async {
+    try {
+      loading = true;
+      notifyListeners();
+      final url = '${Endpoints.updateFestiveOwner}$festiveId';
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      print('🔄 Mise à jour festive: $url');
+      final response = await putData(url, _ownerPutBody(body), token: tkn);
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
+
+  /// PUT salles funéraires — `/protected/property/funeraires/owner/{funeraireId}`.
+  Future<HttpResponse> updateFuneraireByOwner(int userId, int funeraireId, Map<String, dynamic> body) async {
+    try {
+      loading = true;
+      notifyListeners();
+      final url = '${Endpoints.updateFuneraireOwner}$funeraireId';
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      print('🔄 Mise à jour funéraire: $url');
+      final response = await putData(url, _ownerPutBody(body), token: tkn);
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
+
+  /// PUT bureaux — `/protected/property/bureaux/owner/{bureauId}`.
+  Future<HttpResponse> updateBureauByOwner(int userId, int bureauId, Map<String, dynamic> body) async {
+    try {
+      loading = true;
+      notifyListeners();
+      final url = '${Endpoints.updateBureauOwner}$bureauId';
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      print('🔄 Mise à jour bureau: $url');
+      final response = await putData(url, _ownerPutBody(body), token: tkn);
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
+
+  /// PUT vacances — `/protected/property/vacances/owner/{vacanceId}`.
+  Future<HttpResponse> updateVacanceByOwner(int userId, int vacanceId, Map<String, dynamic> body) async {
+    try {
+      loading = true;
+      notifyListeners();
+      final url = '${Endpoints.updateVacanceOwner}$vacanceId';
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      print('🔄 Mise à jour vacance: $url');
+      final response = await putData(url, _ownerPutBody(body), token: tkn);
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
+
+  /// PUT terrains — `/protected/property/terrains/owner/{terrainId}`.
+  Future<HttpResponse> updateTerrainByOwner(int userId, int terrainId, Map<String, dynamic> body) async {
+    try {
+      loading = true;
+      notifyListeners();
+      final url = '${Endpoints.updateTerrainOwner}$terrainId';
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      print('🔄 Mise à jour terrain: $url');
+      final response = await putData(url, _ownerPutBody(body), token: tkn);
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
+
+  /// PUT images terrain — `/protected/property/terrains/image/{terrainId}`.
+  Future<HttpResponse> updateTerrainImages(int terrainId, List<Map<String, String>> images) async {
+    try {
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final url = '${Endpoints.updateTerrainImage}$terrainId';
+      print('🔄 Mise à jour images terrain: $url');
+      return await putData(url, _ownerPutBody({'images': images}), token: tkn);
+    } catch (e) {
+      return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
+    }
+  }
+
+  /// PUT images salle festive — `/protected/property/festives/image/{festiveId}`.
+  Future<HttpResponse> updateFestiveImages(int festiveId, List<Map<String, String>> images) async {
+    try {
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final url = '${Endpoints.updateFestiveImage}$festiveId';
+      print('🔄 Mise à jour images festive: $url');
+      return await putData(url, _ownerPutBody({'images': images}), token: tkn);
+    } catch (e) {
+      return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
+    }
+  }
+
+  /// PUT images funéraire — `/protected/property/funeraires/image/{funeraireId}`.
+  Future<HttpResponse> updateFuneraireImages(int funeraireId, List<Map<String, String>> images) async {
+    try {
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final url = '${Endpoints.updateFuneraireImage}$funeraireId';
+      print('🔄 Mise à jour images funéraire: $url');
+      return await putData(url, _ownerPutBody({'images': images}), token: tkn);
+    } catch (e) {
+      return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
+    }
+  }
+
+  /// PUT images bureau — `/protected/property/bureaux/image/{bureauId}`.
+  Future<HttpResponse> updateBureauImages(int bureauId, List<Map<String, String>> images) async {
+    try {
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final url = '${Endpoints.updateBureauImage}$bureauId';
+      print('🔄 Mise à jour images bureau: $url');
+      return await putData(url, _ownerPutBody({'images': images}), token: tkn);
+    } catch (e) {
+      return HttpResponse(status: false, errorMsg: e.toString(), isException: true);
     }
   }
 
@@ -1259,6 +1837,9 @@ class PropertyController with ChangeNotifier {
         "${Endpoints.propertyBureauxByOwner}$userId",
         "${Endpoints.propertyFestivesByOwner}$userId",
         "${Endpoints.propertyFunerairesByOwner}$userId",
+        "${Endpoints.propertyVacancesByOwner}$userId",
+        "${Endpoints.propertyTerrainsByOwner}$userId",
+        "${Endpoints.propertyHotelsByOwner}$userId",
       ];
 
       List<PropertyModel> allMyProperties = [];
@@ -1284,9 +1865,18 @@ class PropertyController with ChangeNotifier {
                   .map<PropertyModel>((e) {
                     try {
                       final property = PropertyModel.fromJson(Map<String, dynamic>.from(e));
+                      _mergeSoldFromRaw(property, e);
                       if (url.contains('bureaux')) property.propertyTypeId = 4;
                       else if (url.contains('festives')) property.propertyTypeId = 8;
                       else if (url.contains('funeraires')) property.propertyTypeId = 7;
+                      else if (url.contains('/vacances/owner')) {
+                        property.propertyTypeId = property.propertyTypeId == 0 ? 11 : property.propertyTypeId;
+                      }                       else if (url.contains('/terrains/owner')) {
+                        property.propertyTypeId = 9;
+                      } else if (url.contains('hotels/owner')) {
+                        property.propertyTypeId = 5;
+                        property.propertyType ??= PropertyTypeModel(propertyTypeId: 5, name: 'Hôtel');
+                      }
                       return property;
                     } catch (e) {
                       print("❌ Erreur parsing property in $url: $e");
@@ -1490,7 +2080,9 @@ class PropertyController with ChangeNotifier {
                 .where((e) => e != null)
                 .map<PropertyModel>((e) {
               try {
-                return PropertyModel.fromJson(e);
+                final p = PropertyModel.fromJson(e);
+                _mergeSoldFromRaw(p, e);
+                return p;
               } catch (e) {
                 return PropertyModel();
               }
@@ -1674,7 +2266,15 @@ class PropertyController with ChangeNotifier {
           if (propertiesData is List && propertiesData.isNotEmpty) {
             List<PropertyModel> searchResults = propertiesData
                 .where((e) => e != null)
-                .map<PropertyModel>((e) => PropertyModel.fromJson(e))
+                .map<PropertyModel>((e) {
+                  try {
+                    final p = PropertyModel.fromJson(e);
+                    _mergeSoldFromRaw(p, e);
+                    return p;
+                  } catch (_) {
+                    return PropertyModel();
+                  }
+                })
                 .where((property) => property.propertyId != null)
                 .toList();
 

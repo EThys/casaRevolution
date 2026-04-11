@@ -23,9 +23,22 @@ class AgenceController extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final tkn = _storage.read<String>(StockageKeys.tokenKey)?.trim();
+      if (tkn == null || tkn.isEmpty) {
+        _isLoading = false;
+        notifyListeners();
+        return HttpResponse(
+          status: false,
+          errorMsg:
+              'Session expirée ou non connecté. Reconnectez-vous pour créer une agence.',
+          httpStatus: 401,
+        );
+      }
       final response = await postData(
-        Endpoints.agences,
+        Endpoints.storeAgence,
         payload,
+        token: tkn,
+        allowDefaultToken: false,
       );
 
       _isLoading = false;
@@ -194,8 +207,32 @@ class AgenceController extends ChangeNotifier {
             print("📋 [AgenceController] First agency data: ${data[0]}");
           }
           
-          // Parse agencies (flat structure from this endpoint)
-          _agences = data.map((json) => AgenceModel.fromJson(json)).toList();
+          // Même enveloppe que la liste publique : { "agence": {...}, "site": [...] }
+          _agences = data.map((raw) {
+            if (raw is! Map) return AgenceModel();
+            final json = Map<String, dynamic>.from(raw as Map);
+            AgenceModel agence;
+            List<AgenceSiteModel> sites = [];
+            if (json['agence'] != null && json['agence'] is Map) {
+              agence = AgenceModel.fromJson(
+                Map<String, dynamic>.from(json['agence'] as Map),
+              );
+              final siteNode = json['site'] ?? json['sites'];
+              if (siteNode is List) {
+                for (final s in siteNode) {
+                  if (s is Map) {
+                    sites.add(AgenceSiteModel.fromJson(
+                      Map<String, dynamic>.from(s),
+                    ));
+                  }
+                }
+              }
+            } else {
+              agence = AgenceModel.fromJson(json);
+            }
+            agence.sites = sites;
+            return agence;
+          }).toList();
         } else {
           print("⚠️ [AgenceController] No agencies found for user $userId");
           _agences = [];

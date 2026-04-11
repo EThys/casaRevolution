@@ -8,7 +8,7 @@ import '../models/DeviseModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/Constantes.dart';
-import '../utils/requetes.dart' show getData, postData, patchData, deleteData, HttpResponse;
+import '../utils/requetes.dart' show getData, postData, patchData, putData, deleteData, HttpResponse;
 import '../utils/database/PrestationDatabaseHelper.dart';
 
 class ServiceController with ChangeNotifier {
@@ -500,6 +500,37 @@ class ServiceController with ChangeNotifier {
     }
   }
 
+  // Mettre à jour une prestation
+  Future<HttpResponse> updatePrestation(int id, Map<String, dynamic> data) async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final token = stockage?.read<String>(StockageKeys.tokenKey);
+      final url = "${Endpoints.updatePrestation}$id";
+      
+      // On utilise patchData pour la mise à jour
+      HttpResponse response = await patchData(url, data, token: token);
+
+      if (response.status == true) {
+        // Rafraîchir les données locales
+        await getMyPrestations();
+      }
+
+      return response;
+    } catch (e) {
+      print("Erreur lors de la mise à jour de la prestation: $e");
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
   // Liste des prestations
   List<PrestationModel> prestations = [];
   List<SollicitationModel> solicitations = [];
@@ -541,8 +572,9 @@ class ServiceController with ChangeNotifier {
       
       // Ensuite, charger depuis l'API et mettre à jour le cache en arrière-plan
       try {
+        final token = stockage?.read<String>(StockageKeys.tokenKey);
         final url = "${Endpoints.prestationsByOwner}$userId";
-        var response = await getData(url);
+        var response = await getData(url, token: token);
 
         if (response != null && response is Map<String, dynamic>) {
           dynamic prestationsData;
@@ -1094,7 +1126,15 @@ class ServiceController with ChangeNotifier {
     }
   }
 
-  // Mettre à jour le statut d'une sollicitation (ACCEPT ou REJECT)
+  int _currentUserIdAsInt() {
+    final dynamic userData = stockage?.read(StockageKeys.userKey);
+    final dynamic uid = userData?['user']?['userId'] ?? userData?['userId'];
+    if (uid == null) return 0;
+    if (uid is int) return uid;
+    return int.tryParse(uid.toString()) ?? 0;
+  }
+
+  /// Met à jour le statut d'une sollicitation (ACCEPTED, REJECTED, CANCELLED, etc.) via **protected** PATCH.
   Future<HttpResponse> updateSollicitationStatus(int sollicitationId, String status) async {
     loading = true;
     notifyListeners();
@@ -1102,12 +1142,15 @@ class ServiceController with ChangeNotifier {
     try {
       print("📤 Mise à jour sollicitation $sollicitationId vers $status");
       String? token = stockage?.read(StockageKeys.tokenKey);
-      
-      final url = "${Endpoints.updateSollicitation}$sollicitationId";
-      final data = {'status': status};
-      
-      final response = await patchData(url, data, token: token);
-      
+
+      final url = "${Endpoints.updateSollicitationStatusProtected}$sollicitationId";
+      final data = {
+        'status': status,
+        'userId': _currentUserIdAsInt(),
+      };
+
+      final response = await putData(url, data, token: token);
+
       print("📥 Réponse mise à jour sollicitation: ${response.status}");
       
       return response;

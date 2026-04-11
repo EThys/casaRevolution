@@ -1,41 +1,65 @@
 import 'package:flutter/material.dart';
 import '../utils/Endpoints.dart';
-import '../utils/requetes.dart' show postData, HttpResponse, postDataOtp, putData, putDataForAuth;
+import '../utils/log_redaction.dart';
+import '../utils/requetes.dart' show HttpResponse, postDataOtp;
 
 class ForgotPasswordController with ChangeNotifier {
   bool loading = false;
   String? phoneNumber;
   int? userId;
   String? otpStatus;
+  /// Jeton renvoyé après OTP réussi (requis pour `protected/reset/password`), si l’API le fournit.
+  String? passwordResetToken;
 
-  // Générer l'OTP
+  static String? _readTokenFromMap(Map<dynamic, dynamic> map) {
+    const keys = ['token', 'accessToken', 'access_token', 'resetToken', 'bearer', 'jwt'];
+    for (final k in keys) {
+      final v = map[k];
+      if (v != null && v.toString().trim().isNotEmpty) {
+        return v.toString();
+      }
+    }
+    return null;
+  }
+
+  void _capturePasswordResetToken(Map<String, dynamic> responseData) {
+    passwordResetToken = _readTokenFromMap(responseData);
+    if (passwordResetToken != null) return;
+    final user = responseData['user'];
+    if (user is Map) {
+      passwordResetToken = _readTokenFromMap(user);
+    }
+    if (passwordResetToken != null) return;
+    final nested = responseData['data'];
+    if (nested is Map) {
+      passwordResetToken = _readTokenFromMap(nested);
+    }
+  }
+
   Future<HttpResponse> generateOTP(String identifier) async {
     loading = true;
     notifyListeners();
 
     try {
       print("🚀 Génération OTP pour: $identifier");
-      
+
       final url = Endpoints.otpGenerate;
       final data = {
         "identifier": identifier,
       };
 
-      HttpResponse response = await postData(url, data, token: "");
+      HttpResponse response = await postDataOtp(url, data);
 
       if (response.status == true && response.data != null) {
-        // Vérifier la structure de la réponse
         if (response.data is Map) {
           final responseData = response.data as Map<String, dynamic>;
-          
-          // Extraire le numéro de téléphone de la réponse
+
           if (responseData.containsKey('phone')) {
             phoneNumber = responseData['phone'] as String?;
             otpStatus = responseData['status'] as String?;
             print("✅ OTP généré avec succès pour: $phoneNumber");
           }
-          
-          // Vérifier le message
+
           if (responseData.containsKey('message')) {
             print("📝 Message: ${responseData['message']}");
           }
@@ -54,7 +78,7 @@ class ForgotPasswordController with ChangeNotifier {
       print("❌ Erreur critique dans generateOTP: $e");
       loading = false;
       notifyListeners();
-      
+
       return HttpResponse(
         status: false,
         errorMsg: "Erreur lors de la génération du code: ${e.toString()}",
@@ -67,32 +91,31 @@ class ForgotPasswordController with ChangeNotifier {
     }
   }
 
-  // Vérifier l'OTP
   Future<HttpResponse> verifyOTP(String identifier, String code) async {
     loading = true;
     notifyListeners();
 
     try {
       print("🔍 Vérification OTP pour: $identifier avec code: $code");
-      
+
       final url = Endpoints.otpVerify;
       final data = {
         "identifier": identifier,
         "code": code,
       };
 
-      HttpResponse response = await postData(url, data, token: "");
+      HttpResponse response = await postDataOtp(url, data);
 
       if (response.status == true && response.data != null) {
-        // Vérifier la structure de la réponse
         if (response.data is Map) {
           final responseData = response.data as Map<String, dynamic>;
-          
-          // Vérifier le status
+
           final status = responseData['status'] as String?;
-          
+
           if (status == "approved") {
-            // Extraire l'ID de l'utilisateur
+            _capturePasswordResetToken(responseData);
+            print(
+                '🔑 ${describeSecretPresence(passwordResetToken, name: 'Jeton reset (après OTP)')}');
             if (responseData.containsKey('user')) {
               final user = responseData['user'];
               if (user is Map && user.containsKey('id')) {
@@ -106,14 +129,13 @@ class ForgotPasswordController with ChangeNotifier {
               userId = responseData['userId'] as int?;
               print("✅ OTP vérifié avec succès. User ID: $userId");
             }
-            
+
             otpStatus = status;
           } else {
-            // Status différent de "approved" = code expiré ou invalide
             print("⚠️ Status OTP: $status (code expiré ou invalide)");
             loading = false;
             notifyListeners();
-            
+
             return HttpResponse(
               status: false,
               errorMsg: "Code expiré ou invalide",
@@ -135,7 +157,7 @@ class ForgotPasswordController with ChangeNotifier {
       print("❌ Erreur critique dans verifyOTP: $e");
       loading = false;
       notifyListeners();
-      
+
       return HttpResponse(
         status: false,
         errorMsg: "Erreur lors de la vérification du code: ${e.toString()}",
@@ -148,54 +170,12 @@ class ForgotPasswordController with ChangeNotifier {
     }
   }
 
-  // Réinitialiser le mot de passe
-  Future<HttpResponse> resetPassword(String newPassword, int userUserId) async {
-    loading = true;
-    notifyListeners();
-
-    try {
-      final url = Endpoints.resetPasswordEndpoint;
-      final data = {
-        "newPassword": newPassword,
-        "userId": userUserId,
-      };
-      
-      HttpResponse response = await putData(url, data);
-
-      if (response.status == true) {
-        // Réinitialiser les variables après succès
-        userId = null;
-        phoneNumber = null;
-        otpStatus = null;
-      }
-
-      loading = false;
-      notifyListeners();
-      return response;
-    } catch (e) {
-      print("❌ Erreur critique dans resetPassword: $e");
-      loading = false;
-      notifyListeners();
-      
-      return HttpResponse(
-        status: false,
-        errorMsg: "Erreur lors de la réinitialisation: ${e.toString()}",
-        isException: true,
-        data: {
-          'error': e.toString(),
-          'timestamp': DateTime.now().toIso8601String()
-        }
-      );
-    }
-  }
-
-  // Réinitialiser l'état du contrôleur
   void reset() {
     phoneNumber = null;
     userId = null;
     otpStatus = null;
+    passwordResetToken = null;
     loading = false;
     notifyListeners();
   }
 }
-

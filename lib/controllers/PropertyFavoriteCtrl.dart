@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:get_storage/get_storage.dart';
 
 import '../utils/Endpoints.dart';
+import 'package:casa/models/PrestationModel.dart';
 import 'package:casa/services/ServerHealthService.dart';
 
 class PropertyFavoriteCtrl with ChangeNotifier {
@@ -204,7 +205,7 @@ class PropertyFavoriteCtrl with ChangeNotifier {
       bool success = false;
       try {
         if (action == 'ADD') {
-          success = await _performAddFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId);
+          success = (await _performAddFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId)) != null;
         } else if (action == 'REMOVE') {
           success = await _performRemoveFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId);
         }
@@ -237,7 +238,7 @@ class PropertyFavoriteCtrl with ChangeNotifier {
   }
 
   // API Call interne sans logique de queue
-  Future<bool> _performAddFavoriteApi(String userId, String propertyId, {int? propertyTypeId, bool isPrestation = false}) async {
+  Future<int?> _performAddFavoriteApi(String userId, String propertyId, {int? propertyTypeId, bool isPrestation = false}) async {
     final token = stockage?.read<String>(StockageKeys.tokenKey);
     if (token == null) throw Exception('Token non disponible');
     
@@ -293,17 +294,45 @@ class PropertyFavoriteCtrl with ChangeNotifier {
     print("AddFavorite: $url with body $data");
     final response = await postData(url, data, token: token);
     
-    if (response.status == true) return true;
+    if (response.status == true) {
+       if (response.data != null && response.data is Map && response.data['data'] != null) {
+         try {
+           int? extractedId;
+           final raw = response.data['data'];
+
+           // Cas 1: data est une List (ex: [{favorite: {id: 10, ...}, ...}])
+           if (raw is List && raw.isNotEmpty) {
+             final item = raw[0];
+             if (item is Map && item['favorite'] is Map) {
+               extractedId = item['favorite']['id'] as int?;
+             }
+           }
+           // Cas 2: data est un Map directement (ex: {favorite: {id: 10, ...}})
+           else if (raw is Map) {
+             if (raw['favorite'] is Map) {
+               extractedId = raw['favorite']['id'] as int?;
+             } else if (raw['id'] != null) {
+               extractedId = raw['id'] as int?;
+             }
+           }
+
+           if (extractedId != null) return extractedId;
+         } catch(e) {
+           print("Error parsing favorite id: $e");
+         }
+       }
+       return -1; // Generic success
+    }
     if (response.data != null && 
         response.data is Map && 
         response.data['message'] != null &&
         response.data['message'].toString().toLowerCase().contains('déjà')) {
-        return true;
+        return -1;
     }
-    return false;
+    return null;
   }
 
-  Future<bool> _performRemoveFavoriteApi(String userId, String propertyId, {int? propertyTypeId, bool isPrestation = false}) async {
+  Future<bool> _performRemoveFavoriteApi(String userId, String propertyId, {int? favoriteId, int? propertyTypeId, bool isPrestation = false}) async {
     final token = stockage?.read<String>(StockageKeys.tokenKey);
     if (token == null) throw Exception('Token non disponible');
     
@@ -313,8 +342,9 @@ class PropertyFavoriteCtrl with ChangeNotifier {
     
     if (isPrestation) {
       // DELETE /api/{version}/protected/prestation/favorite/{id}
-      // pid = l'ID de la prestation (favoriteId)
-      url = "${Endpoints.favoritePrestationDelete}/$pid";
+      // Utiliser l'id du favori si on l'a (favoriteId), sinon celui de la prestation (pid)
+      final idToDelete = favoriteId ?? pid;
+      url = "${Endpoints.favoritePrestationDelete}/$idToDelete";
     } else {
       // Utiliser l'endpoint spécifique selon le type pour les propriétés classiques
       if (propertyTypeId != null) {
@@ -354,8 +384,10 @@ class PropertyFavoriteCtrl with ChangeNotifier {
     
     if (response.data != null && response.data is Map) {
          final msg = response.data['message']?.toString().toLowerCase() ?? '';
-         if (msg.contains('deleted') || msg.contains('success')) return true;
-         if (msg.contains('not found') || msg.contains('aucun')) {
+         final err = response.data['error']?.toString().toLowerCase() ?? '';
+         final combined = '$msg $err';
+         if (combined.contains('deleted') || combined.contains('success')) return true;
+         if (combined.contains('not found') || combined.contains('aucun')) {
            print("ℹ️ [PropertyFavoriteCtrl] Déjà supprimé ou inexistant sur le serveur");
            return true; 
          }
@@ -367,17 +399,32 @@ class PropertyFavoriteCtrl with ChangeNotifier {
     print("❤️ [PropertyFavoriteCtrl] Début addFavorite - userId: $userId, propertyId: $propertyId, type: $propertyTypeId, isPrestation: $isPrestation");
     
     try {
-      final success = await _performAddFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId, isPrestation: isPrestation);
+      final favoriteIdOrTrue = await _performAddFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId, isPrestation: isPrestation);
       
-      if (success) {
-        print("✅ [PropertyFavoriteCtrl] API Success: Favorite added");
+      if (favoriteIdOrTrue != null) {
+        print("✅ [PropertyFavoriteCtrl] API Success: Favorite added (ID: $favoriteIdOrTrue)");
+        
+        // Si c'est une prestation et qu'on a récupéré l'ID du favori, on le sauvegarde explicitement
+        if (favoriteIdOrTrue > 0 && isPrestation) {
+           final favModel = PropertyFavoriteModel(
+             propertyFavoriteId: favoriteIdOrTrue,
+             userId: int.tryParse(userId),
+             prestation: PrestationModel(id: int.tryParse(propertyId)),
+           );
+           // Sauvegarder en SQLite (la méthode efface l'ancienne entrée pour la même prestation)
+           await _dbHelper.insertOrUpdateFavorite(favModel, userId);
+           // Mettre à jour la liste en mémoire pour que removeFavorite utilise le bon ID
+           propertyFavorites.removeWhere((f) => f.prestation?.id.toString() == propertyId);
+           propertyFavorites.add(favModel);
+        }
+        
         return true;
       } else {
         throw Exception("API a retourné false");
       }
 
     } catch (e) {
-      print("⚠️ [PropertyFavoriteCtrl] Erreur API lors de l'ajout: $e");
+      print("[PropertyFavoriteCtrl] Erreur API lors de l'ajout: $e");
       
       bool isNetworkError = e.toString().contains("SocketException") || 
                            e.toString().contains("ClientException") ||
@@ -385,7 +432,7 @@ class PropertyFavoriteCtrl with ChangeNotifier {
                            e.toString().contains("Network is unreachable");
 
       if (isNetworkError) {
-        print("🌐 [PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente ADD (Type: $propertyTypeId)");
+        print("[PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente ADD (Type: $propertyTypeId)");
         await _dbHelper.enqueueAction(userId, propertyId, 'ADD', propertyTypeId: propertyTypeId);
         return true;
       }
@@ -397,27 +444,86 @@ class PropertyFavoriteCtrl with ChangeNotifier {
     print("🗑️ [PropertyFavoriteCtrl] Début removeFavorite - userId: $userId, propertyId: $propertyId, type: $propertyTypeId, isPrestation: $isPrestation");
 
     try {
+      int? favoriteIdToDelete;
+      if (isPrestation) {
+        // Chercher d'abord dans la liste en mémoire (plus rapide et stable en cas de doubles appels)
+        try {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          final inMemory = propertyFavorites.firstWhere(
+            (f) => f.prestation?.id.toString() == propertyId,
+          );
+          favoriteIdToDelete = inMemory.propertyFavoriteId;
+        } catch (_) {}
+
+        // Fallback sur SQLite si pas trouvé en mémoire
+        if (favoriteIdToDelete == null) {
+          final fav = await _dbHelper.findFavoriteByPropertyId(userId, propertyId);
+          favoriteIdToDelete = fav?.propertyFavoriteId;
+        }
+
+        print("🔍 [PropertyFavoriteCtrl] favoriteId pour suppression prestation: $favoriteIdToDelete");
+      }
+
       // Suppression locale immédiate (déjà géré par Provider en optimiste, mais on nettoie la DB local)
       await _dbHelper.removeFavorite(userId, propertyId);
       
+      // Mettre à jour la liste en mémoire pour que l'UI (FavoritesPage) se rafraîchisse
+      propertyFavorites.removeWhere((f) => 
+        (isPrestation && f.prestation?.id.toString() == propertyId) ||
+        (!isPrestation && f.property?.propertyId.toString() == propertyId)
+      );
+      notifyListeners();
+      
       // Appel API
-      final success = await _performRemoveFavoriteApi(userId, propertyId, propertyTypeId: propertyTypeId, isPrestation: isPrestation);
+      final success = await _performRemoveFavoriteApi(userId, propertyId, favoriteId: favoriteIdToDelete, propertyTypeId: propertyTypeId, isPrestation: isPrestation);
       
       if (success) {
         print("✅ [PropertyFavoriteCtrl] Suppression API réussie");
         return true;
       } else {
-        throw Exception("API a retourné false");
+        return false;
       }
     } catch (e) {
       print("⚠️ [PropertyFavoriteCtrl] Erreur API lors de suppression: $e");
       
+      // Gérer le cas "not found" ou 404 comme un succès (déjà supprimé)
+      final errorStr = e.toString().toLowerCase();
+      if (errorStr.contains('not found') || errorStr.contains('404')) {
+        print("ℹ️ [PropertyFavoriteCtrl] Déjà supprimé ou inexistant sur le serveur");
+        return true;
+      }
+
       bool isNetworkError = e.toString().contains("SocketException") || 
                            e.toString().contains("ClientException") ||
                            e.toString().contains("Connection refused");
 
       if (isNetworkError) {
-        print("🌐 [PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente REMOVE (Type: $propertyTypeId)");
+        print("[PropertyFavoriteCtrl] Mode Offline détecté: Mise en file d'attente REMOVE (Type: $propertyTypeId)");
         await _dbHelper.enqueueAction(userId, propertyId, 'REMOVE', propertyTypeId: propertyTypeId);
         return true; // Succès optimiste
       }

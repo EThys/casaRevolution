@@ -2,9 +2,13 @@ import 'package:casa/utils/database/ReservationDatabaseHelper.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import '../models/ReservationModel.dart';
+import 'package:flutter/foundation.dart';
+
 import '../utils/Endpoints.dart';
+import '../utils/log_redaction.dart';
 import '../utils/StockageKeys.dart';
-import '../utils/requetes.dart';
+import '../utils/requetes.dart'
+    show getData, getDataAllowErrorJson, postData, patchData, putData, HttpResponse;
 
 class ReservationController with ChangeNotifier {
   ReservationController({this.stockage});
@@ -14,11 +18,43 @@ class ReservationController with ChangeNotifier {
   List<ReservationModel> reservations = [];
   ReservationModel? currentReservation;
 
+  /// Mis à `true` si une réponse réservations indique un compte non certifié (rediriger vers [IdentityVerificationPage]).
+  bool uncertifiedAccountBlocked = false;
+
   // Récupérer l'ID de l'utilisateur connecté (userId)
   String? _getCurrentUserId() {
     final dynamic userData = stockage?.read(StockageKeys.userKey);
     final userId = userData?['user']?['userId'] ?? userData?['userId'];
     return userId?.toString();
+  }
+
+  int _currentUserIdAsInt() {
+    final s = _getCurrentUserId();
+    if (s == null || s.isEmpty) return 0;
+    return int.tryParse(s) ?? 0;
+  }
+
+  /// Base URL (sans id) pour PUT `/protected/reservations/.../update/status/{id}`, ou null → fallback delete legacy.
+  String? _protectedReservationStatusBase(ReservationModel r) {
+    if (r.chambreId != null) return Endpoints.updateReservationChambreStatusProtected;
+    if (r.terrainId != null) return Endpoints.updateReservationTerrainStatusProtected;
+    if (r.bureauId != null) return Endpoints.updateReservationBureauStatusProtected;
+    if (r.vacanceId != null) return Endpoints.updateReservationVacanceStatusProtected;
+    if (r.festiveId != null) return Endpoints.updateReservationFestiveStatusProtected;
+    if (r.funeraireId != null) return Endpoints.updateReservationFuneraireStatusProtected;
+    if (r.hotelId != null) return Endpoints.updateReservationChambreStatusProtected;
+    final t = (r.type ?? '').toUpperCase();
+    if (t.contains('TERRAIN')) return Endpoints.updateReservationTerrainStatusProtected;
+    if (t.contains('BUREAU')) return Endpoints.updateReservationBureauStatusProtected;
+    if (t.contains('VACANCE')) return Endpoints.updateReservationVacanceStatusProtected;
+    if (t.contains('FESTIVE')) return Endpoints.updateReservationFestiveStatusProtected;
+    if (t.contains('FUNERAIRE') || t.contains('FUNÉRAIRE')) {
+      return Endpoints.updateReservationFuneraireStatusProtected;
+    }
+    if (t.contains('CHAMBRE') || t.contains('HOTEL') || t.contains('HÔTEL')) {
+      return Endpoints.updateReservationChambreStatusProtected;
+    }
+    return Endpoints.updateReservationStandardStatusProtected;
   }
 
   String _normalize(String input) {
@@ -38,6 +74,35 @@ class ReservationController with ChangeNotifier {
     return normalized.contains("a ete cree avec succes") ||
         normalized.contains("a ete creee avec succes") ||
         normalized.contains("a ete creer avec succes");
+  }
+
+  /// Message API typique : « Opération non autorisée,votre compte n'est pas certifié. »
+  static bool messageIndicatesUncertifiedAccount(String? raw) {
+    if (raw == null || raw.isEmpty) return false;
+    final s = raw.toLowerCase();
+    return (s.contains('certif') && s.contains('pas')) ||
+        s.contains("n'est pas certif") ||
+        s.contains('nest pas certif') ||
+        s.contains('non certifie') ||
+        s.contains('non certifié');
+  }
+
+  void _noteUncertifiedIfResponse(dynamic response) {
+    if (response is! Map) return;
+    final map = Map<String, dynamic>.from(response as Map);
+    String? msg = map['message']?.toString() ??
+        map['detailMessage']?.toString() ??
+        map['error']?.toString();
+    final data = map['data'];
+    if (!messageIndicatesUncertifiedAccount(msg) && data is Map) {
+      msg = data['message']?.toString() ?? data['detailMessage']?.toString();
+    }
+    if (messageIndicatesUncertifiedAccount(msg)) {
+      uncertifiedAccountBlocked = true;
+      if (kDebugMode) {
+        print('🔒 [ReservationController] Compte non certifié (API): $msg');
+      }
+    }
   }
 
   // Récupérer toutes les réservations de l'utilisateur connecté
@@ -125,13 +190,13 @@ class ReservationController with ChangeNotifier {
 
     // Liste des endpoints à interroger pour obtenir toutes les réservations de l'utilisateur
     final endpointsToFetch = [
-      "${Endpoints.reservations}/${Endpoints.reservationsByUser}/$userId",
+      "${Endpoints.reservationsProtected}/${Endpoints.reservationsByUser}/$userId",
       "${Endpoints.reservationsVacanceByUser}$userId",
       "${Endpoints.reservationsTerrainByUser}$userId",
       "${Endpoints.reservationsFuneraireByUser}$userId",
       "${Endpoints.reservationsFestiveByUser}$userId",
       "${Endpoints.reservationsBureauByUser}$userId",
-      "${Endpoints.reservationsHotelByUser}$userId",
+      "${Endpoints.reservationsChambreByUser}$userId",
     ];
 
     try {
@@ -139,7 +204,8 @@ class ReservationController with ChangeNotifier {
       await Future.wait(endpointsToFetch.map((url) async {
         try {
           print("🌐 Requête réservations type: $url");
-          var response = await getData(url, token: tkn);
+          var response = await getDataAllowErrorJson(url, token: tkn);
+          _noteUncertifiedIfResponse(response);
 
           // L'API peut retourner {"reservation": [...]} ou {"data": [...]} ou {"reservations": [...]}
           if (response != null && (response['reservation'] != null || response['data'] != null || response['reservations'] != null)) {
@@ -218,7 +284,7 @@ class ReservationController with ChangeNotifier {
     notifyListeners();
 
     try {
-      final url = "${Endpoints.reservations}/${Endpoints.reservationsByUser}/$userId?status=$status";
+      final url = "${Endpoints.reservationsProtected}/${Endpoints.reservationsByUser}/$userId?status=$status";
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
       var response = await getData(url, token: tkn);
 
@@ -262,7 +328,7 @@ class ReservationController with ChangeNotifier {
     notifyListeners();
 
     try {
-      var url = "${Endpoints.reservations}/$reservationId";
+      var url = "${Endpoints.reservationsProtected}/$reservationId";
       var response = await getData(url);
 
       // Vérifier si la requête a réussi
@@ -335,33 +401,16 @@ class ReservationController with ChangeNotifier {
           );
         }
 
-        // Empêcher la duplication d'une réservation en attente pour le même bien
-        // On essaie de trouver un ID de propriété (standard ou spécial)
-        final propertyId = (reservationData['propertyId'] ??
-            reservationData['terrainId'] ??
-            reservationData['bureauId'] ??
-            reservationData['vacanceId'] ??
-            reservationData['festiveId'] ??
-            reservationData['funeraireId'] ??
-            reservationData['hotelId'])?.toString();
-
-        if (propertyId != null) {
-          final hasPending = reservations.any(
-                  (r) {
-                final rPropertyId = (r.property?.propertyId ??
-                    r.terrainId ??
-                    r.bureauId ??
-                    r.vacanceId ??
-                    r.festiveId ??
-                    r.funeraireId ??
-                    r.hotelId)?.toString();
-                return r.user?.userId?.toString() == userId &&
-                    rPropertyId == propertyId &&
-                    (r.status?.toUpperCase() == 'PENDING');
-              }
+        // Empêcher la duplication d'une réservation en attente pour le même bien / chambre
+        final chambreIdStr = reservationData['chambreId']?.toString();
+        if (chambreIdStr != null && chambreIdStr.isNotEmpty) {
+          final hasPendingChambre = reservations.any(
+            (r) =>
+                r.user?.userId?.toString() == userId &&
+                r.chambreId?.toString() == chambreIdStr &&
+                (r.status?.toUpperCase() == 'PENDING'),
           );
-
-          if (hasPending) {
+          if (hasPendingChambre) {
             loading = false;
             notifyListeners();
             const errorMsg =
@@ -372,16 +421,59 @@ class ReservationController with ChangeNotifier {
               errorMsg: errorMsg,
             );
           }
+        } else {
+          final propertyId = (reservationData['propertyId'] ??
+              reservationData['terrainId'] ??
+              reservationData['bureauId'] ??
+              reservationData['vacanceId'] ??
+              reservationData['festiveId'] ??
+              reservationData['funeraireId'] ??
+              reservationData['hotelId'])?.toString();
+
+          if (propertyId != null) {
+            final hasPending = reservations.any(
+              (r) {
+                final rPropertyId = (r.property?.propertyId ??
+                    r.terrainId ??
+                    r.bureauId ??
+                    r.vacanceId ??
+                    r.festiveId ??
+                    r.funeraireId ??
+                    r.hotelId)?.toString();
+                return r.user?.userId?.toString() == userId &&
+                    rPropertyId == propertyId &&
+                    (r.status?.toUpperCase() == 'PENDING');
+              },
+            );
+
+            if (hasPending) {
+              loading = false;
+              notifyListeners();
+              const errorMsg =
+                  "You already have a pending reservation with this property";
+              return HttpResponse(
+                status: false,
+                data: {'error': errorMsg},
+                errorMsg: errorMsg,
+              );
+            }
+          }
         }
       }
 
-      final url = endpoint ?? Endpoints.addReservations;
+      final url = endpoint ?? Endpoints.createReservation;
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-      print("URL: $url");
-      print("TOKEN: $tkn");
+      if (kDebugMode) {
+        print("URL: $url");
+        print(describeSecretPresence(tkn, name: 'TOKEN'));
+      }
 
       HttpResponse response = await postData(url, reservationData, token: tkn);
-      print("REPONSE: ${response.data}");
+      if (kDebugMode && response.data is Map) {
+        final m = response.data as Map;
+        print(
+            "REPONSE (résumé): clés=${m.keys.toList()}, message=${m['message']}");
+      }
 
       final rawMessage = response.data?['message'] ?? response.data?['msg'];
       final isSuccess = _isSuccessMessage(rawMessage?.toString());
@@ -488,29 +580,40 @@ class ReservationController with ChangeNotifier {
     }
   }
 
-  Future<HttpResponse> cancelReservation(int reservationId, String reason) async {
+  /// Annule une réservation. Si [reservation] correspond à un type spécialisé (terrain, bureau, etc.),
+  /// utilise `PUT .../protected/reservations/{type}/update/status/{id}` avec `{ status: CANCELLED, reason, userId }`.
+  Future<HttpResponse> cancelReservation(
+    int reservationId,
+    String reason, {
+    ReservationModel? reservation,
+  }) async {
     try {
       loading = true;
       notifyListeners();
 
-      final url = "${Endpoints.reservations}/delete/$reservationId";
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final base = reservation != null
+          ? _protectedReservationStatusBase(reservation)
+          : Endpoints.updateReservationStandardStatusProtected;
 
-      Map<String, dynamic> cancelData = {
-        'cancellationReason': reason,
-      };
-
-      HttpResponse response = await deleteData(url, data: cancelData, token: tkn);
+      final url = "$base$reservationId";
+      final HttpResponse response = await putData(
+        url,
+        {
+          'status': 'CANCELLED',
+          'reason': reason,
+          'userId': _currentUserIdAsInt(),
+        },
+        token: tkn,
+      );
 
       if (response.status == true) {
-        // Mettre à jour localement
         final index = reservations.indexWhere((r) => r.reservationId == reservationId);
         if (index != -1) {
           reservations[index].status = 'CANCELLED';
           reservations[index].cancellationReason = reason;
         }
 
-        // Mettre à jour en base locale
         final db = ReservationDatabaseHelper.instance;
         await db.updateReservationStatus(reservationId.toString(), 'CANCELLED');
 
@@ -593,7 +696,7 @@ class ReservationController with ChangeNotifier {
       "${Endpoints.reservationsFuneraireByHost}$userId",
       "${Endpoints.reservationsFestiveByHost}$userId",
       "${Endpoints.reservationsBureauByHost}$userId",
-      "${Endpoints.reservationsHotelByHost}$userId",
+      "${Endpoints.reservationsChambreByHost}$userId",
     ];
 
     try {
@@ -601,7 +704,8 @@ class ReservationController with ChangeNotifier {
       await Future.wait(hostEndpointsToFetch.map((url) async {
         try {
           print("🌐 Requête réservations hôte: $url");
-          var response = await getData(url, token: tkn);
+          var response = await getDataAllowErrorJson(url, token: tkn);
+          _noteUncertifiedIfResponse(response);
 
           // L'API peut retourner {"reservation": [...]} ou {"data": [...]}
           if (response != null && (response['reservation'] != null || response['data'] != null || response['reservations'] != null)) {
@@ -694,7 +798,7 @@ class ReservationController with ChangeNotifier {
           reservations[index].status = isValid ? 'CONFIRMED' : 'REJECTED';
         }
 
-        await getAllReservations(); // Rafraîchir la liste
+        // await getAllReservations(); // Supprimé pour éviter de ralentir l'UI (déjà actualisé par l'appelant)
       }
 
       loading = false;
