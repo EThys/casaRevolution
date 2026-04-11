@@ -24,6 +24,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:showcaseview/showcaseview.dart';
+import 'package:casa/controllers/TutorialController.dart';
 
 import '../models/PropertyModel.dart';
 import '../models/ServiceModel.dart';
@@ -32,6 +34,7 @@ import '../controllers/AgenceController.dart';
 import '../utils/requetes.dart' show HttpResponse, deleteData, getData;
 import '../utils/Endpoints.dart';
 import '../utils/Routes.dart';
+import '../utils/property_detail_navigation.dart';
 import '../utils/database/FavoriteDatabaseHelper.dart';
 import '../utils/database/ReservationDatabaseHelper.dart';
 import '../utils/database/ServiceCategoryDatabaseHelper.dart';
@@ -50,6 +53,7 @@ import 'MyAgencyPage.dart';
 import 'package:casa/services/ServerHealthService.dart';
 import 'package:casa/controllers/NotificationController.dart';
 import 'package:casa/controllers/TypeAccountController.dart';
+import 'package:casa/widgets/property_sold_badge.dart';
 import '../utils/PulseBadge.dart';
 import '../widgets/OfflineBanner.dart';
 import 'ProfilePage.dart'; // Added for background update
@@ -72,16 +76,16 @@ class _HomePageState extends State<HomePage> {
   final Color accentColor = Color(0xFF64B5F6);
   final Color darkBlue = Color(0xFF0D47A1);
   final GetStorage storage = GetStorage();
-  
+
   // Données pour les prestations
   List<PrestationModel> majordhommeServices = [];
   List<PrestationModel> demenagementServices = [];
   Map<ServiceType, List<PrestationModel>> otherServicesByType = {};
   bool isLoadingPrestations = true; // Commencer à true pour voir le shimmer tout de suite
-  
+
   // Mapping nom compte -> ID
   Map<String, int> accountNameToIdMap = {};
-  
+
   // Auto-scroll for categories and sections
   final ScrollController _categoryScrollController = ScrollController();
   final ScrollController _rentalsScrollController = ScrollController();
@@ -99,17 +103,17 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _loadInitialData();
-    
+
     // Démarrer la surveillance du serveur après le build initial
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final notifCtrl = Provider.of<NotificationController>(context, listen: false);
       final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
-      
+
       // Charger les notifications spécifiques à l'utilisateur
       if (authCtrl.isLoggedIn && authCtrl.user.userId != null) {
         notifCtrl.loadForUser(authCtrl.user.userId.toString());
       }
-      
+
       ServerHealthService().startMonitoring(context, notifCtrl);
     });
 
@@ -144,7 +148,7 @@ class _HomePageState extends State<HomePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
       final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
-      
+
       propertyCtrl.getAllProperty().then((_) {
         _logHomePageLoaded(propertyCtrl.properties.length);
         // Charger les catégories spéciales APRÈS les propriétés urgentes
@@ -153,36 +157,36 @@ class _HomePageState extends State<HomePage> {
 
       // Charger les types de propriété dynamiquement
       propertyCtrl.fetchAndSyncPropertyTypes();
-      
+
       // Charger tous les services
       // Charger tous les services
       serviceCtrl.fetchServices();
       // Charger le mapping des comptes services
       serviceCtrl.fetchServiceAccounts();
-      
+
       // Charger les prestations depuis l'API
       _loadPrestationsFromAPI();
 
       // Vérifier en arrière-plan si le gérant a une agence
       final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
       final userAccounts = storage.read('user_accounts');
-      
+
       // Charger toutes les agences pour la section Vacances
       final agenceCtrl = Provider.of<AgenceController>(context, listen: false);
       agenceCtrl.fetchAgences();
-      
+
       if (authCtrl.isLoggedIn && userAccounts != null && userAccounts is List) {
-         bool isManager = userAccounts.any((acc) {
-             var typeAcc = acc['typeAccount'];
-             var id = typeAcc is Map 
-                  ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'])
-                  : (acc['typeAccountId'] ?? acc['TypeAccountId']);
-             return id == 2; // 2 = Gérant/Owner
-         });
-         
-       if (isManager && authCtrl.user.userId != null) {
-            authCtrl.checkUserAgency(authCtrl.user.userId!);
-         }
+        bool isManager = userAccounts.any((acc) {
+          var typeAcc = acc['typeAccount'];
+          var id = typeAcc is Map
+              ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'])
+              : (acc['typeAccountId'] ?? acc['TypeAccountId']);
+          return id == 2; // 2 = Gérant/Owner
+        });
+
+        if (isManager && authCtrl.user.userId != null) {
+          authCtrl.checkUserAgency(authCtrl.user.userId!);
+        }
       }
 
       // [OPTIMIZATION] Charger les types de comptes en arrière-plan et les cacher en SQL
@@ -193,7 +197,7 @@ class _HomePageState extends State<HomePage> {
       // Utile pour avoir l'info prête quand on ouvre la page Profil
       if (authCtrl.isLoggedIn) {
         Future.delayed(Duration(seconds: 3), () {
-           ProfilePage.updatePublicationCount(context);
+          ProfilePage.updatePublicationCount(context);
         });
       }
     });
@@ -207,12 +211,12 @@ class _HomePageState extends State<HomePage> {
       // 1. CHARGEMENT DEPUIS LE CACHE (Instantané)
       final categoryDB = ServiceCategoryDatabaseHelper.instance;
       final cachedCategories = await categoryDB.getAllCategories();
-      
+
       if (cachedCategories.isNotEmpty) {
         print("📦 [HomePage] Mapping chargé depuis le cache local");
         _updateMappingFromList(cachedCategories, isCache: true);
       }
-      
+
       // 2. MISE À JOUR API (En arrière-plan si on a déjà des données)
       if (accountNameToIdMap.isNotEmpty) {
         _fetchAccountMappingFromAPI(); // On ne l'attend pas ici pour ne pas bloquer
@@ -230,7 +234,7 @@ class _HomePageState extends State<HomePage> {
       final url = Endpoints.accounts;
       final token = storage.read<String>(StockageKeys.tokenKey);
       var response = await getData(url, token: token);
-      
+
       if (response != null && response is Map<String, dynamic>) {
         final accounts = response['accounts'] as List<dynamic>?;
         if (accounts != null && accounts.isNotEmpty) {
@@ -246,7 +250,7 @@ class _HomePageState extends State<HomePage> {
   // Mettre à jour le dictionnaire interne depuis une liste (Cache ou API)
   void _updateMappingFromList(List<dynamic> list, {required bool isCache}) {
     final List<Map<String, dynamic>> categoriesToCache = [];
-    
+
     // Mapping des icônes et couleurs
     final iconMap = {
       'plombier': 'plumbing_rounded',
@@ -263,7 +267,7 @@ class _HomePageState extends State<HomePage> {
       'majordome': 'cleaning_services_rounded',
       'demenagement': 'local_shipping_rounded',
     };
-    
+
     final colorMap = {
       'plombier': 0xFF2196F3, 'electricien': 0xFFFFEB3B, 'salubrité': 0xFF4CAF50,
       'peintre': 0xFFFF5722, 'carrelleur': 0xFF9C27B0, 'menusier': 0xFF8D6E63,
@@ -275,14 +279,14 @@ class _HomePageState extends State<HomePage> {
     for (var acc in list) {
       final accountName = (isCache ? acc['accountName'] : acc['name'])?.toString().toLowerCase();
       final accountId = isCache ? acc['accountId'] : acc['id'];
-      
+
       if (accountName != null && accountId != null) {
         accountNameToIdMap[accountName] = accountId;
-        
+
         if (!isCache) {
           final typeAccount = acc['typeAccount'];
           final typeAccountId = typeAccount?['typeAccountId'];
-          
+
           if (typeAccountId == 3) {
             final displayName = accountName[0].toUpperCase() + accountName.substring(1);
             final serviceType = _mapAccountNameToServiceType(accountName);
@@ -314,11 +318,11 @@ class _HomePageState extends State<HomePage> {
 
     try {
       // 1. Charger d'abord le mapping depuis le CACHE (très rapide)
-      await _loadAccountMapping(); 
-      
+      await _loadAccountMapping();
+
       final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
       final dbHelper = PrestationDatabaseHelper.instance;
-      
+
       // 2. CHARGEMENT INITIAL DEPUIS LE CACHE SQL
       final cachedPrestations = await dbHelper.getAllPrestations();
       if (cachedPrestations.isNotEmpty) {
@@ -335,16 +339,16 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           // Traiter TOUTES les prestations (filtrage local par serviceId)
           _processPrestations(allList);
-          
+
           isLoadingPrestations = false;
         });
-        
+
         // Compter les résultats par catégorie pour les logs
         final majordomeId = accountNameToIdMap['majordome'] ?? accountNameToIdMap['majordhomme'];
         final demenagementId = accountNameToIdMap['demenagement'];
         final majCount = allList.where((p) => p.serviceId == majordomeId).length;
         final demCount = allList.where((p) => p.serviceId == demenagementId).length;
-        
+
         print("✅ [HomePage] Données API intégrées (Total: ${allList.length}, Ménage: $majCount, Déménag: $demCount)");
       }
     } catch (e) {
@@ -362,30 +366,30 @@ class _HomePageState extends State<HomePage> {
     // TOUJOURS mettre à jour depuis les données API (pas seulement si vide)
     // Ceci garantit que les données obsolètes en mémoire sont écrasées
     if (majordomeId != null) {
-       final apiMajordhomme = allPrestations.where((p) => p.serviceId == majordomeId).toList()
+      final apiMajordhomme = allPrestations.where((p) => p.serviceId == majordomeId).toList()
         ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-       // Ne mettre à jour que si on a des données de l'API OU si on veut vider
-       if (apiMajordhomme.isNotEmpty || majordhommeServices.isNotEmpty) {
-         majordhommeServices = apiMajordhomme;
-         print("🔄 [HomePage] Ménage mis à jour: ${apiMajordhomme.length} prestations");
-       }
+      // Ne mettre à jour que si on a des données de l'API OU si on veut vider
+      if (apiMajordhomme.isNotEmpty || majordhommeServices.isNotEmpty) {
+        majordhommeServices = apiMajordhomme;
+        print("🔄 [HomePage] Ménage mis à jour: ${apiMajordhomme.length} prestations");
+      }
     }
     if (demenagementId != null) {
-       final apiDemenagement = allPrestations.where((p) => p.serviceId == demenagementId).toList()
+      final apiDemenagement = allPrestations.where((p) => p.serviceId == demenagementId).toList()
         ..sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-       if (apiDemenagement.isNotEmpty || demenagementServices.isNotEmpty) {
-         demenagementServices = apiDemenagement;
-         print("🔄 [HomePage] Déménagement mis à jour: ${apiDemenagement.length} prestations");
-       }
+      if (apiDemenagement.isNotEmpty || demenagementServices.isNotEmpty) {
+        demenagementServices = apiDemenagement;
+        print("🔄 [HomePage] Déménagement mis à jour: ${apiDemenagement.length} prestations");
+      }
     }
 
     // 2. Grouper les autres
     otherServicesByType.clear();
     for (var prestation in allPrestations) {
-      if (prestation.serviceId != null && 
-          prestation.serviceId != majordomeId && 
+      if (prestation.serviceId != null &&
+          prestation.serviceId != majordomeId &&
           prestation.serviceId != demenagementId) {
-        
+
         // Trouver le nom du compte
         String? accountName;
         accountNameToIdMap.forEach((name, id) {
@@ -520,42 +524,42 @@ class _HomePageState extends State<HomePage> {
     // Types de propriétés à afficher : Studio (1), Apparts (2), Maisons (3), Bureaux (4)
     // Utiliser les types depuis l'API si disponibles, sinon fallback sur les IDs
     final List<int> allowedTypeIds = [];
-    
+
     if (propertyCtrl.propertyTypes.isNotEmpty) {
       // Mapper les noms depuis l'API vers les IDs
       for (var type in propertyCtrl.propertyTypes) {
         final name = (type['name'] ?? '').toString().toLowerCase();
         final typeId = type['propertyTypeId'];
         if (typeId != null) {
-          if (name.contains('studio') || name.contains('appart') || 
+          if (name.contains('studio') || name.contains('appart') ||
               name.contains('maison') || name.contains('bureau') ||
               name.contains('fête') || name.contains('fete') ||
               name.contains('funéraire') || name.contains('funeraire') ||
-              name.contains('terrain') || name.contains('hotel') || 
+              name.contains('terrain') || name.contains('hotel') ||
               name.contains('hôtel')) {
             allowedTypeIds.add(typeId as int);
           }
         }
       }
     }
-    
+
     // Fallback si l'API n'a pas encore chargé les types
     if (allowedTypeIds.isEmpty) {
       allowedTypeIds.addAll([1, 2, 3, 4, 5, 7, 8, 9]); // Studio, Apparts, Maisons, Bureaux, Hotels, Funéraire, Fêtes, Terrain
     }
-    
-    final rentalProperties = properties.where((p) => 
-      p.transactionType == 'location' && 
-      allowedTypeIds.contains(p.propertyTypeId)
-    ).toList()
+
+    final rentalProperties = properties.where((p) {
+      final tt = p.transactionType?.toLowerCase() ?? '';
+      return tt.contains('location') && allowedTypeIds.contains(p.propertyTypeId);
+    }).toList()
       ..sort((a, b) => (b.propertyId ?? 0).compareTo(a.propertyId ?? 0));
-    
-    final saleProperties = properties.where((p) => 
-      p.transactionType == 'vente' && 
-      allowedTypeIds.contains(p.propertyTypeId)
-    ).toList()
+
+    final saleProperties = properties.where((p) {
+      final tt = p.transactionType?.toLowerCase() ?? '';
+      return tt.contains('vente') && allowedTypeIds.contains(p.propertyTypeId);
+    }).toList()
       ..sort((a, b) => (b.propertyId ?? 0).compareTo(a.propertyId ?? 0));
-    
+
     // Utiliser uniquement les prestations chargées depuis l'API (pas de fallback statique)
     final currentMajordhommeServices = majordhommeServices;
     final currentDemenagementServices = demenagementServices;
@@ -574,7 +578,7 @@ class _HomePageState extends State<HomePage> {
               color: const Color(0xFFF8F9FF), // Ultra-clean premium base
             ),
           ),
-          
+
           // Mesh Gradient Blobs - Level: "DE OUF"
           // Top Right: Deep Blue
           Positioned(
@@ -594,7 +598,7 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ),
-          
+
           // Mid Left: Indigo/Purple accent for depth
           Positioned(
             top: 250,
@@ -663,7 +667,7 @@ class _HomePageState extends State<HomePage> {
           // Texture Overlay (Grain/Abstract) on top of the mesh
           Positioned.fill(
             child: Opacity(
-              opacity: 0.04, 
+              opacity: 0.04,
               child: Image.asset(
                 "assets/images/abstract.jpg",
                 fit: BoxFit.cover,
@@ -686,184 +690,194 @@ class _HomePageState extends State<HomePage> {
             child: SingleChildScrollView(
               physics: NeverScrollableScrollPhysics(),
               child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ============================================
-              // ZONE 1 : HERO & NAVIGATION RAPIDE
-              // ============================================
-              _buildHeroSection(),
-              SizedBox(height: 24),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ============================================
+                  // ZONE 1 : HERO & NAVIGATION RAPIDE
+                  // ============================================
+                  _buildHeroSection(),
+                  SizedBox(height: 24),
 
-              _buildCategorySection(),
-              SizedBox(height: 15),
-              
-              if (propertyCtrl.syncing && !_isManualRefresh)
-                Padding(
-                  padding: EdgeInsets.only(bottom: 16),
-                child: _buildMinimalSyncIndicator(message: "Mise à jour des données..."),
-                ),
+                  _buildCategorySection(),
+                  SizedBox(height: 15),
 
-              if (_isManualRefresh && propertyCtrl.syncing)
-                Padding(
-                  padding: EdgeInsets.only(bottom: 16),
-                  child: _buildMinimalSyncIndicator(),
-                ),
+                  if (propertyCtrl.syncing && !_isManualRefresh)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: 16),
+                      child: _buildMinimalSyncIndicator(message: "Mise à jour des données..."),
+                    ),
 
-              // ============================================
-              // ZONE 2 : PROPRIÉTÉS (Contenu principal)
-              // ============================================
-              // PromoBanner avant propriétés (séparateur visuel)
-              PromoBanner(),
-              SizedBox(height: 32),
-              
-              // Section Locations (priorité car plus recherchée)
-              _buildSectionHeader(
-                title: "Biens en Location",
-                subtitle: "Découvrez nos meilleures offres",
-                onSeeAll: () {
-                  _logCategoryTap('locations_see_all');
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AllPropertiesPage(
-                        initialProperties: rentalProperties,
-                        isForRent: true,
-                      ),
+                  if (_isManualRefresh && propertyCtrl.syncing)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: 16),
+                      child: _buildMinimalSyncIndicator(),
                     ),
-                  );
-                },
+
+                  // ============================================
+                  // ZONE 2 : PROPRIÉTÉS (Contenu principal)
+                  // ============================================
+                  // PromoBanner avant propriétés (séparateur visuel)
+                  PromoBanner(),
+                  SizedBox(height: 32),
+
+                  // Section Locations (priorité car plus recherchée)
+                  _buildSectionHeader(
+                    title: "Biens en Location",
+                    subtitle: "Découvrez nos meilleures offres",
+                    showcaseKey: Provider.of<TutorialController>(context, listen: false).seeAllLocationsKey,
+                    showcaseDescription: "Parcourez toutes nos maisons en location",
+                    onSeeAll: () {
+                      _logCategoryTap('locations_see_all');
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AllPropertiesPage(
+                            initialProperties: rentalProperties,
+                            isForRent: true,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  SizedBox(height: 16),
+                  _buildPropertyCarousel(
+                    isForRent: true,
+                    properties: rentalProperties,
+                    isLoading: propertyCtrl.loading,
+                    heroPrefix: 'rental',
+                    scrollController: _rentalsScrollController,
+                  ),
+                  SizedBox(height: 32),
+
+                  // Section Ventes
+                  _buildSectionHeader(
+                    title: "Biens en Vente",
+                    subtitle: "Investissez dans votre avenir",
+                    showcaseKey: Provider.of<TutorialController>(context, listen: false).seeAllSalesKey,
+                    showcaseDescription: "Trouvez votre futur achat immobilier",
+                    onSeeAll: () {
+                      _logCategoryTap('ventes_see_all');
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AllPropertiesPage(
+                            initialProperties: saleProperties,
+                            isForRent: false,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  SizedBox(height: 16),
+                  _buildPropertyCarousel(
+                    isForRent: false,
+                    properties: saleProperties,
+                    isLoading: propertyCtrl.loading,
+                    heroPrefix: 'sale',
+                    scrollController: _salesScrollController,
+                  ),
+                  SizedBox(height: 32),
+
+                  // ============================================
+                  // NOUVELLES SECTIONS SPÉCIALISÉES (Consolidées pour réduire la longueur)
+                  // ============================================
+                  // _buildSpecializedPropertiesSection(propertyCtrl), // Supprimé pour UX plus propre, voir catégories en haut
+
+                  // ============================================
+                  // ZONE 3 : SERVICES PRINCIPAUX
+                  // ============================================
+                  // PromoBanner avant services (transition visuelle)
+                  PromoBanner(),
+                  SizedBox(height: 32),
+
+                  // Section Services Majordome (service populaire)
+                  _buildSectionHeader(
+                    title: "Femme de Ménage",
+                    subtitle: "Nettoyage professionnel à domicile",
+                    showcaseKey: Provider.of<TutorialController>(context, listen: false).seeAllCleaningKey,
+                    showcaseDescription: "Découvrez nos experts en entretien",
+                    onSeeAll: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ServiceCategoryPage(
+                            serviceType: ServiceType.majordhomme,
+                            services: currentMajordhommeServices,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  SizedBox(height: 16),
+                  _buildServiceCarousel(
+                    services: currentMajordhommeServices,
+                    isLoading: isLoadingPrestations,
+                    serviceType: ServiceType.majordhomme,
+                    scrollController: _majordhommeScrollController,
+                  ),
+                  SizedBox(height: 32),
+
+                  // Section Services de Déménagement
+                  _buildSectionHeader(
+                    title: "Déménagement",
+                    subtitle: "Déménagez en toute sérénité",
+                    showcaseKey: Provider.of<TutorialController>(context, listen: false).seeAllMovingKey,
+                    showcaseDescription: "Tous nos services de transport et logistique",
+                    onSeeAll: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ServiceCategoryPage(
+                            serviceType: ServiceType.demenagement,
+                            services: currentDemenagementServices,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  SizedBox(height: 16),
+                  _buildServiceCarousel(
+                    services: currentDemenagementServices,
+                    isLoading: isLoadingPrestations,
+                    serviceType: ServiceType.demenagement,
+                    scrollController: _demenagementScrollController,
+                  ),
+                  SizedBox(height: 32),
+
+                  // ============================================
+                  // ZONE 4 : AUTRES SERVICES (Complémentaire)
+                  // ============================================
+                  _buildSectionHeader(
+                    title: "Autres Services",
+                    subtitle: "Découvrez tous nos professionnels",
+                    showcaseKey: Provider.of<TutorialController>(context, listen: false).seeAllOtherServicesKey,
+                    showcaseDescription: "Explorez la variété de nos services à domicile",
+                    onSeeAll: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AllServiceCategoriesPage(),
+                        ),
+                      );
+                    },
+                  ),
+                  SizedBox(height: 16),
+                  _buildOtherServicesGrid(
+                    servicesByType: currentOtherServicesByType,
+                    isLoading: isLoadingPrestations || serviceCtrl.loading,
+                  ),
+                  SizedBox(height: 32),
+
+                  // ============================================
+                  // ZONE 5 : CALL-TO-ACTION FINAL
+                  // ============================================
+                  // PromoBanner final (engagement en fin de parcours)
+                  PromoBanner(),
+                  SizedBox(height: 32),
+                ],
               ),
-              SizedBox(height: 16),
-              _buildPropertyCarousel(
-                isForRent: true,
-                properties: rentalProperties,
-                isLoading: propertyCtrl.loading,
-                heroPrefix: 'rental',
-                scrollController: _rentalsScrollController,
-              ),
-              SizedBox(height: 32),
-              
-              // Section Ventes
-              _buildSectionHeader(
-                title: "Biens en Vente",
-                subtitle: "Investissez dans votre avenir",
-                onSeeAll: () {
-                  _logCategoryTap('ventes_see_all');
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AllPropertiesPage(
-                        initialProperties: saleProperties,
-                        isForRent: false,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              SizedBox(height: 16),
-              _buildPropertyCarousel(
-                isForRent: false,
-                properties: saleProperties,
-                isLoading: propertyCtrl.loading,
-                heroPrefix: 'sale',
-                scrollController: _salesScrollController,
-              ),
-              SizedBox(height: 32),
-              
-              // ============================================
-              // NOUVELLES SECTIONS SPÉCIALISÉES (Consolidées pour réduire la longueur)
-              // ============================================
-              // _buildSpecializedPropertiesSection(propertyCtrl), // Supprimé pour UX plus propre, voir catégories en haut
-              
-              // ============================================
-              // ZONE 3 : SERVICES PRINCIPAUX
-              // ============================================
-              // PromoBanner avant services (transition visuelle)
-              PromoBanner(),
-              SizedBox(height: 32),
-              
-              // Section Services Majordome (service populaire)
-              _buildSectionHeader(
-                title: "Femme de Ménage",
-                subtitle: "Nettoyage professionnel à domicile",
-                onSeeAll: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ServiceCategoryPage(
-                        serviceType: ServiceType.majordhomme,
-                        services: currentMajordhommeServices,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              SizedBox(height: 16),
-              _buildServiceCarousel(
-                services: currentMajordhommeServices,
-                isLoading: isLoadingPrestations,
-                serviceType: ServiceType.majordhomme,
-                scrollController: _majordhommeScrollController,
-              ),
-              SizedBox(height: 32),
-              
-              // Section Services de Déménagement
-              _buildSectionHeader(
-                title: "Déménagement",
-                subtitle: "Déménagez en toute sérénité",
-                onSeeAll: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ServiceCategoryPage(
-                        serviceType: ServiceType.demenagement,
-                        services: currentDemenagementServices,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              SizedBox(height: 16),
-              _buildServiceCarousel(
-                services: currentDemenagementServices,
-                isLoading: isLoadingPrestations,
-                serviceType: ServiceType.demenagement,
-                scrollController: _demenagementScrollController,
-              ),
-              SizedBox(height: 32),
-              
-              // ============================================
-              // ZONE 4 : AUTRES SERVICES (Complémentaire)
-              // ============================================
-              _buildSectionHeader(
-                title: "Autres Services",
-                subtitle: "Découvrez tous nos professionnels",
-                onSeeAll: () { 
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AllServiceCategoriesPage(),
-                    ),
-                  );
-                },
-              ),
-              SizedBox(height: 16),
-              _buildOtherServicesGrid(
-                servicesByType: currentOtherServicesByType,
-                isLoading: isLoadingPrestations || serviceCtrl.loading,
-              ),
-              SizedBox(height: 32),
-              
-              // ============================================
-              // ZONE 5 : CALL-TO-ACTION FINAL
-              // ============================================
-              // PromoBanner final (engagement en fin de parcours)
-              PromoBanner(),
-              SizedBox(height: 32),
-            ],
+            ),
           ),
-        ),
-      ),
           OfflineBanner(),
         ],
       ),
@@ -923,10 +937,10 @@ class _HomePageState extends State<HomePage> {
       // syncAllSpecialCategories will merge its results into propertyCtrl.properties
       await propertyCtrl.refreshProperties();
       await propertyCtrl.syncAllSpecialCategories(); // Charger bureaux, festives, funeraires
-      
+
       // Refresh prestations (services)
       await _loadPrestationsFromAPI();
-      
+
       _refreshController.refreshCompleted();
       //SnackbarForCasa.success(context, "Liste actualisée");
     } catch (e) {
@@ -1023,13 +1037,18 @@ class _HomePageState extends State<HomePage> {
             ),
           ],
         ),
-        child: IconButton(
-          icon: Icon(Icons.menu_rounded, color: Colors.white, size: 24),
-          onPressed: () {
-            _scaffoldKey.currentState?.openDrawer();
-          },
-          splashRadius: 20,
-          padding: EdgeInsets.zero,
+        child: Showcase(
+          key: Provider.of<TutorialController>(context, listen: false).drawerKey,
+          title: 'Menu',
+          description: 'Accédez à vos propriétés, vos services ici.',
+          child: IconButton(
+            icon: Icon(Icons.menu_rounded, color: Colors.white, size: 24),
+            onPressed: () {
+              _scaffoldKey.currentState?.openDrawer();
+            },
+            splashRadius: 20,
+            padding: EdgeInsets.zero,
+          ),
         ),
       ),
       title: Container(
@@ -1079,10 +1098,14 @@ class _HomePageState extends State<HomePage> {
       ),
       centerTitle: true,
       actions: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Container(
+        Showcase(
+          key: Provider.of<TutorialController>(context, listen: false).notificationKey,
+          title: 'Notifications',
+          description: 'Retrouvez toutes vos alertes et rendez-vous ici.',
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
               margin: EdgeInsets.only(right: 16, top: 8, bottom: 8),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -1160,12 +1183,13 @@ class _HomePageState extends State<HomePage> {
                   if (count > 0) {
                     return PulseBadge(child: badge);
                   }
-                  
+
                   return badge;
                 },
               ),
             ),
           ],
+        ),
         ),
       ],
     );
@@ -1311,12 +1335,12 @@ class _HomePageState extends State<HomePage> {
 
       // 4. Naviguer vers la page d'accueil après un court délai pour voir le changement
       await Future.delayed(Duration(milliseconds: 300));
-      
+
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(
           context,
           Routes.bottomPageRoute,
-          (route) => false,
+              (route) => false,
         );
       }
 
@@ -1326,12 +1350,12 @@ class _HomePageState extends State<HomePage> {
       // Même en cas d'erreur, recharger la page
       if (mounted) {
         setState(() {});
-        
+
         // Naviguer vers la page d'accueil
         Navigator.pushNamedAndRemoveUntil(
           context,
           Routes.bottomPageRoute,
-          (route) => false,
+              (route) => false,
         );
       }
     }
@@ -1359,11 +1383,11 @@ class _HomePageState extends State<HomePage> {
     final token = stockage.read(StockageKeys.tokenKey);
     final user = stockage.read(StockageKeys.userKey);
     final profile = stockage.read(StockageKeys.profileKey);
-    
+
     // Retrieve authCtrl and userAccounts for use in drawer
     final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
     final userAccounts = stockage.read('user_accounts');
-    
+
     bool isLoggedIn = token != null;
 
     String selectedRoute = ModalRoute.of(context)?.settings.name ?? Routes.bottomPageRoute;
@@ -1466,35 +1490,35 @@ class _HomePageState extends State<HomePage> {
                                 if (profileData != null && profileData is Map) {
                                   imageUrl = profileData['image']?.toString() ?? profileData['images']?.toString();
                                 }
-                                
+
                                 final hasValidUrl = imageUrl != null && imageUrl.isNotEmpty && !imageUrl.startsWith('/');
-                                
+
                                 return CircleAvatar(
                                   radius: 40,
                                   backgroundColor: Colors.white,
                                   backgroundImage: () {
-                                     // 1. Priorité au fichier local (Garanti Offline & Instantané)
-                                     final localPath = stockage.read('user_image_path');
-                                     if (localPath != null && File(localPath).existsSync()) {
-                                       return FileImage(File(localPath)) as ImageProvider;
-                                     }
-                                     
-                                     // 2. Sinon, image réseau avec cache
-                                     if (hasValidUrl) {
-                                       return CachedNetworkImageProvider(imageUrl!);
-                                     }
-                                     
-                                     return null;
+                                    // 1. Priorité au fichier local (Garanti Offline & Instantané)
+                                    final localPath = stockage.read('user_image_path');
+                                    if (localPath != null && File(localPath).existsSync()) {
+                                      return FileImage(File(localPath)) as ImageProvider;
+                                    }
+
+                                    // 2. Sinon, image réseau avec cache
+                                    if (hasValidUrl) {
+                                      return CachedNetworkImageProvider(imageUrl!);
+                                    }
+
+                                    return null;
                                   }(),
                                   child: (() {
-                                     final localPath = stockage.read('user_image_path');
-                                     if (localPath != null && File(localPath).existsSync()) return null;
-                                     if (hasValidUrl) return null;
-                                     return Icon(
-                                        Icons.person,
-                                        size: 42,
-                                        color: primaryColor,
-                                      );
+                                    final localPath = stockage.read('user_image_path');
+                                    if (localPath != null && File(localPath).existsSync()) return null;
+                                    if (hasValidUrl) return null;
+                                    return Icon(
+                                      Icons.person,
+                                      size: 42,
+                                      color: primaryColor,
+                                    );
                                   })(),
                                 );
                               },
@@ -1613,7 +1637,7 @@ class _HomePageState extends State<HomePage> {
                             //     );
                             //   },
                             // ),
-                            
+
                             // "Mes Réservations" - Visible pour tous (si loggé)
                             _buildDrawerItem(
                               icon: Icons.calendar_today_rounded,
@@ -1622,86 +1646,105 @@ class _HomePageState extends State<HomePage> {
                               isSelected: selectedRoute == Routes.bookingHistoryPageRoute,
                               onTap: () => _handleNavigation(Routes.bookingHistoryPageRoute),
                             ),
-                            
+                            Consumer<AuthentificationCtrl>(
+                              builder: (context, auth, _) {
+                                final premium = auth.user.isPremium == true;
+                                final route = premium
+                                    ? Routes.paymentHistoryRoute
+                                    : Routes.subscriptionPaymentRoute;
+                                return _buildDrawerItem(
+                                  icon: premium
+                                      ? Icons.receipt_long_rounded
+                                      : Icons.workspace_premium_rounded,
+                                  title: premium
+                                      ? 'Historique des paiements'
+                                      : 'Abonnement',
+                                  routeName: route,
+                                  isSelected: selectedRoute == route,
+                                  onTap: () => _handleNavigation(route),
+                                );
+                              },
+                            ),
+
                             // LOGIQUE DE FILTRAGE
                             Builder(
-                              builder: (context) {
-                                bool showMesProprietes = false;
-                                bool showMesServices = false;
-                                bool showMonAgence = false;
+                                builder: (context) {
+                                  bool showMesProprietes = false;
+                                  bool showMesServices = false;
+                                  bool showMonAgence = false;
 
-                                // Analyser user_accounts
-                                if (userAccounts != null && userAccounts is List) {
-                                  // Vérifier d'abord si Gérant est présent
-                                  bool isGerant = userAccounts.any((acc) {
-                                    final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
-                                    final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
-                                    return typeId == 2 && (name.contains('gerant') || acc['id'] == 3); 
-                                    // Note: En JSON fourni, gerant a id:3 et typeAccount.name="Proprietaire" (id:2)
-                                    // Donc on check aussi le nom ou l'ID spécifique si on veut être strict
-                                  });
-                                  
-                                  // Gérant -> voit Mon Agence
-                                  if (isGerant) {
-                                    showMonAgence = true;
-                                  }
+                                  // Analyser user_accounts
+                                  if (userAccounts != null && userAccounts is List) {
+                                    // Vérifier d'abord si Gérant est présent
+                                    bool isGerant = userAccounts.any((acc) {
+                                      final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+                                      final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+                                      return typeId == 2 && (name.contains('gerant') || acc['id'] == 3);
+                                      // Note: En JSON fourni, gerant a id:3 et typeAccount.name="Proprietaire" (id:2)
+                                      // Donc on check aussi le nom ou l'ID spécifique si on veut être strict
+                                    });
 
-                                  for (var acc in userAccounts) {
-                                    final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
-                                    final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
-                                    final accId = acc['id']; // id du compte
+                                    // Gérant -> voit Mon Agence
+                                    if (isGerant) {
+                                      showMonAgence = true;
+                                    }
 
-                                    // Propriétaire (typeAccountId == 2)
-                                    // MAIS EXCLURE GÉRANT (qui a aussi typeAccountId == 2)
-                                    if (typeId == 2) {
-                                       // Si c'est un gérant, on l'a déjà traité pour showMonAgence
-                                       // Si ce N'EST PAS un gérant, alors c'est Commissionnaire ou Bailleur -> voit Mes Propriétés
-                                       if (!name.contains('gerant') && accId != 3) {
+                                    for (var acc in userAccounts) {
+                                      final typeId = (acc['typeAccount']?['typeAccountId'] ?? (acc['typeAccountId'] ?? acc['TypeAccountId']));
+                                      final name = (acc['name'] ?? acc['Name'])?.toString().toLowerCase() ?? '';
+                                      final accId = acc['id']; // id du compte
+
+                                      // Propriétaire (typeAccountId == 2)
+                                      // MAIS EXCLURE GÉRANT (qui a aussi typeAccountId == 2)
+                                      if (typeId == 2) {
+                                        // Si c'est un gérant, on l'a déjà traité pour showMonAgence
+                                        // Si ce N'EST PAS un gérant, alors c'est Commissionnaire ou Bailleur -> voit Mes Propriétés
+                                        if (!name.contains('gerant') && accId != 3) {
                                           showMesProprietes = true;
-                                       }
-                                    }
+                                        }
+                                      }
 
-                                    // Prestataire (typeAccountId == 3) -> voit Mes Services
-                                    if (typeId == 3) {
-                                      showMesServices = true;
+                                      // Prestataire (typeAccountId == 3) -> voit Mes Services
+                                      if (typeId == 3) {
+                                        showMesServices = true;
+                                      }
                                     }
                                   }
+
+                                  return Column(
+                                    children: [
+                                      // "Mes propriétés" - Seulement pour Commissionnaire/Bailleur (PAS Gérant)
+                                      if (showMesProprietes)
+                                        _buildDrawerItem(
+                                          icon: Icons.apartment_rounded,
+                                          title: 'Mes propriétés',
+                                          routeName: Routes.myPropertiesRoute,
+                                          isSelected: selectedRoute == Routes.myPropertiesRoute,
+                                          onTap: () => _handleNavigation(Routes.myPropertiesRoute),
+                                        ),
+
+                                      // "Mes services" - Visible pour TOUS (si loggé)
+                                      // Modification demandée: Tout le monde voit le menu, mais l'intérieur change
+                                      _buildDrawerItem(
+                                        icon: Icons.work_rounded,
+                                        title: 'Mes services',
+                                        routeName: Routes.myServicesRoute,
+                                        isSelected: selectedRoute == Routes.myServicesRoute,
+                                        onTap: () => _handleNavigation(Routes.myServicesRoute),
+                                      ),
+
+                                      // "Mon Agence" - Seulement pour Gérant
+                                      if (showMonAgence)
+                                        _buildDrawerItem(
+                                          icon: Icons.store_mall_directory_rounded,
+                                          title: 'Mon Agence',
+                                          routeName: '/my-agency',
+                                          isSelected: selectedRoute == '/my-agency',
+                                          onTap: () => _handleNavigation('/my-agency'),
+                                        ),
+                                    ],
+                                  );
                                 }
-                                
-                                return Column(
-                                  children: [
-                                    // "Mes propriétés" - Seulement pour Commissionnaire/Bailleur (PAS Gérant)
-                                    if (showMesProprietes)
-                                      _buildDrawerItem(
-                                        icon: Icons.apartment_rounded,
-                                        title: 'Mes propriétés',
-                                        routeName: Routes.myPropertiesRoute,
-                                        isSelected: selectedRoute == Routes.myPropertiesRoute,
-                                        onTap: () => _handleNavigation(Routes.myPropertiesRoute),
-                                      ),
-                                      
-                                    // "Mes services" - Visible pour TOUS (si loggé)
-                                    // Modification demandée: Tout le monde voit le menu, mais l'intérieur change
-                                    _buildDrawerItem(
-                                      icon: Icons.work_rounded,
-                                      title: 'Mes services',
-                                      routeName: Routes.myServicesRoute,
-                                      isSelected: selectedRoute == Routes.myServicesRoute,
-                                      onTap: () => _handleNavigation(Routes.myServicesRoute),
-                                    ),
-                                      
-                                    // "Mon Agence" - Seulement pour Gérant
-                                    if (showMonAgence)
-                                      _buildDrawerItem(
-                                        icon: Icons.store_mall_directory_rounded,
-                                        title: 'Mon Agence',
-                                        routeName: '/my-agency', 
-                                        isSelected: selectedRoute == '/my-agency',
-                                        onTap: () => _handleNavigation('/my-agency'),
-                                      ),
-                                  ],
-                                );
-                              }
                             ),
                           ],
                         ],
@@ -1922,8 +1965,12 @@ class _HomePageState extends State<HomePage> {
   void _handleNavigation(String routeName) {
     Navigator.pop(context);
 
-    if (routeName == Routes.bottomPageRoute ||
-        routeName == Routes.commissionnaireDashboardPageRoute ||
+    if (routeName == Routes.bottomPageRoute) {
+      // Déjà sur la page d'accueil (contenue dans BottomNavBar), on ferme juste le drawer
+      return;
+    }
+
+    if (routeName == Routes.commissionnaireDashboardPageRoute ||
         routeName == Routes.favoriteRoute ||
         routeName == Routes.myPropertiesRoute ||
         routeName == Routes.myServicesRoute ||
@@ -1932,10 +1979,12 @@ class _HomePageState extends State<HomePage> {
         routeName == Routes.quickServiceRequestRoute ||
         routeName == Routes.myServiceRequestsRoute ||
         routeName == Routes.notificationPageRoute ||
-        routeName == Routes.helpSupportRoute) {
+        routeName == Routes.helpSupportRoute ||
+        routeName == Routes.subscriptionPaymentRoute ||
+        routeName == Routes.paymentHistoryRoute) {
       Navigator.pushNamed(context, routeName);
     } else if (routeName == '/my-agency') {
-       Navigator.push(context, MaterialPageRoute(builder: (_) => MyAgencyPage()));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => MyAgencyPage()));
     } else {
       SnackbarForCasa.info(
         context,
@@ -2226,26 +2275,26 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildCategorySection() {
     final propertyCtrl = Provider.of<PropertyController>(context);
-    
+
     // Si la liste est vide, on utilise une liste de fallback pour éviter un écran vide au premier démarrage
     // Si la liste est vide, on utilise une liste de fallback complète pour couvrir tous les besoins
-    final List<Map<String, dynamic>> categories = propertyCtrl.propertyTypes.isNotEmpty 
-      ? propertyCtrl.propertyTypes.map((type) => {
-          'propertyTypeId': type['propertyTypeId'],
-          'label': type['name'],
-          'image': _getCategoryImage(type['name'] ?? ''),
-          'value': _getCategoryValue(type['name'] ?? ''),
-        }).toList()
-      : [
-          {'label': 'Studios', 'image': 'assets/images/studio.png', 'value': 'Studio'},
-          {'label': 'Apparts', 'image': 'assets/images/apart.png', 'value': 'Apparts'},
-          {'label': 'Maisons', 'image': 'assets/images/maison.png', 'value': 'Maisons'},
-          {'label': 'Bureaux', 'image': 'assets/images/office.png', 'value': 'Bureau'},
-          {'label': 'Fêtes', 'image': 'assets/images/fete.png', 'value': 'Salle de fête'},
-          {'label': 'Funéraires', 'image': 'assets/images/funebre.png', 'value': 'Salle funéraires'},
-          {'label': 'Terrains', 'image': 'assets/images/Terrain.png', 'value': 'Terrain'},
-          {'label': 'Hôtels', 'image': 'assets/images/hotel.png', 'value': 'Hotels'},
-        ];
+    final List<Map<String, dynamic>> categories = propertyCtrl.propertyTypes.isNotEmpty
+        ? propertyCtrl.propertyTypes.map((type) => {
+      'propertyTypeId': type['propertyTypeId'],
+      'label': type['name'],
+      'image': _getCategoryImage(type['name'] ?? ''),
+      'value': _getCategoryValue(type['name'] ?? ''),
+    }).toList()
+        : [
+      {'label': 'Studios', 'image': 'assets/images/studio.png', 'value': 'Studio'},
+      {'label': 'Apparts', 'image': 'assets/images/apart.png', 'value': 'Apparts'},
+      {'label': 'Maisons', 'image': 'assets/images/maison.png', 'value': 'Maisons'},
+      {'label': 'Bureaux', 'image': 'assets/images/office.png', 'value': 'Bureau'},
+      {'label': 'Fêtes', 'image': 'assets/images/fete.png', 'value': 'Salle de fête'},
+      {'label': 'Funéraires', 'image': 'assets/images/funebre.png', 'value': 'Salle funéraires'},
+      {'label': 'Terrains', 'image': 'assets/images/Terrain.png', 'value': 'Terrain'},
+      {'label': 'Hôtels', 'image': 'assets/images/hotel.png', 'value': 'Hotels'},
+    ];
 
     return Container(
       margin: EdgeInsets.only(bottom: 8),
@@ -2306,7 +2355,7 @@ class _HomePageState extends State<HomePage> {
                       borderRadius: BorderRadius.circular(12),
                       onTap: () {
                         _logCategoryTap(category['value'] as String);
-                        
+
                         // Navigate to TerrainPropertiesPage for terrains
                         if (category['value'] == 'Terrain') {
                           Navigator.push(
@@ -2393,7 +2442,7 @@ class _HomePageState extends State<HomePage> {
       if (controller.hasClients) {
         double maxScroll = controller.position.maxScrollExtent;
         double currentScroll = controller.offset;
-        
+
         if (currentScroll + delta >= maxScroll) {
           controller.animateTo(
             0,
@@ -2421,6 +2470,8 @@ class _HomePageState extends State<HomePage> {
     required String title,
     required String subtitle,
     required VoidCallback onSeeAll,
+    GlobalKey? showcaseKey,
+    String? showcaseDescription,
   }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
@@ -2438,36 +2489,72 @@ class _HomePageState extends State<HomePage> {
                   color: darkBlue,
                 ),
               ),
-              InkWell(
-                onTap: onSeeAll,
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: primaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'voir tout',
-                        style: TextStyle(
-                          color: primaryColor,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+              showcaseKey != null
+                  ? Showcase(
+                      key: showcaseKey,
+                      title: 'Voir Tout',
+                      description: showcaseDescription ?? "Voir tout le contenu de cette section",
+                      child: InkWell(
+                        onTap: onSeeAll,
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: primaryColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'voir tout',
+                                style: TextStyle(
+                                  color: primaryColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              SizedBox(width: 4),
+                              Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 14,
+                                color: primaryColor,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      SizedBox(width: 4),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 14,
-                        color: primaryColor,
+                    )
+                  : InkWell(
+                      onTap: onSeeAll,
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'voir tout',
+                              style: TextStyle(
+                                color: primaryColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            SizedBox(width: 4),
+                            Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              size: 14,
+                              color: primaryColor,
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
+                    ),
             ],
           ),
           SizedBox(height: 4),
@@ -2675,47 +2762,47 @@ class _HomePageState extends State<HomePage> {
                               duration: Duration(milliseconds: 500),
                               child: imageUrl != null && imageUrl.isNotEmpty
                                   ? CachedNetworkImage(
-                                      imageUrl: imageUrl,
-                                      fit: BoxFit.cover,
-                                      width: double.infinity,
-                                      height: double.infinity,
-                                      key: ValueKey(imageUrl),
-                                      placeholder: (context, url) => Container(
-                                        width: double.infinity,
-                                        height: double.infinity,
-                                        color: Colors.grey[200],
-                                        child: Center(
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                                          ),
-                                        ),
-                                      ),
-                                      errorWidget: (context, url, error) => Container(
-                                        width: double.infinity,
-                                        height: double.infinity,
-                                        color: Colors.grey[200],
-                                        child: Center(
-                                          child: Icon(
-                                            serviceType.icon,
-                                            size: 48,
-                                            color: Colors.grey[400],
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                  : Container(
-                                      width: double.infinity,
-                                      height: double.infinity,
-                                      color: Colors.grey[200],
-                                      child: Center(
-                                        child: Icon(
-                                          serviceType.icon,
-                                          size: 48,
-                                          color: Colors.grey[400],
-                                        ),
-                                      ),
+                                imageUrl: imageUrl,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: double.infinity,
+                                key: ValueKey(imageUrl),
+                                placeholder: (context, url) => Container(
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  color: Colors.grey[200],
+                                  child: Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                                     ),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => Container(
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  color: Colors.grey[200],
+                                  child: Center(
+                                    child: Icon(
+                                      serviceType.icon,
+                                      size: 48,
+                                      color: Colors.grey[400],
+                                    ),
+                                  ),
+                                ),
+                              )
+                                  : Container(
+                                width: double.infinity,
+                                height: double.infinity,
+                                color: Colors.grey[200],
+                                child: Center(
+                                  child: Icon(
+                                    serviceType.icon,
+                                    size: 48,
+                                    color: Colors.grey[400],
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -2920,7 +3007,7 @@ class _HomePageState extends State<HomePage> {
     } else if (maxP != null) {
       return 'Jusqu\'à ${_formatServicePrice(maxP)} $currency';
     }
-    
+
     return 'Prix sur demande';
   }
 
@@ -3008,7 +3095,7 @@ class _HomePageState extends State<HomePage> {
           // Récupérer l'image de fond depuis le premier service
           // Chercher dans tous les services de la liste si le premier n'a pas d'image
           String? backgroundImageUrl;
-          
+
           // Fonction locale pour extraire l'image d'une prestation
           String? getPrestationImage(PrestationModel p) {
             if (p.profile != null && p.profile!.isNotEmpty) return p.profile;
@@ -3017,7 +3104,7 @@ class _HomePageState extends State<HomePage> {
           }
 
           backgroundImageUrl = getPrestationImage(firstService);
-          
+
           if (backgroundImageUrl == null) {
             // Parcourir les autres services pour trouver une image
             for (var service in serviceList) {
@@ -3028,7 +3115,7 @@ class _HomePageState extends State<HomePage> {
               }
             }
           }
-          
+
           // Debug: afficher les informations sur les images
           if (backgroundImageUrl == null) {
             print("⚠️ [HomePage] Aucune image trouvée pour le type de service: $serviceType (${serviceList.length} services)");
@@ -3075,54 +3162,54 @@ class _HomePageState extends State<HomePage> {
                       // Image de fond
                       backgroundImageUrl != null
                           ? CachedNetworkImage(
-                              imageUrl: backgroundImageUrl,
-                              fit: BoxFit.cover,
-                              placeholder: (context, url) => Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      primaryColor.withOpacity(0.3),
-                                      primaryColor.withOpacity(0.1),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white.withOpacity(0.7),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              errorWidget: (context, url, error) => Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      primaryColor.withOpacity(0.3),
-                                      primaryColor.withOpacity(0.1),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                )
-                              ),
-                            )
-                          : Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    primaryColor.withOpacity(0.3),
-                                    primaryColor.withOpacity(0.1),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
+                        imageUrl: backgroundImageUrl,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                primaryColor.withOpacity(0.3),
+                                primaryColor.withOpacity(0.1),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white.withOpacity(0.7),
                               ),
                             ),
-                      
+                          ),
+                        ),
+                        errorWidget: (context, url, error) => Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  primaryColor.withOpacity(0.3),
+                                  primaryColor.withOpacity(0.1),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            )
+                        ),
+                      )
+                          : Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              primaryColor.withOpacity(0.3),
+                              primaryColor.withOpacity(0.1),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                      ),
+
                       // Overlay sombre pour améliorer la lisibilité
                       Container(
                         decoration: BoxDecoration(
@@ -3138,7 +3225,7 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       ),
-                      
+
                       // Contenu avec design moderne et épuré
                       Container(
                         padding: EdgeInsets.all(12),
@@ -3174,7 +3261,7 @@ class _HomePageState extends State<HomePage> {
                                 ),
                               ),
                             ),
-                            
+
                             // Titre du service en bas
                             Container(
                               padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -3466,6 +3553,10 @@ class _HomePageState extends State<HomePage> {
         itemCount: min(5, properties.length),
         itemBuilder: (context, index) {
           final property = properties[index];
+          // Tag unique par carte (évite collision si le même propertyId apparaît deux fois dans la liste)
+          final String carouselHeroTag = heroPrefix != null
+              ? '${heroPrefix}-${property.propertyId}-$index'
+              : 'property-image-${property.propertyId}-$index';
 
           final firstImage = property.propertyImage?.isNotEmpty ?? false
               ? property.propertyImage!.first
@@ -3488,16 +3579,12 @@ class _HomePageState extends State<HomePage> {
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(24),
-                  onTap: () {
+                  onTap: () async {
                     _logPropertyView(property, isForRent);
-                    final tag = heroPrefix != null ? '${heroPrefix}-${property.propertyId}' : 'property-image-${property.propertyId}';
-                    Navigator.pushNamed(
+                    await navigateToPropertyDetail(
                       context,
-                      Routes.detailPageRoute,
-                      arguments: {
-                        'property': property,
-                        'heroTag': tag,
-                      },
+                      property,
+                      heroTag: carouselHeroTag,
                     );
                   },
                   child: AnimatedContainer(
@@ -3519,7 +3606,7 @@ class _HomePageState extends State<HomePage> {
                       children: [
                         Positioned.fill(
                           child: Hero(
-                            tag: heroPrefix != null ? '${heroPrefix}-${property.propertyId}' : 'property-image-${property.propertyId}',
+                            tag: carouselHeroTag,
                             child: AnimatedSwitcher(
                               duration: Duration(milliseconds: 500),
                               child: imageUrl != null
@@ -3579,6 +3666,16 @@ class _HomePageState extends State<HomePage> {
                               ],
                               stops: [0.4, 1],
                             ),
+                          ),
+                        ),
+                        Positioned(
+                          top: 16,
+                          left: 16,
+                          child: PropertyListingStatusChip(
+                            sold: property.sold,
+                            transactionType: property.transactionType,
+                            available: property.available,
+                            listingAllowed: property.listingAllowed,
                           ),
                         ),
                         Padding(
@@ -3647,7 +3744,7 @@ class _HomePageState extends State<HomePage> {
                                 child: AnimatedContainer(
                                   duration: Duration(milliseconds: 300),
                                   padding: EdgeInsets.symmetric(
-                                    horizontal: 18, 
+                                    horizontal: 18,
                                     vertical: 12,
                                   ),
                                   decoration: BoxDecoration(
