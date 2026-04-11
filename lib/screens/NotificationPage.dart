@@ -222,41 +222,48 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   void _handleNotificationTap(NotificationItem notification) {
-    // Marquer comme lu
-    Provider.of<NotificationController>(context, listen: false).markAsRead(notification.id);
+    final notifCtrl = Provider.of<NotificationController>(context, listen: false);
+    notifCtrl.markAsRead(notification.id);
 
-    // Navigation unifiée
     final data = notification.data ?? {};
     final propertyId = data['propertyId'] ?? data['property_id'];
-    
+
     if (propertyId != null) {
       Navigator.pushNamed(
-        context, 
-        Routes.detailPageRoute, 
-        arguments: {'propertyId': propertyId}
+        context,
+        Routes.detailPageRoute,
+        arguments: {'propertyId': propertyId},
       );
-    } else {
-      // Navigation par défaut selon le type si pas de propertyId
-      switch (notification.type) {
-        case NotificationType.serviceRequest:
-        case NotificationType.serviceResponse:
-        case NotificationType.serviceAccepted:
-        case NotificationType.serviceCompleted:
-          if (data['requestId'] != null) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ServiceRequestDetailPage(
-                  request: ServiceRequestModel(requestId: data['requestId']),
-                ),
-              ),
-            );
-          }
-          break;
-        default:
-          break;
-      }
+      return;
     }
+
+    switch (notification.type) {
+      case NotificationType.serviceRequest:
+      case NotificationType.serviceResponse:
+      case NotificationType.serviceAccepted:
+      case NotificationType.serviceCompleted:
+        if (data['requestId'] != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ServiceRequestDetailPage(
+                request: ServiceRequestModel(requestId: data['requestId']),
+              ),
+            ),
+          );
+          return;
+        }
+        break;
+      default:
+        break;
+    }
+
+    notifCtrl.navigateFromNotificationPayload(
+      data,
+      titleFallback: notification.title,
+      messageFallback: notification.description,
+      openedFromInAppNotificationList: true,
+    );
   }
 
   Widget _buildNotificationCard(NotificationItem notification) {

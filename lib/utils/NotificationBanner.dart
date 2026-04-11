@@ -25,10 +25,13 @@ class NotificationBanner extends StatefulWidget {
     IconData? icon,
     Color? color,
   }) {
-    final context = MonApplication.navigatorKey.currentContext;
-    if (context == null) return;
+    // Ne pas utiliser Overlay.of(navigatorKey.currentContext) : le contexte du
+    // Navigator n’a pas d’Overlay **ancêtre** (l’Overlay est un **enfant** du Navigator).
+    // → "No Overlay widget found". Utiliser l’Overlay exposé par NavigatorState.
+    final nav = MonApplication.navigatorKey.currentState;
+    final overlayState = nav?.overlay;
+    if (overlayState == null) return;
 
-    final overlay = Overlay.of(context);
     late OverlayEntry entry;
 
     entry = OverlayEntry(
@@ -45,7 +48,7 @@ class NotificationBanner extends StatefulWidget {
       ),
     );
 
-    overlay.insert(entry);
+    overlayState.insert(entry);
   }
 
   @override

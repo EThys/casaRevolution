@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:flutter/services.dart';
 import '../screens/NotificationPage.dart'; // Pour NotificationItem et NotificationType
+import '../utils/casa_payment_log.dart';
 import '../utils/StompService.dart';
 import '../utils/FancyNotification.dart' as fn;
 import '../Apps/MonApllication.dart';
@@ -9,8 +10,11 @@ import '../utils/Routes.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/ModernModal.dart';
 import '../utils/NotificationBanner.dart';
+import '../utils/realtime_refresh_hub.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:vibration/vibration.dart';
+import 'package:provider/provider.dart';
+import 'AuthentificationCtrl.dart';
 
 class NotificationController with ChangeNotifier {
   static final NotificationController _instance = NotificationController._internal();
@@ -83,14 +87,108 @@ class NotificationController with ChangeNotifier {
     }
   }
 
+  /// Les messages arrivent sur `/user/queue/notifications` : le serveur (Spring) les a déjà
+  /// routés vers la session du bon utilisateur. Filtrer ici sur `targetUserId` / `userId`
+  /// dans le JSON provoquait des **faux négatifs** (ces champs désignent souvent un acteur
+  /// métier — hôte, auteur — et non le destinataire réel du push).
+  bool _shouldAcceptNotificationForCurrentUser(Map<String, dynamic> data) {
+    return true;
+  }
+
+  void _emitRealtimeRefreshHints(
+    NotificationType type,
+    String category,
+    String title,
+    String body,
+  ) {
+    final blob =
+        '${title.toLowerCase()} ${body.toLowerCase()} ${category.toLowerCase()}';
+    if (type == NotificationType.appointment ||
+        blob.contains('réservation') ||
+        blob.contains('reservation') ||
+        blob.contains('visite') ||
+        blob.contains('booking')) {
+      RealtimeRefreshHub.instance.emit(RealtimeRefreshHub.reservations);
+    }
+    if (type == NotificationType.serviceRequest ||
+        type == NotificationType.serviceResponse ||
+        type == NotificationType.serviceAccepted ||
+        type == NotificationType.serviceCompleted ||
+        blob.contains('sollicit') ||
+        blob.contains('solicit') ||
+        blob.contains('prestation') ||
+        blob.contains('demande de service')) {
+      RealtimeRefreshHub.instance.emit(RealtimeRefreshHub.serviceSolicitations);
+    }
+    if (type == NotificationType.payment ||
+        blob.contains('paiement') ||
+        blob.contains('payment') ||
+        blob.contains('abonnement') ||
+        blob.contains('subscription')) {
+      RealtimeRefreshHub.instance.emit(RealtimeRefreshHub.payments);
+    }
+  }
+
+  /// Chaque appareil = une session WebSocket + ce listener (état local).
+  /// Le backend doit envoyer la même notif à **chaque** session du compte (ex. Spring `/user/queue/...`).
+  /// Ici : pas de changement de format JSON — on lit `data['user']` pour certif / premium.
   void _initStompListener() {
     StompService().messages.listen((data) {
-      print("🔔 [NotificationController] Message reçu via WebSocket: $data");
+      CasaPaymentLog.logJson(
+        'NotifCtrl/STOMP',
+        'notification WebSocket complète (titre/message/user)',
+        data,
+      );
+      CasaPaymentLog.log(
+        'NotifCtrl/STOMP',
+        'clés=${data.keys.toList()} user.isPremium=${data['user'] is Map ? (data['user'] as Map)['isPremium'] ?? (data['user'] as Map)['is_premium'] : 'n/a'}',
+      );
 
       // Protection contre les doublons (2 secondes de fenêtre)
-      final String title = data['title']?.toString() ?? 'Notification';
-      final String body = (data['message'] ?? data['body'] ?? '').toString();
-      final String fingerprint = "$title-$body";
+      String title = data['title']?.toString() ?? 'Notification';
+      String body = (data['message'] ?? data['body'] ?? '').toString();
+
+      print("🔔 [NotificationController] Détails: Title='$title', Body='$body', Type='${data['type']}'");
+      
+      // --- VÉRIFICATION DE SÉCURITÉ / ROUTAGE ---
+      if (!_shouldAcceptNotificationForCurrentUser(data)) {
+        return;
+      }
+      
+      // --- INTERCEPTER ET DÉCORER LES NOTIFICATIONS DE CERTIFICATION ---
+      final userData = data['user'];
+      if (userData != null && userData is Map) {
+         final dynamic isCertifiedRaw = userData['is_certified'] ?? userData['isCertified'] ?? userData['certified'];
+         if (isCertifiedRaw != null) {
+            final bool isCertified = isCertifiedRaw == true || isCertifiedRaw == 1 || isCertifiedRaw.toString().toLowerCase() == 'true';
+            
+            // Si pas de titre/message explicite, on en génère un beau
+            if (title == 'Notification' || title.isEmpty) {
+              title = isCertified ? "Compte Certifié" : "Compte Décertifié";
+            }
+            if (body.isEmpty) {
+              body = isCertified 
+                ? "Félicitations ! Votre compte est désormais certifié. Vous pouvez maintenant publier des annonces." 
+                : "Attention : Votre compte n'est plus certifié. Certaines fonctionnalités sont limitées.";
+            }
+            // Forcer le type si c'est un changement de certification pour l'icône/couleur
+            if (data['type'] == null) {
+              data['type'] = isCertified ? 'success' : 'warning';
+            }
+         }
+      }
+      // ------------------------------------------------------------------
+
+      // Déduplication : préférer un id serveur pour ne pas fusionner deux vraies notifs identiques.
+      final String dedupeKey = [
+        data['notificationId'],
+        data['id'],
+        data['reservationId'],
+        data['sollicitationId'],
+        data['solicitationId'],
+      ].map((e) => e?.toString() ?? '').firstWhere((s) => s.isNotEmpty, orElse: () => '');
+      final String fingerprint =
+          dedupeKey.isNotEmpty ? 'id:$dedupeKey' : '$title|$body';
 
       final now = DateTime.now();
       if (_lastNotificationFingerprint == fingerprint &&
@@ -103,19 +201,51 @@ class NotificationController with ChangeNotifier {
       _lastNotificationFingerprint = fingerprint;
       _lastNotificationTime = now;
 
-      // Filtrage : Ne pas jouer de son ni afficher de bannière si c'est une auto-confirmation (ex: l'hôte qui valide)
-      // En général, ces messages commencent par "Vous avez" ou "Succès"
-      final bool isAutoConfirmation = body.toLowerCase().startsWith("vous avez") ||
-          title.toLowerCase().contains("succès");
+      String category = data['category']?.toString() ?? 'Système';
+      final NotificationType itemType = _parseType(data['type']);
+
+      // Réservations / visites : toujours bannière + son (ne pas traiter comme auto-confirmation).
+      final blobEarly = '${title.toLowerCase()} ${body.toLowerCase()}';
+      final titleLowerEarly = title.toLowerCase();
+      final isReservationRelated = itemType == NotificationType.appointment ||
+          data['reservationId'] != null ||
+          data['reservation'] != null ||
+          blobEarly.contains('réservation') ||
+          blobEarly.contains('reservation') ||
+          blobEarly.contains('visite') ||
+          blobEarly.contains('rendez-vous') ||
+          blobEarly.contains('booking');
+
+      // Certification / décertification (ex. titre « CasaNayo certification », push compte) : bannière + son.
+      final isCertificationRelated = (titleLowerEarly.contains('casanayo') &&
+              titleLowerEarly.contains('certif')) ||
+          titleLowerEarly.contains('certification') ||
+          blobEarly.contains('compte certifié') ||
+          blobEarly.contains('compte decertif') ||
+          blobEarly.contains('compte décertifié') ||
+          blobEarly.contains('décertif') ||
+          blobEarly.contains('decertif') ||
+          blobEarly.contains('decertification') ||
+          blobEarly.contains('décertification') ||
+          (blobEarly.contains('certifi') &&
+              (blobEarly.contains('compte') || blobEarly.contains('identité')));
+
+      // Auto-confirmation : actions que l’utilisateur vient de faire lui-même (ex. paiement) — pas résas ni certif.
+      final bool isAutoConfirmation = !isReservationRelated &&
+          !isCertificationRelated &&
+          (body.toLowerCase().startsWith("vous avez") ||
+              (title.toLowerCase().contains("succès") &&
+                  !body.toLowerCase().contains("votre réservation")));
+
+      if (isAutoConfirmation) {
+        print("ℹ️ [NotificationController] Auto-confirmation détectée, feedback discret.");
+      }
 
       if (!isAutoConfirmation) {
         // Feedback sonore et haptique amélioré pour le destinataire réel
         _playNotificationSound();
         _triggerVibration();
       }
-
-      String category = data['category']?.toString() ?? 'Système';
-      final NotificationType itemType = _parseType(data['type']);
 
       // Forcer le tag "Demandes" pour les réservations
       if (itemType == NotificationType.appointment) {
@@ -136,22 +266,106 @@ class NotificationController with ChangeNotifier {
       );
 
       addNotification(newItem);
+      _emitRealtimeRefreshHints(itemType, category, title, body);
+
+      // --- GESTION EN TEMPS RÉEL DE LA CERTIFICATION ---
+      // Si la notification contient des infos sur l'utilisateur et son statut de certification
+      try {
+        final userData = data['user'];
+        if (userData != null && userData is Map) {
+          final dynamic isCertifiedRaw = userData['is_certified'] ?? userData['isCertified'] ?? userData['certified'];
+          if (isCertifiedRaw != null) {
+            final bool isCertified = isCertifiedRaw == true || isCertifiedRaw == 1 || isCertifiedRaw.toString().toLowerCase() == 'true';
+            
+            print("👤 [NotificationController] Changement de certification détecté via WebSocket: $isCertified");
+            
+            final context = MonApplication.navigatorKey.currentContext;
+            if (context != null) {
+              // Utiliser Provider pour mettre à jour AuthentificationCtrl
+              try {
+                final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
+                authCtrl.updateCertificationStatus(isCertified);
+              } catch (e) {
+                print("⚠️ [NotificationController] Impossible de trouver AuthentificationCtrl via Provider: $e");
+              }
+            }
+          }
+
+          final dynamic isPremiumRaw =
+              userData['isPremium'] ?? userData['is_premium'] ?? userData['premium'];
+          if (isPremiumRaw != null) {
+            final bool isPremium = isPremiumRaw == true ||
+                isPremiumRaw == 1 ||
+                isPremiumRaw.toString().toLowerCase() == 'true';
+            print("👤 [NotificationController] Changement premium via WebSocket: $isPremium");
+            final context = MonApplication.navigatorKey.currentContext;
+            if (context != null) {
+              try {
+                final authCtrl = Provider.of<AuthentificationCtrl>(context, listen: false);
+                authCtrl.updatePremiumStatus(isPremium);
+              } catch (e) {
+                print("⚠️ [NotificationController] updatePremiumStatus: $e");
+              }
+            }
+          }
+        }
+      } catch (e) {
+        print("⚠️ [NotificationController] Erreur lors du traitement de la certification temps réel: $e");
+      }
+      // --------------------------------------------------
 
       // Afficher une notification visuelle si possible
       final context = MonApplication.navigatorKey.currentContext;
       if (context != null) {
-        String displayTitle = newItem.title;
-        if (newItem.type == NotificationType.message) displayTitle = "📧 Nouveau Message";
-        if (newItem.type == NotificationType.appointment) displayTitle = "📅 Réservation";
-        if (newItem.type == NotificationType.payment) displayTitle = "💰 Paiement";
+        final isDecertificationTone = blobEarly.contains('décertif') ||
+            blobEarly.contains('decertif') ||
+            blobEarly.contains('suspend') ||
+            blobEarly.contains('plus certifié') ||
+            blobEarly.contains("n'est plus certifié") ||
+            blobEarly.contains('nest plus certifie');
+
+        String bannerTitle = 'Nouvelle notification';
+        if (isCertificationRelated) {
+          bannerTitle = isDecertificationTone
+              ? '⚠️ Certification CasaNayo'
+              : '✅ Certification CasaNayo';
+        } else if (newItem.type == NotificationType.message) {
+          bannerTitle = '📧 Nouveau message';
+        } else if (newItem.type == NotificationType.appointment || isReservationRelated) {
+          bannerTitle = '📅 Réservation';
+        } else if (newItem.type == NotificationType.payment) {
+          bannerTitle = '💰 Paiement';
+        } else if (newItem.type == NotificationType.security) {
+          bannerTitle = '🔒 Sécurité';
+        } else if (newItem.type == NotificationType.warning) {
+          bannerTitle = '⚠️ Alerte';
+        }
+
+        final bannerBody = newItem.description.trim().isNotEmpty
+            ? newItem.description
+            : newItem.title;
 
         // Afficher la bannière seulement si ce n'est pas une auto-confirmation
         if (!isAutoConfirmation) {
+          final IconData bannerIcon = isReservationRelated
+              ? Icons.event_rounded
+              : isCertificationRelated
+                  ? (isDecertificationTone
+                      ? Icons.gpp_maybe_rounded
+                      : Icons.verified_user_rounded)
+                  : _getIconForType(newItem.type);
+          final Color bannerColor = isReservationRelated
+              ? const Color(0xFF00897B)
+              : isCertificationRelated
+                  ? (isDecertificationTone
+                      ? const Color(0xFFE65100)
+                      : const Color(0xFF1565C0))
+                  : _getColorForType(newItem.type);
           NotificationBanner.show(
-            title: "Nouvelle notification",
-            message: newItem.description,
-            icon: _getIconForType(newItem.type),
-            color: _getColorForType(newItem.type),
+            title: bannerTitle,
+            message: bannerBody,
+            icon: bannerIcon,
+            color: bannerColor,
             onTap: () {
               _handleNotificationNavigation(data, notificationId: newItem.id);
             },
@@ -162,21 +376,165 @@ class NotificationController with ChangeNotifier {
     });
   }
 
+  /// Même logique que la bannière STOMP ; [titleFallback] / [messageFallback] pour la liste notifications.
+  void navigateFromNotificationPayload(
+    Map<String, dynamic> data, {
+    String? titleFallback,
+    String? messageFallback,
+    /// Évite d’empiler une nouvelle [NotificationsPage] quand on tape un item déjà dans la liste.
+    bool openedFromInAppNotificationList = false,
+  }) {
+    final merged = Map<String, dynamic>.from(data);
+    if (titleFallback != null &&
+        titleFallback.isNotEmpty &&
+        (merged['title'] == null || merged['title'].toString().isEmpty)) {
+      merged['title'] = titleFallback;
+    }
+    if (messageFallback != null &&
+        messageFallback.isNotEmpty &&
+        (merged['message'] == null || merged['message'].toString().isEmpty) &&
+        (merged['body'] == null || merged['body'].toString().isEmpty)) {
+      merged['message'] = messageFallback;
+    }
+
+    final nav = MonApplication.navigatorKey.currentState;
+
+    final propertyId = merged['propertyId'] ?? merged['property_id'];
+    if (propertyId != null) {
+      print("🚀 [NotificationController] Navigation vers la propriété $propertyId");
+      nav?.pushNamed(
+          Routes.detailPageRoute,
+          arguments: {'propertyId': propertyId}
+      );
+      return;
+    }
+
+    final payTag = merged['tag']?.toString().toUpperCase() ?? '';
+    if (payTag == 'SUBSCRIPTION') {
+      final highlightId = merged['paymentId'] ??
+          merged['payment_id'] ??
+          merged['id'];
+      print(
+        '🚀 [NotificationController] Paiement abonnement confirmé → historique (highlight=$highlightId)',
+      );
+      nav?.pushNamed(
+        Routes.paymentHistoryRoute,
+        arguments: <String, dynamic>{
+          if (highlightId != null) 'highlightPaymentId': highlightId,
+        },
+      );
+      return;
+    }
+
+    final titleLower = merged['title']?.toString().toLowerCase() ?? '';
+    final bodyLower = (merged['message'] ?? merged['body'])?.toString().toLowerCase() ?? '';
+    final blob = '$titleLower $bodyLower';
+
+    final looksServiceHost = (titleLower.contains('reçu') && titleLower.contains('intervention')) ||
+        (titleLower.contains('demande') &&
+            titleLower.contains('intervention') &&
+            titleLower.contains('reçu')) ||
+        (bodyLower.contains('votre service') &&
+            (bodyLower.contains('client') || bodyLower.contains('intéress'))) ||
+        (bodyLower.contains('souhaite') &&
+            (bodyLower.contains('interven') || bodyLower.contains('intervenir')));
+
+    var looksServiceClient = (titleLower.contains('accept') ||
+            titleLower.contains('valid') ||
+            titleLower.contains('refus')) &&
+        (blob.contains('sollicit') ||
+            blob.contains('demande') ||
+            blob.contains('intervention') ||
+            blob.contains('prestataire'));
+    if (titleLower.contains('rendez-vous') &&
+        (titleLower.contains('valid') || titleLower.contains('confirm'))) {
+      looksServiceClient = false;
+    }
+
+    if (looksServiceHost) {
+      print('🚀 [NotificationController] MyServices — onglet Demandes reçues (prestataire)');
+      nav?.pushNamed(Routes.myServicesRoute, arguments: <String, dynamic>{'tab': 2});
+      return;
+    }
+    if (looksServiceClient) {
+      print('🚀 [NotificationController] MyServices — onglet Mes demandes (client)');
+      nav?.pushNamed(Routes.myServicesRoute, arguments: <String, dynamic>{'tab': 1});
+      return;
+    }
+
+    final tag = merged['tag']?.toString().toUpperCase() ?? '';
+    final isDemandes = tag == 'DEMANDES' ||
+        merged['reservationId'] != null ||
+        titleLower.contains('réservation') ||
+        titleLower.contains('reservation') ||
+        titleLower.contains('rendez-vous') ||
+        titleLower.contains('visite');
+
+    /// Côté **hôte** (client a réservé / demande visite) → onglet « Réservations reçues ».
+    /// Côté **client** (« votre … ») → « Mes réservations » (défaut).
+    bool looksBookingHostSide() {
+      final blob = '$titleLower $bodyLower';
+      final votreGuest = (titleLower.contains('votre') ||
+              bodyLower.contains('votre réservation') ||
+              bodyLower.contains('votre demande') ||
+              bodyLower.contains('votre visite') ||
+              bodyLower.contains('votre rendez-vous')) &&
+          (blob.contains('visite') ||
+              blob.contains('réservation') ||
+              blob.contains('reservation') ||
+              blob.contains('rendez-vous'));
+      if (votreGuest) return false;
+
+      if (blob.contains('accueillir') &&
+          (blob.contains('client') || blob.contains('visiteur'))) return true;
+      if (blob.contains('prêt') && blob.contains('accueillir')) return true;
+      if (titleLower.contains('nouvelle') &&
+          (titleLower.contains('réservation') || titleLower.contains('reservation'))) {
+        return true;
+      }
+      if (titleLower.contains('réservation reçue') ||
+          titleLower.contains('reservation reçue') ||
+          titleLower.contains('reservation recue')) {
+        return true;
+      }
+      if (bodyLower.contains('souhaite') &&
+          (bodyLower.contains('visiter') || bodyLower.contains('visite'))) {
+        return true;
+      }
+      if (bodyLower.contains('demande') &&
+          bodyLower.contains('visite') &&
+          !bodyLower.contains('votre demande')) {
+        return true;
+      }
+      return false;
+    }
+
+    if (isDemandes) {
+      final hostTab = looksBookingHostSide();
+      print(
+        "🚀 [NotificationController] Navigation réservations — ${hostTab ? 'Réservations reçues' : 'Mes réservations'}",
+      );
+      nav?.pushNamed(
+        Routes.bookingHistoryPageRoute,
+        arguments: <String, dynamic>{'initialHostView': hostTab},
+      );
+      return;
+    }
+
+    if (openedFromInAppNotificationList) {
+      print(
+        '🚀 [NotificationController] Pas de navigation (liste notifications, cible générique).',
+      );
+      return;
+    }
+    nav?.pushNamed(Routes.notificationPageRoute);
+  }
+
   void _handleNotificationNavigation(Map<String, dynamic> data, {String? notificationId}) {
     if (notificationId != null) {
       markAsRead(notificationId);
     }
-
-    final propertyId = data['propertyId'] ?? data['property_id'];
-    if (propertyId != null) {
-      print("🚀 [NotificationController] Navigation vers la propriété $propertyId");
-      MonApplication.navigatorKey.currentState?.pushNamed(
-          Routes.detailPageRoute,
-          arguments: {'propertyId': propertyId}
-      );
-    } else {
-      MonApplication.navigatorKey.currentState?.pushNamed(Routes.notificationPageRoute);
-    }
+    navigateFromNotificationPayload(data);
   }
 
   fn.NotificationType _getFancyNotificationType(NotificationType modelType) {
@@ -215,18 +573,28 @@ class NotificationController with ChangeNotifier {
     if (t.contains('accept')) return NotificationType.serviceAccepted;
     if (t.contains('complete') || t.contains('fini')) return NotificationType.serviceCompleted;
     if (t.contains('warn') || t.contains('attention')) return NotificationType.warning;
-    if (t.contains('reserva') || t.contains('validation')) return NotificationType.appointment; // Mapper réservation sur rendez-vous pour l'icône
+    if (t.contains('success') || t.contains('certif')) return NotificationType.serviceAccepted;
+    if (t.contains('reserva') || t.contains('validation')) return NotificationType.appointment; 
 
     return NotificationType.system;
   }
 
   Color _getColorForType(NotificationType type) {
     switch (type) {
-      case NotificationType.warning: return Colors.orange;
-      case NotificationType.security: return Colors.red;
-      case NotificationType.promotion: return Colors.purple;
-      case NotificationType.message: return Colors.blue;
-      default: return Color(0xFF2196F3);
+      case NotificationType.warning:
+        return Colors.orange;
+      case NotificationType.security:
+        return Colors.red;
+      case NotificationType.promotion:
+        return Colors.purple;
+      case NotificationType.message:
+        return Colors.blue;
+      case NotificationType.payment:
+        return Color(0xFF2E7D32);
+      case NotificationType.appointment:
+        return Color(0xFF00897B);
+      default:
+        return Color(0xFF2196F3);
     }
   }
 
@@ -246,8 +614,18 @@ class NotificationController with ChangeNotifier {
   }
 
   void clearForLogout() {
+    final uid = _currentUserId ??
+        _storage.read(StockageKeys.userKey)?['userId']?.toString();
+    if (uid != null && uid.isNotEmpty) {
+      _storage.remove('user_notifications_$uid');
+    }
+    _storage.remove('user_notifications');
     _currentUserId = null;
+    _storageKey = 'user_notifications';
     _notifications = [];
+    _lastNotificationFingerprint = null;
+    _lastNotificationTime = null;
+    StompService().disconnect();
     notifyListeners();
   }
 

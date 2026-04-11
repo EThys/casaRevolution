@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import '../models/UserModel.dart';
+import '../utils/Constantes.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/requetes.dart';
@@ -12,6 +13,7 @@ import '../utils/database/PrestationDatabaseHelper.dart';
 import '../utils/TerrainDatabaseHelper.dart';
 import '../utils/StompService.dart';
 import 'NotificationController.dart';
+import '../utils/database/UserDatabaseHelper.dart';
 
 class AuthentificationCtrl with ChangeNotifier {
   AuthentificationCtrl({this.stockage});
@@ -200,12 +202,53 @@ class AuthentificationCtrl with ChangeNotifier {
       Map<String, dynamic> userData = user.toJson();
       
       // Vérifier et mettre à jour isCertified depuis la réponse API
-      // Si le cache a été effacé, on récupère isCertified depuis l'API lors de la connexion
       final isCertifiedValue = userJson['isCertified'] ?? userJson['certified'] ?? false;
-      userData['isCertified'] = isCertifiedValue == true;
-      userData['certified'] = isCertifiedValue == true;
-      user.isCertified = isCertifiedValue == true;
-      print("Statut isCertified mis à jour depuis l'API lors de la connexion: $isCertifiedValue");
+      final bool isNowCertified = isCertifiedValue == true;
+
+      // Gestion de l'historique de certification (was_certified)
+      // On vérifie d'abord si on avait déjà un statut "était certifié"
+      final String currentUserId = userJson['userId']?.toString() ?? user.userId?.toString() ?? "";
+      bool hadBeenCertified = stockage?.read<bool>('${StockageKeys.wasCertifiedKey}_$currentUserId') ?? false;
+      
+      // Si pas dans GetStorage, on peut vérifier en DB (async)
+      if (!hadBeenCertified && user.userId != null) {
+          // Note: On ne peut pas await facilement ici sans changer la signature de manière importante si on veut être strict
+          // Mais on peut lancer l'update en arrière-plan ou charger au besoin.
+          // Ici on va privilégier la mise à jour si le nouveau statut est true.
+      }
+
+      if (isNowCertified) {
+          hadBeenCertified = true;
+          await stockage?.write('${StockageKeys.wasCertifiedKey}_$currentUserId', true);
+          if (user.userId != null) {
+            await UserDatabaseHelper.instance.saveCertificationStatus(user.userId.toString(), true);
+          }
+      } else {
+        // Si maintenant false mais était true avant (via GetStorage)
+        if (hadBeenCertified) {
+            print("⚠️ L'utilisateur a été décertifié ! Conservation du flag was_certified.");
+        }
+      }
+
+      userData['isCertified'] = isNowCertified;
+      userData['certified'] = isNowCertified;
+      user.isCertified = isNowCertified;
+      
+      print("Statut isCertified mis à jour depuis l'API lors de la connexion: $isNowCertified (wasCertified: $hadBeenCertified)");
+
+      // Alignement BD/API : colonne souvent `is_premium` (snake_case)
+      final dynamic premiumRaw =
+          userJson['isPremium'] ?? userJson['premium'] ?? userJson['is_premium'];
+      if (premiumRaw != null) {
+        final bool isNowPremium = premiumRaw == true ||
+            premiumRaw == 1 ||
+            premiumRaw.toString().toLowerCase() == 'true';
+        userData['isPremium'] = isNowPremium;
+        userData['premium'] = isNowPremium;
+        userData['is_premium'] = isNowPremium;
+        user.isPremium = isNowPremium;
+        print("Statut premium (is_premium / isPremium) depuis l'API à la connexion: $isNowPremium");
+      }
       
       await stockage?.write(StockageKeys.userKey, userData);
       print("Données utilisateur stockées");
@@ -241,7 +284,178 @@ class AuthentificationCtrl with ChangeNotifier {
       await _cleanupStorage();
       throw Exception("Erreur de stockage des données: $e");
     }
+  }
+
+  /// Met à jour le statut de certification en temps réel (via WebSocket par ex)
+  Future<void> updateCertificationStatus(bool isCertifiedValue) async {
+    if (_user.userId == null) return;
+    
+    print("🔄 [AuthentificationCtrl] Mise à jour temps réel certification: $isCertifiedValue");
+    
+    final bool isNowCertified = isCertifiedValue;
+    
+    // 1. Mise à jour de l'objet en mémoire
+    _user.isCertified = isNowCertified;
+    _userAuth.isCertified = isNowCertified;
+    
+    // 2. Mise à jour du GetStorage (User JSON)
+    Map<String, dynamic>? userData = stockage?.read(StockageKeys.userKey);
+    if (userData != null) {
+      userData['isCertified'] = isNowCertified;
+      userData['certified'] = isNowCertified;
+      await stockage?.write(StockageKeys.userKey, userData);
     }
+    
+    // 3. Gestion de l'historique wasCertified
+    if (isNowCertified) {
+      await stockage?.write('${StockageKeys.wasCertifiedKey}_${_user.userId}', true);
+      await UserDatabaseHelper.instance.saveCertificationStatus(_user.userId.toString(), true);
+    }
+    
+    // 4. Notification des widgets
+    notifyListeners();
+    print("✅ [AuthentificationCtrl] Statut de certification mis à jour et widgets notifiés");
+  }
+
+  /// Premium (abonnement) — même principe que la certification : WebSocket / API peuvent envoyer `premium` ou `isPremium`.
+  Future<void> updatePremiumStatus(bool isPremiumValue) async {
+    if (_user.userId == null) return;
+
+    print("🔄 [AuthentificationCtrl] Mise à jour premium: $isPremiumValue");
+
+    _user.isPremium = isPremiumValue;
+    _userAuth.isPremium = isPremiumValue;
+
+    Map<String, dynamic>? userData = stockage?.read(StockageKeys.userKey);
+    if (userData != null) {
+      userData['isPremium'] = isPremiumValue;
+      userData['premium'] = isPremiumValue;
+      userData['is_premium'] = isPremiumValue;
+      await stockage?.write(StockageKeys.userKey, userData);
+    }
+
+    notifyListeners();
+    print("✅ [AuthentificationCtrl] Statut premium mis à jour (stockage + UI)");
+  }
+
+  DateTime? _lastMemberRefreshAt;
+
+  /// Extrait la map `user` depuis une réponse API type login ou GET membre.
+  Map<String, dynamic>? _extractUserMapFromMemberPayload(Map<String, dynamic> root) {
+    if (root['member'] is Map) {
+      final m = root['member'] as Map<String, dynamic>;
+      if (m['user'] is Map) {
+        return Map<String, dynamic>.from(m['user'] as Map);
+      }
+    }
+    if (root['user'] is Map) {
+      return Map<String, dynamic>.from(root['user'] as Map);
+    }
+    if (root['userId'] != null) {
+      return Map<String, dynamic>.from(root);
+    }
+    return null;
+  }
+
+  /// Recharge premium / certified depuis le serveur (`GET .../protected/members/{userId}`).
+  /// Si l’API ne supporte pas GET (erreur « Request method 'GET' is not supported »), tente un **POST** avec corps vide (même chemin), selon configuration serveur.
+  /// À utiliser au retour au premier plan ou pour réaligner le stockage local.
+  Future<void> refreshMemberFromServer({bool force = false}) async {
+    if (stockage == null) return;
+    if (token.isEmpty) return;
+
+    if (!force &&
+        _lastMemberRefreshAt != null &&
+        DateTime.now().difference(_lastMemberRefreshAt!) < const Duration(seconds: 25)) {
+      return;
+    }
+
+    final uid = _user.userId?.toString() ??
+        stockage!.read<Map<String, dynamic>>(StockageKeys.userKey)?['userId']?.toString();
+    if (uid == null || uid.isEmpty) return;
+
+    try {
+      final url = "${Endpoints.protectedMembers}/$uid";
+      print("🔄 [AuthentificationCtrl] refreshMemberFromServer: $url");
+
+      dynamic raw = await getDataAllowErrorJson(url, token: token);
+      if (raw is Map) {
+        final dm = raw['detailMessage']?.toString() ?? '';
+        if (dm.contains('GET') && dm.contains('not supported')) {
+          print(
+            "🔄 [AuthentificationCtrl] GET non supporté par l’API — tentative POST sur le même chemin…",
+          );
+          final postResp = await postData(
+            url,
+            <String, dynamic>{},
+            token: token,
+            allowDefaultToken: false,
+          );
+          if (postResp.status == true && postResp.data != null) {
+            raw = postResp.data;
+          } else {
+            print(
+              "⚠️ [AuthentificationCtrl] refreshMemberFromServer: POST échoué — ${postResp.errorMsg}",
+            );
+            return;
+          }
+        } else if (raw['detailMessage'] != null &&
+            raw['user'] == null &&
+            raw['member'] == null) {
+          print("⚠️ [AuthentificationCtrl] refreshMemberFromServer: erreur API — ${raw['detailMessage']}");
+          return;
+        }
+      }
+
+      if (raw == null || raw is! Map) {
+        print("⚠️ [AuthentificationCtrl] refreshMemberFromServer: réponse vide ou invalide");
+        return;
+      }
+
+      final root = Map<String, dynamic>.from(raw as Map);
+      final userJson = _extractUserMapFromMemberPayload(root);
+      if (userJson == null) {
+        print("⚠️ [AuthentificationCtrl] refreshMemberFromServer: pas de bloc user dans la réponse");
+        return;
+      }
+
+      Map<String, dynamic> merged = Map<String, dynamic>.from(
+        stockage!.read<Map<String, dynamic>>(StockageKeys.userKey) ?? {},
+      );
+      final parsed = UserModel.fromJson(userJson);
+      merged.addAll(parsed.toJson());
+
+      final dynamic certRaw = userJson['isCertified'] ?? userJson['certified'];
+      if (certRaw != null) {
+        final bool c = certRaw == true ||
+            certRaw == 1 ||
+            certRaw.toString().toLowerCase() == 'true';
+        merged['isCertified'] = c;
+        merged['certified'] = c;
+      }
+
+      final dynamic premiumRaw =
+          userJson['isPremium'] ?? userJson['premium'] ?? userJson['is_premium'];
+      if (premiumRaw != null) {
+        final bool p = premiumRaw == true ||
+            premiumRaw == 1 ||
+            premiumRaw.toString().toLowerCase() == 'true';
+        merged['isPremium'] = p;
+        merged['premium'] = p;
+        merged['is_premium'] = p;
+      }
+
+      await stockage!.write(StockageKeys.userKey, merged);
+      _user = UserModel.fromJson(merged);
+      _lastMemberRefreshAt = DateTime.now();
+      notifyListeners();
+      print(
+        "✅ [AuthentificationCtrl] Membre rechargé — premium=${_user.isPremium}, certified=${_user.isCertified}",
+      );
+    } catch (e, st) {
+      print("❌ [AuthentificationCtrl] refreshMemberFromServer: $e\n$st");
+    }
+  }
 
   // Vérification d'identité
   // Le paramètre userId est en fait le profileId (profile.id) pour l'URL /api/members/{profileId}
@@ -521,6 +735,8 @@ class AuthentificationCtrl with ChangeNotifier {
 
   Future<void> _clearLocalAuthData() async {
     try {
+      NotificationController().clearForLogout();
+
       _token = "";
       _user = UserModel();
       _userAuth = UserModel();
@@ -611,6 +827,16 @@ class AuthentificationCtrl with ChangeNotifier {
         if (userData != null) {
           _token = storedToken;
           _user = UserModel.fromJson(userData);
+          _userAuth = _user; // Sync userAuth as well
+
+          // Sync wasCertified from DB for new sessions or if cache cleared
+          if (_user.userId != null) {
+              final wasCertified = await UserDatabaseHelper.instance.wasUserCertified(_user.userId.toString());
+              if (wasCertified) {
+                  await stockage?.write('${StockageKeys.wasCertifiedKey}_${_user.userId}', true);
+              }
+          }
+
           print("Session restaurée pour: ${_user.email}");
           print("User ID: ${_user.userId}");
           return true;
@@ -838,16 +1064,18 @@ class AuthentificationCtrl with ChangeNotifier {
         if (userData != null) {
           try {
             Map<String, dynamic>? currentUser = stockage?.read(StockageKeys.userKey);
+            final Map<String, dynamic> ud =
+                Map<String, dynamic>.from(userData as Map);
             if (currentUser != null && currentUser is Map) {
-              currentUser.addAll(userData);
-              await stockage?.write(StockageKeys.userKey, currentUser);
+              final merged = Map<String, dynamic>.from(currentUser);
+              merged.addAll(ud);
+              await stockage?.write(StockageKeys.userKey, merged);
+              _user = UserModel.fromJson(merged);
             } else {
-              await stockage?.write(StockageKeys.userKey, userData);
+              await stockage?.write(StockageKeys.userKey, ud);
+              _user = UserModel.fromJson(ud);
             }
-            
-            // Mettre à jour l'objet user
-            _user = UserModel.fromJson(userData);
-            print("User local mis à jour");
+            print("User local mis à jour (fusion profil, premium préservé si API partielle)");
           } catch (e) {
             print("Erreur mise à jour user local: $e");
           }
@@ -874,7 +1102,110 @@ class AuthentificationCtrl with ChangeNotifier {
     }
   }
 
-  // Réinitialisation du mot de passe
+  /// Réinitialisation après OTP : `PUT` [Endpoints.changePassword] **sans** en-tête `Authorization`.
+  Future<HttpResponse> resetPasswordAfterOtp({
+    required String newPassword,
+    required int userId,
+  }) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      final path = Endpoints.changePassword;
+      final resolvedUrl = '${Constantes.BASE_URL}$path';
+      print('🔐 [AuthentificationCtrl] resetPasswordAfterOtp — URL: $resolvedUrl');
+      print('🔐 [AuthentificationCtrl] userId: $userId (sans Bearer)');
+
+      final data = <String, dynamic>{
+        'newPassword': newPassword,
+        'userId': userId,
+      };
+
+      final response = await putData(path, data, sendBearer: false);
+
+      if (response.status) {
+        if (response.data is Map) {
+          print(
+              '✅ [AuthentificationCtrl] resetPasswordAfterOtp OK — clés: ${(response.data as Map).keys.toList()}');
+        } else {
+          print('✅ [AuthentificationCtrl] resetPasswordAfterOtp OK');
+        }
+      } else {
+        _logResetPasswordApiFailure(response);
+        if (_isInternalServerErrorResponse(response)) {
+          loading = false;
+          notifyListeners();
+          return HttpResponse(
+            status: false,
+            data: response.data,
+            errorMsg:
+                'Le serveur rencontre une difficulté temporaire. Veuillez réessayer dans quelques instants.',
+            isException: response.isException,
+          );
+        }
+      }
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e, stack) {
+      loading = false;
+      notifyListeners();
+      print('❌ [AuthentificationCtrl] resetPasswordAfterOtp exception: $e');
+      print('❌ [AuthentificationCtrl] stack: $stack');
+      return HttpResponse(
+        status: false,
+        errorMsg:
+            'Erreur lors de la réinitialisation. Vérifiez votre connexion.',
+        isException: true,
+        data: {'message': e.toString()},
+      );
+    }
+  }
+
+  void _logResetPasswordApiFailure(HttpResponse response) {
+    print(
+        '❌ [AuthentificationCtrl] resetPasswordAfterOtp échec — errorMsg: ${response.errorMsg}');
+    if (response.data is Map) {
+      final m = response.data as Map;
+      print('❌ [AuthentificationCtrl] detailMessage: ${m['detailMessage']}');
+      print('❌ [AuthentificationCtrl] message: ${m['message']}');
+      print('❌ [AuthentificationCtrl] error: ${m['error']}');
+      if (m['errors'] != null) {
+        print('❌ [AuthentificationCtrl] errors: ${m['errors']}');
+      }
+    }
+  }
+
+  bool _isInternalServerErrorResponse(HttpResponse response) {
+    final em = (response.errorMsg ?? '').toLowerCase();
+    if (em.contains('internal server error')) return true;
+    if (response.data is Map) {
+      final m = response.data as Map;
+      final sc = m['status'] ?? m['statusCode'] ?? m['code'];
+      if (sc == 500 || sc == '500') return true;
+      final joined =
+          '${m['message'] ?? ''} ${m['detailMessage'] ?? ''}'.toLowerCase();
+      if (joined.contains('internal server error')) return true;
+    }
+    return false;
+  }
+
+  static String userMessageForResetPasswordFailure(HttpResponse response) {
+    if (response.status) return '';
+    final em = response.errorMsg?.trim();
+    if (em != null && em.isNotEmpty) return em;
+    if (response.data is Map) {
+      final m = response.data as Map;
+      final d = m['detailMessage']?.toString().trim();
+      if (d != null && d.isNotEmpty) return d;
+      final msg = m['message']?.toString().trim();
+      if (msg != null && msg.isNotEmpty) return msg;
+    }
+    return 'Impossible de réinitialiser le mot de passe.';
+  }
+
+  // Réinitialisation du mot de passe (flux historique / autre usage)
   Future<HttpResponse> resetPassword(Map<String, dynamic> data) async {
     try {
       loading = true;

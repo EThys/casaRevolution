@@ -14,5 +14,7 @@ class StockageKeys{
   static const String firstLaunchKey="FIRSTLAUNCH";
   static const String themeModeKey="themeMode";
   static const String devisesKey="devises";
+  static const String wasCertifiedKey = 'was_certified';
+  static const String decertificationReasonKey = 'decertification_reason';
 
 }
