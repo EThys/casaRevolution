@@ -4,7 +4,9 @@ import 'package:casa/controllers/ServiceController.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:provider/provider.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/api_error_message.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/decertification_access_guard.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -12,14 +14,15 @@ import 'package:flutter_datetime_picker_plus/flutter_datetime_picker_plus.dart' 
 import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:casa/utils/export_directory.dart';
 
 
 class RequestInterventionPage extends StatefulWidget {
@@ -80,7 +83,15 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     super.initState();
     initializeDateFormatting('fr_FR');
     _loadUserInfo();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadDevises());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (await DecertificationAccessGuard.redirectIfInactiveDecertified(
+            context,
+          )) {
+        return;
+      }
+      if (!mounted) return;
+      await _loadDevises();
+    });
     _loadLogo();
   }
 
@@ -183,7 +194,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     }
   }
 
-  void _loadDevises() async {
+  Future<void> _loadDevises() async {
     final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
     await serviceCtrl.fetchDevises();
     if (mounted && serviceCtrl.devisesList.isNotEmpty) {
@@ -361,11 +372,25 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
          if (response.data is Map) {
             responseData = Map<String, dynamic>.from(response.data);
          }
-         _showConfirmationDialog(responseData);
+
+         final startSnapshot = _selectedDate;
+
+         // VIDER LES CHAMPS APRÈS SUCCESS (ne pas utiliser _selectedDate! dans le dialogue ensuite)
+         setState(() {
+           _selectedDate = null;
+           _selectedEndDate = null;
+           _selectedTime = null;
+           _notesController.clear();
+           _budgetController.clear();
+         });
+
+         _showConfirmationDialog(responseData, startDate: startSnapshot);
       } else {
-         String errorMsg = response.errorMsg ?? 
-                           (response.data is Map ? (response.data['detailMessage'] ?? response.data['message']) : "Erreur inconnue");
-         FancyNotification.show(context, errorMsg, isError: true);
+         FancyNotification.show(
+           context,
+           ApiErrorMessages.fromResponse(response),
+           isError: true,
+         );
       }
 
     } catch (e) {
@@ -382,10 +407,24 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     }
   }
 
-  void _showConfirmationDialog(Map<String, dynamic> successData) {
-    final formattedDate = DateFormat('EEEE d MMMM y', 'fr_FR').format(_selectedDate!);
-    // Time selection removed
-    // Time selection removed
+  DateTime? _startDateFromSolicitationResponse(Map<String, dynamic> data) {
+    final w = data['sollicitation'];
+    if (w is! Map) return null;
+    final outer = Map<String, dynamic>.from(w as Map);
+    final inner = outer['sollicitation'];
+    final node =
+        inner is Map ? Map<String, dynamic>.from(inner as Map) : outer;
+    final s = node['startDate']?.toString();
+    if (s == null || s.isEmpty) return null;
+    return DateTime.tryParse(s) ?? DateTime.tryParse(s.split('T').first);
+  }
+
+  void _showConfirmationDialog(Map<String, dynamic> successData, {DateTime? startDate}) {
+    final date =
+        startDate ?? _startDateFromSolicitationResponse(successData);
+    final formattedDate = date != null
+        ? DateFormat('EEEE d MMMM y', 'fr_FR').format(date)
+        : 'Date communiquée par le serveur';
 
     showDialog(
       context: context,
@@ -585,7 +624,14 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
 
   Future<Uint8List> _buildInterventionPdfBytes(Map<String, dynamic> data) async {
     final doc = pw.Document();
-    final now = DateFormat('dd/MM/yy HH:mm').format(DateTime.now());
+    
+    pw.Font? ttf;
+    try {
+      final fontData = await rootBundle.load('assets/fonts/Outfit-SemiBold.ttf');
+      ttf = pw.Font.ttf(fontData);
+    } catch (_) {}
+
+    final now = DateFormat('dd/MM/yyyy HH:mm', 'fr_FR').format(DateTime.now());
 
     final solicitationWrapper = data['sollicitation'] ?? {};
     final solicitation = solicitationWrapper['sollicitation'] ?? solicitationWrapper;
@@ -595,25 +641,33 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     final demandeur = data['demandeur'] ?? {};
     final devise = solicitationWrapper['devise'] ?? data['devise'] ?? {};
     
-    // Infos Prestateur
+    // Infos Prestateur — priorité au `postByTel` renvoyé par l’API (même clé que réservations)
+    String? _pickTel(dynamic v) {
+      if (v == null) return null;
+      final s = v.toString().trim();
+      if (s.isEmpty || s == 'null') return null;
+      return s;
+    }
+
+    final postByTelResolved = _pickTel(data['postByTel']) ??
+        _pickTel(solicitationWrapper is Map ? solicitationWrapper['postByTel'] : null) ??
+        _pickTel(solicitation is Map ? solicitation['postByTel'] : null) ??
+        _pickTel(prestation is Map ? prestation['postByTel'] : null) ??
+        _pickTel(prestateur is Map ? prestateur['postByTel'] : null);
+
     final prestateurName = prestateur['username']?.toString() ?? 'Non renseigné';
-    final prestateurPhone = prestateur['phone']?.toString() ?? 'Non renseigné';
-    final prestateurEmail = prestateur['email']?.toString() ?? 'Non renseigné';
+    final prestateurPhone = postByTelResolved ??
+        prestateur['phone']?.toString() ??
+        'Non renseigné';
 
     // Service Info
-    final serviceTitle = prestation['title']?.toString() ?? 'Service';
-    final serviceAddress = prestation['address']?.toString() ?? '';
-    final serviceCity = prestation['cityValue']?.toString() ?? '';
-    final serviceCountry = prestation['countryValue']?.toString() ?? '';
-    
-    final fullServiceAddress = [serviceAddress, serviceCity, serviceCountry]
-        .where((s) => s.isNotEmpty)
-        .join(', ');
+    final serviceTitle = prestation['title']?.toString() ?? 'Service CasaNayo';
+    final serviceCity = prestation['cityValue']?.toString() ?? 'Non spécifiée';
 
     // Infos Demandeur
     final demandeurName = demandeur['username']?.toString() ?? 'Client';
-    final demandeurPhone = demandeur['phone']?.toString() ?? '';
-    final demandeurEmail = demandeur['email']?.toString() ?? '';
+    final demandeurPhone = demandeur['phone']?.toString() ?? 'Non renseigné';
+    final demandeurEmail = demandeur['email']?.toString() ?? 'Non renseigné';
 
     // Sollicitation Info
     final budget = solicitation['budget']?.toString() ?? '0';
@@ -626,96 +680,182 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
       if (dateStr == null) return 'Non spécifiée';
       try {
         final date = DateTime.parse(dateStr);
-        return DateFormat('dd-MM-yyyy').format(date);
+        return DateFormat('dd/MM/yyyy', 'fr_FR').format(date);
       } catch (e) {
         return dateStr;
       }
     }
 
+    // Helper pour les lignes de détails
+    pw.Widget _buildDetailRow(String label, String value) {
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            pw.Text(value, style: const pw.TextStyle(fontSize: 10)),
+          ],
+        ),
+      );
+    }
+
     doc.addPage(
       pw.Page(
-        build: (context) => pw.Container(
-          padding: const pw.EdgeInsets.all(24),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              // Header
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.center,
+        theme: ttf != null ? pw.ThemeData.withFont(base: ttf, bold: ttf) : null,
+        margin: const pw.EdgeInsets.all(32),
+        build: (ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            // --- HEADER PREMIUM ---
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#1976D2'),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
+                   pw.Column(
+                     crossAxisAlignment: pw.CrossAxisAlignment.start,
+                     children: [
+                       pw.Text(
+                         'DEMANDE D\'INTERVENTION',
+                         style: pw.TextStyle(
+                           color: PdfColors.white,
+                           fontSize: 18,
+                           fontWeight: pw.FontWeight.bold,
+                         ),
+                       ),
+                       pw.Text(
+                         'Référence : #SOL-${solicitation['id'] ?? 'NO-REF'}',
+                         style: pw.TextStyle(
+                           color: PdfColor.fromInt(0xE6FFFFFF),
+                           fontSize: 11,
+                         ),
+                       ),
+                     ],
+                   ),
                    if (_logoImage != null)
-                    pw.Container(
-                      width: 48,
-                      height: 48,
-                      margin: const pw.EdgeInsets.only(right: 12),
-                      child: pw.Image(_logoImage!),
-                    ),
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'CasaNayo',
-                        style: pw.TextStyle(
-                          fontSize: 18,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                      pw.Text(
-                        'Demande d\'intervention',
-                        style: pw.TextStyle(
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
+                     pw.Container(
+                       width: 45,
+                       height: 45,
+                       decoration: const pw.BoxDecoration(
+                         color: PdfColors.white,
+                         shape: pw.BoxShape.circle,
+                       ),
+                       padding: const pw.EdgeInsets.all(4),
+                       child: pw.Image(_logoImage!),
+                     ),
                 ],
               ),
-              pw.SizedBox(height: 8),
-              pw.Text('Généré le $now'),
-              pw.Divider(),
-              pw.SizedBox(height: 12),
+            ),
 
-              pw.Text('Service', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text(serviceTitle),
-              if (fullServiceAddress.isNotEmpty)
-                pw.Text(fullServiceAddress),
-              pw.SizedBox(height: 16),
+            pw.SizedBox(height: 24),
 
-              pw.Text('Intervention', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Début : ${formatDate(startDateStr)}'),
-              pw.Text('Fin : ${formatDate(endDateStr)}'),
-              pw.Text('Budget proposé : $budget $deviseCode'),
-              if (description.isNotEmpty)
-                pw.Text('Description : $description'),
-              pw.SizedBox(height: 16),
+            // --- STATUT ET DATE ---
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Document Officiel CasaNayo', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                    pw.Text('Généré le $now', style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                  ],
+                ),
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey400),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Text(
+                    'DEMANDE ENVOYÉE', 
+                    style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))
+                  ),
+                ),
+              ],
+            ),
 
-              pw.Text('Demandeur', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Nom : $demandeurName'),
-              if (demandeurPhone.isNotEmpty) pw.Text('Téléphone : $demandeurPhone'),
-              if (demandeurEmail.isNotEmpty) pw.Text('Email : $demandeurEmail'),
-              pw.SizedBox(height: 16),
+            pw.SizedBox(height: 24),
+            pw.Divider(color: PdfColors.grey300),
+            pw.SizedBox(height: 16),
 
-              pw.Text('Prestataire', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Nom : $prestateurName'),
-              if (prestateurPhone.isNotEmpty) pw.Text('Téléphone : $prestateurPhone'),
-              if (prestateurEmail.isNotEmpty) pw.Text('Email : $prestateurEmail'),
-              pw.SizedBox(height: 24),
-
-              pw.Text(
-                "Ce document confirme l'envoi de votre demande d'intervention. "
-                "Le prestataire doit encore valider la demande.",
-                style: pw.TextStyle(fontSize: 12),
-                textAlign: pw.TextAlign.justify,
+            // --- SECTION 1: PRESTATAIRE & SERVICE ---
+            pw.Text('1. DÉTAILS DU SERVICE & PRESTATAIRE', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
+            pw.SizedBox(height: 12),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+              child: pw.Column(
+                children: [
+                  _buildDetailRow('Service sollicité', serviceTitle),
+                  _buildDetailRow('Prestataire', prestateurName),
+                  _buildDetailRow('Contact Prestataire', prestateurPhone),
+                  _buildDetailRow('Localisation', serviceCity),
+                ],
               ),
-              pw.SizedBox(height: 18),
-              pw.Text(
-                "Coordonnées CasaNayo :",
-                style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+            ),
+
+            pw.SizedBox(height: 24),
+
+            // --- SECTION 2: CLIENT ---
+            // --- SECTION 2: CLIENT ---
+            pw.Text('2. DÉTAILS DU DEMANDEUR (CLIENT)', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
+            pw.SizedBox(height: 12),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+              child: pw.Column(
+                children: [
+                  _buildDetailRow('Nom du Client', demandeurName),
+                  _buildDetailRow('Téléphone', demandeurPhone),
+                  _buildDetailRow('Email', demandeurEmail),
+                ],
               ),
-              pw.Text("Siège : CasaNayo, Support"),
-              pw.Text("Email : contact@casanayo.com"),
-            ],
-          ),
+            ),
+
+            pw.SizedBox(height: 24),
+
+            // --- SECTION 3: OBJET ET BUDGET ---
+            pw.Text('3. OBJET ET PÉRIODE DE L\'INTERVENTION', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
+            pw.SizedBox(height: 12),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey200), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  _buildDetailRow('Date prévue', formatDate(startDateStr)),
+                  _buildDetailRow('Date de fin (est.)', formatDate(endDateStr)),
+                  _buildDetailRow('Budget proposé', '$budget $deviseCode'),
+                  if (description.isNotEmpty) ...[
+                    pw.SizedBox(height: 8),
+                    pw.Divider(color: PdfColors.grey200),
+                    pw.SizedBox(height: 8),
+                    pw.Text('Description / Instructions :', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                    pw.SizedBox(height: 4),
+                    pw.Text(description, style: const pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.justify),
+                  ],
+                ],
+              ),
+            ),
+
+            pw.Spacer(),
+
+            // --- FOOTER ---
+            pw.Divider(color: PdfColors.grey400),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              "IMPORTANT : Ce document constitue une preuve de votre demande d'intervention via CasaNayo. Le prestataire doit valider cette demande avant toute intervention effective. Pour toute assistance : +243 836 323 805.",
+              style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+              textAlign: pw.TextAlign.justify,
+            ),
+            pw.SizedBox(height: 12),
+            pw.Center(child: pw.Text('Document généré par CasaNayo - www.casanayo.com', style: const pw.TextStyle(fontSize: 8))),
+          ],
         ),
       ),
     );
@@ -723,58 +863,21 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     return doc.save();
   }
 
-  Future<Directory> _getExportDir() async {
-    try {
-      if (Platform.isAndroid) {
-        final dir = Directory('/storage/emulated/0/casa');
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-        return dir;
-      }
-      
-      final ext = await getExternalStorageDirectory();
-      if (ext != null) {
-        final parts = ext.path.split('/');
-        int androidIndex = parts.indexOf('Android');
-        String base;
-        if (androidIndex > 0) {
-          base = parts.sublist(0, androidIndex).join('/');
-        } else {
-          base = ext.path;
-        }
-        if (base.isEmpty) base = '/storage/emulated/0';
-        final dir = Directory('$base/casa');
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-        return dir;
-      }
-    } catch (e) {
-      print("Erreur répertoire: $e");
-    }
-
-    final docs = await getApplicationDocumentsDirectory();
-    final fallbackDir = Directory('${docs.path}/casa');
-    if (!await fallbackDir.exists()) {
-      await fallbackDir.create(recursive: true);
-    }
-    return fallbackDir;
-  }
-
   Future<void> _downloadInterventionPdf(Map<String, dynamic> data) async {
     try {
       final bytes = await _buildInterventionPdfBytes(data);
-      final dir = await _getExportDir();
+      final dir = await getCasaNayoExportDirectory(CasaNayoExportKind.solicitation);
       
-      final demandeur = data['demandeur'] ?? {};
-      final userName = demandeur['username']?.toString() ?? 'Client';
-      final nowStr = DateFormat('dd-MM-yyyy_HHmm').format(DateTime.now());
+      final solicitationWrapper = data['sollicitation'] ?? {};
+      final solicitation = solicitationWrapper['sollicitation'] ?? solicitationWrapper;
+      final ref = solicitation['id'] ?? 'NO-REF';
       
-      final baseName = '${userName.replaceAll(' ', '_')}_intervention_$nowStr';
-      final filePath = '${dir.path}/$baseName.pdf';
-      final file = File(filePath);
+      final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
+      final fileName = 'Demande_Intervention_Ref_${ref}_du_$generationDate.pdf';
+      
+      final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes, flush: true);
+      
       FancyNotification.show(
         context,
         "PDF enregistré dans ${dir.path}",
@@ -790,19 +893,21 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
   Future<void> _shareInterventionPdf(Map<String, dynamic> data) async {
     try {
       final bytes = await _buildInterventionPdfBytes(data);
-       final demandeur = data['demandeur'] ?? {};
-      final userName = demandeur['username']?.toString() ?? 'Client';
-      final nowStr = DateFormat('dd-MM-yyyy_HHmm').format(DateTime.now());
-      final baseName = '${userName.replaceAll(' ', '_')}_intervention_$nowStr';
+      final solicitationWrapper = data['sollicitation'] ?? {};
+      final solicitation = solicitationWrapper['sollicitation'] ?? solicitationWrapper;
+      final ref = solicitation['id'] ?? 'NO-REF';
+
+      final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
+      final fileName = 'Demande_Intervention_Ref_${ref}_du_$generationDate.pdf';
       
-      final xfile = XFile.fromData(
-        bytes,
-        mimeType: 'application/pdf',
-        name: '$baseName.pdf',
-      );
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/$fileName');
+      await tempFile.writeAsBytes(bytes);
+      
+      final xfile = XFile(tempFile.path, mimeType: 'application/pdf', name: fileName);
       await Share.shareXFiles(
         [xfile],
-        text: "Demande d'intervention - CasaNayo",
+        text: "Ma demande d'intervention CasaNayo - Ref: $ref",
       );
     } catch (e) {
       print("PDF Share Error: $e");
@@ -1053,16 +1158,11 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
 
   String _getPriceText() {
     if (widget.service.minPrice == null) return 'Prix sur demande';
-    
+
     final price = widget.service.minPrice!;
     final displayCurrency = widget.service.currency;
-
-    if (price >= 1000000) {
-      return 'À partir de ${(price / 1000000).toStringAsFixed(1)}M $displayCurrency';
-    } else if (price >= 1000) {
-      return 'À partir de ${(price / 1000).toStringAsFixed(0)}K $displayCurrency';
-    }
-    return 'À partir de ${price.toStringAsFixed(0)} $displayCurrency';
+    final formatted = NumberFormat('#,##0', 'de_DE').format(price);
+    return 'À partir de $formatted $displayCurrency';
   }
 
   Widget _buildUserInfoSection() {

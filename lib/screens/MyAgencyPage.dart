@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:get_storage/get_storage.dart';
 import '../utils/StockageKeys.dart';
+import '../utils/decertification_access_guard.dart';
 
 import '../controllers/AgenceController.dart';
 import '../controllers/AuthentificationCtrl.dart';
@@ -24,7 +25,13 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (await DecertificationAccessGuard.redirectIfInactiveDecertified(
+            context,
+          )) {
+        return;
+      }
+      if (!mounted) return;
       _loadAgency();
     });
   }

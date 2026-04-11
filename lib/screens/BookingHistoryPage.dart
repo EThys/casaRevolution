@@ -6,6 +6,7 @@ import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:get_storage/get_storage.dart';
@@ -14,21 +15,32 @@ import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import '../controllers/ReservationController.dart';
+import '../controllers/PropertyCtrl.dart';
 import '../controllers/TypeAccountController.dart';
 import '../models/PropertyModel.dart';
+import '../utils/Endpoints.dart';
 import '../utils/networkCheck.dart';
 import '../utils/database/DatabaseHelper.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/UserInfoBottomSheet.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../utils/ModernModal.dart';
+import 'package:casa/utils/export_directory.dart';
+import '../utils/realtime_refresh_hub.dart';
+import '../utils/status_labels_fr.dart';
+import '../utils/decertification_access_guard.dart';
 
 class BookingHistoryPage extends StatefulWidget {
-  const BookingHistoryPage({Key? key}) : super(key: key);
+  /// Si `true` (ex. notification « réservation reçue » côté hôte), ouvre l’onglet **Réservations reçues**.
+  final bool initialHostView;
+
+  const BookingHistoryPage({Key? key, this.initialHostView = false}) : super(key: key);
 
   @override
   _BookingHistoryPageState createState() => _BookingHistoryPageState();
@@ -66,16 +78,31 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   // Statistiques
   Map<String, int> _reservationCounts = {};
   pw.MemoryImage? _logoImage;
+  StreamSubscription<String>? _realtimeRefreshSub;
 
   @override
   void initState() {
     super.initState();
+    _isHostView = widget.initialHostView;
     _checkUserRole();
     _tabController = TabController(length: 4, vsync: this);
     _loadLogo();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-       _loadReservations();
-       _loadReservationCounts();
+    _realtimeRefreshSub = RealtimeRefreshHub.instance.stream.listen((channel) {
+      if (!mounted) return;
+      if (channel == RealtimeRefreshHub.reservations) {
+        _loadReservations();
+        _loadReservationCounts();
+      }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (await DecertificationAccessGuard.redirectIfInactiveDecertified(
+            context,
+          )) {
+        return;
+      }
+      if (!mounted) return;
+      _loadReservations();
+      _loadReservationCounts();
     });
   }
 
@@ -136,7 +163,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
             _isHost = hasOwnerAccount;
           });
           // Si on devient host et qu'on a déjà chargé, on recharge pour avoir les données host
-          if (_isHost) _loadReservations();
+          // (évite un cache « reçues » vide si [initialHostView] était true avant détection du rôle)
+          if (_isHost) _loadReservations(forceRefresh: true);
       }
   }
 
@@ -210,22 +238,28 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
+  /// Données chargées via [ReservationController] (GET sous `api/v1/protected/reservations/...`, voir [Endpoints.reservationsProtected] et variantes *ByUser / *ByHost).
   Future<void> _loadReservations({bool forceRefresh = false}) async {
     try {
       if (!mounted) return;
+      if (kDebugMode && forceRefresh) {
+        debugPrint(
+          '[BookingHistory] sync réservations (endpoints protected): ${Endpoints.reservationsProtected}/…',
+        );
+      }
 
       final currentViewIndex = _isHostView ? 1 : 0;
       if (_loadedTabs.contains(currentViewIndex) && !forceRefresh) {
         return;
       }
 
-      // 1. Charger le cache d'abord pour une réponse instantanée
+      // 1. Charger le cache (aperçu rapide)
       final db = DatabaseHelper.instance;
       final cachedUserReservations = await db.getAllUserReservations();
       final cachedHostReservations = await db.getAllHostReservations();
 
       final reservationCtrl = Provider.of<ReservationController>(context, listen: false);
-      
+
       if (mounted) {
         setState(() {
           if (cachedUserReservations.isNotEmpty) {
@@ -261,18 +295,16 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       if (mounted) {
         await db.clearUserReservations();
         await db.insertMultipleUserReservations(reservationCtrl.reservations);
-        
+
         await db.clearHostReservations();
         await db.insertMultipleHostReservations(_hostReservations);
-        
+
         print("💾 [BookingHistoryPage] Cache des réservations mis à jour");
       }
 
       print("📊 Réservations synchronisées: ${reservationCtrl.reservations.length} (Host: ${_hostReservations.length})");
 
-      // Recharger les compteurs après le chargement
       await _loadReservationCounts();
-
     } catch (e) {
       print("❌ Erreur lors du chargement des réservations: $e");
       if (mounted) FancyNotification.show(context, "Erreur lors du chargement des réservations");
@@ -281,7 +313,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         setState(() {
           _isLoadingData = false;
           _isRefreshing = false;
-          _loadedTabs.add(_isHostView ? 1 : 0); // Marquer comme chargé selon la vue actuelle
+          _loadedTabs.add(_isHostView ? 1 : 0);
         });
       }
     }
@@ -304,6 +336,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
   @override
   void dispose() {
+    _realtimeRefreshSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -851,10 +884,6 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
   Widget _buildReservationGridCard(ReservationModel reservation) {
-    final isPending = reservation.status == 'PENDING';
-    final isCancelled = reservation.status == 'CANCELLED';
-    final isConfirmed = reservation.status == 'CONFIRMED';
-    final isCompleted = reservation.status == 'COMPLETED';
     final isCancelling = _cancellingIds.contains(reservation.reservationId);
     final imageUrl = _getImageUrl(reservation);
 
@@ -1018,26 +1047,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                             ],
                           ),
                         ],
-                        if (_isHostView && isPending) ...[
-                           SizedBox(height: 8),
-                           Row(
-                             children: [
-                               _buildActionButton(
-                                 icon: Icons.close,
-                                 color: Colors.red,
-                                 label: "Refuser",
-                                 onTap: () => _handleReservationAction(reservation, 'CANCELLED', fromBottomSheet: false)
-                               ),
-                               SizedBox(width: 8),
-                               _buildActionButton(
-                                 icon: Icons.check,
-                                 color: Colors.green,
-                                 label: "Valider",
-                                 onTap: () => _handleReservationAction(reservation, 'CONFIRMED', fromBottomSheet: false)
-                               ),
-                             ],
-                           )
-                        ],
+
                       ],
                     ),
                   ),
@@ -1063,7 +1073,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   Widget _buildReservationCard(ReservationModel reservation) {
     final status = reservation.status?.toUpperCase() ?? '';
     final isPending = status == 'PENDING';
-    final isCancelled = status == 'CANCELLED';
+    final isCancelled = status == 'CANCELLED' || status == 'CANCELED';
     final isConfirmed = status == 'CONFIRMED';
     final isCompleted = status == 'COMPLETED';
     final isCancelling = _cancellingIds.contains(reservation.reservationId!.toString());
@@ -1565,7 +1575,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
   Color _getStatusColor(String? status) {
-    switch (status) {
+    switch (status?.toUpperCase()) {
       case 'PENDING':
         return _warningColor;
       case 'CONFIRMED':
@@ -1573,26 +1583,14 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       case 'COMPLETED':
         return _primaryColor;
       case 'CANCELLED':
+      case 'CANCELED':
         return _errorColor;
       default:
         return _mediumGrey;
     }
   }
 
-  String _getStatusText(String? status) {
-    switch (status) {
-      case 'PENDING':
-        return 'En attente';
-      case 'CONFIRMED':
-        return 'Confirmée';
-      case 'COMPLETED':
-        return 'Terminée';
-      case 'CANCELLED':
-        return 'Annulée';
-      default:
-        return status ?? 'Inconnu';
-    }
-  }
+  String _getStatusText(String? status) => frReservationStatus(status);
 
   Future<bool> _cancelReservation(ReservationModel reservation, String reason) async {
     if (!mounted || _isLoading) return false;
@@ -1619,6 +1617,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       final response = await reservationCtrl.cancelReservation(
         reservation.reservationId!,
         reason,
+        reservation: reservation,
       );
 
       if (!mounted) return false;
@@ -1725,7 +1724,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
              Text("Client", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: _darkColor)),
              SizedBox(height: 12),
              InkWell(
-               onTap: () => UserInfoBottomSheet.show(context, reservation.user!),
+               onTap: () {
+                 if (reservation.userImage != null && reservation.userImage!.isNotEmpty) {
+                   reservation.user!.profilePicture = reservation.userImage;
+                 }
+                 UserInfoBottomSheet.show(context, reservation.user!);
+               },
                borderRadius: BorderRadius.circular(12),
                child: Container(
                  padding: EdgeInsets.all(12),
@@ -1735,7 +1739,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                      CircleAvatar(
                        radius: 20,
                        backgroundColor: _primaryColor.withOpacity(0.2),
-                       child: Icon(Icons.person, color: _primaryColor),
+                       backgroundImage: (reservation.userImage != null && reservation.userImage!.isNotEmpty)
+                           ? CachedNetworkImageProvider(reservation.userImage!) as ImageProvider
+                           : null,
+                       child: (reservation.userImage != null && reservation.userImage!.isNotEmpty)
+                           ? null
+                           : Icon(Icons.person, color: _primaryColor),
                      ),
                      SizedBox(width: 12),
                      Expanded(
@@ -1904,14 +1913,17 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 SizedBox(height: 12),
 
                 GestureDetector(
-                  onTap: () {
-                    if (reservation.property != null) {
-                      Navigator.pushNamed(
-                        context,
-                        Routes.detailPageRoute,
-                        arguments: reservation.property,
-                      );
-                    }
+                  onTap: () async {
+                    if (reservation.property == null) return;
+                    final enriched = await context
+                        .read<PropertyController>()
+                        .enrichPropertySnapshot(reservation.property!);
+                    if (!context.mounted) return;
+                    Navigator.pushNamed(
+                      context,
+                      Routes.detailPageRoute,
+                      arguments: enriched,
+                    );
                   },
                   child: Container(
                     height: 180,
@@ -2657,10 +2669,22 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     
     final property = reservation.property;
     
-    // Infos propriétaire/commissionnaire - Utiliser postBy en priorité
+    // Infos propriétaire/commissionnaire - PRIORITÉ à postBy
     final advertiserName = property?.postBy?.toString() ?? property?.user?.username?.toString() ?? 'Non renseigné';
+    final propTypeName = property?.propertyType?.name?.toString() ?? 'Propriété';
     final publisher = property?.user;
-    final publisherPhone = publisher?.phone?.toString() ?? 'Non renseigné';
+    String _telOrEmpty(String? s) {
+      final t = s?.trim() ?? '';
+      if (t.isEmpty || t == 'null') return '';
+      return t;
+    }
+
+    final publisherPhone = () {
+      final fromApi = _telOrEmpty(reservation.postByTel);
+      if (fromApi.isNotEmpty) return fromApi;
+      final fb = _telOrEmpty(publisher?.phone?.toString());
+      return fb.isNotEmpty ? fb : 'Non renseigné';
+    }();
     final publisherEmail = publisher?.email?.toString() ?? 'Non renseigné';
     final typeAccountName = publisher?.typeAccount?.name?.toString()?.toLowerCase() ?? '';
     final publisherRole = typeAccountName.contains('bailleur')
@@ -2683,13 +2707,13 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     String getCleanAddress(dynamic rawAddress) {
       if (rawAddress == null) return '';
       final str = rawAddress.toString();
-      if (str.startsWith('{') && str.endsWith('}')) {
-         // Si c'est une map brute, essayer de n'extraire que le champ 'address'
+      if (str.contains('{') && str.contains('}')) {
          try {
-           // On ne peut pas parser du JSON direct avec jsonDecode car ce n'est pas forcément du JSON strict (keys sans quotes)
-           // On fait un petit nettoyage manuel
-           final match = RegExp(r'address:\s?([^,}]+)').firstMatch(str);
-           if (match != null) return match.group(1)?.trim() ?? '';
+           // Chercher 'adresse' (fr) ou 'address' (en)
+           final match = RegExp(r'(?:adresse|address)\s?[:=]\s?([^,}]+)').firstMatch(str);
+           if (match != null) {
+             return match.group(1)?.trim().replaceAll('"', '').replaceAll("'", "") ?? '';
+           }
          } catch (_) {}
       }
       return str;
@@ -2761,98 +2785,210 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     final userPhone = reservation.user?.phone?.toString() ?? '';
     final userEmail = reservation.user?.email?.toString() ?? '';
 
+    // Helpers pour la mise en page PDF
+    pw.Widget _buildPdfDetailRow(String label, String value) {
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 2),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text('$label : ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            pw.Expanded(child: pw.Text(value, style: const pw.TextStyle(fontSize: 10))),
+          ],
+        ),
+      );
+    }
+
+    pw.TableRow _buildPdfTableRow(String label, String value) {
+      return pw.TableRow(
+        children: [
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(8),
+            child: pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(8),
+            child: pw.Text(value, style: const pw.TextStyle(fontSize: 10)),
+          ),
+        ],
+      );
+    }
+
     doc.addPage(
       pw.Page(
         theme: ttf != null ? pw.ThemeData.withFont(base: ttf, bold: ttf) : null,
-        build: (context) => pw.Container(
-          padding: const pw.EdgeInsets.all(24),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              // Header
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.center,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            // --- HEADER PREMIUM ---
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#1976D2'),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  if (_logoImage != null)
-                    pw.Container(
-                      width: 48,
-                      height: 48,
-                      margin: const pw.EdgeInsets.only(right: 12),
-                      child: pw.Image(_logoImage!),
-                    ),
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'CasaNayo',
-                        style: pw.TextStyle(
-                          fontSize: 18,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                      pw.Text(
-                        'Demande de Visite',
-                        style: pw.TextStyle(
-                          fontSize: 14,
-                        ),
-
-                      ),
-                    ],
-                  ),
+                   pw.Column(
+                     crossAxisAlignment: pw.CrossAxisAlignment.start,
+                     children: [
+                       pw.Text(
+                         'BON DE RÉSERVATION',
+                         style: pw.TextStyle(
+                           color: PdfColors.white,
+                           fontSize: 24,
+                           fontWeight: pw.FontWeight.bold,
+                         ),
+                       ),
+                       pw.Text(
+                         'Confirmation Officielle de Demande de Visite',
+                         style: pw.TextStyle(
+                           color: PdfColor.fromInt(0xE6FFFFFF), // White with 0.9 opacity (E6 = 230/255)
+                           fontSize: 12,
+                         ),
+                       ),
+                     ],
+                   ),
+                   if (_logoImage != null)
+                     pw.Container(
+                       width: 50,
+                       height: 50,
+                       decoration: const pw.BoxDecoration(
+                         color: PdfColors.white,
+                         shape: pw.BoxShape.circle,
+                       ),
+                       padding: const pw.EdgeInsets.all(5),
+                       child: pw.Image(_logoImage!),
+                     ),
                 ],
               ),
-              pw.SizedBox(height: 8),
-              pw.Text('Généré le $now'),
-              pw.Divider(),
-              pw.SizedBox(height: 12),
+            ),
 
-              pw.Text('Propriété', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text(property?.title ?? 'Propriété'),
-              pw.SizedBox(height: 6),
-              pw.Text("Adresse complete : ${getCleanAddress(property?.address)}"),
-              pw.Text("Commune : $communeName"),
-              pw.Text("Quartier : $quartierName"),
-              pw.Text("Ville : $cityName"),
-              pw.Text("Pays : $countryName"),
-              pw.SizedBox(height: 16),
+            pw.SizedBox(height: 24),
 
-              pw.Text('Visite', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Date : ${formatElegantDate(reservation.startDate)}'),
-              pw.Text('Heure : ${(reservation.reservationHeure ?? '14:00').split(':').take(2).join(':')}'),
-              pw.Text('Fin estimée : ${getEstimatedEnd(reservation.endDate ?? reservation.startDate, reservation.reservationHeure)}'),
-              pw.SizedBox(height: 16),
+            // --- INFOS GÉNÉRALES ---
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Référence : #${reservation.reservationId}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                    pw.Text('Date d\'émission : $now', style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                  ],
+                ),
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey400),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Text('CASANAYO OFFICIEL', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.grey600)),
+                ),
+              ],
+            ),
 
-              pw.Text('Client', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Nom : $userName'),
-              if (userPhone.isNotEmpty) pw.Text('Téléphone : $userPhone'),
-              if (userEmail.isNotEmpty) pw.Text('Email : $userEmail'),
-              pw.SizedBox(height: 16),
+            pw.SizedBox(height: 24),
+            pw.Divider(color: PdfColors.grey300),
+            pw.SizedBox(height: 16),
 
-              pw.Text('Annonceur', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.Text('Nom : $advertiserName'),
-              pw.Text('Rôle : $publisherRole'),
-              pw.Text('Téléphone : $publisherPhone'),
-              pw.Text('Email : $publisherEmail'),
-              pw.SizedBox(height: 24),
-
-              pw.Text(
-                "Ce document constitue un aval préalable pour accéder à la visite. "
-                "L'$publisherRoleMiniscule doit encore valider la demande ; un document complémentaire sera émis après acceptation. "
-                "Conservez ce PDF comme preuve de demande et présentez-le le jour de la visite.",
-                style: pw.TextStyle(fontSize: 12),
-                textAlign: pw.TextAlign.justify,
+            // --- SECTION : LA PROPRIÉTÉ ---
+            pw.Text('1. DÉTAILS DE LA PROPRIÉTÉ', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
+            pw.SizedBox(height: 12),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.grey100,
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
               ),
-              pw.SizedBox(height: 18),
-              pw.Text(
-                "Coordonnées CasaNayo :",
-                style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(property?.title ?? 'Propriété Non Spécifiée', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                  pw.SizedBox(height: 8),
+                  _buildPdfDetailRow('Adresse', getCleanAddress(property?.address)),
+                  _buildPdfDetailRow('Type', propTypeName),
+                  _buildPdfDetailRow('Emplacement', '$quartierName, $communeName'),
+                  _buildPdfDetailRow('Ville / Pays', '$cityName, $countryName'),
+                ],
               ),
-              pw.Text("Siège : Av. Sénégalais, Gare Centrale Kinshasa Gombe, RDC"),
-              pw.Text("Téléphone : +243 836 323 805"),
-              pw.Text("Email : contact@casanayo.com"),
-              pw.Text("CEO : Gaius Handjila"),
-            ],
-          ),
+            ),
+
+            pw.SizedBox(height: 24),
+
+            // --- SECTION : LA VISITE ---
+            pw.Text('2. RENDEZ-VOUS DE VISITE', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
+            pw.SizedBox(height: 12),
+            pw.Table(
+              border: pw.TableBorder.all(color: PdfColors.grey300),
+              children: [
+                _buildPdfTableRow('Date de Visite', formatElegantDate(reservation.startDate)),
+                _buildPdfTableRow('Heure du RDV', (reservation.reservationHeure ?? '14:00').split(':').take(2).join(':')),
+                _buildPdfTableRow('Fin Estimée', getEstimatedEnd(reservation.endDate ?? reservation.startDate, reservation.reservationHeure)),
+              ],
+            ),
+
+            pw.SizedBox(height: 24),
+
+            // --- SECTION : LES PARTIES ---
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('3. INFORMATIONS CLIENT', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                      pw.SizedBox(height: 8),
+                      pw.Text('Nom : $userName', style: const pw.TextStyle(fontSize: 11)),
+                      if (userPhone.isNotEmpty) pw.Text('Tel : $userPhone', style: const pw.TextStyle(fontSize: 11)),
+                      if (userEmail.isNotEmpty) pw.Text('Email : $userEmail', style: const pw.TextStyle(fontSize: 11)),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(width: 40),
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('4. INFORMATIONS ANNONCEUR', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                      pw.SizedBox(height: 8),
+                      pw.Text('Nom : $advertiserName', style: const pw.TextStyle(fontSize: 11)),
+                      pw.Text('Rôle : $publisherRole', style: const pw.TextStyle(fontSize: 11)),
+                      pw.Text('Tel : $publisherPhone', style: const pw.TextStyle(fontSize: 11)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            pw.Spacer(),
+
+            // --- FOOTER / DISCLAIMER ---
+            pw.Divider(color: PdfColors.grey400),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              "IMPORTANT : Ce document est une preuve de demande de visite. Il doit être validé par l'annonceur via l'application CasaNayo. Pour toute assistance, contactez notre support.",
+               style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+              textAlign: pw.TextAlign.justify,
+            ),
+            pw.SizedBox(height: 12),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('CasaNayo Support : +243 836 323 805', style: const pw.TextStyle(fontSize: 8)),
+                    pw.Text('Email : contact@casanayo.com', style: const pw.TextStyle(fontSize: 8)),
+                  ],
+                ),
+                pw.Text('Émis par le système CasaNayo - www.casanayo.com', style: pw.TextStyle(fontSize: 8)),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -3256,7 +3392,11 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
          try {
            bool success = false;
            if (action == 'CANCELLED') {
-            final resp = await ctrl.cancelReservation(reservation.reservationId!, reason ?? "Cancelled");
+            final resp = await ctrl.cancelReservation(
+              reservation.reservationId!,
+              reason ?? "Cancelled",
+              reservation: reservation,
+            );
             success = resp.status == true;
          } else if (action == 'CONFIRMED') {
             // Utiliser l'endpoint spécial qui déclenche la notification WebSocket
@@ -3268,7 +3408,6 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
          }
            
            if (success) {
-             await _loadReservations();
              if (mounted) {
                 if (action == 'CONFIRMED') {
                   _showHostActionSuccessDialog(reservation);
@@ -3276,6 +3415,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   FancyNotification.show(context, "Action effectuée avec succès", type: NotificationType.success);
                 }
              }
+             // On rafraîchit en arrière-plan sans bloquer l'affichage du succès
+             _loadReservations();
            }
          } catch(e) {
            if (mounted) FancyNotification.show(context, "Erreur: $e");
@@ -3297,66 +3438,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  Future<Directory> _getExportDir() async {
-    try {
-      // Sur Android, on place le dossier casaNayo à la racine du stockage (hors Download)
-      if (Platform.isAndroid) {
-        try {
-          // Dossier casaNayo à la racine du stockage externe
-          final dir = Directory('/storage/emulated/0/casaNayo');
-          if (!await dir.exists()) {
-            await dir.create(recursive: true);
-          }
-          return dir;
-        } catch (e) {
-          print("Erreur dossier casaNayo: $e");
-          // Fallback sur le stockage externe spécifique à l'app
-          final extDir = await getExternalStorageDirectory();
-          if (extDir != null) {
-            final appExtDir = Directory('${extDir.path}/casaNayo');
-            if (!await appExtDir.exists()) await appExtDir.create(recursive: true);
-            return appExtDir;
-          }
-        }
-      }
-      
-      // Pour les autres plateformes, utiliser getExternalStorageDirectory
-      final ext = await getExternalStorageDirectory();
-      if (ext != null) {
-        final parts = ext.path.split('/');
-        int androidIndex = parts.indexOf('Android');
-        String base;
-        if (androidIndex > 0) {
-          base = parts.sublist(0, androidIndex).join('/');
-        } else {
-          base = ext.path;
-        }
-        if (base.isEmpty) base = '/storage/emulated/0';
-        final dir = Directory('$base/casaNayo');
-        if (!await dir.exists()) {
-          await dir.create(recursive: true);
-        }
-        return dir;
-      }
-    } catch (e) {
-      print("Erreur lors de la création du répertoire: $e");
-    }
-
-    // Fallback: répertoire documents applicatif
-    final docs = await getApplicationDocumentsDirectory();
-    final fallbackDir = Directory('${docs.path}/casaNayo');
-    if (!await fallbackDir.exists()) {
-      await fallbackDir.create(recursive: true);
-    }
-    return fallbackDir;
-  }
-
   Future<void> _downloadReservationPdf(ReservationModel reservation) async {
     try {
       final bytes = await _buildReservationPdfBytes(reservation);
-      final dir = await _getExportDir();
-      final generationDate = DateFormat('dd-MM-yyyy_HH-mm').format(DateTime.now());
-      final filePath = '${dir.path}/casaNayo_reservation_$generationDate.pdf';
+      final dir = await getCasaNayoExportDirectory(CasaNayoExportKind.reservation);
+      final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
+      final filePath = '${dir.path}/Bon_Reservation_Ref_${reservation.reservationId}_du_$generationDate.pdf';
       final file = File(filePath);
       await file.writeAsBytes(bytes, flush: true);
       
@@ -3381,13 +3468,16 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   Future<void> _shareReservationPdf(ReservationModel reservation) async {
     try {
       final bytes = await _buildReservationPdfBytes(reservation);
-      final generationDate = DateFormat('dd-MM-yyyy_HH-mm').format(DateTime.now());
-      final fileName = 'casaNayo_reservation_$generationDate.pdf';
-      final xfile = XFile.fromData(
-        bytes,
-        mimeType: 'application/pdf',
-        name: fileName,
-      );
+      final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
+      final fileName = 'Bon_Reservation_Ref_${reservation.reservationId}_du_$generationDate.pdf';
+      
+      // Pour garantir le nom du fichier au partage, on l'écrit d'abord dans un fichier temporaire
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/$fileName');
+      await tempFile.writeAsBytes(bytes);
+      
+      final xfile = XFile(tempFile.path, mimeType: 'application/pdf', name: fileName);
+      
       await Share.shareXFiles(
         [xfile],
         text: "Confirmation de réservation - ${reservation.property?.title ?? 'Propriété'}",

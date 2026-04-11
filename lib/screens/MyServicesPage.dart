@@ -6,6 +6,7 @@ import 'package:casa/screens/ServiceDetailPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/decertification_access_guard.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
@@ -19,15 +20,24 @@ import '../utils/UserInfoBottomSheet.dart';
 import '../widgets/ModernCustomDialog.dart'; // Import du nouveau modal
 import 'FullScreenImageViewer.dart'; // Pour le zoom image
 import 'auth/IdentityVerificationPage.dart';
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:casa/utils/export_directory.dart';
+import '../utils/realtime_refresh_hub.dart';
+import '../utils/status_labels_fr.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 
 class MyServicesPage extends StatefulWidget {
+  /// 0 = Mes annonces, 1 = Mes demandes, 2 = Demandes reçues (ex. deep link notification).
+  final int? initialTabIndex;
+
+  const MyServicesPage({Key? key, this.initialTabIndex}) : super(key: key);
+
   @override
   _MyServicesPageState createState() => _MyServicesPageState();
 }
@@ -61,11 +71,23 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
   bool _isGridView = false;
   bool _isProcessingAction = false; // Pour les overlays de chargement
   pw.MemoryImage? _logoImage;
+  StreamSubscription<String>? _realtimeRefreshSub;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _realtimeRefreshSub = RealtimeRefreshHub.instance.stream.listen((channel) {
+      if (!mounted) return;
+      if (channel == RealtimeRefreshHub.serviceSolicitations) {
+        _loadData(forceRefresh: true);
+      }
+    });
+    final initialTab = widget.initialTabIndex;
+    final idx = (initialTab != null && initialTab >= 0 && initialTab < 3)
+        ? initialTab
+        : 0;
+    _viewMode = idx;
+    _tabController = TabController(length: 3, vsync: this, initialIndex: idx);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         final newIndex = _tabController.index;
@@ -81,7 +103,13 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
         }
       }
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (await DecertificationAccessGuard.redirectIfInactiveDecertified(
+            context,
+          )) {
+        return;
+      }
+      if (!mounted) return;
       _loadData();
       _loadLogo();
     });
@@ -96,8 +124,25 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
     } catch (_) {}
   }
 
+  /// Plus récent en premier (date de création, sinon id).
+  int _compareSolicitationsNewestFirst(SollicitationModel a, SollicitationModel b) {
+    DateTime? da;
+    DateTime? db;
+    if (a.createdAt != null && a.createdAt!.isNotEmpty) {
+      da = DateTime.tryParse(a.createdAt!);
+    }
+    if (b.createdAt != null && b.createdAt!.isNotEmpty) {
+      db = DateTime.tryParse(b.createdAt!);
+    }
+    if (da != null && db != null && da != db) return db.compareTo(da);
+    if (da != null && db == null) return -1;
+    if (da == null && db != null) return 1;
+    return (b.id ?? 0).compareTo(a.id ?? 0);
+  }
+
   @override
   void dispose() {
+    _realtimeRefreshSub?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -161,8 +206,10 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
       final cachedSolicitations = await db.getAllUserSolicitations();
       
       if (cachedSolicitations.isNotEmpty && mounted) {
+        final sorted = List<SollicitationModel>.from(cachedSolicitations)
+          ..sort(_compareSolicitationsNewestFirst);
         setState(() {
-          _mySolicitations = cachedSolicitations;
+          _mySolicitations = sorted;
           // Si on a des données en cache et qu'on n'est pas en force refresh, on peut arrêter le shimmer
           if (!forceRefresh) _isLoadingData = false;
         });
@@ -186,6 +233,7 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
         }
 
         if (hasChanges) {
+          solicitations.sort(_compareSolicitationsNewestFirst);
           setState(() {
             _mySolicitations = solicitations;
           });
@@ -207,8 +255,10 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
       final cachedSolicitations = await db.getAllHostSolicitations();
       
       if (cachedSolicitations.isNotEmpty && mounted) {
+        final sorted = List<SollicitationModel>.from(cachedSolicitations)
+          ..sort(_compareSolicitationsNewestFirst);
         setState(() {
-          _hostSolicitations = cachedSolicitations;
+          _hostSolicitations = sorted;
           if (!forceRefresh) _isLoadingData = false;
         });
         print("📁 [MyServicesPage] ${_hostSolicitations.length} sollicitations host chargées depuis le cache");
@@ -231,6 +281,7 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
         }
 
         if (hasChanges) {
+          solicitations.sort(_compareSolicitationsNewestFirst);
           setState(() {
             _hostSolicitations = solicitations;
           });
@@ -360,7 +411,6 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
       backgroundColor: _lightGrey,
       appBar: _buildAppBar(),
       body: _buildBody(),
-      floatingActionButton: _viewMode == 0 ? _buildFAB() : null,
     );
   }
 
@@ -759,19 +809,16 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                           Expanded(
                             child: OutlinedButton.icon(
                               onPressed: () {
-                                 // Modifier logic - navigate to edit (reuse create route with args if supported or show details)
-                                 // For now, redirect to detail which usually has edit
                                  if (prestation.id != null) {
-                                   final serviceController = Provider.of<ServiceController>(context, listen: false);
-                                   Navigator.push(
+                                   Navigator.pushNamed(
                                      context, 
-                                     MaterialPageRoute(
-                                       builder: (c) => ServiceDetailPage(
-                                         service: prestation,
-                                         serviceTypeName: serviceController.getServiceName(prestation.serviceId),
-                                       ),
-                                     ),
-                                   );
+                                     Routes.createServicePostRoute,
+                                     arguments: {'prestation': prestation},
+                                   ).then((result) {
+                                      if (result == true) {
+                                        _loadMyPrestations();
+                                      }
+                                   });
                                  }
                               }, 
                               icon: Icon(Icons.edit, size: 14, color: _primaryColor),
@@ -809,16 +856,15 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                               InkWell(
                                 onTap: () {
                                    if (prestation.id != null) {
-                                      final serviceController = Provider.of<ServiceController>(context, listen: false);
-                                      Navigator.push(
+                                      Navigator.pushNamed(
                                         context, 
-                                        MaterialPageRoute(
-                                          builder: (c) => ServiceDetailPage(
-                                            service: prestation,
-                                            serviceTypeName: serviceController.getServiceName(prestation.serviceId),
-                                          ),
-                                        ),
-                                      );
+                                        Routes.createServicePostRoute,
+                                        arguments: {'prestation': prestation},
+                                      ).then((result) {
+                                         if (result == true) {
+                                           _loadMyPrestations();
+                                         }
+                                      });
                                    }
                                 },
                                 child: Container(
@@ -899,7 +945,7 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      item.status ?? 'PENDING',
+                      frSolicitationStatus(item.status),
                       style: TextStyle(color: _getStatusColor(item.status), fontWeight: FontWeight.bold, fontSize: 12),
                     ),
                   ),
@@ -930,6 +976,34 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                  Row(
                    crossAxisAlignment: CrossAxisAlignment.start,
                    children: [
+                     if (_viewMode == 2 && item.user != null) ...[
+                       GestureDetector(
+                         onTap: () {
+                           final url = item.user!.profilePicture;
+                           if (url != null && url.isNotEmpty) {
+                             Navigator.push(
+                               context,
+                               MaterialPageRoute(
+                                 builder: (_) => FullScreenImageViewer(imagePath: url),
+                               ),
+                             );
+                           }
+                         },
+                         child: CircleAvatar(
+                           radius: 26,
+                           backgroundColor: _primaryColor.withOpacity(0.15),
+                           backgroundImage: (item.user!.profilePicture != null &&
+                                   item.user!.profilePicture!.isNotEmpty)
+                               ? CachedNetworkImageProvider(item.user!.profilePicture!)
+                               : null,
+                           child: (item.user!.profilePicture == null ||
+                                   item.user!.profilePicture!.isEmpty)
+                               ? Icon(Icons.person_rounded, color: _primaryColor, size: 28)
+                               : null,
+                         ),
+                       ),
+                       SizedBox(width: 10),
+                     ],
                      Container(
                        width: 50, 
                        height: 50,
@@ -1001,7 +1075,7 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                    padding: EdgeInsets.all(10),
                    decoration: BoxDecoration(
                      color: _lightGrey,
-                     borderRadius: BorderRadius.circular(8),
+                     borderRadius: BorderRadius.circular(12),
                    ),
                    child: Text(
                      item.description!,
@@ -1011,8 +1085,69 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
                    ),
                  ),
               ],
+              
+              if (_viewMode == 1 && (item.status?.toUpperCase() == 'PENDING')) ...[
+                SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton.icon(
+                    onPressed: item.id == null || _isProcessingAction
+                        ? null
+                        : () => _confirmCancelUserSolicitation(item),
+                    icon: Icon(Icons.cancel_outlined, size: 18, color: _errorColor),
+                    label: Text(
+                      'Annuler la demande',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _errorColor,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: _errorColor.withOpacity(0.4)),
+                      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    ),
+                  ),
+                ),
+              ],
+
+              // --- ACTIONS DIRECTES ---
+              SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  _buildIconButton(
+                    icon: Icons.share_rounded,
+                    color: _primaryColor,
+                    onTap: () => _shareSolicitationPdf(item),
+                    tooltip: "Partager",
+                  ),
+                  SizedBox(width: 12),
+                  _buildIconButton(
+                    icon: Icons.download_rounded,
+                    color: _successColor,
+                    onTap: () => _downloadSolicitationPdf(item),
+                    tooltip: "Télécharger",
+                  ),
+                ],
+              ),
            ],
          ),
+      ),
+    );
+  }
+
+  Widget _buildIconButton({required IconData icon, required Color color, required VoidCallback onTap, required String tooltip}) {
+    return Material(
+      color: color.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: EdgeInsets.all(10),
+          child: Icon(icon, size: 18, color: color),
+        ),
       ),
     );
   }
@@ -1021,7 +1156,7 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
      if (dateStr == null) return '';
      try {
        final date = DateTime.parse(dateStr);
-       return DateFormat('dd MMM').format(date);
+       return DateFormat('dd MMM', 'fr_FR').format(date);
      } catch (e) {
        return dateStr;
      }
@@ -1239,7 +1374,7 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
           ] else ...[
              Center(
                child: Text(
-                 "Statut actuel: ${item.status?.toUpperCase()}",
+                 "Statut actuel : ${frSolicitationStatus(item.status)}",
                  style: TextStyle(color: _getStatusColor(item.status), fontWeight: FontWeight.bold),
                ),
              ),
@@ -1248,6 +1383,50 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
         ],
       ),
     );
+  }
+
+  Future<void> _confirmCancelUserSolicitation(SollicitationModel item) async {
+    ModernCustomDialog.show(
+      context,
+      title: 'Annuler la demande',
+      message: 'Voulez-vous vraiment annuler cette sollicitation ? Cette action est définitive.',
+      confirmText: 'ANNULER LA DEMANDE',
+      cancelText: 'RETOUR',
+      isDanger: true,
+      onConfirm: () => _processUserSolicitationCancel(item),
+    );
+  }
+
+  Future<void> _processUserSolicitationCancel(SollicitationModel item) async {
+    if (item.id == null) return;
+    setState(() => _isProcessingAction = true);
+    try {
+      final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
+      final response = await serviceCtrl.updateSollicitationStatus(item.id!, 'CANCELLED');
+      if (response.status == true) {
+        await _loadMySolicitations(forceRefresh: true);
+        if (mounted) {
+          FancyNotification.show(
+            context,
+            'Demande annulée',
+            type: NotificationType.success,
+          );
+        }
+      } else {
+        if (mounted) {
+          FancyNotification.show(
+            context,
+            response.errorMsg ?? 'Erreur lors de l\'annulation',
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        FancyNotification.show(context, 'Une erreur est survenue: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessingAction = false);
+    }
   }
 
   Future<void> _handleSolicitationAction(SollicitationModel item, String status) async {
@@ -1371,62 +1550,198 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
 
   // --- PDF Logic for Services ---
 
+  // --- PDF Logic for Services (Premium Redesign) ---
+
   Future<Uint8List> _buildSolicitationPdfBytes(SollicitationModel item) async {
     final doc = pw.Document();
-    final now = DateFormat('dd/MM/yy HH:mm').format(DateTime.now());
     
+    pw.Font? ttf;
+    try {
+      final fontData = await rootBundle.load('assets/fonts/Outfit-SemiBold.ttf');
+      ttf = pw.Font.ttf(fontData);
+    } catch (_) {}
+
+    final now = DateFormat('dd/MM/yyyy HH:mm', 'fr_FR').format(DateTime.now());
     final prestation = item.prestation;
     final String currency = (item.deviseId == 1) ? "FC" : "\$";
+    
+    // Helper pour les lignes de détails
+    pw.Widget _buildDetailRow(String label, String value) {
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            pw.Text(value, style: const pw.TextStyle(fontSize: 10)),
+          ],
+        ),
+      );
+    }
 
     doc.addPage(
       pw.Page(
-        build: (context) => pw.Container(
-          padding: const pw.EdgeInsets.all(32),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Row(
+        theme: ttf != null ? pw.ThemeData.withFont(base: ttf, bold: ttf) : null,
+        margin: const pw.EdgeInsets.all(32),
+        build: (ctx) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            // --- HEADER PREMIUM ---
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#1976D2'),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+              ),
+              child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                   if (_logoImage != null) pw.Container(width: 60, height: 60, child: pw.Image(_logoImage!)),
                    pw.Column(
-                     crossAxisAlignment: pw.CrossAxisAlignment.end,
+                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                      children: [
-                       pw.Text('CasaNayo Service', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
-                       pw.Text('Bon de validation #SOL-${item.id}'),
-                       pw.Text('Généré le $now'),
+                       pw.Text(
+                         'SOLLICITATION DE SERVICE',
+                         style: pw.TextStyle(
+                           color: PdfColors.white,
+                           fontSize: 18,
+                           fontWeight: pw.FontWeight.bold,
+                         ),
+                       ),
+                       pw.Text(
+                         'Identifiant : #SOL-${item.id}',
+                         style: pw.TextStyle(
+                           color: PdfColor.fromInt(0xE6FFFFFF),
+                           fontSize: 11,
+                         ),
+                       ),
                      ],
-                   )
+                   ),
+                   if (_logoImage != null)
+                     pw.Container(
+                       width: 45,
+                       height: 45,
+                       decoration: const pw.BoxDecoration(
+                         color: PdfColors.white,
+                         shape: pw.BoxShape.circle,
+                       ),
+                       padding: const pw.EdgeInsets.all(4),
+                       child: pw.Image(_logoImage!),
+                     ),
                 ],
               ),
-              pw.SizedBox(height: 40),
-              pw.Text('DÉTAILS DE LA PRESTATION', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-              pw.Divider(),
-              pw.SizedBox(height: 10),
-              pw.Text('Service : ${prestation?.title ?? "Non spécifié"}'),
-              pw.Text('Budget : ${NumberFormat('#,###').format(item.budget)} $currency'),
-              pw.Text('Période : Du ${_formatDate(item.startDate)} au ${_formatDate(item.endDate)}'),
-              pw.SizedBox(height: 30),
-              pw.Text('INFORMATION CLIENT', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-              pw.Divider(),
-              pw.SizedBox(height: 10),
-              pw.Text('Nom : ${item.user?.username ?? "Client"}'),
-              pw.Text('Téléphone : ${item.user?.phone ?? "N/A"}'),
-              pw.SizedBox(height: 40),
-              pw.Container(
-                padding: pw.EdgeInsets.all(16),
-                decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: pw.BorderRadius.circular(8)),
-                child: pw.Text(
-                  "Ce document confirme l'acceptation de la sollicitation. Le prestataire s'engage à effectuer le service selon les termes convenus via la plateforme CasaNayo.",
-                  style: pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic),
-                  textAlign: pw.TextAlign.justify,
+            ),
+
+            pw.SizedBox(height: 24),
+
+            // --- STATUT ET DATE ---
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Document Officiel CasaNayo', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                    pw.Text('Généré le $now', style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                  ],
                 ),
+                pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey400),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Text(
+                    frSolicitationStatus(item.status),
+                    style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))
+                  ),
+                ),
+              ],
+            ),
+
+            pw.SizedBox(height: 24),
+            pw.Divider(color: PdfColors.grey300),
+            pw.SizedBox(height: 16),
+
+            // --- SECTION 1: PRESTATAIRE & SERVICE ---
+            pw.Text('1. DÉTAILS DU SERVICE & PRESTATAIRE', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
+            pw.SizedBox(height: 12),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+              child: pw.Column(
+                children: [
+                  _buildDetailRow('Service sollicité', prestation?.title ?? 'Service CasaNayo'),
+                  _buildDetailRow('Prestataire', prestation?.username ?? 'Partenaire CasaNayo'),
+                  _buildDetailRow(
+                    'Téléphone prestataire',
+                    () {
+                      final pt = item.postByTel?.trim();
+                      if (pt != null && pt.isNotEmpty && pt != 'null') return pt;
+                      final ph = prestation?.phone?.trim();
+                      if (ph != null && ph.isNotEmpty && ph != 'null') return ph;
+                      return 'Non renseigné';
+                    }(),
+                  ),
+                  _buildDetailRow('Localisation', prestation?.cityValue ?? 'Non spécifiée'),
+                ],
               ),
-              pw.Spacer(),
-              pw.Divider(),
-              pw.Center(child: pw.Text("CasaNayo - Simplifiez votre vie immobilière et services.", style: pw.TextStyle(fontSize: 9, color: PdfColors.grey600))),
-            ],
-          ),
+            ),
+
+            pw.SizedBox(height: 24),
+
+            // --- SECTION 2: CLIENT ---
+            pw.Text('2. DÉTAILS DU DEMANDEUR (CLIENT)', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
+            pw.SizedBox(height: 12),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+              child: pw.Column(
+                children: [
+                  _buildDetailRow('Nom du Client', item.user?.username ?? 'Utilisateur CasaNayo'),
+                  _buildDetailRow('Téléphone', item.user?.phone ?? 'Non renseigné'),
+                  _buildDetailRow('Email', item.user?.email ?? 'Non renseigné'),
+                ],
+              ),
+            ),
+
+            pw.SizedBox(height: 24),
+
+            // --- SECTION 3: OBJET ET BUDGET ---
+            pw.Text('3. OBJET ET PÉRIODE DE LA DEMANDE', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
+            pw.SizedBox(height: 12),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey200), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  _buildDetailRow('Période souhaitée', '${_formatDate(item.startDate)} - ${_formatDate(item.endDate)}'),
+                  _buildDetailRow('Budget proposé', '${NumberFormat('#,###').format(item.budget)} $currency'),
+                  if (item.description != null && item.description!.isNotEmpty) ...[
+                    pw.SizedBox(height: 8),
+                    pw.Divider(color: PdfColors.grey200),
+                    pw.SizedBox(height: 8),
+                    pw.Text('Description / Instructions :', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                    pw.SizedBox(height: 4),
+                    pw.Text(item.description!, style: const pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.justify),
+                  ],
+                ],
+              ),
+            ),
+
+            pw.Spacer(),
+
+            // --- FOOTER ---
+            pw.Divider(color: PdfColors.grey400),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              "IMPORTANT : Ce document est une preuve de sollicitation de service via CasaNayo. Il ne constitue pas un contrat final tant qu'il n'est pas validé par l'acceptation formelle du prestataire. Pour toute assistance : +243 836 323 805.",
+              style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+              textAlign: pw.TextAlign.justify,
+            ),
+            pw.SizedBox(height: 12),
+            pw.Center(child: pw.Text('Document généré par CasaNayo - www.casanayo.com', style: const pw.TextStyle(fontSize: 8))),
+          ],
         ),
       ),
     );
@@ -1436,8 +1751,15 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
   Future<void> _shareSolicitationPdf(SollicitationModel item) async {
     try {
       final bytes = await _buildSolicitationPdfBytes(item);
-      final xfile = XFile.fromData(bytes, mimeType: 'application/pdf', name: 'Validation_Service_${item.id}.pdf');
-      await Share.shareXFiles([xfile], text: "Bon de validation de service CasaNayo");
+      final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
+      final fileName = 'Sollicitation_Service_Ref_${item.id}_du_$generationDate.pdf';
+      
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/$fileName');
+      await tempFile.writeAsBytes(bytes);
+      
+      final xfile = XFile(tempFile.path, mimeType: 'application/pdf', name: fileName);
+      await Share.shareXFiles([xfile], text: "Sollicitation de service CasaNayo - Ref: ${item.id}");
     } catch (e) {
       FancyNotification.show(context, "Impossible de partager le PDF");
     }
@@ -1446,15 +1768,12 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
   Future<void> _downloadSolicitationPdf(SollicitationModel item) async {
     try {
       final bytes = await _buildSolicitationPdfBytes(item);
-      Directory? dir;
-      if (Platform.isAndroid) {
-        dir = Directory('/storage/emulated/0/Download');
-        if (!await dir.exists()) dir = await getExternalStorageDirectory();
-      } else {
-        dir = await getApplicationDocumentsDirectory();
-      }
+      final dir = await getCasaNayoExportDirectory(CasaNayoExportKind.solicitation);
       
-      final file = File('${dir!.path}/Validation_Service_${item.id}.pdf');
+      final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
+      final fileName = 'Sollicitation_Service_Ref_${item.id}_du_$generationDate.pdf';
+      final file = File('${dir.path}/$fileName');
+      
       await file.writeAsBytes(bytes);
       FancyNotification.show(context, "PDF enregistré dans ${dir.path}", type: NotificationType.success);
     } catch (e) {
@@ -1483,10 +1802,10 @@ class _MyServicesPageState extends State<MyServicesPage> with SingleTickerProvid
 
     if (prestation.isActive == true) {
       bgColor = _successColor;
-      text = 'Active';
+      text = 'Actif';
     } else {
       bgColor = _mediumGrey;
-      text = 'Inactive';
+      text = 'Inactif';
     }
 
     return Container(

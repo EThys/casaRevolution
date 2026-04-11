@@ -1,9 +1,11 @@
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/screens/HotelDetailPage.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/decertification_access_guard.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
@@ -46,7 +48,13 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (await DecertificationAccessGuard.redirectIfInactiveDecertified(
+            context,
+          )) {
+        return;
+      }
+      if (!mounted) return;
       _loadMyProperties();
     });
   }
@@ -191,7 +199,9 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => PropertyDetailPage(property: property),
+        builder: (context) => property.propertyTypeId == 5
+            ? HotelDetailPage(property: property)
+            : PropertyDetailPage(property: property),
       ),
     );
   }
@@ -224,37 +234,51 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
         .then((_) => _loadMyProperties());
   }
 
-  List<PropertyModel> get _activeProperties => _myProperties.where((p) => p.isActive == true).toList();
-  List<PropertyModel> get _inactiveProperties => _myProperties.where((p) => p.isActive != true).toList();
+  /// Filtre « Mes annonces » basé sur [sold] (référence métier), pas sur isActive.
+  List<PropertyModel> get _disponibleProperties =>
+      _myProperties.where((p) => p.sold != true).toList();
+  List<PropertyModel> get _indisponibleProperties =>
+      _myProperties.where((p) => p.sold == true).toList();
 
   List<PropertyModel> _filterProperties(String filter) {
     switch (filter) {
-      case 'active':
-        return _activeProperties;
-      case 'inactive':
-        return _inactiveProperties;
+      case 'disponible':
+        return _disponibleProperties;
+      case 'indisponible':
+        return _indisponibleProperties;
       case 'all':
       default:
         return _myProperties;
     }
   }
 
-  Widget _buildStatusBadge(PropertyModel property, {bool isGrid = false}) {
-    Color bgColor;
-    String text;
+  /// Afficher « /mois » seulement pour locations « classiques » (pas séjours / salles / hôtel / terrain).
+  bool _showMonthlyPriceSuffix(PropertyModel p) {
+    final tid = p.propertyTypeId ?? 0;
+    if (tid == 5 || tid == 6 || tid == 7 || tid == 8 || tid == 9) return false;
+    final tt = p.transactionType?.toLowerCase() ?? '';
+    return tt.contains('location');
+  }
 
-    if (property.rejectionReason != null && property.rejectionReason!.isNotEmpty) {
-      bgColor = _errorColor;
-      text = 'Rejeté';
-    } else if (property.isVerified != true) {
-      bgColor = _warningColor;
-      text = 'En attente';
-    } else if (property.isActive == true) {
-      bgColor = _successColor;
-      text = 'Active';
+  Widget _buildStatusBadge(PropertyModel property, {bool isGrid = false}) {
+    // Mes annonces : uniquement `sold` (+ type transaction). Pas isAvailable / isActive.
+    final tt = property.transactionType?.toLowerCase() ?? '';
+    final isRent = tt.contains('location');
+
+    final Color bgColor;
+    final String text;
+
+    if (property.sold == true) {
+      if (isRent) {
+        bgColor = _mediumGrey;
+        text = 'Plus disponible';
+      } else {
+        bgColor = _darkColor;
+        text = 'Vendu';
+      }
     } else {
-      bgColor = _mediumGrey;
-      text = 'Inactive';
+      bgColor = _successColor;
+      text = 'Disponible';
     }
 
     return Container(
@@ -288,8 +312,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
               controller: _tabController,
               children: [
                 _buildPropertyList(_filterProperties('all')),
-                _buildPropertyList(_filterProperties('active')),
-                _buildPropertyList(_filterProperties('inactive')),
+                _buildPropertyList(_filterProperties('disponible')),
+                _buildPropertyList(_filterProperties('indisponible')),
               ],
             ),
           ),
@@ -399,8 +423,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
 
   Widget _buildTabBar() {
     final allCount = _filterProperties('all').length;
-    final activeCount = _filterProperties('active').length;
-    final inactiveCount = _filterProperties('inactive').length;
+    final disponibleCount = _filterProperties('disponible').length;
+    final indisponibleCount = _filterProperties('indisponible').length;
 
     return Container(
       color: Colors.white,
@@ -424,8 +448,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
             ),
             tabs: [
               Tab(text: 'Toutes ($allCount)'),
-              Tab(text: 'Actives ($activeCount)'),
-              Tab(text: 'Inactives ($inactiveCount)'),
+              Tab(text: 'Disponible ($disponibleCount)'),
+              Tab(text: 'Indisponible ($indisponibleCount)'),
             ],
           ),
           if (_isLoadingData)
@@ -520,14 +544,14 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
   Widget _buildEmptyState() {
     final emptyMessages = [
       "Aucune propriété publiée",
-      "Aucune propriété active",
-      "Aucune propriété inactive"
+      "Aucune annonce encore disponible (non vendue / non retirée).",
+      "Aucune annonce indisponible ou vendue."
     ];
 
     final emptyIcons = [
       Icons.home_work_outlined,
       Icons.check_circle_outline,
-      Icons.hourglass_empty
+      Icons.remove_circle_outline
     ];
 
     return Center(
@@ -632,8 +656,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
   }
 
   Widget _buildPropertyGridCard(PropertyModel property) {
-    final isForRent = property.transactionType?.toLowerCase() == 'location';
-    final isAvailable = property.isActive == true;
+    final isForRent =
+        property.transactionType?.toLowerCase().contains('location') ?? false;
     final isDeleting = _deletingIds.contains(property.propertyId);
 
     final firstImage = property.propertyImage?.isNotEmpty ?? false
@@ -641,7 +665,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
         : null;
     final imageUrl = firstImage?.path;
 
-    final priceText = isForRent
+    final priceText = isForRent && _showMonthlyPriceSuffix(property)
         ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
         : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
 
@@ -816,8 +840,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
   }
 
   Widget _buildPropertyCard(PropertyModel property) {
-    final isForRent = property.transactionType?.toLowerCase() == 'location';
-    final isAvailable = property.isActive == true;
+    final isForRent =
+        property.transactionType?.toLowerCase().contains('location') ?? false;
     final isDeleting = _deletingIds.contains(property.propertyId);
 
     final firstImage = property.propertyImage?.isNotEmpty ?? false
@@ -825,7 +849,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
         : null;
     final imageUrl = firstImage?.path;
 
-    final priceText = isForRent
+    final priceText = isForRent && _showMonthlyPriceSuffix(property)
         ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
         : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
 

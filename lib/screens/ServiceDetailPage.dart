@@ -14,6 +14,7 @@ import 'RequestInterventionPage.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import '../controllers/ServiceController.dart'; // Added
+import '../utils/SubscriptionHelper.dart';
 import 'package:provider/provider.dart'; // Added
 import 'auth/LoginScreen.dart';
 
@@ -741,13 +742,18 @@ Découvrez ce service sur CasaNayo!
                             MaterialPageRoute(builder: (context) => LoginScreen()),
                           );
                         } else {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => RequestInterventionPage(
-                                service: service,
-                              ),
-                            ),
+                          SubscriptionHelper.checkCertifiedPremiumForSensitiveAction(
+                            context: context,
+                            onProceed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => RequestInterventionPage(
+                                    service: service,
+                                  ),
+                                ),
+                              );
+                            },
                           );
                         }
                       },
