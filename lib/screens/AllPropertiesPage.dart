@@ -9,8 +9,9 @@ import '../controllers/PropertyCtrl.dart';
 import '../models/PropertyModel.dart';
 import '../utils/Constantes.dart';
 import '../utils/FancyNotification.dart';
-import '../utils/Routes.dart';
+import '../utils/property_detail_navigation.dart';
 import '../utils/FavoriteEartIcon.dart';
+import 'package:casa/widgets/property_sold_badge.dart';
 
 class AllPropertiesPage extends StatefulWidget {
   final List<PropertyModel> initialProperties;
@@ -273,8 +274,9 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         setState(() {
           // Utiliser propertyCtrl.allProperties comme nouvelle base pour AllPropertiesPage
           _filteredProperties = propertyCtrl.allProperties.where((p) {
-             final isTypeMatch = p.transactionType == (widget.isForRent ? 'location' : 'vente');
-             return isTypeMatch;
+            final tt = p.transactionType?.toLowerCase() ?? '';
+            final need = widget.isForRent ? 'location' : 'vente';
+            return tt.contains(need);
           }).toList();
           
           _applyFilters(); // Re-appliquer les filtres de recherche/chips sur la nouvelle liste unifiée
@@ -298,8 +300,9 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
 
       // Si le filtre est "Tous", récupérer toutes les propriétés du type de transaction
       if (currentFilter == 'Tous') {
-        final newProperties = propertyCtrl.properties.where((p) =>
-          p.transactionType?.toLowerCase().contains(widget.isForRent ? 'location' : 'vente') ?? false
+        final newProperties = propertyCtrl.allProperties.where((p) =>
+          p.listingAllowed &&
+          (p.transactionType?.toLowerCase().contains(widget.isForRent ? 'location' : 'vente') ?? false)
         ).toList();
 
         setState(() {
@@ -616,6 +619,17 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                     ),
                   ),
 
+                  Positioned(
+                    top: 40,
+                    left: 8,
+                    child: PropertyListingStatusChip(
+                      sold: property.sold,
+                      transactionType: property.transactionType,
+                      available: property.available,
+                      listingAllowed: property.listingAllowed,
+                    ),
+                  ),
+
                   // Bouton favoris en haut à droite
                   if (property.propertyId != null)
                     Positioned(
@@ -926,6 +940,17 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                       ),
                     ),
 
+                    Positioned(
+                      top: 40,
+                      left: 8,
+                      child: PropertyListingStatusChip(
+                        sold: property.sold,
+                        transactionType: property.transactionType,
+                        available: property.available,
+                        listingAllowed: property.listingAllowed,
+                      ),
+                    ),
+
                     // Bouton favoris
                     if (property.propertyId != null)
                       Positioned(
@@ -1146,14 +1171,8 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
   }
 
   // Navigation vers la page de détail
-  void _navigateToDetail(PropertyModel property, {String? heroTag}) {
-    Navigator.pushNamed(
-      context,
-      Routes.detailPageRoute,
-      arguments: heroTag != null 
-          ? {'property': property, 'heroTag': heroTag}
-          : property,
-    );
+  Future<void> _navigateToDetail(PropertyModel property, {String? heroTag}) async {
+    await navigateToPropertyDetail(context, property, heroTag: heroTag);
   }
 
   // Méthode pour déterminer le type de propriété depuis le titre
@@ -1182,8 +1201,9 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
     
     // Base de données : Toutes les propriétés unifiées filtrées par type de transaction (Vente/Location)
     final baseProperties = propertyCtrl.allProperties.where((p) {
-       final isTypeMatch = p.transactionType?.toLowerCase() == (widget.isForRent ? 'location' : 'vente');
-       return isTypeMatch;
+      final tt = p.transactionType?.toLowerCase() ?? '';
+      final need = widget.isForRent ? 'location' : 'vente';
+      return tt.contains(need);
     }).toList();
 
     setState(() {

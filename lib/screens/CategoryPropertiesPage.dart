@@ -11,12 +11,13 @@ import 'package:shimmer/shimmer.dart';
 import '../models/PropertyModel.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/FavoriteEartIcon.dart';
-import '../utils/Routes.dart';
+import '../utils/property_detail_navigation.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../controllers/provider/FavoriteProvider.dart';
 import '../controllers/AgenceController.dart';
 import '../models/AgenceModel.dart';
 import 'AgenceDetailsPage.dart';
+import 'package:casa/widgets/property_sold_badge.dart';
 
 class CategoryPropertiesPage extends StatefulWidget {
   final String category;
@@ -86,6 +87,9 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     } else {
       allRelevantProperties = List.from(propertyCtrl.properties);
     }
+
+    allRelevantProperties =
+        allRelevantProperties.where((p) => p.listingAllowed).toList();
 
     if (widget.category == 'Terrain') {
       print("🏞️ [CategoryPropertiesPage] ${propertyCtrl.terrains.length} terrains disponibles");
@@ -203,6 +207,9 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     } else {
       allRelevantProperties = propertyCtrl.properties;
     }
+
+    allRelevantProperties =
+        allRelevantProperties.where((p) => p.listingAllowed).toList();
 
     final filtered = allRelevantProperties.where((p) => _matchesCategory(p, widget.category)).toList();
     final totalLoaded = filtered.length;
@@ -969,6 +976,17 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     ),
                   ),
 
+                  Positioned(
+                    top: 40,
+                    left: 8,
+                    child: PropertyListingStatusChip(
+                      sold: property.sold,
+                      transactionType: property.transactionType,
+                      available: property.available,
+                      listingAllowed: property.listingAllowed,
+                    ),
+                  ),
+
                   // Bouton favoris en haut à droite
                   if (property.propertyId != null)
                     Positioned(
@@ -1346,6 +1364,17 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                       ),
                     ),
 
+                    Positioned(
+                      top: 40,
+                      left: 8,
+                      child: PropertyListingStatusChip(
+                        sold: property.sold,
+                        transactionType: property.transactionType,
+                        available: property.available,
+                        listingAllowed: property.listingAllowed,
+                      ),
+                    ),
+
                     // Bouton favoris
                     if (property.propertyId != null)
                       Positioned(
@@ -1598,14 +1627,11 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   }
 
   // Navigation vers la page de détail
-  void _navigateToDetail(PropertyModel property) {
-    Navigator.pushNamed(
+  Future<void> _navigateToDetail(PropertyModel property) async {
+    await navigateToPropertyDetail(
       context,
-      Routes.detailPageRoute,
-      arguments: {
-        'property': property,
-        'heroTag': _isGridView ? 'category-grid-${property.propertyId}' : 'category-list-${property.propertyId}',
-      },
+      property,
+      heroTag: _isGridView ? 'category-grid-${property.propertyId}' : 'category-list-${property.propertyId}',
     );
   }
 

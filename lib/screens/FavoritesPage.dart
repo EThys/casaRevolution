@@ -15,12 +15,15 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
+import '../controllers/TutorialController.dart';
 
 import '../controllers/AuthentificationCtrl.dart';
 import '../controllers/PropertyCtrl.dart';
 import '../controllers/ServiceController.dart';
 import '../utils/Routes.dart';
 import '../utils/FavoriteEartIcon.dart';
+import '../utils/property_availability_ui.dart';
+import '../widgets/property_sold_badge.dart';
 
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({Key? key}) : super(key: key);
@@ -37,6 +40,7 @@ class _FavoritesPageState extends State<FavoritesPage>
   final DateFormat _dateFormat = DateFormat('dd MMM yyyy', 'fr_FR');
   final GetStorage _storage = GetStorage();
   bool _isLoading = false;
+  final TutorialController _tutorialController = TutorialController();
 
   // Couleurs modernes
   final Color _primaryColor = Color(0xFF1976D2);
@@ -241,9 +245,13 @@ class _FavoritesPageState extends State<FavoritesPage>
     );
   }
 
-  void _navigateToPropertyDetail(PropertyModel? property) {
+  Future<void> _navigateToPropertyDetail(PropertyModel? property) async {
     if (property == null) return;
-    Navigator.pushNamed(context, Routes.detailPageRoute, arguments: property);
+    final enriched = await context
+        .read<PropertyController>()
+        .enrichPropertySnapshot(property);
+    if (!mounted) return;
+    Navigator.pushNamed(context, Routes.detailPageRoute, arguments: enriched);
   }
 
   void _navigateToPrestationDetail(PrestationModel? prestation) {
@@ -444,7 +452,13 @@ class _FavoritesPageState extends State<FavoritesPage>
       case 'available':
         return favorites.where((fav) {
           if (fav.prestation != null) return fav.prestation?.isActive ?? true;
-          return !(fav.property?.sold ?? true);
+          final p = fav.property;
+          if (p == null) return false;
+          return PropertyAvailabilityUi.isListingAvailableForVisit(
+            sold: p.sold,
+            available: p.available,
+            listingAllowed: p.listingAllowed,
+          );
         }).toList();
       case 'rent':
         return favorites.where((fav) => fav.property?.transactionType == 'location').toList();
@@ -581,7 +595,7 @@ class _FavoritesPageState extends State<FavoritesPage>
   Widget _buildFavoriteGridCard(PropertyFavoriteModel favorite) {
     final propertyData = favorite.property;
     final isForRent = propertyData?.transactionType == 'location';
-    final isAvailable = !(propertyData?.sold ?? true);
+    final p = propertyData;
     final isDeleting = _deletingIds.contains(propertyData?.propertyId);
 
     final firstImage = propertyData?.propertyImage?.isNotEmpty ?? false
@@ -656,21 +670,14 @@ class _FavoritesPageState extends State<FavoritesPage>
                       Positioned(
                         bottom: 8,
                         left: 8,
-                        child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isAvailable ? _successColor.withOpacity(0.9) : _errorColor.withOpacity(0.9),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            isAvailable ? 'Disponible' : 'Vendu',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
+                        child: p != null
+                            ? PropertyListingStatusChip(
+                                sold: p.sold,
+                                transactionType: p.transactionType,
+                                available: p.available,
+                                listingAllowed: p.listingAllowed,
+                              )
+                            : const SizedBox.shrink(),
                       ),
                       Positioned(
                         top: 8,
@@ -695,9 +702,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                             activeColor: Colors.red,
                             inactiveColor: _mediumGrey,
                             onLikeChanged: (isLiked) {
-                              if (!isLiked) {
-                                _removeFavorite(propertyData.propertyId);
-                              }
+                              // Désormais géré automatiquement par PropertyFavoriteCtrl
                             },
                           ),
                         ),
@@ -838,7 +843,6 @@ class _FavoritesPageState extends State<FavoritesPage>
     if (propertyData == null) return const SizedBox();
     
     final isForRent = propertyData.transactionType == 'location';
-    final isAvailable = !(propertyData.sold ?? true);
     final isDeleting = _deletingIds.contains(propertyData.propertyId);
 
     final firstImage = propertyData.propertyImage?.isNotEmpty ?? false
@@ -912,20 +916,11 @@ class _FavoritesPageState extends State<FavoritesPage>
                     Positioned(
                       bottom: 15,
                       left: 15,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: isAvailable ? _successColor.withOpacity(0.9) : _errorColor.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          isAvailable ? 'Disponible' : 'Indisponible',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
+                      child: PropertyListingStatusChip(
+                        sold: propertyData.sold,
+                        transactionType: propertyData.transactionType,
+                        available: propertyData.available,
+                        listingAllowed: propertyData.listingAllowed,
                       ),
                     ),
                     Positioned(
@@ -960,7 +955,8 @@ class _FavoritesPageState extends State<FavoritesPage>
                               propertyTypeId: propertyData.propertyTypeId,
                               size: 20,
                               onLikeChanged: (isLiked) {
-                                if (!isLiked) _removeFavorite(propertyData.propertyId);
+                                // Déjà géré par FavoriteProvider dans l'icône
+                                // Pas de call à _removeFavorite ici pour éviter le double appel
                               },
                             ),
                           ),
@@ -1141,7 +1137,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                               isPrestation: true,
                               size: 20,
                               onLikeChanged: (isLiked) {
-                                if (!isLiked) _removeFavorite(prestation.id, isPrestation: true);
+                                // Déjà géré par FavoriteProvider dans l'icône
                               },
                             ),
                           ),
@@ -1310,7 +1306,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                             isPrestation: true,
                             size: 16,
                             onLikeChanged: (isLiked) {
-                              if (!isLiked) _removeFavorite(prestation.id, isPrestation: true);
+                              // Déjà géré par FavoriteProvider dans l'icône
                             },
                           ),
                         ),

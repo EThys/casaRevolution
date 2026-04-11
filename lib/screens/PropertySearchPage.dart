@@ -14,6 +14,7 @@ import '../models/CityModel.dart';
 import '../models/CommuneModel.dart';
 import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/models/PrestationModel.dart'; // Added
+import 'package:casa/utils/property_detail_navigation.dart';
 import '../utils/city_suggestions.dart';
 import '../widgets/LocationAutocompleteWidget.dart';
 import '../utils/FavoriteEartIcon.dart';
@@ -21,6 +22,8 @@ import '../utils/Routes.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../controllers/provider/FavoriteProvider.dart';
 import 'package:shimmer/shimmer.dart';
+import '../controllers/TutorialController.dart';
+import 'package:casa/widgets/property_sold_badge.dart';
 
 class PropertySearchPage extends StatefulWidget {
   @override
@@ -43,6 +46,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
   bool _showSearchLoader = false;
+  final TutorialController _tutorialController = TutorialController();
 
   // Mode de recherche
   String _searchType = 'Propriétés'; // 'Propriétés' ou 'Services'
@@ -94,9 +98,6 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     'Entrepôt'
   ];
 
-  // Remplacement des listes statiques par des données dynamiques
-  List<String> _cities = [];
-  List<String> _communes = [];
 
   // Mappings des types de propriétés
   final Map<String, int> _propertyTypeMapping = {
@@ -113,12 +114,19 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     'Entrepôt': 10,
   };
 
-  // Timer pour le debounce de recherche
   Timer? _searchDebounce;
+  final RefreshController _propertyRefreshController = RefreshController(initialRefresh: false);
+  final RefreshController _serviceRefreshController = RefreshController(initialRefresh: false);
+
+  // Remplacement des listes statiques par des données dynamiques
+  List<String> _cities = [];
+  List<String> _communes = [];
+
+  // Mappings des types de propriétés
+
+  // Timer pour le debounce de recherche
 
   // Refresh controllers pour pull-to-refresh
-  final RefreshController _propertyRefreshController = RefreshController();
-  final RefreshController _serviceRefreshController = RefreshController();
 
   @override
   void initState() {
@@ -146,6 +154,23 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeData();
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _minPriceController.dispose();
+    _maxPriceController.dispose();
+    _bedroomsController.dispose();
+    _propertyScrollController.dispose();
+    _serviceScrollController.dispose();
+    _propertyRefreshController.dispose();
+    _serviceRefreshController.dispose();
+    _minPriceFocus.dispose();
+    _maxPriceFocus.dispose();
+    _bedroomsFocus.dispose();
+    _searchDebounce?.cancel();
+    super.dispose();
   }
 
   /// Révèle plus de propriétés et charge la page suivante de l'API si nécessaire
@@ -1350,45 +1375,84 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
+  Widget _buildSearchField() {
+    return TextField(
+        controller: _searchController,
+        style: GoogleFonts.inter(fontSize: 14, color: Colors.white),
+        decoration: InputDecoration(
+          hintText: _searchType == 'Propriétés' 
+              ? 'Rechercher une propriété...' 
+              : 'Rechercher un service...',
+          hintStyle: GoogleFonts.inter(color: Colors.white.withOpacity(0.6), fontSize: 13),
+          prefixIcon: Icon(Icons.search_rounded, color: Colors.white.withOpacity(0.8), size: 20),
+          suffixIcon: _searchController.text.isNotEmpty 
+              ? IconButton(
+                  icon: Icon(Icons.close_rounded, color: Colors.white, size: 18),
+                  onPressed: () {
+                    _searchController.clear();
+                    _onSearchChanged('');
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: Colors.white.withOpacity(0.12),
+          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.white.withOpacity(0.3), width: 1),
+          ),
+        ),
+        onChanged: _onSearchChanged,
+      );
+  }
+
   Widget _buildFilterBadge() {
     final filterCount = _getActiveFilterCount();
 
     return Container(
-      margin: EdgeInsets.only(top: 8, bottom: 8),
-      child: Stack(
-        children: [
-          IconButton(
-            icon: Icon(Icons.tune_rounded, color: Colors.white),
-            onPressed: _showFilterModal,
-          ),
-          if (filterCount > 0)
-            Positioned(
-              right: 8,
-              top: 8,
-              child: Container(
-                padding: EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  color: _accentColor,
-                  shape: BoxShape.circle,
-                ),
-                constraints: BoxConstraints(
-                  minWidth: 16,
-                  minHeight: 16,
-                ),
-                child: Text(
-                  filterCount.toString(),
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
+        margin: EdgeInsets.only(top: 8, bottom: 8),
+        child: Stack(
+          children: [
+            IconButton(
+              icon: Icon(Icons.tune_rounded, color: Colors.white),
+              onPressed: _showFilterModal,
+            ),
+            if (filterCount > 0)
+              Positioned(
+                right: 8,
+                top: 8,
+                child: Container(
+                  padding: EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: _accentColor,
+                    shape: BoxShape.circle,
                   ),
-                  textAlign: TextAlign.center,
+                  constraints: BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
+                  child: Text(
+                    filterCount.toString(),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
-            ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
   }
 
   int _getActiveFilterCount() {
@@ -2467,14 +2531,31 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
-                child: imageUrl != null
-                    ? CachedNetworkImage(
-                  imageUrl: imageUrl,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => _buildImagePlaceholder(),
-                  errorWidget: (context, url, error) => _buildImagePlaceholder(),
-                )
-                    : _buildImagePlaceholder(),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (imageUrl != null)
+                      CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => _buildImagePlaceholder(),
+                        errorWidget: (context, url, error) => _buildImagePlaceholder(),
+                      )
+                    else
+                      _buildImagePlaceholder(),
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: PropertyListingStatusChip(
+                        sold: property.sold,
+                        transactionType: property.transactionType,
+                        available: property.available,
+                        listingAllowed: property.listingAllowed,
+                        compact: true,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
 
@@ -2583,23 +2664,6 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                             color: _primaryColor,
                           ),
                         ),
-                        Spacer(),
-                        if (property.sold == true)
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              'Vendu',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.red,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
                       ],
                     ),
                   ],
@@ -2612,12 +2676,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  void _navigateToDetail(PropertyModel property) {
-    Navigator.pushNamed(
-      context,
-      Routes.detailPageRoute,
-      arguments: property,
-    );
+  Future<void> _navigateToDetail(PropertyModel property) async {
+    await navigateToPropertyDetail(context, property);
   }
 
   Widget _buildSuggestionChip(String text) {
@@ -2725,86 +2785,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  Widget _buildSearchField() {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return Container(
-          height: 48,
-          margin: EdgeInsets.only(top: 8, bottom: 8, right: 8),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: _searchController.text.isNotEmpty ? _primaryColor : Colors.grey[300]!,
-              width: _searchController.text.isNotEmpty ? 2 : 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 4,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Rechercher une ville, un quartier...',
-                    hintStyle: GoogleFonts.inter(fontSize: 14, color: _greyColor),
-                    prefixIcon: Icon(Icons.search_rounded, color: _searchController.text.isNotEmpty ? _primaryColor : _greyColor, size: 20),
-                    border: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    errorBorder: InputBorder.none,
-                    disabledBorder: InputBorder.none,
-                    filled: false, // Ensure no background fill
-                    contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                      icon: Icon(Icons.clear_rounded, color: _greyColor, size: 18),
-                      onPressed: () {
-                        setState(() {
-                          _searchController.clear();
-                          _isSearching = false;
-                          _showSearchLoader = false;
-                        });
-                        this.setState(() {});
-                        _performSearch();
-                      },
-                    )
-                        : null,
-                  ),
-                  style: GoogleFonts.inter(fontSize: 14, color: _darkColor, fontWeight: FontWeight.w500),
-                  onSubmitted: (value) => _performSearch(),
-                  onChanged: (value) {
-                    setState(() {});
-                    this.setState(() {});
-                    _onSearchChanged(value);
-                  },
-                ),
-              ),
 
-              if (_showSearchLoader)
-                Padding(
-                  padding: EdgeInsets.only(right: 12),
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: _primaryColor,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   Widget _buildApplyFiltersButton() {
     return Container(
@@ -2849,20 +2830,4 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  @override
-  void dispose() {
-    _searchDebounce?.cancel();
-    _minPriceController.dispose();
-    _maxPriceController.dispose();
-    _bedroomsController.dispose();
-    _searchController.dispose();
-    _minPriceFocus.dispose();
-    _maxPriceFocus.dispose();
-    _bedroomsFocus.dispose();
-    _propertyRefreshController.dispose();
-    _serviceRefreshController.dispose();
-    _propertyScrollController.dispose();
-    _serviceScrollController.dispose();
-    super.dispose();
-  }
 }

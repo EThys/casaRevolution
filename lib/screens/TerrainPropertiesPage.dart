@@ -134,6 +134,36 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
     }
   }
 
+  bool _terrainMapSold(Map<String, dynamic>? t) {
+    final v = t?['sold'];
+    if (v == true || v == 1) return true;
+    if (v is String) {
+      final s = v.toLowerCase().trim();
+      return s == '1' || s == 'true';
+    }
+    return false;
+  }
+
+  bool _terrainMapVente(Map<String, dynamic>? t) =>
+      t?['transactionType']?.toString().toLowerCase().contains('vente') ?? false;
+
+  bool _terrainMapBlocked(Map<String, dynamic>? t) {
+    if (t == null) return false;
+    if (_terrainMapSold(t)) return true;
+    final a = t['available'] ?? t['isAvailable'];
+    if (a == false || a == 0) return true;
+    if (a is String) {
+      final s = a.toLowerCase().trim();
+      if (s == '0' || s == 'false') return true;
+    }
+    return false;
+  }
+
+  String _terrainMapStatusLabel(Map<String, dynamic>? t) {
+    if (!_terrainMapBlocked(t)) return '';
+    return _terrainMapVente(t) ? 'Déjà vendu' : 'Déjà pris';
+  }
+
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       elevation: 0,
@@ -397,6 +427,28 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
                         ),
                       ),
                     ),
+                    if (_terrainMapBlocked(terrain)) ...[
+                      SizedBox(height: 6),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.red.shade200),
+                          ),
+                          child: Text(
+                            _terrainMapStatusLabel(terrain),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red.shade800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                     SizedBox(height: 8),
 
                     // Title
@@ -453,7 +505,9 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: _primaryColor,
+                            color: _terrainMapBlocked(terrain)
+                                ? Colors.red.shade700
+                                : _primaryColor,
                           ),
                         ),
                         if (terrain?['id'] != null)
@@ -596,6 +650,30 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
                       ),
                     ),
                   ),
+                  if (_terrainMapBlocked(terrain))
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade700,
+                          borderRadius: BorderRadius.vertical(
+                            bottom: Radius.circular(16),
+                          ),
+                        ),
+                        child: Text(
+                          _terrainMapStatusLabel(terrain),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -639,7 +717,9 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: _primaryColor,
+                        color: _terrainMapBlocked(terrain)
+                            ? Colors.red.shade700
+                            : _primaryColor,
                       ),
                     ),
                   ],
