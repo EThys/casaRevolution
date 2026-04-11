@@ -8,50 +8,7 @@ class AssetsRes {
 
   static const String PROJECT_NAME = 'casa';
   static const String PROJECT_VERSION = '1.0.12+13';
-  static const String __51 = 'assets/images/ -51.jpg';
-  static const String
-
-  '
-
-  ABSTRACT_ART_1
-
-  '
-
-  _POSTER
-
-  ,
-
-  _PICTURE
-
-  ,
-
-  _METAL_PRINT
-
-  ,
-
-  _PAINT_BY_DM_PHOTOGRAPHY_
-
-  |
-
-  _DISPLATE
-
-  =
-
-  '
-
-  assets/images/
-
-  '
-
-  Abstract Art
-
-  1
-
-  '
-
-   Poster, picture, metal print, paint by DM Photography | Displate.jpg
-
-  ';
-
+  static const String __51 = 'assets/images/-51.jpg';
+  static const String ABSTRACT_ART_1 = 'assets/images/\'Abstract Art 1\' Poster, picture, metal print, paint by DM Photography | Displate.jpg';
   static const String ABSTRACT = 'assets/images/abstract.jpg';
 }

@@ -9,11 +9,13 @@ import 'package:casa/models/CommuneModel.dart';
 import 'package:casa/models/DistrictModel.dart';
 import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/models/DeviseModel.dart';
+import 'package:casa/models/PrestationModel.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/utils/city_suggestions.dart';
 import 'package:casa/utils/country_codes.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -115,6 +117,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   Map<String, bool> _fieldTouched = {};
   bool _hasAttemptedSubmit = false;
 
+  // Edit mode
+  PrestationModel? _editingPrestation;
+  bool get _isEditing => _editingPrestation != null;
+
   // User data
   String? _userServiceType;
   String? _userFullName;
@@ -132,10 +138,68 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     
     // Décaler le chargement des données de localisation après le build initial
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Check for editing prestation in arguments
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map<String, dynamic> && args.containsKey('prestation')) {
+        if (mounted) {
+          setState(() {
+            _editingPrestation = args['prestation'] as PrestationModel;
+            _prefillForm();
+          });
+        }
+      }
+      
       _checkUserVerification();
       _loadLocationData();
       context.read<ServiceController>().fetchDevises();
     });
+  }
+
+  void _prefillForm() {
+    if (_editingPrestation == null) return;
+    
+    _serviceId = _editingPrestation!.serviceId;
+    _titleController.text = _editingPrestation!.title ?? '';
+    _descriptionController.text = _editingPrestation!.description ?? '';
+    _priceMinController.text = _editingPrestation!.minPrice != null && _editingPrestation!.minPrice! > 0 
+        ? _editingPrestation!.minPrice!.toInt().toString() 
+        : '';
+    _experienceController.text = _editingPrestation!.experience ?? '';
+    _phoneController.text = _editingPrestation!.phone ?? '';
+    _addressController.text = _editingPrestation!.address ?? '';
+    _plageHeureController.text = _editingPrestation!.plageHeurePrestation ?? '';
+    
+    if (_editingPrestation!.plageJourPrestation != null && _editingPrestation!.plageJourPrestation!.isNotEmpty) {
+      _selectedDays = _editingPrestation!.plageJourPrestation!.split(', ').toSet();
+    }
+    
+    _cityTextController.text = _editingPrestation!.cityValue ?? '';
+    _communeTextController.text = _editingPrestation!.communeValue ?? '';
+    _quartierTextController.text = _editingPrestation!.quartierValue ?? '';
+    
+    // Location objects matching will happen in _loadLocationData or here if already loaded
+    if (_editingPrestation!.cityId != null && _availableCities.isNotEmpty) {
+      _selectedCity = _availableCities.firstWhere(
+        (c) => c.cityId == _editingPrestation!.cityId, 
+        orElse: () => CityModel(cityId: _editingPrestation!.cityId, name: _editingPrestation!.cityValue)
+      );
+    }
+
+    // Match Devise
+    if (_editingPrestation!.deviseId != null) {
+      final serviceCtrl = context.read<ServiceController>();
+      if (serviceCtrl.devisesList.isNotEmpty) {
+        _selectedDevise = serviceCtrl.devisesList.firstWhere(
+          (d) => d.id == _editingPrestation!.deviseId,
+          orElse: () => serviceCtrl.devisesList.first
+        );
+      }
+    }
+
+    // Mark steps as valid
+    _stepValidations[0] = true;
+    _stepValidations[1] = true;
+    _stepValidations[2] = true;
   }
 
   void _checkUserVerification() {
@@ -974,9 +1038,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Widget _buildProfileImageSelector() {
-    final hasError = _shouldShowError(0, 'profile_image') && _profileImage == null;
+    final hasError = _shouldShowError(0, 'profile_image') && _profileImage == null && !(_isEditing && _editingPrestation?.profile != null);
 
-    if (_profileImage != null) {
+    if (_profileImage != null || (_isEditing && _editingPrestation?.profile != null && _editingPrestation!.profile!.isNotEmpty)) {
       return Stack(
         children: [
           Container(
@@ -985,7 +1049,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               image: DecorationImage(
-                image: FileImage(File(_profileImage!.path)),
+                image: _profileImage != null 
+                    ? FileImage(File(_profileImage!.path)) as ImageProvider
+                    : CachedNetworkImageProvider(_editingPrestation!.profile!),
                 fit: BoxFit.cover,
               ),
               boxShadow: [
@@ -1061,9 +1127,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Widget _buildPortfolioImagesGrid() {
-    final hasError = _shouldShowError(0, 'portfolio_images') && _portfolioImages.isEmpty;
+    final hasError = _shouldShowError(0, 'portfolio_images') && _portfolioImages.isEmpty && !(_isEditing && _editingPrestation?.images != null && _editingPrestation!.images!.isNotEmpty);
+    
+    final allImagesCount = _portfolioImages.length + (_isEditing ? (_editingPrestation?.images?.length ?? 0) : 0);
 
-    if (_portfolioImages.isEmpty) {
+    if (_portfolioImages.isEmpty && !(_isEditing && _editingPrestation?.images != null && _editingPrestation!.images!.isNotEmpty)) {
       return GestureDetector(
         onTap: () => _showImageSourceSelection((image) {
           if (image != null) {
@@ -1115,10 +1183,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              "${_portfolioImages.length} réalisation(s) ajoutée(s)",
+              "$allImagesCount réalisation(s) ajoutée(s)",
               style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: _greyColor),
             ),
-            if (_portfolioImages.length < 10)
+            if (allImagesCount < 10)
             TextButton.icon(
               onPressed: () => _showImageSourceSelection((image) {
                   if (image != null) {
@@ -1144,14 +1212,53 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             crossAxisSpacing: 10,
             mainAxisSpacing: 10,
           ),
-          itemCount: _portfolioImages.length,
+          itemCount: allImagesCount,
           itemBuilder: (context, index) {
+            // Logic to display existing images first, then new ones
+            final existingCount = _isEditing ? (_editingPrestation?.images?.length ?? 0) : 0;
+            
+            if (index < existingCount) {
+              final imageUrl = _editingPrestation!.images![index];
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(color: Colors.grey[200]),
+                      errorWidget: (context, url, error) => Icon(Icons.error),
+                    ),
+                  ),
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _editingPrestation!.images!.removeAt(index);
+                          _validateStep(0);
+                        });
+                      },
+                      child: Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(color: Colors.red, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
+                        child: Icon(Icons.close, color: Colors.white, size: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }
+            
+            final newIndex = index - existingCount;
             return Stack(
               fit: StackFit.expand,
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.file(File(_portfolioImages[index].path), fit: BoxFit.cover),
+                  child: Image.file(File(_portfolioImages[newIndex].path), fit: BoxFit.cover),
                 ),
                 Positioned(
                   top: 0,
@@ -1159,7 +1266,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                   child: GestureDetector(
                     onTap: () {
                       setState(() {
-                        _portfolioImages.removeAt(index);
+                        _portfolioImages.removeAt(newIndex);
                         _validateStep(0);
                       });
                     },
@@ -1868,21 +1975,24 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       
       print("📤 [CreateService] Envoi avec serviceId (ID du compte): $_serviceId");
 
-      // Prepare payload following user request model
-      final payload = {
-        "prestation": {
+      dynamic finalResponse;
+      final ctrl = context.read<ServiceController>();
+
+      if (_isEditing) {
+        final updateData = {
+          "id": _editingPrestation!.id,
           "userId": storedUserId,
           "serviceId": _serviceId!,
-          "serviceId": _serviceId!,
           "deviseId": _selectedDevise?.id ?? 1,
-          "title": _titleController.text.trim(), // Utilise le titre manuel
-          "profile": profileBase64 ?? "", // Photo de profil en base64 (obligatoire)
+          "title": _titleController.text.trim(),
           "description": _descriptionController.text.trim(),
           "experience": _experienceController.text.trim(),
+          "profile": profileBase64 ?? _editingPrestation!.profile ?? "",
+          "cvFile": "", // Non géré pour l'instant
           "plageJourPrestation": selectedDaysString,
           "plageHeurePrestation": _plageHeureController.text.trim(),
           "minPrice": double.tryParse(_priceMinController.text) ?? 0.0,
-          "maxPrice": double.tryParse(_priceMinController.text) ?? 0.0, // Fake value (same as min)
+          "maxPrice": double.tryParse(_priceMinController.text) ?? 0.0,
           "address": _addressController.text.trim(),
           "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
           "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
@@ -1891,46 +2001,68 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           "cityId": _isKinshasaSelected && _selectedCity != null ? (_selectedCity?.cityId ?? 0) : 0,
           "communeId": _isKinshasaSelected && _selectedCommune != null ? (_selectedCommune?.communeId ?? 0) : 0,
           "quartierId": _isKinshasaSelected && _selectedQuartier != null ? (_selectedQuartier?.quartierId ?? 0) : 0,
-          "districtId": _isKinshasaSelected && _selectedDistrict != null ? (_selectedDistrict?.districtId ?? 0) : 0
-        },
-        "images": imagesPayload
-      };
-
-      print("📦 [CreateService] Payload prestation (sans images base64):");
-      final payloadSummary = Map<String, dynamic>.from(payload);
-      if (payloadSummary.containsKey('images')) {
-        payloadSummary['images'] = '[${(payloadSummary['images'] as List).length} images]';
+          // Champs sensibles non modifiables
+          "isCertified": _editingPrestation!.isCertified ?? true,
+          "isActive": _editingPrestation!.isActive ?? true,
+          "certified": _editingPrestation!.isCertified ?? true,
+        };
+        
+        print("📡 [CreateService] Appel à updatePrestation (id: ${_editingPrestation!.id})...");
+        finalResponse = await ctrl.updatePrestation(_editingPrestation!.id!, updateData);
+      } else {
+        final payload = {
+          "prestation": {
+            "userId": storedUserId,
+            "serviceId": _serviceId!,
+            "deviseId": _selectedDevise?.id ?? 1,
+            "title": _titleController.text.trim(),
+            "profile": profileBase64 ?? "",
+            "description": _descriptionController.text.trim(),
+            "experience": _experienceController.text.trim(),
+            "plageJourPrestation": selectedDaysString,
+            "plageHeurePrestation": _plageHeureController.text.trim(),
+            "minPrice": double.tryParse(_priceMinController.text) ?? 0.0,
+            "maxPrice": double.tryParse(_priceMinController.text) ?? 0.0,
+            "address": _addressController.text.trim(),
+            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
+            "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
+            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? "") : _cityTextController.text.trim(),
+            "countryValue": "RDC",
+            "cityId": _isKinshasaSelected && _selectedCity != null ? (_selectedCity?.cityId ?? 0) : 0,
+            "communeId": _isKinshasaSelected && _selectedCommune != null ? (_selectedCommune?.communeId ?? 0) : 0,
+            "quartierId": _isKinshasaSelected && _selectedQuartier != null ? (_selectedQuartier?.quartierId ?? 0) : 0,
+            "districtId": _isKinshasaSelected && _selectedDistrict != null ? (_selectedDistrict?.districtId ?? 0) : 0
+          },
+          "images": imagesPayload
+        };
+        
+        print("📡 [CreateService] Appel à createPrestation...");
+        finalResponse = await ctrl.createPrestation(payload);
       }
-      print("📦 $payloadSummary");
 
-      final ctrl = context.read<ServiceController>();
-      print("📡 [CreateService] Appel à createPrestation...");
-      final res = await ctrl.createPrestation(payload);
-      print("📥 [CreateService] Réponse reçue - status: ${res.status}, errorMsg: ${res.errorMsg}");
+      print("📥 [CreateService] Réponse reçue - status: ${finalResponse.status}");
 
-      if (!mounted) {
-        print("⚠️ [CreateService] Widget non monté après réponse");
-        return;
-      }
+      if (!mounted) return;
 
-      if (res.status == true) {
-        print("✅ [CreateService] Service publié avec succès!");
-        SnackbarForCasa.success(context, "Service publié avec succès!");
+      if (finalResponse.status == true) {
+        print("✅ [CreateService] Succès!");
+        SnackbarForCasa.success(context, _isEditing ? "Annonce mise à jour avec succès!" : "Service publié avec succès!");
         await Future.delayed(Duration(milliseconds: 1500));
         if (mounted) {
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            Routes.bottomPageRoute,
-            (route) => false,
-            arguments: {'shouldRefresh': true},
-          );
+          if (_isEditing) {
+            Navigator.pop(context, true);
+          } else {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              Routes.bottomPageRoute,
+              (route) => false,
+              arguments: {'shouldRefresh': true},
+            );
+          }
         }
       } else {
-        String errorMessage = res.errorMsg ?? "Erreur lors de la publication";
+        String errorMessage = finalResponse.errorMsg ?? "Erreur lors de la publication";
         print("❌ [CreateService] Échec: $errorMessage");
-        if (res.data != null) {
-          print("❌ [CreateService] Response data: ${res.data}");
-        }
         FancyNotification.show(context, _sanitizeError(errorMessage), type: NotificationType.error);
       }
     } catch (e, stackTrace) {

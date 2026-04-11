@@ -18,6 +18,7 @@ import 'package:casa/models/DistrictModel.dart';
 import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/utils/city_suggestions.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/api_error_message.dart';
 
 class CreateAgencePage extends StatefulWidget {
   @override
@@ -243,6 +244,20 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
       return;
     }
 
+    final sessionToken =
+        GetStorage().read<String>(StockageKeys.tokenKey)?.trim();
+    if (sessionToken == null || sessionToken.isEmpty) {
+      FancyNotification.show(
+        context,
+        "Vous devez être connecté pour créer une agence. Reconnectez-vous.",
+        isError: true,
+      );
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+
     try {
       // Convert image to base64
       final logoBase64 = await _imageToBase64(_logoImage!);
@@ -288,12 +303,19 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
         // Retour avec un résultat pour informer la page précédente
         Navigator.pop(context, true);
       } else {
-        // Gestion plus précise des erreurs
-        String errorMsg = response.errorMsg ?? "Erreur lors de la création";
-        if (response.data != null && response.data['errors'] != null) {
-           errorMsg = response.data['errors'].toString(); 
+        String msg = ApiErrorMessages.fromResponse(response);
+        if (response.data is Map) {
+          final errs = response.data['errors'];
+          if (errs is Map && errs.isNotEmpty) {
+            final firstVal = errs.values.first;
+            if (firstVal is List && firstVal.isNotEmpty) {
+              msg = firstVal.first.toString();
+            } else if (firstVal != null) {
+              msg = firstVal.toString();
+            }
+          }
         }
-        FancyNotification.show(context, _sanitizeError(errorMsg), isError: true);
+        FancyNotification.show(context, msg, isError: true);
       }
     } catch (e) {
       print("Erreur création agence: $e");
@@ -435,8 +457,14 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
                       controller: _nameController,
                       label: "Nom de l'agence",
                       icon: Icons.business,
-                      validator: (value) =>
-                          value!.isEmpty ? "Le nom est obligatoire" : null,
+                      validator: (value) {
+                        final v = value?.trim() ?? '';
+                        if (v.isEmpty) return "Le nom est obligatoire";
+                        if (v.length < 2) {
+                          return "Le nom doit contenir au moins 2 caractères";
+                        }
+                        return null;
+                      },
                     ),
                     SizedBox(height: 16),
                     _buildTextField(
@@ -444,6 +472,14 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
                       label: "Description",
                       icon: Icons.description,
                       maxLines: 3,
+                      validator: (value) {
+                        final v = value?.trim() ?? '';
+                        if (v.isEmpty) return "La description est obligatoire";
+                        if (v.length < 15) {
+                          return "Décrivez votre agence (au moins 15 caractères)";
+                        }
+                        return null;
+                      },
                     ),
                     SizedBox(height: 16),
                     _buildTextField(
@@ -451,8 +487,15 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
                       label: "Téléphone 1",
                       icon: Icons.phone,
                       keyboardType: TextInputType.phone,
-                      validator: (value) =>
-                          value!.isEmpty ? "Le téléphone est obligatoire" : null,
+                      validator: (value) {
+                        final v = value?.trim() ?? '';
+                        if (v.isEmpty) return "Le téléphone est obligatoire";
+                        final digits = v.replaceAll(RegExp(r'\D'), '');
+                        if (digits.length < 9) {
+                          return "Numéro incomplet (au moins 9 chiffres)";
+                        }
+                        return null;
+                      },
                     ),
                     SizedBox(height: 16),
                     _buildTextField(
@@ -460,6 +503,15 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
                       label: "Téléphone 2 (Optionnel)",
                       icon: Icons.phone_android,
                       keyboardType: TextInputType.phone,
+                      validator: (value) {
+                        final v = value?.trim() ?? '';
+                        if (v.isEmpty) return null;
+                        final digits = v.replaceAll(RegExp(r'\D'), '');
+                        if (digits.length < 9) {
+                          return "Numéro incomplet (au moins 9 chiffres)";
+                        }
+                        return null;
+                      },
                     ),
                     SizedBox(height: 16),
                     _buildCitySuggestionField(),
@@ -725,20 +777,4 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
     );
   }
 
-  String _sanitizeError(String? error) {
-    if (error == null || error.isEmpty) return "Une erreur est survenue lors de la création.";
-    final lower = error.toLowerCase();
-    
-    // Technical errors
-    if (lower.contains("internal server error") || 
-        lower.contains("exception") || 
-        lower.contains("status")) {
-      return "Une erreur est survenue. Veuillez réessayer.";
-    }
-    // Mask if map structure
-    if (error.startsWith("{") && error.contains("}")) {
-       return "Veuillez vérifier les informations saisies.";
-    }
-    return error; 
-  }
 }

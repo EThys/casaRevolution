@@ -227,8 +227,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkConnectivity();
-      _restoreDraft();
-      _loadLocationData(); // Was _loadCities
       _checkUserVerification();
       context.read<PropertyController>().fetchDevises();
     });
@@ -562,7 +560,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   String? _getFieldError(int step, String field) {
-    return _stepFieldErrors[step]?[field];
+    final err = _stepFieldErrors[step]?[field];
+    if (err == null || err.isEmpty) return null;
+    // N'afficher l'erreur qu'après interaction sur le champ ou tentative d'étape / publication
+    const gated = {'capacity', 'usage'};
+    if (gated.contains(field) && !_shouldShowError(step, field)) {
+      return null;
+    }
+    return err;
   }
 
   bool _hasFieldErrors(int step) {
@@ -1104,6 +1109,11 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
     // Capacity validation for specific types
     if (isFestive) {
+      final usageCsv = (_selectedUsage ?? '').trim();
+      if (usageCsv.isEmpty) {
+        _setFieldError(1, 'usage', 'Sélectionnez au moins un type d\'événement');
+        errors.add('Type d\'événement requis');
+      }
       if (_capacityController.text.trim().isEmpty) {
          _setFieldError(1, 'capacity', 'Capacité requise');
          errors.add('Capacité requise');
@@ -1166,18 +1176,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       _setFieldError(2, 'photos', 'Min. 3 photos');
     }
 
-    // 2. Validation des services essentiels si affichés
+    // 2. Validation des services essentiels — alignée sur _buildStep3 (masqués pour terrain, vacances, hôtel)
     final typeName = _selectedCategory?.toLowerCase() ?? '';
-    final isFestive = typeName.contains('fête') || typeName.contains('festive');
-    final isFuneraire = typeName.contains('funéra') || typeName.contains('deuil');
     final isTerrain = typeName.contains('terrain');
-    
-    // Services required for Festive and Funeraire, but not Terrain or Vacances (handled in VacanceFormFields or excluded)
-    // Actually Vacances has its own form, so this logic covers the main step 2 services (Electric/Water)
-    // User wants Festive to have services.
-    final isExcluded = isTerrain;
+    final isVacancesOrHotel = typeName.contains('vacances') ||
+        typeName.contains('hotel') ||
+        typeName.contains('hôtel');
+    final isExcludedFromEssentialServices = isTerrain || isVacancesOrHotel;
 
-    if (!isExcluded) {
+    if (!isExcludedFromEssentialServices) {
       if (_selectedElectric == null) {
          _setFieldError(2, 'electric', 'Requis');
          errors.add("Electricité requise");
@@ -3289,14 +3296,20 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                    isDecore: _isDecore,
                    pisteDanse: _pisteDanse,
                    initUsage: _selectedUsage,
-                   onUsageChanged: (val) => setState(() => _selectedUsage = val),
+                   onUsageChanged: (val) => setState(() {
+                     _selectedUsage = val;
+                     _saveDraft();
+                   }),
                    onDecoreChanged: (val) => setState(() => _isDecore = val),
                    onPisteDanseChanged: (val) => setState(() => _pisteDanse = val),
+                   onCapacityInteracted: () => _markFieldTouched('capacity'),
+                   onUsageInteracted: () => _markFieldTouched('usage'),
                  );
               } else if (isFuneraire) {
                  return FuneraireFormFields(
                    capacityController: _capacityController,
                    capacityError: _getFieldError(1, 'capacity'),
+                   onCapacityInteracted: () => _markFieldTouched('capacity'),
                  );
               } else if (isBureau) {
                  return BureauFormFields(
@@ -3337,6 +3350,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                    dateError: _getFieldError(1, 'date'),
                    timeError: _getFieldError(1, 'time'),
                    capacityError: _getFieldError(1, 'capacity'),
+                   onCapacityInteracted: () => _markFieldTouched('capacity'),
                    onPriceComboChanged: (val) {
                      setState(() {
                        _selectedPriceCombo = val;
@@ -5263,6 +5277,7 @@ Widget _buildStep3() {
       final isBureau = typeName.contains('bureau') || (_selectedPropertyTypeId == 4);
       final isVacances = typeName.contains('vacance');
       final isTerrain = typeName.contains('terrain');
+      final isHotel = _selectedCategory == 'Hotels';
 
       // Prepare Images (Base64)
       final imagesData = await _prepareImagesData();
@@ -5311,16 +5326,21 @@ Widget _buildStep3() {
       
       if (isFestive) {
         print("🎉 Création de Salle de Fête");
+        int festiveWater =
+            _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0;
+        if (festiveWater < 1) {
+          festiveWater = electric >= 1 ? electric : 60;
+        }
         final festiveData = {
           "festive": {
             "userId": uId,
             "deviseId": _selectedDeviseId,
             "title": title,
             "description": description,
-            "usage": _selectedUsage ?? "Autre",
+            "usage": (_selectedUsage ?? '').trim(),
             "capacityPeople": int.tryParse(_capacityController.text) ?? 0,
             "electric": electric,
-            "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0,
+            "water": festiveWater,
             "price": price,
             "address": address,
             "transactionType": _isForRent ? "location" : "vente",
@@ -5405,7 +5425,7 @@ Widget _buildStep3() {
             "electric": electric,
             "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0,
             "numberPiece": int.tryParse(_numberPieceController.text) ?? 0,
-            "equip": _isEquip, // Corrected field name (was isEquip)
+            "isEquip": _isEquip, 
             "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
             "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
             "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
@@ -5417,7 +5437,6 @@ Widget _buildStep3() {
             "latitude": _selectedLocation?.latitude ?? 0.1,
             "longitude": _selectedLocation?.longitude ?? 0.1,
             "address": address,
-            "available": true,
             "isAvailable": true,
             "sold": false
           },
@@ -5431,6 +5450,62 @@ Widget _buildStep3() {
            print("❌ Error printing payload: $e");
         }
         res = await ctrl.createBureau(bureauData);
+
+      } else if (isHotel) {
+        print("🏨 Création d'hôtel");
+        if (allImagesBase64.isEmpty) {
+          if (mounted) {
+            setState(() => _isLoading = false);
+          }
+          FancyNotification.show(
+            context,
+            "Ajoutez au moins une photo pour l'hôtel.",
+            type: NotificationType.warning,
+          );
+          return;
+        }
+        final imagesList =
+            allImagesBase64.map((b64) => {"image": b64}).toList();
+        final primaryImage = imagesList.first['image'] ?? '';
+        final hotelData = {
+          'userId': uId,
+          'title': title,
+          'description': description,
+          'address': address,
+          'image': primaryImage,
+          'images': imagesList,
+          'propertyTypeId': _selectedPropertyTypeId ?? 5,
+          'communeValue': _isKinshasaSelected
+              ? (_selectedCommune?.name ?? "")
+              : (_communeTextController.text.trim().isNotEmpty
+                  ? _communeTextController.text.trim()
+                  : ""),
+          'quartierValue': quartierValue,
+          'cityValue': _isKinshasaSelected
+              ? (_selectedCity?.name ?? 'Kinshasa')
+              : (_cityTextController.text.trim().isNotEmpty
+                  ? _cityTextController.text.trim()
+                  : "Ville non spécifiée"),
+          'countryValue': 'RDC',
+          'cityId': _isKinshasaSelected && _selectedCity?.cityId != null
+              ? _selectedCity!.cityId!
+              : 0,
+          'postalCode': _postalCodeController.text.trim().isNotEmpty
+              ? _postalCodeController.text.trim()
+              : "243",
+          'communeId': _isKinshasaSelected && _selectedCommune?.communeId != null
+              ? _selectedCommune!.communeId!
+              : 0,
+          'quartierId':
+              _isKinshasaSelected && _selectedQuartier?.quartierId != null
+                  ? _selectedQuartier!.quartierId!
+                  : 0,
+          'latitude': _selectedLocation?.latitude ?? 0.0,
+          'longitude': _selectedLocation?.longitude ?? 0.0,
+          'isAvailable': true,
+          'available': true,
+        };
+        res = await ctrl.createHotel(hotelData);
 
       } else if (isVacances) {
         print("🏖️ Création de Vacances");
@@ -5743,7 +5818,7 @@ Widget _buildStep3() {
            'property_type': _selectedCategory,
          });
 
-        FancyNotification.show(context, "Annonce publiée avec succès !", type: NotificationType.success);
+        FancyNotification.show(context, "Annonce publiée", type: NotificationType.success);
         
         await Future.delayed(Duration(seconds: 1));
         if (mounted) {

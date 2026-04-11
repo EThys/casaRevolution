@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class FuneraireFormFields extends StatelessWidget {
   final TextEditingController capacityController;
   final String? capacityError;
+  final VoidCallback? onCapacityInteracted;
 
   const FuneraireFormFields({
     Key? key,
     required this.capacityController,
     this.capacityError,
+    this.onCapacityInteracted,
   }) : super(key: key);
 
   @override
@@ -24,6 +26,7 @@ class FuneraireFormFields extends StatelessWidget {
           color: const Color(0xFF4B5563).withOpacity(0.1),
           iconColor: const Color(0xFF4B5563),
           errorText: capacityError,
+          onInteract: onCapacityInteracted,
         ),
       ],
     );
@@ -58,6 +61,7 @@ class FuneraireFormFields extends StatelessWidget {
     Color? color,
     Color? iconColor,
     String? errorText,
+    VoidCallback? onInteract,
   }) {
     final hasError = errorText != null && errorText.isNotEmpty;
     
@@ -77,6 +81,7 @@ class FuneraireFormFields extends StatelessWidget {
           child: TextField(
             controller: controller,
             keyboardType: TextInputType.number,
+            onTap: () => onInteract?.call(),
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.bold,

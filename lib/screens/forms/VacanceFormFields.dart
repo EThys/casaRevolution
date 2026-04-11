@@ -13,6 +13,7 @@ class VacanceFormFields extends StatefulWidget {
   final String? dateError;
   final String? timeError;
   final String? capacityError;
+  final VoidCallback? onCapacityInteracted;
 
   const VacanceFormFields({
     Key? key,
@@ -26,6 +27,7 @@ class VacanceFormFields extends StatefulWidget {
     this.dateError,
     this.timeError,
     this.capacityError,
+    this.onCapacityInteracted,
   }) : super(key: key);
 
   @override
@@ -106,6 +108,7 @@ class _VacanceFormFieldsState extends State<VacanceFormFields> {
                   color: const Color(0xFFEC4899).withOpacity(0.1),
                   iconColor: const Color(0xFFEC4899),
                   errorText: widget.capacityError,
+                  onFieldTap: widget.onCapacityInteracted,
                ),
             ]
         ),
@@ -185,6 +188,7 @@ class _VacanceFormFieldsState extends State<VacanceFormFields> {
     Color? iconColor,
     bool readOnly = false,
     VoidCallback? onTap,
+    VoidCallback? onFieldTap,
     String? suffix,
     String? errorText,
   }) {
@@ -231,7 +235,10 @@ class _VacanceFormFieldsState extends State<VacanceFormFields> {
                       child: TextField(
                         controller: controller,
                         readOnly: onTap != null || readOnly,
-                        onTap: onTap,
+                        onTap: () {
+                          onFieldTap?.call();
+                          onTap?.call();
+                        },
                         keyboardType: TextInputType.number,
                         style: const TextStyle(
                           fontSize: 14,
