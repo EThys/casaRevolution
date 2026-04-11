@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:http/http.dart' as http;
 import 'package:casa/utils/Constantes.dart';
 class HttpResponse {
@@ -6,16 +7,30 @@ class HttpResponse {
   dynamic data;
   String? errorMsg;
   bool? isException;
+  /// Code HTTP brut (ex. 401, 500) quand la réponse vient du serveur.
+  int? httpStatus;
 
-  HttpResponse(
-      {this.data, required this.status, this.errorMsg, this.isException});
+  HttpResponse({
+    this.data,
+    required this.status,
+    this.errorMsg,
+    this.isException,
+    this.httpStatus,
+  });
+}
+
+/// `token ?? DefaultToken` ne suffit pas : `''` reste vide et supprime le Bearer.
+String _authTokenOrDefault(String? token) {
+  if (token == null) return Constantes.DefaultToken;
+  final t = token.trim();
+  return t.isEmpty ? Constantes.DefaultToken : t;
 }
 
 Future<dynamic> getData(String url_api, {String? token}) async {
   try {
     var urlStr = url_api.startsWith("http") ? url_api : '${Constantes.BASE_URL}$url_api';
     var url = Uri.parse(urlStr);
-    var tkn = token ?? Constantes.DefaultToken;
+    var tkn = _authTokenOrDefault(token);
     var headers = {
       "Content-Type": "application/json",
     };
@@ -24,7 +39,7 @@ Future<dynamic> getData(String url_api, {String? token}) async {
     }
     var reponse = await http.get(url, headers: headers).timeout(Duration(seconds: 30));
 
-    if (reponse.statusCode == 200) {
+    if (reponse.statusCode == 200 || reponse.statusCode == 201) {
       return jsonDecode(utf8.decode(reponse.bodyBytes));
     }
     print("⚠️ [getData] Erreur API - Status: ${reponse.statusCode} - URL: $url");
@@ -34,7 +49,7 @@ Future<dynamic> getData(String url_api, {String? token}) async {
       print("📄 [getData] Body (non-printable): ${reponse.bodyBytes.length} bytes");
     }
     return null;
-  } catch (e, trace) {
+  } catch (e, trace) { 
     if (e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
       print("⚠️ [getData] Erreur réseau (pas de connexion ?): ${e.toString().split('\n').first}");
     } else {
@@ -45,25 +60,90 @@ Future<dynamic> getData(String url_api, {String? token}) async {
   }
 }
 
-
-Future<HttpResponse> postDataOtp(String api_url, Map data, {String? token}) async {
+/// Comme [getData], mais renvoie le corps JSON pour **401 / 403 / 400** lorsqu’il est décodable
+/// (ex. `{ "message": "… compte … certifié" }`). [getData] renvoie `null` dans ces cas.
+Future<dynamic> getDataAllowErrorJson(String url_api, {String? token}) async {
   try {
-    var url = Uri.parse("${Constantes.URL_BASE}$api_url");
-    String dataStr = json.encode(data);
-    var tkn = token ?? Constantes.DefaultToken;
+    var urlStr = url_api.startsWith("http") ? url_api : '${Constantes.BASE_URL}$url_api';
+    var url = Uri.parse(urlStr);
+    var tkn = _authTokenOrDefault(token);
     var headers = {
       "Content-Type": "application/json",
     };
     if (tkn.isNotEmpty) {
       headers["Authorization"] = "Bearer $tkn";
     }
-    
-    var response = await http.post(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
+    var reponse = await http.get(url, headers: headers).timeout(Duration(seconds: 30));
+
+    final status = reponse.statusCode;
+    dynamic decodedBody;
+    try {
+      decodedBody = jsonDecode(utf8.decode(reponse.bodyBytes));
+    } catch (_) {
+      decodedBody = null;
+    }
+
+    if (status == 200 || status == 201) {
+      return decodedBody;
+    }
+    // Tout code erreur (4xx / 5xx) avec JSON objet — ex. 403, 500 avec { "message": "… certifié …" }
+    if (status >= 400 && decodedBody is Map) {
+      if (kDebugMode) {
+        print('⚠️ [getDataAllowErrorJson] HTTP $status — $url');
+      }
+      return decodedBody;
+    }
+    // Corps texte (HTML ou texte brut) contenant le message métier
+    if (status >= 400 && decodedBody == null) {
+      final raw = reponse.body.toLowerCase();
+      if (raw.contains('certif') && raw.contains('pas')) {
+        return {'message': reponse.body};
+      }
+    }
+    print("⚠️ [getDataAllowErrorJson] Status: $status — URL: $url");
+    try {
+      print("📄 Body: ${reponse.body}");
+    } catch (_) {}
+    return null;
+  } catch (e, trace) {
+    if (e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
+      print("⚠️ [getDataAllowErrorJson] Erreur réseau: ${e.toString().split('\n').first}");
+    } else {
+      print("❌ [getDataAllowErrorJson] Exception: $e");
+      print(trace.toString());
+    }
+    return null;
+  }
+}
+
+
+/// OTP public (`v1/public/otp/...`) : même base que [postData] (`.../api/`) + Bearer [Constantes.DefaultToken] si [token] absent ou vide.
+Future<HttpResponse> postDataOtp(String api_url, Map data, {String? token}) async {
+  try {
+    var url = Uri.parse("${Constantes.BASE_URL}$api_url");
+    String dataStr = json.encode(data);
+    final tkn = _authTokenOrDefault(token);
+    var headers = {
+      "Content-Type": "application/json",
+    };
+    if (tkn.isNotEmpty) {
+      headers["Authorization"] = "Bearer $tkn";
+    }
+
+    var response =
+        await http.post(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
 
     var successList = [200, 201];
     var msg = json.decode(utf8.decode(response.bodyBytes));
     var st = successList.contains(response.statusCode);
-    return HttpResponse(status: st, data: msg);
+    String? errorMsg;
+    if (!st && msg is Map) {
+      errorMsg = msg['message'] ??
+          msg['error'] ??
+          msg['detailMessage'] ??
+          msg['errors']?.toString();
+    }
+    return HttpResponse(status: st, data: msg, errorMsg: errorMsg);
   } catch (e, trace) {
     print("❌ [postDataOtp] Exception: $e");
     return HttpResponse(
@@ -73,16 +153,19 @@ Future<HttpResponse> postDataOtp(String api_url, Map data, {String? token}) asyn
 
 
 
-Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
+Future<HttpResponse> putData(String api_url, Map data,
+    {String? token, bool sendBearer = true}) async {
   try {
     var url = Uri.parse("${Constantes.BASE_URL}$api_url");
     String dataStr = json.encode(data);
-    var tkn = token ?? Constantes.DefaultToken;
     var headers = {
       "Content-Type": "application/json",
     };
-    if (tkn.isNotEmpty) {
-      headers["Authorization"] = "Bearer $tkn";
+    if (sendBearer) {
+      var tkn = token ?? Constantes.DefaultToken;
+      if (tkn.isNotEmpty) {
+        headers["Authorization"] = "Bearer $tkn";
+      }
     }
     
     var response = await http.put(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
@@ -105,7 +188,8 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
 }
 
 
-  Future<HttpResponse> postData(String api_url, Map data, {String? token}) async {
+  Future<HttpResponse> postData(String api_url, Map data,
+      {String? token, bool allowDefaultToken = true}) async {
     print("🌐 [postData] ========== DÉBUT postData ==========");
     print("🌐 [postData] api_url: $api_url");
     try {
@@ -113,7 +197,18 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
       print("🌐 [postData] URL complète: $url");
       String dataStr = json.encode(data);
       print("🌐 [postData] Taille des données JSON: ${dataStr.length} caractères");
-      var tkn = token ?? Constantes.DefaultToken;
+      final String tkn = allowDefaultToken
+          ? _authTokenOrDefault(token)
+          : (token?.trim() ?? '');
+      if (!allowDefaultToken && tkn.isEmpty) {
+        print("🌐 [postData] Abandon : token utilisateur requis (allowDefaultToken=false)");
+        return HttpResponse(
+          status: false,
+          errorMsg:
+              'Vous devez être connecté. Reconnectez-vous et réessayez.',
+          httpStatus: 401,
+        );
+      }
       print("🌐 [postData] Token utilisé: ${tkn.isNotEmpty ? 'Oui (${tkn.length} caractères)' : 'Non (Désactivé)'}");
       
       var headers = {
@@ -163,6 +258,7 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
             status: false,
             errorMsg: "Erreur de format de réponse du serveur (HTML au lieu de JSON). Code: ${response.statusCode}",
             isException: true,
+            httpStatus: response.statusCode,
             data: {'statusCode': response.statusCode, 'body': response.body.substring(0, 500)},
           );
         }
@@ -184,6 +280,7 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
             status: false,
             errorMsg: "Erreur serveur (code ${response.statusCode}). Le serveur a retourné du HTML au lieu de JSON. Veuillez réessayer plus tard.",
             isException: true,
+            httpStatus: response.statusCode,
             data: {'statusCode': response.statusCode, 'isHtml': true},
           );
         }
@@ -192,7 +289,12 @@ Future<HttpResponse> putData(String api_url, Map data, {String? token}) async {
       final errorMsg = st ? null : (msg['message'] ?? msg['error'] ?? "Erreur inconnue");
       print("🌐 [postData] Création de HttpResponse - status: $st, errorMsg: $errorMsg");
       print("🌐 [postData] ========== FIN postData ==========");
-      return HttpResponse(status: st, data: msg, errorMsg: errorMsg);
+      return HttpResponse(
+        status: st,
+        data: msg,
+        errorMsg: errorMsg,
+        httpStatus: response.statusCode,
+      );
     } catch (e, trace) {
       // Suppress verbose logging for network errors but show exact error info
       if (e.toString().contains('SocketException') || e.toString().contains('ClientException')) {
@@ -285,7 +387,18 @@ Future<HttpResponse> postDataForAuth(String api_url, Map data, {String? token}) 
     var successList = [200, 201];
     var msg = json.decode(utf8.decode(response.bodyBytes));
     var st = successList.contains(response.statusCode);
-    return HttpResponse(status: st, data: msg);
+    String? errorMsg;
+    if (!st && msg is Map) {
+      errorMsg = msg['message']?.toString() ??
+          msg['detailMessage']?.toString() ??
+          msg['error']?.toString();
+    }
+    return HttpResponse(
+      status: st,
+      data: msg,
+      errorMsg: errorMsg,
+      httpStatus: response.statusCode,
+    );
   } catch (e, trace) {
     print(e.toString());
     print(trace.toString());

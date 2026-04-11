@@ -20,4 +20,18 @@ class Constantes {
   
   // Méthode pour obtenir le serveur actif
   static String get activeServer => _activeBaseUrl;
+
+  /// Broker STOMP Spring (même URL que la page de test web : `StompJs.Client({ brokerURL })`).
+  /// L’API REST peut être sur un autre hôte (ex. `migration.casanayo.com`) ; les notifs passent par ce broker.
+  static const String defaultStompBrokerUrl = 'ws://91.99.168.226:8093/websocket';
+
+  /// Pour pointer vers un autre broker sans recompiler la constante (ex. prod avec WSS).
+  static String? webSocketUrlOverride;
+
+  /// URL utilisée par [StompService] : [webSocketUrlOverride] si non vide, sinon [defaultStompBrokerUrl].
+  static String get webSocketUrl {
+    final o = webSocketUrlOverride?.trim();
+    if (o != null && o.isNotEmpty) return o;
+    return defaultStompBrokerUrl;
+  }
 }
