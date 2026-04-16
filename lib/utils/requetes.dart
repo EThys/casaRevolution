@@ -285,8 +285,42 @@ Future<HttpResponse> putData(String api_url, Map data,
           );
         }
       }
-      
-      final errorMsg = st ? null : (msg['message'] ?? msg['error'] ?? "Erreur inconnue");
+
+      // HTTP 200/201 mais échec métier (ex. { "success": false, "message": "…" })
+      if (st && msg is Map) {
+        final body = msg as Map<dynamic, dynamic>;
+        if (body['success'] == false ||
+            (body['status'] is bool && body['status'] == false)) {
+          st = false;
+        }
+      }
+
+      // Création réussie côté serveur mais corps ambigu (ex. success:false + propertyId présent).
+      if (!st && msg is Map && successList.contains(response.statusCode)) {
+        final body = msg as Map<dynamic, dynamic>;
+        bool hasPropertyId(dynamic v) =>
+            v != null && v.toString().trim().isNotEmpty && v.toString() != '0';
+        bool created = hasPropertyId(body['propertyId']);
+        if (!created && body['data'] is Map) {
+          created = hasPropertyId((body['data'] as Map)['propertyId']);
+        }
+        if (!created && body['properties'] is Map) {
+          created = hasPropertyId((body['properties'] as Map)['propertyId']);
+        }
+        if (created) {
+          st = true;
+        }
+      }
+
+      final errorMsg = st
+          ? null
+          : (msg is Map
+              ? (msg['message'] ??
+                  msg['error'] ??
+                  msg['detailMessage'] ??
+                  (msg['errors']?.toString()) ??
+                  "Erreur inconnue")
+              : "Erreur inconnue");
       print("🌐 [postData] Création de HttpResponse - status: $st, errorMsg: $errorMsg");
       print("🌐 [postData] ========== FIN postData ==========");
       return HttpResponse(
@@ -369,13 +403,15 @@ Future<HttpResponse> deleteData(String api_url, {Map<String, dynamic>? data, Str
   }
 }
 
-Future<HttpResponse> postDataForAuth(String api_url, Map data, {String? token}) async {
+Future<HttpResponse> postDataForAuth(String api_url, Map data,
+    {String? token, Map<String, String>? extraHeaders}) async {
   try {
     var url = Uri.parse("${Constantes.URL_AUTH}$api_url");
     String dataStr = json.encode(data);
     var tkn = token ?? Constantes.DefaultToken;
-    var headers = {
+    var headers = <String, String>{
       "Content-Type": "application/json",
+      ...?extraHeaders,
     };
     if (tkn.isNotEmpty) {
       headers["Authorization"] = "Bearer $tkn";

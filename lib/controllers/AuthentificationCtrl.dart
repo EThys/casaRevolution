@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import '../models/UserModel.dart';
@@ -5,6 +6,8 @@ import '../utils/Constantes.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/requetes.dart';
+import '../services/onesignal_device_headers.dart';
+import '../services/onesignal_service.dart';
 import '../utils/DraftHelper.dart';
 import '../utils/AgenceDatabaseHelper.dart';
 import '../utils/database/DatabaseHelper.dart';
@@ -111,7 +114,14 @@ class AuthentificationCtrl with ChangeNotifier {
       print("URL de connexion: $url");
       print("Données envoyées: $data");
 
-      HttpResponse response = await postDataForAuth(url, data, token: "");
+      await logOneSignalStateBeforeLoginDebug();
+
+      HttpResponse response = await postDataForAuth(
+        url,
+        data,
+        token: "",
+        extraHeaders: buildOneSignalAuthHeaders(),
+      );
       print("Statut de la réponse: ${response.status}");
       print("Réponse API: ${response.data}");
 
@@ -131,7 +141,7 @@ class AuthentificationCtrl with ChangeNotifier {
 
         var token = response.data['token'];
         var refreshToken = response.data['refresh_token'];
-        var member = response.data['member'];
+        var member = response.data['member']; 
 
         if (token != null && member != null) {
           var userJson = member['user'];
@@ -150,6 +160,13 @@ class AuthentificationCtrl with ChangeNotifier {
 
           // Activer les notifications WebSocket
           NotificationController().loadForUser(user.userId.toString());
+
+          oneSignalLoginWithAppUserId(user.userId.toString());
+
+          if (kDebugMode) {
+            await Future<void>.delayed(const Duration(milliseconds: 600));
+            await logOneSignalStateAfterLoginDebug(user.userId.toString());
+          }
 
           print("Connexion et stockage réussis");
         } else {
@@ -419,9 +436,14 @@ class AuthentificationCtrl with ChangeNotifier {
         return;
       }
 
-      Map<String, dynamic> merged = Map<String, dynamic>.from(
-        stockage!.read<Map<String, dynamic>>(StockageKeys.userKey) ?? {},
-      );
+      final Map<String, dynamic> previousUser =
+          Map<String, dynamic>.from(stockage!.read<Map<String, dynamic>>(StockageKeys.userKey) ?? {});
+      final bool oldCertified = previousUser['isCertified'] == true ||
+          previousUser['certified'] == true;
+      final bool hadWasFlag =
+          stockage!.read<bool>('${StockageKeys.wasCertifiedKey}_$uid') ?? false;
+
+      Map<String, dynamic> merged = Map<String, dynamic>.from(previousUser);
       final parsed = UserModel.fromJson(userJson);
       merged.addAll(parsed.toJson());
 
@@ -432,6 +454,15 @@ class AuthentificationCtrl with ChangeNotifier {
             certRaw.toString().toLowerCase() == 'true';
         merged['isCertified'] = c;
         merged['certified'] = c;
+
+        // Même sans notification temps réel : si le cache disait « certifié » et l’API « non »,
+        // conserver was_certified pour que la garde et l’alerte au lancement fonctionnent.
+        if (c == true) {
+          await stockage!.write('${StockageKeys.wasCertifiedKey}_$uid', true);
+          await UserDatabaseHelper.instance.saveCertificationStatus(uid, true);
+        } else if (oldCertified || hadWasFlag) {
+          await stockage!.write('${StockageKeys.wasCertifiedKey}_$uid', true);
+        }
       }
 
       final dynamic premiumRaw =
@@ -735,6 +766,7 @@ class AuthentificationCtrl with ChangeNotifier {
 
   Future<void> _clearLocalAuthData() async {
     try {
+      oneSignalLogout();
       NotificationController().clearForLogout();
 
       _token = "";
