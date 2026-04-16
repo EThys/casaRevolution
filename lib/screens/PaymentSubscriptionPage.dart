@@ -14,6 +14,7 @@ import '../utils/FancyNotification.dart';
 import '../utils/Routes.dart';
 import '../utils/StompService.dart';
 import '../utils/StockageKeys.dart';
+import '../utils/currency_display.dart';
 
 class PaymentSubscriptionPage extends StatefulWidget {
   /// Si fourni (ex. [SubscriptionHelper]), appelé après succès API ; sinon navigation depuis [Routes.subscriptionPaymentRoute].
@@ -359,6 +360,8 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
 
     final cb = widget.onSuccess;
     if (cb != null) {
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
       cb();
     } else {
       if (!mounted) return;
@@ -792,13 +795,15 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
         onTap: () => setState(() => _selectedMethod = index),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
             color: isSelected ? Colors.white : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: isSelected 
-                ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]
-                : [],
+            // Pas d’ombre : le blur animé au changement d’onglet produisait un effet disgracieux.
+            border: isSelected
+                ? Border.all(color: const Color(0xFFE5E7EB))
+                : null,
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -929,7 +934,7 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
-          code,
+          CurrencyDisplay.labelForToggle(code),
           style: GoogleFonts.inter(fontSize: 11, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500, color: isSelected ? Colors.black : Colors.grey),
         ),
       ),
