@@ -11,6 +11,7 @@ import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/models/DeviseModel.dart';
 import 'package:casa/models/PrestationModel.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/utils/city_suggestions.dart';
@@ -25,10 +26,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:casa/utils/requetes.dart';
+import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/controllers/AuthentificationCtrl.dart';
-import 'package:casa/screens/auth/IdentityVerificationPage.dart';
 import 'camera/SelfieCameraScreen.dart'; // FIX: path was incorrect
 import '../utils/StockageKeys.dart';
+import 'package:casa/widgets/profile_style_image_picker_sheet.dart';
 
 class CreateServicePostPage extends StatefulWidget {
   @override
@@ -292,7 +294,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       'electricien': 'electricite',
       'salubrité': 'nettoyage',
       'peintre': 'peinture',
-      'carreleur': 'carrelage',
+      'coiffure': 'coiffure',
+      'coiffeur': 'coiffure',
+      'carreleur': 'coiffure',
       'menuisier': 'reparation',
       'frigoriste': 'reparation',
       'ajusteur': 'reparation',
@@ -835,6 +839,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                hint: '0',
                icon: Icons.attach_money_rounded,
                keyboardType: TextInputType.number,
+               suffixText: _selectedDevise?.displaySymbol ?? 'FC',
                fieldKey: 'price_min',
                helperText: 'Le prix de départ pour votre service',
                validator: (v) {
@@ -1133,15 +1138,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
     if (_portfolioImages.isEmpty && !(_isEditing && _editingPrestation?.images != null && _editingPrestation!.images!.isNotEmpty)) {
       return GestureDetector(
-        onTap: () => _showImageSourceSelection((image) {
-          if (image != null) {
-            setState(() {
-              _markFieldTouched('portfolio_images');
-              _portfolioImages.add(image);
-              _validateStep(0);
-            });
-          }
-        }),
+        onTap: () => _pickPortfolioImages(),
         child: Container(
           width: double.infinity,
           padding: EdgeInsets.symmetric(vertical: 24),
@@ -1188,15 +1185,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             ),
             if (allImagesCount < 10)
             TextButton.icon(
-              onPressed: () => _showImageSourceSelection((image) {
-                  if (image != null) {
-                    setState(() {
-                      _markFieldTouched('portfolio_images');
-                      _portfolioImages.add(image);
-                      _validateStep(0);
-                    });
-                  }
-                }),
+              onPressed: () => _pickPortfolioImages(),
               icon: Icon(Icons.add_a_photo_rounded, size: 16),
               label: Text("Ajouter"),
               style: TextButton.styleFrom(foregroundColor: _primaryColor),
@@ -1286,190 +1275,165 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Future<void> _pickProfileImage() async {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Photo de profil",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+    if (!mounted) return;
+    await showProfileStyleImagePickerSheet(
+      context,
+      primaryColor: _primaryColor,
+      sheetTitle: 'Photo de profil',
+      headerIcon: Icons.account_circle_rounded,
+      showPreview: _profileImage != null,
+      previewTitle: 'Aperçu en plein écran',
+      previewSubtitle: 'Voir votre photo actuelle.',
+      onPreview: () async {
+        if (_profileImage == null || !mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => Dialog(
+            backgroundColor: Colors.black87,
+            child: InteractiveViewer(
+              child: Image.file(File(_profileImage!.path), fit: BoxFit.contain),
             ),
-            const SizedBox(height: 20),
-            ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.blue[50],
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.camera_alt_rounded, color: Colors.blue[700]),
-              ),
-              title: const Text(
-                "Prendre une photo (Selfie)",
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              onTap: () async {
-                Navigator.pop(context);
-                try {
-                  final imagePath = await Navigator.push<String>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => SelfieCameraScreen(
-                        onImageCaptured: (path) {},
-                      ),
-                    ),
-                  );
-                  
-                  if (mounted && imagePath != null && imagePath.isNotEmpty) {
-                    setState(() {
-                      _profileImage = XFile(imagePath);
-                      _validateStep(0);
-                    });
-                  }
-                } catch (e) {
-                  print('Erreur lors de la capture du selfie: $e');
-                  FancyNotification.show(context, "Erreur lors de la capture", type: NotificationType.error);
-                }
-              },
-            ),
-            ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.purple[50],
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.photo_library_rounded, color: Colors.purple[700]),
-              ),
-              title: const Text(
-                "Choisir depuis la galerie",
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              onTap: () async {
-                Navigator.pop(context);
-                try {
-                  final XFile? file = await _picker.pickImage(
-                    source: ImageSource.gallery,
-                    imageQuality: 70,
-                  );
-                  
-                  if (mounted && file != null) {
-                    setState(() {
-                      _profileImage = file;
-                      _validateStep(0);
-                    });
-                  }
-                } catch (e) {
-                  print('Erreur lors du choix en galerie: $e');
-                  FancyNotification.show(context, "Erreur lors du choix de l'image", type: NotificationType.error);
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showImageSourceSelection(Function(XFile?) onImageSelected) async {
-    showModalBottomSheet(
-      context: context,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                "Choisir une source",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: _darkColor,
-                ),
-              ),
-              SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildSourceOption(
-                    icon: Icons.camera_alt_rounded,
-                    label: "Caméra",
-                    onTap: () async {
-                      Navigator.pop(context);
-                      final image = await _picker.pickImage(
-                        source: ImageSource.camera,
-                        imageQuality: 85,
-                        maxWidth: 1440,
-                      );
-                      if (image != null) onImageSelected(image);
-                    },
-                  ),
-                  _buildSourceOption(
-                    icon: Icons.photo_library_rounded,
-                    label: "Galerie",
-                    onTap: () async {
-                      Navigator.pop(context);
-                      final image = await _picker.pickImage(
-                        source: ImageSource.gallery,
-                        imageQuality: 85,
-                        maxWidth: 1440,
-                      );
-                      if (image != null) onImageSelected(image);
-                    },
-                  ),
-                ],
-              ),
-              SizedBox(height: 16),
-            ],
           ),
         );
+      },
+      cameraTitle: 'Prendre une photo (selfie)',
+      cameraSubtitle: 'Selfie guidé pour votre visage.',
+      onCamera: () async {
+        try {
+          final imagePath = await Navigator.push<String>(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SelfieCameraScreen(
+                onImageCaptured: (path) {},
+              ),
+            ),
+          );
+          if (mounted && imagePath != null && imagePath.isNotEmpty) {
+            setState(() {
+              _profileImage = XFile(imagePath);
+              _validateStep(0);
+            });
+          }
+        } catch (e) {
+          print('Erreur lors de la capture du selfie: $e');
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              "La photo n’a pas pu être prise. Réessayez ou choisissez la galerie.",
+              type: NotificationType.error,
+            );
+          }
+        }
+      },
+      galleryTitle: 'Choisir depuis la galerie',
+      gallerySubtitle: 'Sélectionner une image existante.',
+      onGallery: () async {
+        try {
+          final XFile? file = await _picker.pickImage(
+            source: ImageSource.gallery,
+            imageQuality: 70,
+          );
+          if (mounted && file != null) {
+            setState(() {
+              _profileImage = file;
+              _validateStep(0);
+            });
+          }
+        } catch (e) {
+          print('Erreur lors du choix en galerie: $e');
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              "L’image n’a pas pu être sélectionnée. Réessayez avec une autre photo.",
+              type: NotificationType.error,
+            );
+          }
+        }
       },
     );
   }
 
-  Widget _buildSourceOption({required IconData icon, required String label, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _primaryColor.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: _primaryColor, size: 32),
-          ),
-          SizedBox(height: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: _darkColor,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
+  Future<void> _pickPortfolioImages() async {
+    final existingCount = _isEditing ? (_editingPrestation?.images?.length ?? 0) : 0;
+    const maxTotal = 10;
+    final remaining = maxTotal - _portfolioImages.length - existingCount;
+    if (remaining <= 0) {
+      if (mounted) {
+        FancyNotification.show(
+          context,
+          'Vous avez atteint la limite de 10 photos de réalisations.',
+          isError: true,
+        );
+      }
+      return;
+    }
+
+    await showProfileStyleImagePickerSheet(
+      context,
+      primaryColor: _primaryColor,
+      sheetTitle: 'Photos de réalisations',
+      headerIcon: Icons.photo_library_rounded,
+      cameraTitle: 'Prendre une photo',
+      cameraSubtitle: 'Une photo à la fois avec la caméra.',
+      onCamera: () async {
+        try {
+          final image = await _picker.pickImage(
+            source: ImageSource.camera,
+            imageQuality: 85,
+            maxWidth: 1440,
+          );
+          if (!mounted || image == null) return;
+          setState(() {
+            _markFieldTouched('portfolio_images');
+            _portfolioImages.add(image);
+            _validateStep(0);
+          });
+        } catch (e) {
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              'La photo n’a pas pu être prise. Réessayez.',
+              isError: true,
+            );
+          }
+        }
+      },
+      galleryTitle: 'Choisir depuis la galerie',
+      gallerySubtitle: 'Plusieurs photos — jusqu’à $remaining place(s) restante(s).',
+      onGallery: () async {
+        try {
+          final list = await _picker.pickMultiImage(
+            imageQuality: 85,
+            maxWidth: 1440,
+          );
+          if (!mounted || list.isEmpty) return;
+          final n = list.length > remaining ? remaining : list.length;
+          setState(() {
+            _markFieldTouched('portfolio_images');
+            for (var i = 0; i < n; i++) {
+              _portfolioImages.add(list[i]);
+            }
+            _validateStep(0);
+          });
+          if (list.length > remaining && mounted) {
+            FancyNotification.show(
+              context,
+              'Seules $remaining photo(s) ont été ajoutées (limite 10 au total).',
+              type: NotificationType.info,
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              'La sélection multiple n’est pas disponible. Réessayez ou choisissez la caméra.',
+              isError: true,
+            );
+          }
+        }
+      },
     );
   }
-
 
   Widget _buildSectionHeader(String title, String subtitle, IconData icon) {
     return Row(
@@ -1520,6 +1484,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     String? fieldKey,
     String? Function(String?)? validator,
     String? helperText,
+    String? suffixText,
   }) {
     final hasError = fieldKey != null && 
                      _shouldShowError(_currentStep, fieldKey) && 
@@ -1589,6 +1554,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 fontSize: _captionSize - 1,
                 color: _greyColor,
                 fontStyle: FontStyle.italic,
+              ),
+              suffixText: suffixText,
+              suffixStyle: TextStyle(
+                color: _darkColor,
+                fontWeight: FontWeight.w600,
+                fontSize: _bodySize,
               ),
             ),
           ),
@@ -1899,20 +1870,18 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       print("❌ [CreateService] Validation step 2 échouée");
       FancyNotification.show(
         context,
-        "Veuillez corriger les erreurs avant de publier",
+        "Complétez ou corrigez les champs indiqués avant de publier.",
         isError: true,
       );
       return;
     }
 
-    // Double check verification
     final authCtrl = context.read<AuthentificationCtrl>();
     print("👤 [CreateService] User ID: ${authCtrl.user.userId}, Certified: ${authCtrl.user.isCertified}");
-    if (authCtrl.user.isCertified != true) {
-      print("❌ [CreateService] Utilisateur non certifié");
-      FancyNotification.show(context, "Vous devez être certifié pour publier un service.");
-      return;
-    }
+
+    final subscriptionOk =
+        await SubscriptionHelper.ensurePremiumForSubmit(context: context);
+    if (!subscriptionOk || !mounted) return;
 
     setState(() => _isLoading = true);
 
@@ -1934,7 +1903,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         print("✅ [CreateService] Photo de profil convertie en base64");
       } else {
         print("❌ [CreateService] Aucune photo de profil sélectionnée");
-        FancyNotification.show(context, "La photo de profil est requise", isError: true);
+        FancyNotification.show(
+          context,
+          "Ajoutez une photo de profil pour présenter votre service.",
+          isError: true,
+        );
         setState(() => _isLoading = false);
         return;
       }
@@ -1965,7 +1938,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         if (_serviceId == null) {
           FancyNotification.show(
             context,
-            "Erreur: Impossible de récupérer votre type de compte. Veuillez vous reconnecter.",
+            "Nous ne retrouvons pas votre type de compte. Déconnectez-vous puis reconnectez-vous, puis réessayez.",
             isError: true,
           );
           setState(() => _isLoading = false);
@@ -2046,7 +2019,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
       if (finalResponse.status == true) {
         print("✅ [CreateService] Succès!");
-        SnackbarForCasa.success(context, _isEditing ? "Annonce mise à jour avec succès!" : "Service publié avec succès!");
+        SnackbarForCasa.success(
+          context,
+          _isEditing ? "Modifications enregistrées." : "Votre annonce de service est publiée.",
+        );
         await Future.delayed(Duration(milliseconds: 1500));
         if (mounted) {
           if (_isEditing) {
@@ -2061,14 +2037,30 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           }
         }
       } else {
-        String errorMessage = finalResponse.errorMsg ?? "Erreur lors de la publication";
+        reportApiFailureToCrashlytics(
+          'CreateServicePostPage',
+          response: finalResponse,
+          reason: _isEditing ? 'update_prestation' : 'create_prestation',
+        );
+        String errorMessage = finalResponse.errorMsg ??
+            "La publication n’a pas abouti. Vérifiez les champs et réessayez.";
         print("❌ [CreateService] Échec: $errorMessage");
         FancyNotification.show(context, _sanitizeError(errorMessage), type: NotificationType.error);
       }
     } catch (e, stackTrace) {
+      reportApiFailureToCrashlytics(
+        'CreateServicePostPage',
+        error: e,
+        stackTrace: stackTrace,
+        reason: 'create_prestation_exception',
+      );
       print("❌ [CreateService] EXCEPTION: $e");
       print("📚 [CreateService] Stack trace: $stackTrace");
-      FancyNotification.show(context, "Une erreur est survenue lors de la publication.", isError: true);
+      FancyNotification.show(
+        context,
+        "L’envoi a été interrompu. Vérifiez la connexion et réessayez.",
+        isError: true,
+      );
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -2454,7 +2446,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                      child: Row(
                       children: [
                         Text(
-                          d.code ?? "",
+                          d.displaySymbol,
                           style: TextStyle(
                             fontSize: _bodySize,
                             color: Colors.black87,
@@ -2578,7 +2570,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         if (fileSize > 5 * 1024 * 1024) {
           FancyNotification.show(
             context,
-            "Le fichier est trop volumineux. Taille maximale: 5 MB",
+            "Ce fichier dépasse 5 Mo. Choisissez un document plus léger ou compressez-le, puis réessayez.",
             type: NotificationType.error,
           );
           return;
@@ -2590,13 +2582,13 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           _validateStep(1);
         });
 
-        SnackbarForCasa.success(context, "CV importé avec succès");
+        SnackbarForCasa.success(context, "Votre CV a bien été ajouté.");
       }
     } catch (e) {
       print('Erreur lors de la sélection du CV: $e');
       FancyNotification.show(
         context,
-        "Erreur lors de l'import du CV",
+        "Le fichier CV n’a pas pu être ajouté. Réessayez avec un PDF ou un document plus léger.",
         type: NotificationType.error,
       );
     }
@@ -2913,14 +2905,16 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     );
   }
   String _sanitizeError(String? error) {
-    if (error == null || error.isEmpty) return "Une erreur est survenue. Veuillez réessayer.";
-    final lower = error.toLowerCase();
-    
-    if (lower.contains("internal server error") || 
-        lower.contains("exception") || 
-        lower.contains("status")) {
-      return "Une erreur est survenue. Veuillez réessayer.";
+    if (error == null || error.isEmpty) {
+      return "Impossible de publier pour l’instant. Réessayez dans quelques instants.";
     }
-    return error; 
+    final lower = error.toLowerCase();
+
+    if (lower.contains("internal server error") ||
+        lower.contains("exception") ||
+        lower.contains("status")) {
+      return "Le service est momentanément indisponible. Patientez un peu puis réessayez.";
+    }
+    return error;
   }
 }

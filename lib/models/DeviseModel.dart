@@ -23,4 +23,12 @@ class DeviseModel {
       'tauxLocal': tauxLocal,
     };
   }
+
+  /// Affichage UI : **$** / **FC** (les codes API restent USD/CDF dans [code]).
+  String get displaySymbol {
+    final c = (code ?? '').toUpperCase();
+    if (c == 'USD') return '\$';
+    if (c == 'CDF') return 'FC';
+    return code ?? '\$';
+  }
 }

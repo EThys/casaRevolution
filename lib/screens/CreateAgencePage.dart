@@ -19,6 +19,9 @@ import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/utils/city_suggestions.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/api_error_message.dart';
+import 'package:casa/utils/crashlytics_api.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
+import 'package:casa/widgets/profile_style_image_picker_sheet.dart';
 
 class CreateAgencePage extends StatefulWidget {
   @override
@@ -190,22 +193,74 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
   }
 
   Future<void> _pickImage() async {
-    try {
-      final XFile? pickedFile = await _picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 800,
-        maxHeight: 800,
-        imageQuality: 85,
-      );
-
-      if (pickedFile != null) {
-        setState(() {
-          _logoImage = File(pickedFile.path);
-        });
-      }
-    } catch (e) {
-      FancyNotification.show(context, "Erreur lors de la sélection de l'image");
-    }
+    if (!mounted) return;
+    await showProfileStyleImagePickerSheet(
+      context,
+      primaryColor: primaryColor,
+      sheetTitle: 'Logo de l’agence',
+      headerIcon: Icons.storefront_rounded,
+      showPreview: _logoImage != null,
+      previewTitle: 'Aperçu du logo',
+      previewSubtitle: 'Voir le logo actuel.',
+      onPreview: () async {
+        if (_logoImage == null || !mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => Dialog(
+            backgroundColor: Colors.black87,
+            child: InteractiveViewer(
+              child: Image.file(_logoImage!, fit: BoxFit.contain),
+            ),
+          ),
+        );
+      },
+      cameraTitle: 'Prendre une photo',
+      cameraSubtitle: 'Utiliser la caméra.',
+      onCamera: () async {
+        try {
+          final XFile? pickedFile = await _picker.pickImage(
+            source: ImageSource.camera,
+            maxWidth: 800,
+            maxHeight: 800,
+            imageQuality: 85,
+          );
+          if (pickedFile != null && mounted) {
+            setState(() => _logoImage = File(pickedFile.path));
+          }
+        } catch (e) {
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              "La photo n’a pas pu être prise. Réessayez ou choisissez la galerie.",
+              isError: true,
+            );
+          }
+        }
+      },
+      galleryTitle: 'Choisir depuis la galerie',
+      gallerySubtitle: 'Sélectionner une image existante.',
+      onGallery: () async {
+        try {
+          final XFile? pickedFile = await _picker.pickImage(
+            source: ImageSource.gallery,
+            maxWidth: 800,
+            maxHeight: 800,
+            imageQuality: 85,
+          );
+          if (pickedFile != null && mounted) {
+            setState(() => _logoImage = File(pickedFile.path));
+          }
+        } catch (e) {
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              "Nous n’avons pas pu ouvrir la galerie. Réessayez ou choisissez une autre photo.",
+              isError: true,
+            );
+          }
+        }
+      },
+    );
   }
 
   Future<String?> _imageToBase64(File image) async {
@@ -234,12 +289,20 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
       return;
     }
 
+    final subscriptionOk =
+        await SubscriptionHelper.ensurePremiumForSubmit(context: context);
+    if (!subscriptionOk || !mounted) return;
+
     setState(() {
       _isLoading = true;
     });
 
     if (!await NetworkUtils.checkInternetConnectivity()) {
-      FancyNotification.show(context, "Pas de connexion internet");
+      FancyNotification.show(
+        context,
+        "Connexion internet indisponible. Réessayez dès que vous êtes en ligne.",
+        isError: true,
+      );
       setState(() { _isLoading = false; });
       return;
     }
@@ -262,7 +325,7 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
       // Convert image to base64
       final logoBase64 = await _imageToBase64(_logoImage!);
       if (logoBase64 == null) {
-        throw Exception("Erreur lors du traitement de l'image");
+        throw Exception("logo_encode_failed");
       }
       
       // Retrieve userId from Storage
@@ -303,6 +366,11 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
         // Retour avec un résultat pour informer la page précédente
         Navigator.pop(context, true);
       } else {
+        reportApiFailureToCrashlytics(
+          'CreateAgencePage',
+          response: response,
+          reason: 'create_agence',
+        );
         String msg = ApiErrorMessages.fromResponse(response);
         if (response.data is Map) {
           final errs = response.data['errors'];
@@ -317,11 +385,22 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
         }
         FancyNotification.show(context, msg, isError: true);
       }
-    } catch (e) {
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'CreateAgencePage',
+        error: e,
+        stackTrace: st,
+        reason: 'create_agence_exception',
+      );
       print("Erreur création agence: $e");
-      String friendlyError = "Une erreur est survenue. Veuillez vérifier votre connexion.";
-      if (e.toString().contains("Internal Server Error")) {
-         friendlyError = "Le serveur rencontre des difficultés momentanées. Veuillez réessayer plus tard.";
+      String friendlyError =
+          "Nous n’avons pas pu enregistrer l’agence. Vérifiez la connexion et réessayez.";
+      if (e.toString().contains("logo_encode_failed")) {
+        friendlyError =
+            "Le logo n’a pas pu être préparé. Essayez une autre image ou une photo plus légère.";
+      } else if (e.toString().contains("Internal Server Error")) {
+        friendlyError =
+            "Le service est momentanément saturé. Patientez un peu et réessayez.";
       }
       FancyNotification.show(context, friendlyError, isError: true);
     } finally {

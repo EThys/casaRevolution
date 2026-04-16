@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/controllers/AuthentificationCtrl.dart';
-import 'package:casa/screens/auth/IdentityVerificationPage.dart';
 import 'package:casa/controllers/LocationController.dart';
 import 'package:casa/models/CityModel.dart';
 import 'package:casa/models/CommuneModel.dart';
@@ -12,6 +11,7 @@ import 'package:casa/models/DistrictModel.dart';
 import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/models/DeviseModel.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
@@ -27,8 +27,11 @@ import 'package:casa/utils/city_suggestions.dart';
 // Firebase imports
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_performance/firebase_performance.dart';
+import 'package:casa/utils/crashlytics_api.dart';
+import 'package:casa/widgets/profile_style_image_picker_sheet.dart';
 
 import '../utils/StockageKeys.dart';
+import '../utils/Endpoints.dart';
 import '../utils/requetes.dart' show HttpResponse, getData;
 import 'package:casa/controllers/AgenceController.dart';
 import 'package:casa/screens/forms/TerrainFormFields.dart';
@@ -36,6 +39,30 @@ import 'package:casa/screens/forms/BureauFormFields.dart';
 import 'package:casa/screens/forms/VacanceFormFields.dart';
 import 'package:casa/screens/forms/FuneraireFormFields.dart';
 import 'package:casa/screens/forms/FestiveFormFields.dart';
+import 'package:casa/screens/forms/HotelFormFields.dart';
+import 'package:casa/screens/HotelManageDetailPage.dart';
+import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/models/PropertyTypeModel.dart';
+
+/// Libellé affichage / filtre pour les quartiers API (clés variables : name, nom, etc.).
+String _kinshasaQuartierLabel(Map<String, dynamic> q) {
+  for (final k in [
+    'name',
+    'nom',
+    'label',
+    'libelle',
+    'title',
+    'quartierName',
+    'QuartierNom',
+    'quartier_nom',
+  ]) {
+    final v = q[k];
+    if (v != null && v.toString().trim().isNotEmpty) {
+      return v.toString().trim();
+    }
+  }
+  return '';
+}
 
 class CreatePropertyPostPage extends StatefulWidget {
   @override
@@ -87,7 +114,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   Map<String, bool> _fieldTouched = {}; // Track which fields have been interacted with
 
   // Form controllers
-  final _formKey = GlobalKey<FormState>();
+  // Pas de GlobalKey ici : évite les collisions si l’écran est empilé / reconstruit.
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _guaranteeController = TextEditingController();
@@ -144,6 +171,11 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   bool _loadingFeatures = false;
   int _selectedDeviseId = 2; // Par défaut USD (2), FC (1)
 
+  /// Hôtel — aligné dashboard `hotels/new`.
+  bool _hotelIsAvailable = true;
+  bool _hotelListingActive = true;
+  String _hotelTypeLabel = '';
+  bool _hotelPropertyTypeReady = false;
 
   // Location variables
   CityModel? _selectedCity;
@@ -167,6 +199,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   List<Map<String, dynamic>> _kinshasaQuartiers = [];
   Map<String, dynamic>? _selectedKinshasaQuartier;
   bool _isLoadingQuartiers = false;
+  final FocusNode _kinshasaQuartierFocusNode = FocusNode();
   
   // Matadi communes
   final List<String> _matadiCommunes = ['Matadi', 'Nzanza', 'Mvuzi'];
@@ -219,16 +252,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     // Initialiser SharedPreferences et charger les données
     _initSharedPreferences();
     
-    // Charger les types de propriétés et les caractéristiques
-    _loadPropertyTypesAndFeatures();
-
     // Démarrer le tracking Firebase
     _startPageTracking();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkConnectivity();
-      _checkUserVerification();
       context.read<PropertyController>().fetchDevises();
+      // Évite notifyListeners()/setState pendant le build initial.
+      _loadPropertyTypesAndFeatures();
     });
   }
 
@@ -239,31 +270,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         print("Checking connectivity...");
     } catch (e) {
       print("Connectivity check failed: $e");
-    }
-  }
-
-  void _checkUserVerification() {
-    final authCtrl = context.read<AuthentificationCtrl>();
-    // Check if user is logged in first
-    if (!authCtrl.isLoggedIn) {
-       // Usually handled by route guard, but safety check
-       return; 
-    }
-    
-    // Check if user is certified - rediriger directement vers la vérification
-    if (authCtrl.user.isCertified != true) {
-      print("🔒 User not certified, redirecting to verification");
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.push(
-          context, 
-          MaterialPageRoute(builder: (context) => IdentityVerificationPage())
-        ).then((result) {
-          // Si la vérification réussit, on peut revenir à la création de propriété
-          if (result == true && mounted) {
-            // L'utilisateur peut maintenant créer une propriété
-          }
-        });
-      });
     }
   }
 
@@ -730,14 +736,39 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     setState(() => _isLoadingQuartiers = true);
     
     try {
-      final response = await getData('quartiers'); // Endpoint corrigé, getData ajoute déjà /api
-      
+      final response = await getData(Endpoints.quartiers);
+
       if (response != null && response is Map) {
         if (mounted) {
           setState(() {
-            _kinshasaQuartiers = List<Map<String, dynamic>>.from(response['quartiers'] ?? []);
+            final m = Map<String, dynamic>.from(response as Map);
+            List<dynamic> raw = [];
+            if (m['quartiers'] is List) {
+              raw = m['quartiers'] as List<dynamic>;
+            } else if (m['data'] is List) {
+              raw = m['data'] as List<dynamic>;
+            } else if (m['data'] is Map) {
+              final inner = Map<String, dynamic>.from(m['data'] as Map);
+              if (inner['quartiers'] is List) {
+                raw = inner['quartiers'] as List<dynamic>;
+              }
+            }
+            _kinshasaQuartiers = raw
+                .whereType<Map>()
+                .map((e) {
+                  final m = Map<String, dynamic>.from(e);
+                  final label = _kinshasaQuartierLabel(m);
+                  if (label.isNotEmpty &&
+                      (m['name'] == null ||
+                          m['name'].toString().trim().isEmpty)) {
+                    m['name'] = label;
+                  }
+                  return m;
+                })
+                .toList();
           });
-          print('✅ ${_kinshasaQuartiers.length} quartiers de Kinshasa chargés depuis l\'API');
+          print(
+              '✅ ${_kinshasaQuartiers.length} quartiers (API ${Endpoints.quartiers})');
         }
       } else {
         print('⚠️ Erreur API quartiers: réponse null ou invalide');
@@ -792,6 +823,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     for (var focusNode in _focusNodes) {
       focusNode.dispose();
     }
+    _kinshasaQuartierFocusNode.dispose();
 
     super.dispose();
   }
@@ -1061,6 +1093,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
     final isBureau = typeName.contains('bureau') || (_selectedPropertyTypeId == 4);
   final isTerrain = typeName.contains('terrain');
+  final isHotel = _selectedCategory == 'Hotels';
 
   // Vacances validation
   if (isVacances) {
@@ -1098,13 +1131,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   // Title validation
   if (_titleController.text.trim().isEmpty) {
       _setFieldError(1, 'title', 'Veuillez entrer un titre');
-    } else if (_titleController.text.trim().length < 5) { // Reduced constraint
-      _setFieldError(1, 'title', 'Titre trop court (min 5 caractères)');
+    } else if (_titleController.text.trim().length < (isHotel ? 3 : 5)) {
+      _setFieldError(1, 'title', isHotel ? 'Titre trop court (min 3 caractères)' : 'Titre trop court (min 5 caractères)');
     }
 
-    // Price validation
-    if (_priceController.text.trim().isEmpty) {
-      _setFieldError(1, 'price', 'Prix requis'); // Shortened
+    // Price validation (pas de prix à la création hôtel — les chambres portent le tarif)
+    if (!isHotel) {
+      if (_priceController.text.trim().isEmpty) {
+        _setFieldError(1, 'price', 'Prix requis'); // Shortened
+      }
     }
 
     // Capacity validation for specific types
@@ -1133,9 +1168,12 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       if (_selectedCity == null) _setFieldError(1, 'city', 'Ville requise');
       if (_selectedDistrict == null) _setFieldError(1, 'district', 'District requis');
       if (_selectedCommune == null) _setFieldError(1, 'commune', 'Commune requise');
-      // Fix: Accepter soit le quartier de la BD locale, soit celui de l'API Kinshasa, soit le texte saisi manuellement
-      if (_selectedQuartier == null && _selectedKinshasaQuartier == null && _quartierTextController.text.trim().isEmpty) {
+      if (_quartierTextController.text.trim().isEmpty) {
         _setFieldError(1, 'quartier', 'Quartier requis');
+      }
+      // IMPORTANT: à Kinshasa l’API a besoin d’un quartierId valide pour créer le bien + images.
+      if (_kinshasaQuartierIdForPayload() <= 0) {
+        _setFieldError(1, 'quartier', 'Choisissez un quartier');
       }
     } else {
       if (_cityTextController.text.trim().isEmpty) _setFieldError(1, 'city', 'Ville requise');
@@ -1149,13 +1187,16 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     }
     // Only check length for standard properties if needed, or remove completely as requested
     // User asked to NOT be strict about 10 chars for terrain, bureau, salle de fete, funeraire, vacance
-    final isSpecial = isFestive || isFuneraire || isTerrain || isBureau || isVacances;
+    final isSpecial =
+        isFestive || isFuneraire || isTerrain || isBureau || isVacances || isHotel;
     if (!isSpecial && _addressController.text.trim().length < 5) {
        _setFieldError(1, 'address', 'Adresse trop courte');
     }
 
     final isValid = !_hasFieldErrors(1) && errors.isEmpty;
-    final errorMessage = _hasFieldErrors(1) || errors.isNotEmpty ? 'Veuillez corriger les erreurs' : '';
+    final errorMessage = _hasFieldErrors(1) || errors.isNotEmpty
+        ? 'Veuillez corriger les erreurs'
+        : '';
 
     setState(() {
       _stepValidations[1] = isValid;
@@ -1169,11 +1210,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     _clearStepFieldErrors(2);
     final errors = <String>[];
 
-    // 1. Validation des photos (Toujours requises)
+    // 1. Validation des photos
     final mainImages = _selectedImages['propertyImage'] ?? [];
-    if (mainImages.length < 3) {
-      errors.add('Au moins 3 photos principales sont requises');
-      _setFieldError(2, 'photos', 'Min. 3 photos');
+    final isHotelCat = _selectedCategory == 'Hotels';
+    final minPhotos = isHotelCat ? 1 : 3;
+    if (mainImages.length < minPhotos) {
+      errors.add(isHotelCat
+          ? 'Au moins une photo de l’hôtel est requise'
+          : 'Au moins 3 photos principales sont requises');
+      _setFieldError(2, 'photos', isHotelCat ? 'Min. 1 photo' : 'Min. 3 photos');
     }
 
     // 2. Validation des services essentiels — alignée sur _buildStep3 (masqués pour terrain, vacances, hôtel)
@@ -1198,7 +1243,9 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     // Les équipements (features) restent optionnels comme demandé
 
     final isValid = !_hasFieldErrors(2) && errors.isEmpty;
-    final errorMessage = _hasFieldErrors(2) || errors.isNotEmpty ? 'Veuillez compléter les informations requises' : '';
+    final errorMessage = _hasFieldErrors(2) || errors.isNotEmpty
+        ? 'Il manque encore quelques informations importantes. Complétez les champs indiqués.'
+        : '';
 
     setState(() {
       _stepValidations[2] = isValid;
@@ -1246,68 +1293,117 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     }
   }
 
+  String _imagePickSheetTitle(String categoryId) {
+    for (final c in _imageCategories) {
+      if (c.id == categoryId) return c.name;
+    }
+    return 'Photos';
+  }
+
+  String _symbolForSelectedDevise(List<DeviseModel> list) {
+    for (final d in list) {
+      if (d.id == _selectedDeviseId) return d.displaySymbol;
+    }
+    return _selectedDeviseId == 1 ? 'FC' : '\$';
+  }
+
+  Future<void> _addPickedImagesToCategory(String categoryId, List<XFile> images) async {
+    if (images.isEmpty || !mounted) return;
+    final List<XFile> validImages = [];
+    for (var image in images) {
+      final file = File(image.path);
+      if (await file.exists()) {
+        validImages.add(image);
+      }
+    }
+    if (validImages.isEmpty || !mounted) return;
+    setState(() {
+      _selectedImages.putIfAbsent(categoryId, () => []);
+      _selectedImages[categoryId]!.addAll(validImages);
+      _validateCurrentStepFields();
+      _saveDraft();
+    });
+    _trackImageAction('added', categoryId, validImages.length);
+  }
+
   Future<void> _pickImages(String categoryId) async {
-    // Track début de sélection
     _trackEvent('image_pick_start', {
       'category': categoryId,
       'current_count': _selectedImages[categoryId]?.length ?? 0,
     });
 
-    try {
-      final List<XFile>? images = await _picker.pickMultiImage(
-        imageQuality: 85,
-        maxWidth: 1440,
-      );
-
-      if (images != null && images.isNotEmpty && mounted) {
-        // Vérifier la disponibilité des fichiers immédiatement
-        List<XFile> validImages = [];
-        for (var image in images) {
-          final file = File(image.path);
-          if (await file.exists()) {
-            validImages.add(image);
-            print("✅ Image valide: ${image.path}");
-          } else {
-            print("❌ Image non valide (fichier manquant): ${image.path}");
+    if (!mounted) return;
+    await showProfileStyleImagePickerSheet(
+      context,
+      primaryColor: _primaryColor,
+      sheetTitle: _imagePickSheetTitle(categoryId),
+      headerIcon: Icons.add_photo_alternate_rounded,
+      cameraTitle: 'Prendre une photo',
+      cameraSubtitle: 'Ajouter une photo avec la caméra.',
+      galleryTitle: 'Choisir depuis la galerie',
+      gallerySubtitle: 'Sélectionner une ou plusieurs photos.',
+      onCamera: () async {
+        try {
+          final XFile? image = await _picker.pickImage(
+            source: ImageSource.camera,
+            imageQuality: 85,
+            maxWidth: 1440,
+          );
+          if (!mounted || image == null) return;
+          await _addPickedImagesToCategory(categoryId, [image]);
+        } on PlatformException catch (e) {
+          print('Failed to pick image (camera): $e');
+          _trackEvent('image_pick_error', {'category': categoryId, 'error': e.toString()});
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              "La photo n’a pas pu être prise. Réessayez ou utilisez la galerie.",
+              isError: true,
+            );
+          }
+        } catch (e) {
+          print('Erreur caméra: $e');
+          _trackEvent('image_pick_error', {'category': categoryId, 'error': e.toString()});
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              "La photo n’a pas pu être prise. Réessayez ou utilisez la galerie.",
+              isError: true,
+            );
           }
         }
-
-        if (mounted) {
-          setState(() {
-            _selectedImages[categoryId]!.addAll(validImages);
-            _validateCurrentStepFields();
-            _saveDraft();
-          });
-
-          // Track succès
-          _trackImageAction('added', categoryId, validImages.length);
+      },
+      onGallery: () async {
+        try {
+          final List<XFile>? images = await _picker.pickMultiImage(
+            imageQuality: 85,
+            maxWidth: 1440,
+          );
+          if (images == null || images.isEmpty || !mounted) return;
+          await _addPickedImagesToCategory(categoryId, images);
+        } on PlatformException catch (e) {
+          print('Failed to pick images: $e');
+          _trackEvent('image_pick_error', {'category': categoryId, 'error': e.toString()});
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              "Les photos n’ont pas pu être ajoutées. Réessayez ou choisissez d’autres fichiers.",
+              isError: true,
+            );
+          }
+        } catch (e) {
+          print('Erreur inattendue lors de la sélection des images: $e');
+          _trackEvent('image_pick_error', {'category': categoryId, 'error': e.toString()});
+          if (mounted) {
+            FancyNotification.show(
+              context,
+              "Les photos n’ont pas pu être ajoutées. Réessayez ou choisissez d’autres fichiers.",
+              isError: true,
+            );
+          }
         }
-      }
-    } on PlatformException catch (e) {
-      print('Failed to pick images: $e');
-      // Track erreur
-      _trackEvent('image_pick_error', {
-        'category': categoryId,
-        'error': e.toString(),
-      });
-      FancyNotification.show(
-        context,
-        "Erreur lors de la sélection des images",
-        isError: true,
-      );
-    } catch (e) {
-      print('Erreur inattendue lors de la sélection des images: $e');
-      // Track erreur
-      _trackEvent('image_pick_error', {
-        'category': categoryId,
-        'error': e.toString(),
-      });
-      FancyNotification.show(
-        context,
-        "Erreur lors de la sélection des images",
-        isError: true,
-      );
-    }
+      },
+    );
   }
 
 
@@ -1402,9 +1498,9 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         if (userId == null) {
             print("❌ [CreatePropertyPost] UserId non trouvé");
             FancyNotification.show(
-                context,
-                "Erreur: Impossible de vérifier votre compte",
-                isError: true
+              context,
+              "Nous ne parvenons pas à lire votre compte pour l’instant. Reconnectez-vous puis réessayez.",
+              isError: true,
             );
             return;
         }
@@ -1439,9 +1535,9 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         if (!hasGerantRole) {
             print("❌ [CreatePropertyPost] Utilisateur n'est pas Gérant");
             FancyNotification.show(
-                context,
-                "Cette catégorie nécessite un compte Gérant",
-                isError: true
+              context,
+              "Les annonces Vacances sont réservées aux comptes gérant. Utilisez un compte adapté ou contactez-nous.",
+              isError: true,
             );
             return;
         }
@@ -1578,7 +1674,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                 return true;
               },
               child: Form(
-                key: _formKey,
                 autovalidateMode: _autoValidateMode,
                 child: Column(
                   children: [
@@ -2016,6 +2111,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               setState(() {
                 _selectedPropertyTypeId = category['id'] as int;
                 _selectedCategory = category['name'] as String;
+                _syncHotelTypeMeta();
               });
               
               // Force validator re-check
@@ -2349,6 +2445,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                 setState(() {
                   _selectedPropertyTypeId = category['id'] as int;
                   _selectedCategory = category['name'] as String; // Keep for backward compatibility
+                  _syncHotelTypeMeta();
                   _removeFieldError(0, 'property_type');
                   _validateStep0();
                   _saveDraft();
@@ -2860,9 +2957,9 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     );
   }
 
-  Widget _buildModernImageCounter() {
+  Widget _buildModernImageCounter({int minRequired = 3}) {
     final totalImages = _totalImagesCount;
-    final hasMinimumImages = totalImages >= 3;
+    final hasMinimumImages = totalImages >= minRequired;
 
     return Container(
       padding: EdgeInsets.all(_mediumSpace),
@@ -2895,7 +2992,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  hasMinimumImages ? 'Photos suffisantes' : 'Photos requises',
+                  hasMinimumImages ? 'Photos suffisantes' : 'Photos requises (min. $minRequired)',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: hasMinimumImages ? _successColor : _warningColor,
@@ -2942,7 +3039,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     final isTerrain = typeName.contains('terrain');
     final isFestive = typeName.contains('fête') || typeName.contains('festive');
     final isFuneraire = typeName.contains('funéra') || typeName.contains('deuil');
-    
+    final isHotel = _selectedCategory == 'Hotels';
+    final devisesForUi = context.watch<PropertyController>().devisesList;
+    final priceDeviseSymbol = _symbolForSelectedDevise(devisesForUi);
+
     return SingleChildScrollView(
       key: ValueKey('step1_scroll'),
       physics: BouncingScrollPhysics(),
@@ -2969,21 +3069,25 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer un titre';
               }
-              if (value.length < 10) {
-                return 'Le titre doit faire au moins 10 caractères';
+              final minLen = isHotel ? 3 : 10;
+              if (value.length < minLen) {
+                return 'Le titre doit faire au moins $minLen caractères';
               }
               return null;
             },
           ),
           SizedBox(height: _smallSpace),
 
+          if (!isHotel)
           _buildModernTextField(
             controller: _priceController,
             label: (isFestive || isFuneraire) ? 'Prix' : (_isForRent ? 'Prix mensuel' : 'Prix de vente'),
             hint: (isFestive || isFuneraire) ? '500' : (_isForRent ? '1200' : '450000'),
             icon: Icons.attach_money_rounded,
             keyboardType: TextInputType.number,
-            suffixText: (isFestive || isFuneraire) ? null : (_isForRent ? '/mois' : '\$'),
+            suffixText: (isFestive || isFuneraire)
+                ? null
+                : (_isForRent ? '$priceDeviseSymbol/mois' : priceDeviseSymbol),
             prefixIconColor: _isForRent ? Colors.blue : Colors.green,
             focusNode: _focusNodes[1],
             nextFocusNode: _isForRent ? _focusNodes[2] : _focusNodes[3],
@@ -2999,9 +3103,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               return null;
             },
           ),
-          SizedBox(height: _smallSpace),
+          if (!isHotel) SizedBox(height: _smallSpace),
 
           // SÉLECTEUR DE DEVISE DYNAMIQUE
+          if (!isHotel)
           Consumer<PropertyController>(
             builder: (context, ctrl, child) {
               final devises = ctrl.devisesList;
@@ -3018,7 +3123,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                   child: Row(
                     children: [
                        Text(
-                        devise.code ?? "", 
+                        devise.displaySymbol,
                         style: TextStyle(
                           color: _darkColor,
                           fontWeight: FontWeight.w600,
@@ -3093,10 +3198,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               );
             }
           ),
-          SizedBox(height: _smallSpace),
+          if (!isHotel) SizedBox(height: _smallSpace),
 
           // Guarantee field - only show for rent and NOT for Vacances, Bureau, Terrain, Festive, or Funeraire
-          if (_isForRent && !isVacances && !isBureau && !isTerrain && !isFestive && !isFuneraire) ...[
+          if (_isForRent && !isVacances && !isBureau && !isTerrain && !isFestive && !isFuneraire && !isHotel) ...[
             _buildModernTextField(
               controller: _guaranteeController,
               label: 'Garantie',
@@ -3128,6 +3233,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             errorText: _getFieldError(1, 'description'),
             fieldKey: 'description',
             validator: (value) {
+              if (isHotel) return null;
               if (value == null || value.isEmpty) {
                 return 'Veuillez entrer une description';
               }
@@ -3287,6 +3393,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               final isBureau = typeName.contains('bureau') || (_selectedPropertyTypeId == 4);
               final isTerrain = typeName.contains('terrain');
               final isVacances = typeName.contains('vacance');
+              final isHotel = _selectedCategory == 'Hotels';
 
               if (isFestive) {
                  return FestiveFormFields(
@@ -3358,6 +3465,25 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                      });
                    },
                  );
+              } else if (isHotel) {
+                return HotelFormFields(
+                  hotelTypeLabel: _hotelTypeLabel,
+                  propertyTypeReady: _hotelPropertyTypeReady,
+                  isAvailable: _hotelIsAvailable,
+                  listingActive: _hotelListingActive,
+                  onIsAvailableChanged: (v) {
+                    setState(() {
+                      _hotelIsAvailable = v;
+                      _saveDraft();
+                    });
+                  },
+                  onListingActiveChanged: (v) {
+                    setState(() {
+                      _hotelListingActive = v;
+                      _saveDraft();
+                    });
+                  },
+                );
               } else {
                 // Résidentiel (Standard)
                  return GridView.count(
@@ -3424,7 +3550,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 Widget _buildStep3() {
     final typeName = _selectedCategory?.toLowerCase() ?? '';
     final isTerrain = typeName.contains('terrain');
-    final isVacances = typeName.contains('vacances') || typeName.contains('hotel');
+    final isHotelPhotos = _selectedCategory == 'Hotels';
+    final isVacances = typeName.contains('vacance');
 
     return SingleChildScrollView(
       key: ValueKey('step2_scroll'),
@@ -3440,7 +3567,9 @@ Widget _buildStep3() {
           ),
           SizedBox(height: _smallSpace),
           Text(
-            'Ajoutez au moins 3 photos de qualité pour attirer plus d\'attention',
+            isHotelPhotos
+                ? 'Ajoutez au moins une photo de votre établissement (plusieurs recommandées).'
+                : 'Ajoutez au moins 3 photos de qualité pour attirer plus d\'attention',
             style: TextStyle(
               color: _greyColor,
               fontSize: _captionSize,
@@ -3470,10 +3599,10 @@ Widget _buildStep3() {
           ),
 
           SizedBox(height: _mediumSpace),
-          _buildModernImageCounter(),
+          _buildModernImageCounter(minRequired: isHotelPhotos ? 1 : 3),
           SizedBox(height: _largeSpace),
           
-          if (!isTerrain && !isVacances) ...[
+          if (!isTerrain && !isVacances && !isHotelPhotos) ...[
             // SERVICES ESSENTIELS
             _buildModernSectionHeader(
               title: 'Services essentiels',
@@ -3494,12 +3623,12 @@ Widget _buildStep3() {
             SizedBox(height: _largeSpace),
           ],
 
-          if (!isTerrain && !isVacances)
+          if (!isTerrain && !isVacances && !isHotelPhotos)
             _buildModernSectionHeader(
               title: 'Équipements (optionnels)',
               icon: Icons.emoji_objects_outlined,
             ),
-          if (!isTerrain && !isVacances) ...[
+          if (!isTerrain && !isVacances && !isHotelPhotos) ...[
             SizedBox(height: _smallSpace),
             Text(
               'Sélectionnez les équipements disponibles dans votre propriété',
@@ -3513,7 +3642,7 @@ Widget _buildStep3() {
           
           
           // Show loading indicator while fetching features
-          if (!isTerrain && !isVacances)
+          if (!isTerrain && !isVacances && !isHotelPhotos)
             if (_loadingFeatures)
             Center(
               child: Padding(
@@ -3538,8 +3667,14 @@ Widget _buildStep3() {
               spacing: _smallSpace,
               runSpacing: _smallSpace,
               children: _features.map((feature) {
-                final featureId = feature['featureId'] as int;
-                final featureName = feature['name'] as String;
+                final rawId = feature['featureId'];
+                final featureId = rawId is int
+                    ? rawId
+                    : int.tryParse(rawId?.toString() ?? '') ?? 0;
+                final featureName = feature['name']?.toString() ?? '';
+                if (featureId <= 0 || featureName.isEmpty) {
+                  return const SizedBox.shrink();
+                }
                 final isSelected = _selectedFeatureIds.contains(featureId);
                 
                 return ChoiceChip(
@@ -3891,35 +4026,40 @@ Widget _buildStep3() {
               ],
             ),
           ),
-          Autocomplete<Map<String, dynamic>>(
+          RawAutocomplete<Map<String, dynamic>>(
+            focusNode: _kinshasaQuartierFocusNode,
+            textEditingController: _quartierTextController,
+            displayStringForOption: (Map<String, dynamic> option) {
+              final label = _kinshasaQuartierLabel(option);
+              return label.isNotEmpty ? label : (option['name'] ?? '').toString();
+            },
             optionsBuilder: (TextEditingValue textEditingValue) {
               if (textEditingValue.text.isEmpty) {
                 return const Iterable<Map<String, dynamic>>.empty();
               }
+              final q = textEditingValue.text.toLowerCase();
               return _kinshasaQuartiers.where((option) {
-                return (option['name'] ?? '').toString().toLowerCase()
-                    .contains(textEditingValue.text.toLowerCase());
+                final label = _kinshasaQuartierLabel(option);
+                return label.toLowerCase().contains(q);
               });
             },
-            displayStringForOption: (option) => option['name'] ?? '',
-            onSelected: (selection) {
+            onSelected: (Map<String, dynamic> selection) {
               _markFieldTouched('quartier');
               _clickCount++;
+              final label = _kinshasaQuartierLabel(selection);
               setState(() {
                 _selectedKinshasaQuartier = selection;
-                _quartierTextController.text = selection['name'] ?? '';
                 _removeFieldError(1, 'quartier');
                 _validateStep1();
                 _saveDraft();
               });
-              _trackSelection('quartier', selection['name'] ?? 'unknown');
+              _trackSelection(
+                  'quartier', label.isNotEmpty ? label : 'unknown');
             },
-            fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-              // Préremplir si une sélection existe déjà
-              if (_selectedKinshasaQuartier != null && controller.text.isEmpty) {
-                controller.text = _selectedKinshasaQuartier!['name'];
-              }
-              
+            fieldViewBuilder: (BuildContext context,
+                TextEditingController controller,
+                FocusNode focusNode,
+                VoidCallback onFieldSubmitted) {
               return TextField(
                 controller: controller,
                 focusNode: focusNode,
@@ -3928,11 +4068,15 @@ Widget _buildStep3() {
                 },
                 style: TextStyle(fontSize: _bodySize),
                 decoration: InputDecoration(
-                  hintText: _isLoadingQuartiers ? 'Chargement...' : 'Rechercher un quartier...',
-                  prefixIcon: Icon(Icons.search, color: hasError ? _errorColor : _primaryColor),
+                  hintText: _isLoadingQuartiers
+                      ? 'Chargement...'
+                      : 'Tapez ou choisissez un quartier…',
+                  prefixIcon: Icon(Icons.search,
+                      color: hasError ? _errorColor : _primaryColor),
                   filled: true,
                   fillColor: Colors.white,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(
@@ -3956,20 +4100,60 @@ Widget _buildStep3() {
                   ),
                 ),
                 onChanged: (val) {
-                  // Mettre à jour le contrôleur principal pour la validation
-                  _quartierTextController.text = val;
-                  
-                  // Si l'utilisateur efface, on invalide la sélection
-                  if (val.isEmpty && _selectedKinshasaQuartier != null) {
-                    setState(() {
-                      _selectedKinshasaQuartier = null;
-                    });
+                  final sel = _selectedKinshasaQuartier;
+                  if (sel != null) {
+                    final selName = _kinshasaQuartierLabel(sel);
+                    final expected = selName.isNotEmpty
+                        ? selName
+                        : (sel['name'] ?? '').toString();
+                    if (val.trim() != expected.trim()) {
+                      setState(() => _selectedKinshasaQuartier = null);
+                    }
                   }
-                  
-                  // Déclencher la validation
                   _validateCurrentStepFields();
                 },
                 onSubmitted: (val) => onFieldSubmitted(),
+              );
+            },
+            optionsViewBuilder: (BuildContext context,
+                AutocompleteOnSelected<Map<String, dynamic>> onSelected,
+                Iterable<Map<String, dynamic>> options) {
+              final opts = options.toList();
+              return Align(
+                alignment: Alignment.topLeft,
+                child: Material(
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 280),
+                    child: opts.isEmpty
+                        ? const SizedBox.shrink()
+                        : ListView.builder(
+                            padding: EdgeInsets.zero,
+                            shrinkWrap: true,
+                            itemCount: opts.length,
+                            itemBuilder: (context, index) {
+                              final option = opts[index];
+                              final label = _kinshasaQuartierLabel(option);
+                              final text = label.isNotEmpty
+                                  ? label
+                                  : (option['name'] ?? '').toString();
+                              return InkWell(
+                                onTap: () => onSelected(option),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 12),
+                                  child: Text(
+                                    text,
+                                    style: TextStyle(fontSize: _bodySize),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ),
               );
             },
           ),
@@ -3978,7 +4162,8 @@ Widget _buildStep3() {
               padding: EdgeInsets.only(top: 6, left: 4),
               child: Row(
                 children: [
-                  Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
+                  Icon(Icons.error_outline_rounded,
+                      size: 14, color: _errorColor),
                   SizedBox(width: 6),
                   Text(
                     _getFieldError(1, 'quartier')!,
@@ -5143,9 +5328,9 @@ Widget _buildStep3() {
       }
     } else {
       FancyNotification.show(
-          context,
-          'Veuillez saisir un nom de quartier valide (min 2 caractères)',
-          isError: true
+        context,
+        'Indiquez un nom de quartier d’au moins deux lettres pour continuer.',
+        isError: true,
       );
     }
   }
@@ -5169,21 +5354,6 @@ Widget _buildStep3() {
     });
 
     if (!mounted || _isLoading) {
-      return;
-    }
-
-    // Double check verification before proceeding
-    final authCtrl = context.read<AuthentificationCtrl>();
-    if (authCtrl.user.isCertified != true) {
-      Navigator.push(
-        context, 
-        MaterialPageRoute(builder: (context) => IdentityVerificationPage())
-      ).then((result) {
-        // Si la vérification réussit, on peut revenir à la création de propriété
-        if (result == true && mounted) {
-          // L'utilisateur peut maintenant créer une propriété
-        }
-      });
       return;
     }
 
@@ -5221,6 +5391,10 @@ Widget _buildStep3() {
       return;
     }
 
+    final subscriptionOk =
+        await SubscriptionHelper.ensurePremiumForSubmit(context: context);
+    if (!subscriptionOk || !mounted) return;
+
     print("✅ Validation réussie, début du chargement...");
 
     if (mounted) {
@@ -5233,7 +5407,11 @@ Widget _buildStep3() {
       await _trackEvent('property_creation_network_error', {
         'step': _currentStep,
       });
-      FancyNotification.show(context, "Pas de connexion internet");
+      FancyNotification.show(
+        context,
+        "Connexion internet indisponible. Réessayez lorsque le réseau est revenu.",
+        isError: true,
+      );
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -5246,11 +5424,12 @@ Widget _buildStep3() {
       String quartier;
       
       if (_isKinshasaSelected) {
-        // Pour Kinshasa, utiliser le quartier sélectionné depuis l'API
-        quartierValue = _selectedKinshasaQuartier?['name'] ?? 
-                       _selectedQuartier?.name ?? 
-                       (_addressController.text.split(',').isNotEmpty ? _addressController.text.split(',').last.trim() : "") ?? 
-                       "Non spécifié";
+        quartierValue = _kinshasaQuartierValueForPayload();
+        if (quartierValue.isEmpty) {
+          quartierValue = _addressController.text.split(',').isNotEmpty
+              ? _addressController.text.split(',').last.trim()
+              : 'Non spécifié';
+        }
         quartier = quartierValue;
       } else {
         // Pour autres villes, utiliser le champ texte
@@ -5316,6 +5495,26 @@ Widget _buildStep3() {
       }
 
       HttpResponse res;
+      bool omittedFeaturesAfterRetry = false;
+
+      /// Catalogue équipements aligné API (évite des feature_id obsolètes → 500 sur property_features).
+      List<Map<String, dynamic>> featureCatalog =
+          List<Map<String, dynamic>>.from(_features);
+      try {
+        await ctrl.syncFeatures();
+        if (ctrl.propertyFeatures.isNotEmpty) {
+          featureCatalog =
+              List<Map<String, dynamic>>.from(ctrl.propertyFeatures);
+          if (mounted) {
+            setState(() {
+              _features = featureCatalog;
+            });
+          }
+        }
+      } catch (e) {
+        print('⚠️ syncFeatures avant publication: $e');
+      }
+      final featuresPayload = _featuresPayloadForApi(featureCatalog);
 
       // Common fields
       final String title = _titleController.text.trim();
@@ -5345,11 +5544,11 @@ Widget _buildStep3() {
             "address": address,
             "transactionType": _isForRent ? "location" : "vente",
             "propertyTypeId": _selectedPropertyTypeId ?? 8,
-            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
-            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
-            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
-            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
-            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+            "cityId": _isKinshasaSelected ? _payloadCityIdForApi() : null,
+            "communeId": _isKinshasaSelected ? _payloadCommuneIdForApi() : null,
+            "quartierId": _isKinshasaSelected ? _payloadQuartierIdForApi() : null,
+            "cityValue": _payloadCityValueForApi(),
+            "communeValue": _payloadCommuneValueForApi(),
             "quartierValue": quartierValue,
             "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
             "countryValue": "RDC",
@@ -5366,7 +5565,7 @@ Widget _buildStep3() {
             "decore": _isDecore
           },
           "images": allImagesBase64.map((b64) => {"image": b64}).toList(),
-          "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList()
+          "features": featuresPayload,
         };
         res = await ctrl.createFestive(festiveData);
 
@@ -5383,11 +5582,11 @@ Widget _buildStep3() {
             "propertyTypeId": _selectedPropertyTypeId ?? 7,
             "price": price,
             "address": address,
-            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
-            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
-            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
-            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
-            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+            "cityId": _isKinshasaSelected ? _payloadCityIdForApi() : null,
+            "communeId": _isKinshasaSelected ? _payloadCommuneIdForApi() : null,
+            "quartierId": _isKinshasaSelected ? _payloadQuartierIdForApi() : null,
+            "cityValue": _payloadCityValueForApi(),
+            "communeValue": _payloadCommuneValueForApi(),
             "quartierValue": quartierValue,
             "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
             "countryValue": "RDC",
@@ -5399,7 +5598,7 @@ Widget _buildStep3() {
             "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0
           },
           "images": allImagesBase64.map((b64) => {"image": b64}).toList(),
-          "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList()
+          "features": featuresPayload,
         };
         
         print("⚰️ PAYLOAD FUNERAIRE:");
@@ -5427,11 +5626,11 @@ Widget _buildStep3() {
             "numberPiece": int.tryParse(_numberPieceController.text) ?? 0,
             "isEquip": _isEquip, 
             "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
-            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
-            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
-            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
-            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
-            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+            "cityId": _isKinshasaSelected ? _payloadCityIdForApi() : null,
+            "communeId": _isKinshasaSelected ? _payloadCommuneIdForApi() : null,
+            "quartierId": _isKinshasaSelected ? _payloadQuartierIdForApi() : null,
+            "cityValue": _payloadCityValueForApi(),
+            "communeValue": _payloadCommuneValueForApi(),
             "quartierValue": quartierValue,
             "countryValue": "RDC",
             "latitude": _selectedLocation?.latitude ?? 0.1,
@@ -5441,7 +5640,7 @@ Widget _buildStep3() {
             "sold": false
           },
           "images": imagesList,
-          "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList()
+          "features": featuresPayload,
         };
         
         try {
@@ -5459,7 +5658,7 @@ Widget _buildStep3() {
           }
           FancyNotification.show(
             context,
-            "Ajoutez au moins une photo pour l'hôtel.",
+            "Ajoutez au moins une photo de l’hôtel pour poursuivre la publication.",
             type: NotificationType.warning,
           );
           return;
@@ -5475,35 +5674,21 @@ Widget _buildStep3() {
           'image': primaryImage,
           'images': imagesList,
           'propertyTypeId': _selectedPropertyTypeId ?? 5,
-          'communeValue': _isKinshasaSelected
-              ? (_selectedCommune?.name ?? "")
-              : (_communeTextController.text.trim().isNotEmpty
-                  ? _communeTextController.text.trim()
-                  : ""),
+          'communeValue': _payloadCommuneValueForApi(),
           'quartierValue': quartierValue,
-          'cityValue': _isKinshasaSelected
-              ? (_selectedCity?.name ?? 'Kinshasa')
-              : (_cityTextController.text.trim().isNotEmpty
-                  ? _cityTextController.text.trim()
-                  : "Ville non spécifiée"),
+          'cityValue': _payloadCityValueForApi(),
           'countryValue': 'RDC',
-          'cityId': _isKinshasaSelected && _selectedCity?.cityId != null
-              ? _selectedCity!.cityId!
-              : 0,
+          'cityId': _isKinshasaSelected ? _payloadCityIdForApi() : null,
           'postalCode': _postalCodeController.text.trim().isNotEmpty
               ? _postalCodeController.text.trim()
               : "243",
-          'communeId': _isKinshasaSelected && _selectedCommune?.communeId != null
-              ? _selectedCommune!.communeId!
-              : 0,
+          'communeId': _isKinshasaSelected ? _payloadCommuneIdForApi() : null,
           'quartierId':
-              _isKinshasaSelected && _selectedQuartier?.quartierId != null
-                  ? _selectedQuartier!.quartierId!
-                  : 0,
+              _isKinshasaSelected ? _kinshasaQuartierIdForPayload() : 0,
           'latitude': _selectedLocation?.latitude ?? 0.0,
           'longitude': _selectedLocation?.longitude ?? 0.0,
-          'isAvailable': true,
-          'available': true,
+          'isAvailable': _hotelIsAvailable,
+          'available': _hotelListingActive,
         };
         res = await ctrl.createHotel(hotelData);
 
@@ -5527,9 +5712,9 @@ Widget _buildStep3() {
         if (agenceId == 0 || agenceId == null) {
             print("⚠️ Aucune agence trouvée pour l'utilisateur, impossible de créer Vacance");
             FancyNotification.show(
-                context, 
-                "Erreur: Compte Agence requis pour cette catégorie.", 
-                isError: true
+              context,
+              "Pour publier en Vacances, créez d’abord votre fiche agence depuis le menu prévu.",
+              isError: true,
             );
             setState(() => _isLoading = false);
             return;
@@ -5548,7 +5733,7 @@ Widget _buildStep3() {
            "offre": _offreController.text,
            "capacity": int.tryParse(_capacityController.text) ?? 0,
            "address": address,
-           "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
+           "cityValue": _payloadCityValueForApi(),
            "countryValue": "RDC",
            "isAvailable": true,
            "available": true,
@@ -5574,14 +5759,14 @@ Widget _buildStep3() {
           "price": price,
           "surface": _areaController.text.trim().isNotEmpty ? _areaController.text.trim() : "0",
           "address": address,
-          "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+          "communeValue": _payloadCommuneValueForApi(),
           "quartierValue": quartierValue,
-          "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? "Kinshasa") : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
+          "cityValue": _payloadCityValueForApi(),
           "countryValue": "RDC",
-          "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
+          "cityId": _isKinshasaSelected ? _payloadCityIdForApi() : null,
           "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
-          "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
-          "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
+          "communeId": _isKinshasaSelected ? _payloadCommuneIdForApi() : null,
+          "quartierId": _isKinshasaSelected ? _payloadQuartierIdForApi() : null,
           "transactionType": _isForRent ? "Location" : "Vente",
           "propertyTypeId": _selectedPropertyTypeId,
           "isAvailable": true,
@@ -5597,135 +5782,8 @@ Widget _buildStep3() {
         print("📄 Data: ${res.data}");
         if (res.errorMsg != null) print("❌ ErrorMsg: ${res.errorMsg}");
 
-
-
-      } else if (isFuneraire) {
-         Map<String, dynamic> localAddress = {};
-         if (_isKinshasaSelected) {
-            localAddress = {
-              "city": {"cityId": _selectedCity?.cityId ?? 0, "name": _selectedCity?.name ?? ""},
-              "commune": {
-                "communeId": _selectedCommune?.communeId ?? 0, 
-                "district": 0,
-                "quartiers": [{"quartierId": _selectedQuartier?.quartierId ?? 0, "name": _selectedQuartier?.name ?? ""}],
-                "name": _selectedCommune?.name ?? ""
-              },
-              "quartier": {"quartierId": _selectedQuartier?.quartierId ?? 0, "name": _selectedQuartier?.name ?? ""}
-            };
-         }
-
-         final funeraireData = {
-              "id": 0,
-              "userId": uId,
-              "deviseId": 1, 
-              "title": title,
-              "description": description,
-              "capacityPeople": _capacityController.text,
-              "transactionType": _isForRent ? "For Rent" : "For Sale",
-              "propertyTypeId": _selectedPropertyTypeId,
-              "price": price,
-              "sold": false,
-              "address": address,
-              "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? '') : _communeTextController.text,
-              "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? '') : _quartierTextController.text,
-              "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : _cityTextController.text,
-              "electric": _selectedElectric == 'Oui' ? 1 : 0,
-              "water": _selectedWater == 'Oui' ? 1 : 0,
-              "countryValue": "RDC",
-              "cityId": _selectedCity?.cityId ?? 0,
-              "postalCode": _postalCodeController.text.isNotEmpty ? _postalCodeController.text : "0000",
-              "communeId": _selectedCommune?.communeId ?? 0,
-              "quartierId": _selectedQuartier?.quartierId ?? 0,
-              "latitude": 0.1,
-              "longitude": 0.1,
-              "isAvailable": true,
-              "createdAt": DateTime.now().toIso8601String(),
-              "updatedAt": DateTime.now().toIso8601String()
-          };
-
-          final payload = {
-            "funeraire": funeraireData,
-            "devise": {"id": 1, "name": "Dollars Américain", "code": "USD", "tauxLocal": 2800.0},
-            "postBy": "owner",
-            "images": allImagesBase64.map((b64) => {
-              "id": 0,
-              "salleFuneraireId": 0,
-              "name": "image_${DateTime.now().millisecondsSinceEpoch}", 
-              "path": b64, 
-              "isAvailable": true, 
-              "createdAt": DateTime.now().toIso8601String()
-            }).toList(),
-            "feature": _selectedAmenities.map((f) => {"featureId": 0, "name": f}).toList(),
-            "address": {
-               "address": address,
-               "communeValue": funeraireData["communeValue"],
-               "quartierValue": funeraireData["quartierValue"],
-               "cityValue": funeraireData["cityValue"],
-               "countryValue": "RDC",
-               "postalCode": funeraireData["postalCode"]
-            },
-            "geoZone": {"lat": 0.1, "lng": 0.1},
-            "localAddress": localAddress,
-            "typeProperty": {"propertyTypeId": _selectedPropertyTypeId, "name": _selectedCategory}
-          };
-          
-          print("⚰️ Envoi de la création Funeraire...");
-          
-          res = await ctrl.createFuneraire(payload);
-
-      } else if (isBureau) {
-        print("🏢 Création de Bureau");
-        
-        final bureauData = {
-          "bureau": {
-            "userId": uId,
-            "deviseId": _selectedDeviseId ?? 1,
-            "title": title,
-            "description": description,
-            "price": price,
-            "transactionType": _isForRent ? "Location" : "Vente",
-            "propertyTypeId": 4, // Bureau type ID
-            "roomMeet": int.tryParse(_roomMeetController.text) ?? 0,
-            "electric": electric,
-            "water": _selectedWater != null ? (int.tryParse(_selectedWater!) ?? 0) : 0,
-            "numberPiece": int.tryParse(_numberPieceController.text) ?? 0,
-            "equip": _isEquip, // Renamed from isEquip to match GET response
-            "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
-            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
-            "isAvailable": true,
-            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
-            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
-            "quartierValue": quartierValue,
-            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? "Kinshasa") : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
-            "countryValue": "RDC",
-            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
-            "latitude": _selectedLocation?.latitude ?? 0.0,
-            "longitude": _selectedLocation?.longitude ?? 0.0,
-            "address": address,
-            "available": true,
-            "sold": false
-          },
-          "images": allImagesBase64.map((b64) => {"image": b64}).toList(),
-          // "feature": _selectedFeatureIds.map((id) => {"featureId": id}).toList(),
-        };
-        
-        print("🚀 Envoi de la création Bureau...");
-        try {
-          print("DEBUG: isEquip=${_isEquip} (${_isEquip.runtimeType})");
-          print("DEBUG: isAvailable=true");
-          print("DEBUG: available=true");
-          print("📦 PAYLOAD BUREAU: ${jsonEncode(bureauData)}");
-        } catch (e) {
-          print("❌ ERREUR LORS DU LOGGING DU PAYLOAD: $e");
-        }
-        
-        res = await ctrl.createBureau(bureauData);
-        print("🏁 Retour CreateBureau - Status: ${res.status}");
-        print("📄 Data: ${res.data}");
-        if (res.errorMsg != null) print("❌ ErrorMsg: ${res.errorMsg}");
-
       } else {
-        print("🏠 Création Standard (Résidentiel/Autre)");
+        print("🏠 Création Standard (Studio / Apparts / Maisons — même endpoint et champs)");
         
         // Get user's full name from storage
         final GetStorage storage = GetStorage();
@@ -5744,7 +5802,7 @@ Widget _buildStep3() {
         print("👤 PostBy: $fullname");
         
         // Standard code - FLAT STRUCTURE to match API expectations
-        final propertyData = {
+        var propertyData = <String, dynamic>{
             "title": title,
             "description": description,
             "price": price,
@@ -5759,7 +5817,6 @@ Widget _buildStep3() {
             "electric": electric,
             "water": _selectedWater != null ? int.tryParse(_selectedWater!) : 0,
             "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",
-            "guarantee": _guaranteeController.text.trim().isNotEmpty ? _guaranteeController.text.trim() : "0",
             "sold": false, // Explicit boolean
             "isActive": true,
             "isVerified": false,
@@ -5768,11 +5825,11 @@ Widget _buildStep3() {
             "available": true,
             "transactionType": _isForRent ? "location" : "vente",
             "address": address,
-            "cityId": _isKinshasaSelected && _selectedCity?.cityId != null ? _selectedCity!.cityId! : 0,
-            "communeId": _isKinshasaSelected && _selectedCommune?.communeId != null ? _selectedCommune!.communeId! : 0,
-            "quartierId": _isKinshasaSelected && _selectedQuartier?.quartierId != null ? _selectedQuartier!.quartierId! : 0,
-            "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? 'Kinshasa') : (_cityTextController.text.trim().isNotEmpty ? _cityTextController.text.trim() : "Ville non spécifiée"),
-            "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : (_communeTextController.text.trim().isNotEmpty ? _communeTextController.text.trim() : ""),
+            "cityId": _isKinshasaSelected ? _payloadCityIdForApi() : null,
+            "communeId": _isKinshasaSelected ? _payloadCommuneIdForApi() : null,
+            "quartierId": _isKinshasaSelected ? _payloadQuartierIdForApi() : null,
+            "cityValue": _payloadCityValueForApi(),
+            "communeValue": _payloadCommuneValueForApi(),
             "quartierValue": quartierValue,
             "postalCode": _postalCodeController.text.trim().isNotEmpty ? _postalCodeController.text.trim() : "243",
             "countryValue": "RDC",
@@ -5781,7 +5838,7 @@ Widget _buildStep3() {
             "longitude": _selectedLocation?.longitude ?? 0.1,
             "propertyTypeId": _selectedPropertyTypeId ?? 2,
             "userId": uId,
-            "features": _selectedFeatureIds.map((id) => {"featureId": id}).toList(),
+            "features": featuresPayload,
             "propertyImage": (imagesData is Map) ? (imagesData["propertyImage"] ?? []) : [],
             "propertyImageRoom": (imagesData is Map) ? (imagesData["propertyImageRoom"] ?? []) : [],
             "propertyImageLivingRoom": (imagesData is Map) ? (imagesData["propertyImageLivingRoom"] ?? []) : [],
@@ -5803,6 +5860,18 @@ Widget _buildStep3() {
         print("  - Images propertyImageKitchen: ${(propertyData['propertyImageKitchen'] as List).length}");
 
         res = await ctrl.createProperty(propertyData);
+        if (!res.status &&
+            _isPropertyFeaturesOrPropertyFkError(res) &&
+            (propertyData['features'] as List).isNotEmpty) {
+          print(
+              '🔄 Nouvel essai sans équipements (erreur serveur property_features / FK)…');
+          propertyData = Map<String, dynamic>.from(propertyData);
+          propertyData['features'] = <Map<String, dynamic>>[];
+          res = await ctrl.createProperty(propertyData);
+          if (res.status == true) {
+            omittedFeaturesAfterRetry = true;
+          }
+        }
       }
 
       print("📡 Réponse API: ${res.status} - ${res.errorMsg}");
@@ -5818,49 +5887,143 @@ Widget _buildStep3() {
            'property_type': _selectedCategory,
          });
 
-        FancyNotification.show(context, "Annonce publiée", type: NotificationType.success);
+        final createdHotelId =
+            _selectedCategory == 'Hotels' ? _parseCreatedHotelId(res.data) : null;
+
+        final String successBody = omittedFeaturesAfterRetry
+            ? "Annonce publiée. Les équipements n’ont pas pu être enregistrés (réponse serveur). Vous pourrez compléter l’annonce après une mise à jour ou depuis l’espace web."
+            : (createdHotelId != null
+                ? "Hôtel publié. Vous pouvez ajouter vos chambres et suivre les réservations."
+                : "Votre annonce est en ligne. Merci de votre confiance.");
+
+        FancyNotification.show(
+          context,
+          successBody,
+          type: omittedFeaturesAfterRetry
+              ? NotificationType.warning
+              : NotificationType.success,
+        );
         
         await Future.delayed(Duration(seconds: 1));
-        if (mounted) {
-           Navigator.pushNamedAndRemoveUntil(
+        if (!mounted) return;
+
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          Routes.bottomPageRoute,
+          (route) => false,
+          arguments: {'shouldRefresh': true},
+        );
+
+        if (createdHotelId != null) {
+          final cityVal = _payloadCityValueForApi();
+          Navigator.push(
             context,
-            Routes.bottomPageRoute,
-                (route) => false,
-            arguments: {'shouldRefresh': true},
+            MaterialPageRoute(
+              builder: (_) => HotelManageDetailPage(
+                initialHotel: PropertyModel(
+                  propertyId: createdHotelId,
+                  title: title,
+                  address: address,
+                  cityValue: cityVal,
+                  propertyTypeId: 5,
+                  propertyType: PropertyTypeModel(propertyTypeId: 5, name: 'Hôtel'),
+                  hotelStructure: [],
+                ),
+              ),
+            ),
           );
         }
       } else {
         // Erreur API
+        reportApiFailureToCrashlytics(
+          'CreatePropertyPostPage',
+          response: res,
+          reason: 'publish_property',
+        );
         print("❌ API Error - Status: ${res.status}");
         print("❌ API Error - ErrorMsg: ${res.errorMsg}");
         print("❌ API Error - Data: ${res.data}");
         
-        String errorMessage = "Une erreur est survenue lors de la publication";
-        if (res.errorMsg != null && res.errorMsg!.isNotEmpty) {
-          errorMessage = res.errorMsg!;
-        } else if (res.data != null && res.data is Map) {
-          errorMessage = res.data['detailMessage'] ?? res.data['message'] ?? res.data['error'] ?? "Erreur lors de la publication de l'annonce";
+        String errorMessage =
+            "La publication n’a pas abouti. Vérifiez les informations et réessayez.";
+        final dataMap = res.data is Map
+            ? Map<String, dynamic>.from(res.data as Map)
+            : null;
+        final detailRaw = dataMap?['detailMessage']?.toString() ?? '';
+        final detailLower = detailRaw.toLowerCase();
+        var usedSpecificDetail = false;
+
+        if (detailLower.contains('property_images') ||
+            detailLower.contains('fk_pi_property')) {
+          errorMessage =
+              "Les photos n’ont pas pu être enregistrées : le bien n’a vraisemblablement pas été créé. Vérifiez ville, commune, quartier (texte libre ou choix dans la liste).";
+          usedSpecificDetail = true;
+        } else if (detailLower.contains('property_features') ||
+            detailLower.contains('fk_pf_property')) {
+          errorMessage =
+              "Les équipements n’ont pas été acceptés par le serveur (liaison avec l’annonce). Décochez tous les équipements et republiez, ou réessayez dans quelques instants.";
+          usedSpecificDetail = true;
+        } else if (detailLower.contains('foreign key') &&
+            detailLower.contains('feature')) {
+          errorMessage =
+              "Un équipement sélectionné n’est plus valide côté serveur. Fermez cet écran, rouvrez « Publier » pour recharger la liste, puis republiez.";
+          usedSpecificDetail = true;
         }
-        
-        // Sanitize technical errors
-        if (errorMessage.toLowerCase().contains("internal server error") || 
-            errorMessage.toLowerCase().contains("socketexception") ||
-            errorMessage.toLowerCase().contains("connection timed out") ||
-            errorMessage.toLowerCase().contains("impossible de se connecter")) {
-              errorMessage = "Connexion instable ou service indisponible. Veuillez réessayer.";
+
+        if (!usedSpecificDetail) {
+          if (res.errorMsg != null && res.errorMsg!.isNotEmpty) {
+            errorMessage = res.errorMsg!;
+          } else if (dataMap != null) {
+            errorMessage = dataMap['detailMessage']?.toString() ??
+                dataMap['message']?.toString() ??
+                dataMap['error']?.toString() ??
+                errorMessage;
+          }
+        }
+
+        // Ne pas masquer un détail SQL utile derrière « Internal server error ».
+        if (!usedSpecificDetail &&
+            errorMessage.toLowerCase().contains("internal server error") &&
+            detailRaw.isEmpty) {
+          errorMessage =
+              "Connexion instable ou service indisponible. Veuillez réessayer.";
+        } else if (!usedSpecificDetail &&
+            errorMessage.toLowerCase().contains("internal server error") &&
+            detailRaw.isNotEmpty) {
+          errorMessage =
+              "Le serveur a refusé la publication. Si vous aviez coché des équipements, décochez-les et réessayez.";
+        }
+
+        if (!usedSpecificDetail &&
+            (errorMessage.toLowerCase().contains("socketexception") ||
+                errorMessage.toLowerCase().contains("connection timed out") ||
+                errorMessage
+                    .toLowerCase()
+                    .contains("impossible de se connecter"))) {
+          errorMessage =
+              "Connexion instable ou service indisponible. Veuillez réessayer.";
         }
         
         print("📢 Message d'erreur final: $errorMessage");
         FancyNotification.show(context, errorMessage, isError: true);
       }
     } catch (e, stackTrace) {
+      reportApiFailureToCrashlytics(
+        'CreatePropertyPostPage',
+        error: e,
+        stackTrace: stackTrace,
+        reason: 'publish_property_exception',
+      );
       _clearImageCache();
       print("❌ EXCEPTION lors de la publication: $e");
       print("❌ STACK TRACE: $stackTrace");
       print("❌ Exception Type: ${e.runtimeType}");
       
-      String detailedError = "Erreur: $e";
-      FancyNotification.show(context, detailedError, isError: true);
+      FancyNotification.show(
+        context,
+        "Quelque chose a interrompu l’envoi. Vérifiez la connexion et réessayez.",
+        isError: true,
+      );
     } finally {
       _clearImageCache();
       if (mounted) {
@@ -5869,6 +6032,97 @@ Widget _buildStep3() {
         });
       }
     }
+  }
+
+  /// Kinshasa : `quartierId` depuis la sélection API **ou** depuis le modèle local (commune → quartiers).
+  int _kinshasaQuartierIdForPayload() {
+    final fromModel = _selectedQuartier?.quartierId;
+    if (fromModel != null && fromModel > 0) return fromModel;
+    final k = _selectedKinshasaQuartier;
+    if (k != null) {
+      for (final key in ['quartierId', 'id', 'QuartierId', 'quartier_id']) {
+        final v = k[key];
+        final n = v is int ? v : int.tryParse(v?.toString() ?? '');
+        if (n != null && n > 0) return n;
+      }
+    }
+    return 0;
+  }
+
+  String _kinshasaQuartierValueForPayload() {
+    final t = _quartierTextController.text.trim();
+    if (t.isNotEmpty) return t;
+    if (_selectedKinshasaQuartier != null) {
+      final l = _kinshasaQuartierLabel(_selectedKinshasaQuartier!);
+      return l.isNotEmpty
+          ? l
+          : (_selectedKinshasaQuartier!['name'] ?? '').toString();
+    }
+    return '';
+  }
+
+  int _payloadCityIdForApi() {
+    if (!_isKinshasaSelected) return 0;
+    final id = _selectedCity?.cityId;
+    return (id != null && id > 0) ? id : 0;
+  }
+
+  String _payloadCityValueForApi() {
+    final t = _cityTextController.text.trim();
+    if (t.isNotEmpty) return t;
+    if (_isKinshasaSelected) return _selectedCity?.name ?? 'Kinshasa';
+    return 'Ville non spécifiée';
+  }
+
+  int _payloadCommuneIdForApi() {
+    if (!_isKinshasaSelected) return 0;
+    final id = _selectedCommune?.communeId;
+    return (id != null && id > 0) ? id : 0;
+  }
+
+  String _payloadCommuneValueForApi() {
+    final t = _communeTextController.text.trim();
+    if (t.isNotEmpty) return t;
+    if (_isKinshasaSelected) return _selectedCommune?.name ?? '';
+    return '';
+  }
+
+  int _payloadQuartierIdForApi() {
+    if (!_isKinshasaSelected) return 0;
+    return _kinshasaQuartierIdForPayload();
+  }
+
+  Set<int> _allowedFeatureIdsFromList(List<Map<String, dynamic>> list) {
+    final out = <int>{};
+    for (final m in list) {
+      final id = m['featureId'];
+      final n = id is int ? id : int.tryParse(id?.toString() ?? '');
+      if (n != null && n > 0) out.add(n);
+    }
+    return out;
+  }
+
+  /// N’envoie que des feature_id présents dans le catalogue API (évite FK / 500).
+  List<Map<String, dynamic>> _featuresPayloadForApi(
+      List<Map<String, dynamic>> featureCatalog) {
+    final allowed = _allowedFeatureIdsFromList(featureCatalog);
+    final stripped = _selectedFeatureIds.where(allowed.contains).toList()
+      ..sort();
+    if (stripped.length != _selectedFeatureIds.length) {
+      final ignored = _selectedFeatureIds.length - stripped.length;
+      print(
+          '⚠️ $ignored équipement(s) ignoré(s) (id absent du catalogue API synchronisé)');
+    }
+    return stripped.map((id) => <String, dynamic>{'featureId': id}).toList();
+  }
+
+  bool _isPropertyFeaturesOrPropertyFkError(HttpResponse res) {
+    if (res.data is! Map) return false;
+    final d =
+        (res.data as Map)['detailMessage']?.toString().toLowerCase() ?? '';
+    return d.contains('property_features') ||
+        d.contains('fk_pf_property') ||
+        (d.contains('foreign key') && d.contains('property_features'));
   }
 
   Future<void> _clearDraft() async {
@@ -6043,6 +6297,39 @@ Widget _buildStep3() {
   // =============================================
   // LOAD PROPERTY TYPES AND FEATURES
   // =============================================
+
+  void _syncHotelTypeMeta() {
+    _hotelPropertyTypeReady = _propertyTypes.isNotEmpty;
+    _hotelTypeLabel = '';
+    for (final t in _propertyTypes) {
+      final name = (t['name'] ?? '').toString();
+      if (RegExp(r'h[oô]tel', caseSensitive: false).hasMatch(name)) {
+        _hotelTypeLabel = name.trim();
+        break;
+      }
+    }
+    if (_hotelTypeLabel.isEmpty && _selectedCategory == 'Hotels') {
+      _hotelTypeLabel = 'Hotels';
+    }
+  }
+
+  int? _parseCreatedHotelId(dynamic data) {
+    if (data == null || data is! Map) return null;
+    final m = Map<String, dynamic>.from(data as Map);
+    final h = m['hotel'];
+    if (h is Map) {
+      final hm = Map<String, dynamic>.from(h);
+      final id = hm['id'] ?? hm['hotelId'];
+      if (id != null) return int.tryParse(id.toString());
+    }
+    for (final k in ['id', 'hotelId', 'propertyId']) {
+      if (m[k] != null) return int.tryParse(m[k].toString());
+    }
+    if (m['data'] is Map) {
+      return _parseCreatedHotelId(m['data']);
+    }
+    return null;
+  }
   
   Future<void> _loadPropertyTypesAndFeatures() async {
     if (!mounted) return;
@@ -6052,31 +6339,61 @@ Widget _buildStep3() {
       _loadingFeatures = true;
     });
 
+    final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
+
     try {
-      final propertyCtrl = Provider.of<PropertyController>(context, listen: false);
-      
-      // Load property types
-      final types = await propertyCtrl.getPropertyTypes();
-      
-      // Load features
-      final features = await propertyCtrl.getFeatures();
-      
+      try {
+        stockage.remove('property_types_last_sync');
+        stockage.remove('features_last_sync');
+      } catch (_) {}
+
+      await propertyCtrl.syncPropertyTypes().timeout(
+            const Duration(seconds: 35),
+            onTimeout: () {},
+          );
+      List<Map<String, dynamic>> types =
+          List<Map<String, dynamic>>.from(propertyCtrl.propertyTypes);
+      if (types.isEmpty) {
+        types = await propertyCtrl.getPropertyTypes();
+      }
+
+      await propertyCtrl.syncFeatures().timeout(
+            const Duration(seconds: 35),
+            onTimeout: () {},
+          );
+      List<Map<String, dynamic>> features =
+          List<Map<String, dynamic>>.from(propertyCtrl.propertyFeatures);
+      if (features.isEmpty) {
+        features = await propertyCtrl.getFeatures();
+      }
+
       if (mounted) {
         setState(() {
           _propertyTypes = types;
           _features = features;
           _loadingTypes = false;
           _loadingFeatures = false;
+          _syncHotelTypeMeta();
         });
-        
-        print("✅ ${_propertyTypes.length} types et ${_features.length} caractéristiques chargés");
+
+        print(
+            "✅ ${_propertyTypes.length} types et ${_features.length} caractéristiques (sync API)");
       }
-    } catch (e) {
-      print("❌ Erreur chargement types/features: $e");
+    } catch (e, st) {
+      print("❌ Erreur chargement types/features: $e\n$st");
+      try {
+        await propertyCtrl.getPropertyTypes();
+        await propertyCtrl.getFeatures();
+      } catch (_) {}
       if (mounted) {
         setState(() {
+          _propertyTypes =
+              List<Map<String, dynamic>>.from(propertyCtrl.propertyTypes);
+          _features =
+              List<Map<String, dynamic>>.from(propertyCtrl.propertyFeatures);
           _loadingTypes = false;
           _loadingFeatures = false;
+          _syncHotelTypeMeta();
         });
       }
     }
