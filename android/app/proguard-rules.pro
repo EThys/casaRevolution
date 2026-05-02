@@ -38,6 +38,10 @@
 -keep class com.google.firebase.** { *; }
 -keep class com.google.android.gms.** { *; }
 
+# OneSignal
+-keep class com.onesignal.** { *; }
+-dontwarn com.onesignal.**
+
 # Votre code applicatif
 -keep class com.casa.casa.casa.** { *; }
 
