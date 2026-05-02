@@ -38,9 +38,9 @@ class AllServiceCategoriesPage extends StatefulWidget {
       'color': Color(0xFFFF9800),
     },
     {
-      'name': 'Carreleur',
-      'value': 'carrelage',
-      'icon': Icons.square_foot_rounded,
+      'name': 'Coiffure',
+      'value': 'coiffure',
+      'icon': Icons.content_cut_rounded,
       'color': Color(0xFF9C27B0),
     },
     {
@@ -206,8 +206,10 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
             'salubrité': Icons.cleaning_services_rounded,
             'salubrite':  Icons.cleaning_services_rounded, // Variante sans accent
             'peintre': Icons.format_paint_rounded,
-            'carrelleur': Icons.square_foot_rounded,
-            'carreleur': Icons.square_foot_rounded, // Variante possible
+            'carrelleur': Icons.content_cut_rounded,
+            'carreleur': Icons.content_cut_rounded,
+            'coiffure': Icons.content_cut_rounded,
+            'coiffeur': Icons.content_cut_rounded,
             'menusier': Icons.carpenter_rounded,
             'menuisier': Icons.carpenter_rounded, // Variante avec 'u'
             'frigoriste': Icons.ac_unit_rounded,
@@ -228,7 +230,9 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
             'salubrite': Color(0xFF4CAF50), // Variante sans accent
             'peintre': Color(0xFFFF5722),
             'carrelleur': Color(0xFF9C27B0),
-            'carreleur': Color(0xFF9C27B0), // Variante possible
+            'carreleur': Color(0xFF9C27B0),
+            'coiffure': Color(0xFF9C27B0),
+            'coiffeur': Color(0xFF9C27B0),
             'menusier': Color(0xFF8D6E63),
             'menuisier': Color(0xFF8D6E63), // Variante avec 'u'
             'frigoriste': Color(0xFF00BCD4),
@@ -367,9 +371,12 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
       'salubrites': ServiceType.nettoyage,
       'peintre': ServiceType.peinture,
       'peintres': ServiceType.peinture,
-      'carreleur': ServiceType.carrelage,
-      'carrelleur': ServiceType.carrelage, // Variante avec double 'l' (API retourne "carrelleur")
-      'carreleurs': ServiceType.carrelage,
+      'coiffure': ServiceType.coiffure,
+      'coiffeur': ServiceType.coiffure,
+      'carreleur': ServiceType.coiffure,
+      'carrelleur': ServiceType.coiffure,
+      'carreleurs': ServiceType.coiffure,
+      'carrelage': ServiceType.coiffure,
       'menuisier': ServiceType.reparation,
       'menusier': ServiceType.reparation, // Variante sans 'u' (API retourne "menusier")
       'menuisiers': ServiceType.reparation,

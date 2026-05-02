@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:shimmer/shimmer.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/decertification_access_guard.dart';
 
 import '../controllers/AgenceController.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../models/AgenceModel.dart';
+import 'CreateAgencePage.dart';
+import 'CreatePropertyPostPage.dart';
 import 'SiteDetailsPage.dart';
 
 class MyAgencyPage extends StatefulWidget {
@@ -21,6 +24,13 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
   bool _isLoading = true;
   AgenceModel? _myAgency;
   String? _errorMessage;
+  bool _noAgencyYet = false;
+
+  static const Color _primaryColor = Color(0xFF1976D2);
+  static const Color _secondaryColor = Color(0xFF64B5F6);
+  static const Color _darkColor = Color(0xFF1A1D26);
+  static const Color _lightGrey = Color(0xFFF5F6FA);
+  static const Color _mediumGrey = Color(0xFF7F8C8D);
 
   @override
   void initState() {
@@ -73,10 +83,14 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
         setState(() {
           _myAgency = agenceCtrl.agences.first; 
           _isLoading = false;
+          _errorMessage = null;
+          _noAgencyYet = false;
         });
       } else {
          setState(() {
-          _errorMessage = "Aucune agence trouvée pour ce compte.";
+          _myAgency = null;
+          _errorMessage = null;
+          _noAgencyYet = true;
           _isLoading = false;
         });
       }
@@ -84,18 +98,207 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;
+        _noAgencyYet = false;
       });
     }
+  }
+
+  Widget _buildShimmer() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Shimmer.fromColors(
+          baseColor: Colors.grey[300]!,
+          highlightColor: Colors.grey[100]!,
+          child: Container(
+            height: 120,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Shimmer.fromColors(
+          baseColor: Colors.grey[300]!,
+          highlightColor: Colors.grey[100]!,
+          child: Container(
+            height: 180,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Shimmer.fromColors(
+          baseColor: Colors.grey[300]!,
+          highlightColor: Colors.grey[100]!,
+          child: Container(
+            height: 180,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [_primaryColor, _secondaryColor],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primaryColor.withOpacity(0.25),
+                    blurRadius: 18,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.business_rounded, color: Colors.white, size: 42),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Aucune agence pour le moment',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: _darkColor,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Créez votre agence pour publier vos offres et recevoir des réservations.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: _mediumGrey,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton.icon(
+                onPressed: () async {
+                  final created = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(builder: (_) => CreateAgencePage()),
+                  );
+                  if (!mounted) return;
+                  if (created == true) {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const CreatePropertyPostPage(
+                          openAfterAgencyVacanceStep2: true,
+                        ),
+                      ),
+                    );
+                  }
+                  if (!mounted) return;
+                  _loadAgency();
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: _primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                icon: const Icon(Icons.add_business_rounded),
+                label: const Text(
+                  'Créer mon agence',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: _loadAgency,
+              child: Text(
+                'Actualiser',
+                style: TextStyle(color: _mediumGrey, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 74,
+              height: 74,
+              decoration: BoxDecoration(
+                color: _primaryColor.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: const Icon(Icons.wifi_off_rounded, size: 38, color: _primaryColor),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Impossible de charger votre agence',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: _darkColor),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _errorMessage ?? 'Erreur inconnue',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: _mediumGrey, height: 1.35),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton(
+                onPressed: _loadAgency,
+                style: FilledButton.styleFrom(
+                  backgroundColor: _primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Réessayer', style: TextStyle(fontWeight: FontWeight.w800)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: _lightGrey,
       appBar: AppBar(
         iconTheme: IconThemeData(color: Colors.white),
         title: Text("Mon Agence", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: Color(0xFF1976D2),
+        backgroundColor: _primaryColor,
         elevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios_new, color: Colors.white),
@@ -103,20 +306,11 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
         ),
       ),
       body: _isLoading 
-          ? Center(child: CircularProgressIndicator())
+          ? _buildShimmer()
           : _errorMessage != null
-              ? Center(child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
-                    SizedBox(height: 16),
-                    Text(_errorMessage!, style: TextStyle(color: Colors.grey[700])),
-                    SizedBox(height: 16),
-                    ElevatedButton(onPressed: _loadAgency, child: Text("Réessayer"))
-                  ],
-                ))
+              ? _buildErrorState()
               : _myAgency == null 
-                  ? Center(child: Text("Aucune agence trouvée"))
+                  ? _buildEmptyState()
                   : SingleChildScrollView(
                       child: Column(
                         children: [

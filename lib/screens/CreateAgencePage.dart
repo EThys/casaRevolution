@@ -111,6 +111,10 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
           _availableQuartiers = locationCtrl.getQuartiersForCommune(_selectedCommune!.communeId!);
           if (_availableQuartiers.isNotEmpty) {
             _selectedQuartier = _availableQuartiers.first;
+            // Synchroniser le champ texte (évite "quartier invalide" au retour).
+            if (_quartierTextController.text.trim().isEmpty) {
+              _quartierTextController.text = _selectedQuartier?.name ?? '';
+            }
           } else {
             _selectedQuartier = null;
           }
@@ -778,7 +782,20 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
           controller: controller,
           focusNode: focusNode,
           onTapOutside: (event) => focusNode.unfocus(),
-          onChanged: (value) => _quartierTextController.text = value,
+          onChanged: (value) {
+            // Si l'utilisateur tape manuellement, on considère que c'est un quartier "libre".
+            _quartierTextController.text = value;
+            if (mounted) {
+              setState(() {
+                final typed = value.trim().toLowerCase();
+                final selectedName = (_selectedKinshasaQuartier?.name ?? '').trim().toLowerCase();
+                if (typed.isEmpty || (selectedName.isNotEmpty && typed != selectedName)) {
+                  _selectedKinshasaQuartier = null;
+                  _selectedQuartier = null;
+                }
+              });
+            }
+          },
           decoration: InputDecoration(
             labelText: "Quartier*",
             prefixIcon: Icon(Icons.place_rounded, color: primaryColor),

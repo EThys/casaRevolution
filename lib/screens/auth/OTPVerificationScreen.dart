@@ -617,7 +617,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
     final otpCode = _getOTPCode();
     
     if (otpCode.length != 6) {
-      SnackbarForCasa.error(context, "Veuillez entrer le code complet");
+      SnackbarForCasa.error(context, "Indiquez les 6 chiffres du code pour continuer.");
       return;
     }
 
@@ -634,7 +634,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
     if (verifyCount >= 3) {
       SnackbarForCasa.error(
         context,
-        "Limite de sécurité atteinte. Vous avez dépassé les 3 tentatives de vérification pour aujourd'hui."
+        "Vous avez atteint la limite de tentatives pour aujourd’hui. Revenez demain ou demandez de l’aide au support.",
       );
       return;
     }
@@ -650,7 +650,10 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
 
     final isConnected = await NetworkUtils.checkInternetConnectivity();
     if (!isConnected) {
-      SnackbarForCasa.error(context, "Pas de connexion internet");
+      SnackbarForCasa.error(
+        context,
+        "Connexion internet indisponible. Réessayez lorsque le réseau est stable.",
+      );
       setState(() => _isLoading = false);
       return;
     }
@@ -667,7 +670,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
         final status = responseData['status'] as String?;
         
         if (status == "approved" && ctrl.userId != null) {
-          SnackbarForCasa.success(context, "Code vérifié avec succès");
+          SnackbarForCasa.success(context, "Code confirmé, vous pouvez continuer.");
           
           // ✅ Enregistrer timestamp + incrémenter le compteur de réinitialisations réussies
           box.write('last_successful_reset', DateTime.now().toIso8601String());
@@ -685,7 +688,10 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
           );
         } else {
           // Status différent de "approved" = code expiré
-          SnackbarForCasa.error(context, "Code expiré ou invalide");
+          SnackbarForCasa.error(
+            context,
+            "Ce code n’est plus valide. Demandez un nouveau code et réessayez.",
+          );
           
           // Effacer les champs en cas d'erreur
           for (var controller in _controllers) {
@@ -694,7 +700,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
           _focusNodes[0].requestFocus();
         }
       } else {
-        String errorMessage = res.errorMsg ?? "Code OTP invalide";
+        String errorMessage = res.errorMsg ?? "Ce code ne correspond pas. Vérifiez-le ou demandez-en un autre.";
         if (res.data != null && res.data is Map) {
           errorMessage = (res.data as Map)['message'] ?? errorMessage;
         }
@@ -707,7 +713,10 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
         }
         
         if (errorMessage.contains("Idenfiant invalide.")) {
-          SnackbarForCasa.error(context, "Ce numéro ne correspond à aucun compte dans CasaNayo. Veuillez d'abord créer un compte.");
+          SnackbarForCasa.error(
+            context,
+            "Ce numéro n’est pas encore inscrit. Créez d’abord un compte chez nous.",
+          );
           await Future.delayed(const Duration(seconds: 2));
           if (mounted) {
             Navigator.pushReplacement(
@@ -727,7 +736,7 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
         _focusNodes[0].requestFocus();
       }
     } catch (e) {
-      String errorMsg = "Erreur technique lors de la vérification";
+      String errorMsg = "La vérification n’a pas abouti. Réessayez dans un instant.";
       if (e.toString().toLowerCase().contains("internal server error") || 
           e.toString().contains("500")) {
         errorMsg = "Ce code est invalide ou a déjà été utilisé.";
@@ -755,7 +764,10 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
     // Vérifier la limite globale de l'appareil
     int globalCount = box.read('global_otp_count') ?? 0;
     if (globalCount >= maxDeviceDailyRequests) {
-      SnackbarForCasa.error(context, "Limite quotidienne atteinte pour cet appareil.");
+      SnackbarForCasa.error(
+        context,
+        "Nombre maximum d’envois atteint pour aujourd’hui sur cet appareil. Réessayez demain.",
+      );
       return;
     }
 
@@ -765,7 +777,10 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
 
     final isConnected = await NetworkUtils.checkInternetConnectivity();
     if (!isConnected) {
-      SnackbarForCasa.error(context, "Pas de connexion internet");
+      SnackbarForCasa.error(
+        context,
+        "Connexion internet indisponible. Réessayez lorsque le réseau est stable.",
+      );
       setState(() => _isResending = false);
       return;
     }
@@ -794,8 +809,10 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
         _startCountdown();
       } else {
         String errorMessage = res.data != null && res.data is Map
-            ? (res.data as Map)['message'] ?? "Erreur lors de l'envoi du code"
-            : res.errorMsg ?? "Erreur lors de l'envoi du code";
+            ? (res.data as Map)['message'] ??
+                "Le code n’a pas pu être renvoyé. Patientez un peu et réessayez."
+            : res.errorMsg ??
+                "Le code n’a pas pu être renvoyé. Patientez un peu et réessayez.";
             
         // Gestion professionnelle de l'erreur 500
         if (errorMessage.toLowerCase().contains("internal server error") || 
@@ -805,7 +822,10 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
         }
         
         if (errorMessage.contains("Idenfiant invalide.")) {
-          SnackbarForCasa.error(context, "Ce numéro ne correspond à aucun compte dans CasaNayo. Veuillez d'abord créer un compte.");
+          SnackbarForCasa.error(
+            context,
+            "Ce numéro n’est pas encore inscrit. Créez d’abord un compte chez nous.",
+          );
           await Future.delayed(const Duration(seconds: 2));
           if (mounted) {
             Navigator.pushReplacement(
@@ -819,7 +839,10 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> with Code
         SnackbarForCasa.error(context, errorMessage);
       }
     } catch (e) {
-      SnackbarForCasa.error(context, "Erreur technique lors de l'envoi du code");
+      SnackbarForCasa.error(
+        context,
+        "Le renvoi du code a échoué. Vérifiez la connexion et réessayez.",
+      );
       print("Resend OTP error: $e");
     } finally {
       if (mounted) {

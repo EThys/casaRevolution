@@ -259,12 +259,18 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
             _awaitingCardCheckout = false;
             _paymentStep = 0;
           });
-          final msg = (data['message'] ?? data['body'] ?? 'Paiement annulé.')
-              .toString()
-              .trim();
-          if (msg.isNotEmpty) {
-            SnackbarForCasa.warning(context, msg);
-          }
+          // UX: si le backend envoie un texte "échec" alors que le tag est CANCEL,
+          // on force un libellé "annulé" pour éviter la confusion.
+          final rawMsg = (data['message'] ?? data['body'] ?? '').toString().trim();
+          final lower = rawMsg.toLowerCase();
+          final msg = (rawMsg.isEmpty ||
+                  lower.contains('échou') ||
+                  lower.contains('echec') ||
+                  lower.contains('failed') ||
+                  lower.contains('error'))
+              ? 'Paiement annulé.'
+              : rawMsg;
+          SnackbarForCasa.info(context, msg);
         }
       } else {
         CasaPaymentLog.log(
@@ -698,10 +704,10 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
                   padding: const EdgeInsets.symmetric(horizontal: 20.0),
                   child: Column(
                     children: [
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 8),
                       if (!hasToken) ...[
                         _buildLoginRequiredBanner(),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 12),
                       ],
                       // Pricing Section
                       _buildHeader(),
@@ -714,11 +720,37 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
                       // Form Area
                       _showPaymentProgress
                         ? _buildPaymentTimeline()
-                        : AnimatedCrossFade(
-                            firstChild: _buildMobileMoneyForm(),
-                            secondChild: _buildCardForm(),
-                            crossFadeState: _selectedMethod == 0 ? CrossFadeState.showFirst : CrossFadeState.showSecond,
-                            duration: const Duration(milliseconds: 300),
+                        : AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 220),
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            // Important: le layoutBuilder par défaut empile l'ancien + le nouveau widget (stack),
+                            // ce qui peut créer un "voile" / glitch visuel sur la zone au-dessus (dont le sélecteur).
+                            // Ici on n'affiche que le widget courant.
+                            layoutBuilder: (currentChild, previousChildren) {
+                              return currentChild ?? const SizedBox.shrink();
+                            },
+                            transitionBuilder: (child, animation) {
+                              // Remplace l’AnimatedCrossFade (qui donnait un “voile sombre” perceptible)
+                              // par une transition plus nette et sans superposition.
+                              final offset = Tween<Offset>(
+                                begin: const Offset(0.0, 0.03),
+                                end: Offset.zero,
+                              ).animate(animation);
+                              return FadeTransition(
+                                opacity: animation,
+                                child: SlideTransition(position: offset, child: child),
+                              );
+                            },
+                            child: _selectedMethod == 0
+                                ? KeyedSubtree(
+                                    key: const ValueKey('mobile'),
+                                    child: _buildMobileMoneyForm(),
+                                  )
+                                : KeyedSubtree(
+                                    key: const ValueKey('card'),
+                                    child: _buildCardForm(),
+                                  ),
                           ),
                       const SizedBox(height: 30),
                     ],
@@ -740,7 +772,7 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 24),
+        const SizedBox(height: 8),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -749,13 +781,43 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
               style: GoogleFonts.inter(fontSize: 24, fontWeight: FontWeight.w800, color: const Color(0xFF111827)),
             ),
             const SizedBox(height: 4),
-            Container(
-              width: 100,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1976D2),
-                borderRadius: BorderRadius.circular(2),
-              ),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 122,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(999),
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFF1976D2),
+                        Color(0xFF64B5F6),
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Color(0xFF1976D2),
+                        blurRadius: 14,
+                        offset: Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  right: -6,
+                  top: -3,
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF111827),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -778,6 +840,7 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
       decoration: BoxDecoration(
         color: const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Row(
         children: [
@@ -791,34 +854,56 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
   Widget _buildMethodButton(int index, String label, IconData icon) {
     bool isSelected = _selectedMethod == index;
     return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _selectedMethod = index),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-            // Pas d’ombre : le blur animé au changement d’onglet produisait un effet disgracieux.
-            border: isSelected
-                ? Border.all(color: const Color(0xFFE5E7EB))
-                : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 18, color: isSelected ? const Color(0xFF1976D2) : const Color(0xFF9CA3AF)),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                  color: isSelected ? const Color(0xFF111827) : const Color(0xFF6B7280),
-                ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => setState(() => _selectedMethod = index),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: isSelected
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF1976D2), Color(0xFF64B5F6)],
+                    )
+                  : null,
+              color: isSelected ? null : Colors.transparent,
+              border: Border.all(
+                color: isSelected ? Colors.transparent : const Color(0xFFE5E7EB),
               ),
-            ],
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFF1976D2).withOpacity(0.22),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ]
+                  : const [],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: isSelected ? Colors.white : const Color(0xFF6B7280),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: isSelected ? Colors.white : const Color(0xFF111827),
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

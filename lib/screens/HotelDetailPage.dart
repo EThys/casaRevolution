@@ -4,14 +4,15 @@ import 'package:casa/screens/HotelRoomDetailPage.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
-import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
+import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/database/DatabaseHelper.dart';
 import 'package:casa/utils/property_snapshot_merge.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:provider/provider.dart';
+import 'dart:async';
 
 /// Détail hôtel : présentation « agence », liste des chambres et accès réservation.
 class HotelDetailPage extends StatefulWidget {
@@ -40,12 +41,31 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
 
   PropertyModel? _model;
   bool _loading = true;
+  final PageController _heroController = PageController();
+  int _heroIndex = 0;
+  Timer? _heroTimer;
+  PropertyController? _propertyCtrl;
+  VoidCallback? _propertyCtrlListener;
 
   @override
   void initState() {
     super.initState();
     _model = widget.property;
+    // Afficher immédiatement le snapshot (même partiel), puis rafraîchir (SWR) en arrière-plan.
+    _loading = false;
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadDetail());
+  }
+  
+  @override
+  void dispose() {
+    final c = _propertyCtrl;
+    final l = _propertyCtrlListener;
+    if (c != null && l != null) {
+      c.removeListener(l);
+    }
+    _heroTimer?.cancel();
+    _heroController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDetail() async {
@@ -54,7 +74,47 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
       if (mounted) setState(() => _loading = false);
       return;
     }
-    final c = context.read<PropertyController>();
+
+    // Écouter les mises à jour du controller (enrichissement chambres en arrière-plan).
+    _propertyCtrl ??= context.read<PropertyController>();
+    _propertyCtrlListener ??= () async {
+      if (!mounted) return;
+      try {
+        final cached = await DatabaseHelper.instance
+            .getCategoryPropertyById(DatabaseHelper.tableHotels, id);
+        if (!mounted || cached == null) return;
+        final current = _model ?? widget.property;
+        final curRooms = current.hotelStructure?.length ?? 0;
+        final newRooms = cached.hotelStructure?.length ?? 0;
+        // Mettre à jour si on gagne des chambres ou des images.
+        if (newRooms > curRooms ||
+            (cached.hotelStructure?.any((s) => (s.images?.isNotEmpty ?? false)) == true &&
+                current.hotelStructure?.any((s) => (s.images?.isNotEmpty ?? false)) != true)) {
+          setState(() {
+            _model = PropertySnapshotMerge.mergeFillMissing(current, cached);
+          });
+          _restartHeroAutoScroll();
+        }
+      } catch (_) {}
+    };
+    _propertyCtrl!.removeListener(_propertyCtrlListener!);
+    _propertyCtrl!.addListener(_propertyCtrlListener!);
+
+    // 1) Charger immédiatement depuis SQLite (stale) si disponible.
+    try {
+      final cached = await DatabaseHelper.instance
+          .getCategoryPropertyById(DatabaseHelper.tableHotels, id);
+      if (mounted && cached != null) {
+        setState(() {
+          _model = PropertySnapshotMerge.mergeFillMissing(widget.property, cached);
+          _loading = false;
+        });
+        _restartHeroAutoScroll();
+      }
+    } catch (_) {}
+
+    // 2) Rafraîchir en arrière-plan depuis l’API (et cache DB mis à jour dans le controller).
+    final c = _propertyCtrl ?? context.read<PropertyController>();
     final fresh = await c.getPropertyById(
       id,
       propertyTypeId: 5,
@@ -65,6 +125,99 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
       _model = fresh ?? widget.property;
       _loading = false;
     });
+    _restartHeroAutoScroll();
+  }
+  
+  List<String> _heroImages(PropertyModel p) {
+    final urls = <String>[];
+    final fromList = p.propertyImage ?? [];
+    for (final i in fromList) {
+      final u = _imgUrl(i.path);
+      if (u.isNotEmpty) urls.add(u);
+    }
+    final fallback = _imgUrl(p.image);
+    if (fallback.isNotEmpty && !urls.contains(fallback)) urls.insert(0, fallback);
+    return urls;
+  }
+  
+  void _restartHeroAutoScroll() {
+    _heroTimer?.cancel();
+    final p = _model ?? widget.property;
+    final imgs = _heroImages(p);
+    if (!mounted || imgs.length < 2) return;
+    _heroTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!mounted) return;
+      final next = (_heroIndex + 1) % imgs.length;
+      _heroController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+  
+  List<String> _galleryImages(PropertyModel p) {
+    final urls = <String>[];
+    urls.addAll(_heroImages(p));
+    final rooms = p.hotelStructure ?? [];
+    for (final s in rooms) {
+      final imgs = s.images ?? [];
+      for (final i in imgs) {
+        final u = _imgUrl(i.path);
+        if (u.isNotEmpty) urls.add(u);
+      }
+    }
+    // de-dup en gardant l'ordre
+    final seen = <String>{};
+    final out = <String>[];
+    for (final u in urls) {
+      if (seen.add(u)) out.add(u);
+    }
+    return out;
+  }
+  
+  void _openGalleryViewer(List<String> urls, {int initialIndex = 0}) {
+    if (urls.isEmpty) return;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        final c = PageController(initialPage: initialIndex);
+        return Dialog(
+          insetPadding: const EdgeInsets.all(12),
+          backgroundColor: Colors.black,
+          child: Stack(
+            children: [
+              PageView.builder(
+                controller: c,
+                itemCount: urls.length,
+                itemBuilder: (_, i) => CachedNetworkImage(
+                  imageUrl: urls[i],
+                  fit: BoxFit.contain,
+                  placeholder: (_, __) => const Center(
+                    child: SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    ),
+                  ),
+                  errorWidget: (_, __, ___) => const Center(
+                    child: Icon(Icons.broken_image_rounded, color: Colors.white70, size: 56),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   String _imgUrl(String? path) {
@@ -112,9 +265,9 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
   @override
   Widget build(BuildContext context) {
     final p = _model ?? widget.property;
-    final images = p.propertyImage ?? [];
-    final cover = images.isNotEmpty ? _imgUrl(images.first.path) : (p.image ?? '');
+    final heroImages = _heroImages(p);
     final rooms = p.hotelStructure ?? [];
+    final gallery = _galleryImages(p);
 
     return Scaffold(
       backgroundColor: _bg,
@@ -150,17 +303,21 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                 background: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (cover.isNotEmpty)
+                    if (heroImages.isNotEmpty)
                       Hero(
-                        tag: widget.heroTag ??
-                            'hotel_hero_${p.propertyId ?? 0}',
-                        child: CachedNetworkImage(
-                          imageUrl: cover,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) => Container(color: _border),
-                          errorWidget: (_, __, ___) => Container(
-                            color: _border,
-                            child: Icon(Icons.hotel, color: _muted.withValues(alpha: 0.5), size: 64),
+                        tag: widget.heroTag ?? 'hotel_hero_${p.propertyId ?? 0}',
+                        child: PageView.builder(
+                          controller: _heroController,
+                          itemCount: heroImages.length,
+                          onPageChanged: (i) => setState(() => _heroIndex = i),
+                          itemBuilder: (context, i) => CachedNetworkImage(
+                            imageUrl: heroImages[i],
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => Container(color: _border),
+                            errorWidget: (_, __, ___) => Container(
+                              color: _border,
+                              child: Icon(Icons.hotel, color: _muted.withValues(alpha: 0.5), size: 64),
+                            ),
                           ),
                         ),
                       )
@@ -183,6 +340,28 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                         ),
                       ),
                     ),
+                    if (heroImages.length > 1)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 18,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(heroImages.length, (i) {
+                            final active = i == _heroIndex;
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              margin: const EdgeInsets.symmetric(horizontal: 3),
+                              width: active ? 14 : 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: active ? Colors.white : Colors.white70,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            );
+                          }),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -337,6 +516,67 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                           ),
                         );
                       }),
+                    if (gallery.isNotEmpty) ...[
+                      const SizedBox(height: 26),
+                      Row(
+                        children: [
+                          Container(
+                            width: 4,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: _primary,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Text(
+                            'Galerie',
+                            style: TextStyle(
+                              color: _text,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: () => _openGalleryViewer(gallery, initialIndex: 0),
+                            child: const Text('Voir toutes les photos'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        height: 86,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: gallery.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 10),
+                          itemBuilder: (_, i) {
+                            final u = gallery[i];
+                            return GestureDetector(
+                              onTap: () => _openGalleryViewer(gallery, initialIndex: i),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: CachedNetworkImage(
+                                  imageUrl: u,
+                                  width: 110,
+                                  height: 86,
+                                  fit: BoxFit.cover,
+                                  placeholder: (_, __) => Container(color: _border, width: 110, height: 86),
+                                  errorWidget: (_, __, ___) => Container(
+                                    width: 110,
+                                    height: 86,
+                                    color: _border,
+                                    child: Icon(Icons.image_not_supported_rounded, color: _muted.withValues(alpha: 0.5)),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

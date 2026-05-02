@@ -62,7 +62,7 @@ class DecertificationInfoPage extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 height: 54,
-                child: ElevatedButton(
+                child: ElevatedButton( 
                   onPressed: () {
                     Navigator.pushReplacement(
                       context,

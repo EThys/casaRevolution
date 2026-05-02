@@ -7,6 +7,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
 import 'dart:convert';
 
@@ -306,7 +307,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String get safePhone {
     final userData = storage.read(StockageKeys.userKey);
-    return userData?['phone']?.toString() ?? '';
+    final raw = userData?['phone']?.toString() ?? '';
+    final v = raw.trim();
+    if (v.isEmpty || v.toLowerCase() == 'null') return '';
+    return v;
   }
 
   String get safeAddress {
@@ -491,14 +495,20 @@ class _ProfilePageState extends State<ProfilePage> {
         } else {
           FancyNotification.show(
             context,
-            response.errorMsg ?? "Erreur lors de la mise à jour de la photo",
+            response.errorMsg ??
+                "La photo n’a pas pu être mise à jour. Réessayez ou choisissez une autre image.",
             isError: true,
             type: NotificationType.error,
           );
         }
       } catch (e) {
         print("Erreur upload photo: $e");
-        FancyNotification.show(context, "Erreur: ${e.toString()}", isError: true, type: NotificationType.error);
+        FancyNotification.show(
+          context,
+          "L’envoi de la photo a échoué. Vérifiez la connexion et réessayez.",
+          isError: true,
+          type: NotificationType.error,
+        );
       } finally {
         if (mounted) {
           setState(() {
@@ -534,80 +544,146 @@ class _ProfilePageState extends State<ProfilePage> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
-          ),
-        ),
-        padding: EdgeInsets.symmetric(vertical: 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            SizedBox(height: 20),
-            if (hasLocal || hasRemote)
-              ListTile(
-                leading: Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    shape: BoxShape.circle,
+      builder: (context) {
+        Widget actionTile({
+          required IconData icon,
+          required String title,
+          required String subtitle,
+          required VoidCallback onTap,
+        }) {
+          return InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: _primaryColor.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(icon, color: _primaryColor, size: 22),
                   ),
-                  child: Icon(Icons.fullscreen, color: Colors.blue[700]),
-                ),
-                title: Text("Voir la photo en plein écran",
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _viewFullScreenPhoto(hasLocal ? localPath : _profileImageUrl!);
-                },
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 13,
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                ],
               ),
-            ListTile(
-              leading: Container(
-                padding: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.green[50],
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.camera_alt, color: Colors.blue[700]),
-              ),
-              title: Text("Prendre une photo (Caméra)",
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.camera);
-              },
             ),
-            ListTile(
-              leading: Container(
-                padding: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.purple[50],
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.photo_library, color: Colors.blue[700]),
-              ),
-              title: Text("Choisir depuis la galerie",
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.gallery);
-              },
+          );
+        }
+
+        return SafeArea(
+          top: false,
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
             ),
-            SizedBox(height: 10),
-          ],
-        ),
-      ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: _primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(Icons.account_circle_rounded, color: _primaryColor),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Photo de profil',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text('Fermer', style: TextStyle(color: Colors.grey.shade700)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                if (hasLocal || hasRemote) ...[
+                  actionTile(
+                    icon: Icons.fullscreen_rounded,
+                    title: 'Aperçu en plein écran',
+                    subtitle: 'Voir votre photo actuelle.',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _viewFullScreenPhoto(hasLocal ? localPath : _profileImageUrl!);
+                    },
+                  ),
+                  Divider(height: 1, color: Colors.grey.shade200),
+                ],
+                actionTile(
+                  icon: Icons.camera_alt_rounded,
+                  title: 'Prendre une photo',
+                  subtitle: 'Utiliser la caméra.',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.camera);
+                  },
+                ),
+                Divider(height: 1, color: Colors.grey.shade200),
+                actionTile(
+                  icon: Icons.photo_library_rounded,
+                  title: 'Choisir depuis la galerie',
+                  subtitle: 'Sélectionner une image existante.',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.gallery);
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -965,8 +1041,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 if (isClickable)
                   Positioned(
-                    bottom: -2,
-                    right: -2,
+                    // Éviter que le badge sorte de la zone cliquable (sinon on a l'impression
+                    // qu'il faut "2 clics" quand on tape sur le coin).
+                    bottom: 2,
+                    right: 2,
                     child: Container(
                       padding: EdgeInsets.all(4),
                       decoration: BoxDecoration(
@@ -1062,6 +1140,7 @@ class _ProfilePageState extends State<ProfilePage> {
             label: 'Téléphone',
             value: safePhone.isNotEmpty ? safePhone : 'Non renseigné',
             isComplete: safePhone.isNotEmpty,
+            onTap: safePhone.isNotEmpty ? () => _makePhoneCall(safePhone) : null,
           ),
           Divider(height: 24, color: _borderColor),
           _buildInfoRow(
@@ -1089,8 +1168,10 @@ class _ProfilePageState extends State<ProfilePage> {
     required String label,
     required String value,
     bool isComplete = true,
+    VoidCallback? onTap,
   }) {
-    return Row(
+    final clickable = onTap != null;
+    final row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
@@ -1135,9 +1216,34 @@ class _ProfilePageState extends State<ProfilePage> {
             Icons.info_outline,
             color: _warningColor,
             size: 16,
+          )
+        else if (clickable)
+          Icon(
+            Icons.chevron_right_rounded,
+            color: _greyColor.withOpacity(0.7),
+            size: 18,
           ),
       ],
     );
+
+    if (!clickable) return row;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: row,
+      ),
+    );
+  }
+
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final v = phoneNumber.trim();
+    if (v.isEmpty) return;
+    final uri = Uri(scheme: 'tel', path: v);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
   }
 
   Widget _buildAuthOptions() {
@@ -1272,7 +1378,8 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           child: Column(
             children: [
-              // Mode Sombre
+              /*
+              // Mode sombre (désactivé temporairement)
               Consumer<ThemeController>(
                 builder: (context, themeController, child) {
                   final isDark = themeController.isDarkMode;
@@ -1280,12 +1387,12 @@ class _ProfilePageState extends State<ProfilePage> {
                     leading: Container(
                       padding: EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.amber.withOpacity(0.1),
+                        color: _primaryColor.withOpacity(0.10),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
                         isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                        color: Colors.amber[700],
+                        color: _primaryColor,
                         size: 20,
                       ),
                     ),
@@ -1308,6 +1415,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 },
               ),
               Divider(height: 1, indent: 60, endIndent: 20, color: _borderColor),
+              */
 
               if (isLoggedIn) ...[
                 Consumer<AuthentificationCtrl>(
@@ -1317,8 +1425,8 @@ class _ProfilePageState extends State<ProfilePage> {
                       icon: premium
                           ? Icons.receipt_long_rounded
                           : Icons.workspace_premium_rounded,
-                      iconColor: Colors.deepPurple[600]!,
-                      bgColor: Colors.deepPurple[50]!,
+                      iconColor: _primaryColor,
+                      bgColor: _primaryColor.withOpacity(0.10),
                       title: premium
                           ? 'Historique des paiements'
                           : 'Abonnement',
@@ -1338,8 +1446,8 @@ class _ProfilePageState extends State<ProfilePage> {
               // Partager l'application
               _buildSettingMenuItem(
                 icon: Icons.share_rounded,
-                iconColor: Colors.blue[600]!,
-                bgColor: Colors.blue[50]!,
+                iconColor: _primaryColor,
+                bgColor: _primaryColor.withOpacity(0.10),
                 title: "Partager l'application",
                 onTap: _shareApp,
                 isDarkMode: isDarkMode,
@@ -1350,8 +1458,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 // Déconnexion
                 _buildSettingMenuItem(
                   icon: Icons.logout_rounded,
-                  iconColor: Colors.orange[700]!,
-                  bgColor: Colors.orange[50]!,
+                  iconColor: _primaryColor,
+                  bgColor: _primaryColor.withOpacity(0.10),
                   title: 'Déconnexion',
                   onTap: _confirmLogout,
                   isDarkMode: isDarkMode,
@@ -1367,18 +1475,20 @@ class _ProfilePageState extends State<ProfilePage> {
           Container(
             margin: EdgeInsets.symmetric(horizontal: 20),
             decoration: BoxDecoration(
-              color: isDarkMode ? Colors.red.withOpacity(0.1) : Colors.red[50],
+              color: isDarkMode
+                  ? _primaryColor.withOpacity(0.08)
+                  : _primaryColor.withOpacity(0.06),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.red.withOpacity(0.2)),
+              border: Border.all(color: _primaryColor.withOpacity(0.16)),
             ),
             child: _buildSettingMenuItem(
               icon: Icons.delete_forever_rounded,
-              iconColor: Colors.red[700]!,
-              bgColor: Colors.red[100]!,
+              iconColor: _primaryColor,
+              bgColor: _primaryColor.withOpacity(0.10),
               title: 'Supprimer mon compte définitivement',
               onTap: _showDeleteAccountConfirmationDialog,
               isDarkMode: isDarkMode,
-              textColor: Colors.red[700],
+              textColor: isDarkMode ? Colors.white : _darkColor,
               hideChevron: true,
             ),
           ),
@@ -1705,10 +1815,16 @@ class _ProfilePageState extends State<ProfilePage> {
                       width: 240,
                       decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [Colors.redAccent, Colors.orangeAccent],
+                            colors: [
+                              _primaryColor.withOpacity(0.85),
+                              _primaryColor.withOpacity(0.35),
+                            ],
                           ),
                           boxShadow: [
-                            BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 10)
+                            BoxShadow(
+                              color: _primaryColor.withOpacity(0.35),
+                              blurRadius: 10,
+                            )
                           ]
                       ),
                     ).animate(onPlay: (c) => c.repeat(reverse: false)).custom(
@@ -1716,7 +1832,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       builder: (context, value, child) => FractionallySizedBox(
                         widthFactor: value,
                         alignment: Alignment.centerLeft,
-                        child: Container(color: Colors.redAccent),
+                        child: Container(color: _primaryColor),
                       ),
                     ),
                   ),
@@ -1896,7 +2012,9 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> with Sing
         _updateProgress();
       }
     } catch (e) {
-      _showErrorSnackbar('Erreur lors de la sélection de l\'image: $e');
+      _showErrorSnackbar(
+        'L’image n’a pas pu être sélectionnée. Réessayez avec une autre photo.',
+      );
     }
   }
 
@@ -3017,7 +3135,9 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> with Sing
       Navigator.pop(context);
 
     } catch (e) {
-      _showErrorSnackbar('Erreur lors de la sauvegarde: $e');
+      _showErrorSnackbar(
+        'La sauvegarde n’a pas abouti. Vérifiez la connexion et réessayez.',
+      );
     } finally {
       setState(() {
         _isLoading = false;
@@ -3045,22 +3165,7 @@ class _CompleteProfileScreenState extends State<CompleteProfileScreen> with Sing
   }
 
   void _showErrorSnackbar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.error, color: Colors.white),
-            SizedBox(width: 8),
-            Text(message),
-          ],
-        ),
-        backgroundColor: _errorColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-      ),
-    );
+    SnackbarForCasa.error(context, message);
   }
 
   List<Widget> get _stepContents => [
@@ -3327,7 +3432,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       } else if (accountTypeLower == 'peintre') {
         final ctrl = context.read<RegisterPeintreCtrl>();
         response = await ctrl.updatePeintreProfile(widget.profileId!, payload);
-      } else if (accountTypeLower == 'carreleur') {
+      } else if (accountTypeLower == 'carreleur' || accountTypeLower == 'coiffure') {
         final ctrl = context.read<RegisterCarreleurCtrl>();
         response = await ctrl.updateCarreleurProfile(widget.profileId!, payload);
       } else if (accountTypeLower == 'menusier' || accountTypeLower == 'menuisier') {
@@ -3376,7 +3481,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
       } else {
         FancyNotification.show(
           context,
-          response?.errorMsg ?? "Erreur lors de la modification du profil",
+          response?.errorMsg ??
+              "Les modifications n’ont pas pu être enregistrées. Réessayez.",
           isError: true,
         );
       }
@@ -3384,7 +3490,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       print("❌ Erreur lors de la modification: $e");
       FancyNotification.show(
         context,
-        "Erreur technique lors de la modification du profil",
+        "L’enregistrement du profil a été interrompu. Vérifiez la connexion et réessayez.",
         isError: true,
       );
     } finally {

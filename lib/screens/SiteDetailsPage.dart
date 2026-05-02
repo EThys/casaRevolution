@@ -1,7 +1,16 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:intl/intl.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
-import '../models/AgenceModel.dart';
+import 'package:casa/models/AgenceModel.dart';
+import 'package:casa/models/PropertyImageModel.dart';
+import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/screens/auth/LoginScreen.dart';
+import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/Routes.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
+import 'package:casa/utils/StockageKeys.dart';
 import 'dart:async';
 
 class SiteDetailsPage extends StatefulWidget {
@@ -19,6 +28,7 @@ class _SiteDetailsPageState extends State<SiteDetailsPage> {
   final Color _darkColor = Color(0xFF2D3748);
   final Color _lightColor = Color(0xFFF8F9FA);
   final Color _greyColor = Color(0xFF6C757D);
+  final GetStorage _storage = GetStorage();
   
   late final PageController _imageController;
   int _currentImageIndex = 0;
@@ -88,13 +98,97 @@ class _SiteDetailsPageState extends State<SiteDetailsPage> {
                 _buildDescriptionSection(),
                 SizedBox(height: 16),
                 _buildAdditionalInfo(),
-                SizedBox(height: 100),
+                SizedBox(height: 24),
+                _buildBottomActionBar(),
+                SizedBox(height: 40),
               ]),
             ),
           ),
         ],
       ),
-      bottomSheet: _buildBottomActionBar(),
+    );
+  }
+
+  DateTime? _parseVacanceDateRaw(String raw) {
+    final s = raw.trim();
+    try {
+      return DateTime.parse(s);
+    } catch (_) {}
+    try {
+      if (RegExp(r'^\d{1,2}/\d{1,2}/\d{4}$').hasMatch(s)) {
+        final p = s.split('/');
+        return DateTime(
+          int.parse(p[2]),
+          int.parse(p[1]),
+          int.parse(p[0]),
+        );
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  String _dateVacanceAffichee(String raw) {
+    final d = _parseVacanceDateRaw(raw);
+    if (d == null) return raw;
+    return DateFormat('dd/MM/yyyy', 'fr_FR').format(d);
+  }
+
+  PropertyModel _stubPropertyForBooking() {
+    final site = widget.site;
+    return PropertyModel(
+      propertyId: site.id,
+      title: site.title,
+      propertyTypeId: 6,
+      available: site.available ?? true,
+      listingAllowed: true,
+      price: site.price,
+      propertyImage: site.images
+          ?.map((u) => PropertyImageModel(path: u))
+          .toList(),
+    );
+  }
+
+  void _navigateToBooking() {
+    if (widget.site.available == false) {
+      SnackbarForCasa.error(
+        context,
+        "Ce site n'est pas disponible pour une réservation.",
+      );
+      return;
+    }
+    if (widget.site.id == null) {
+      SnackbarForCasa.error(context, "Impossible de réserver : identifiant du site manquant.");
+      return;
+    }
+
+    final token = _storage.read(StockageKeys.tokenKey);
+    if (token == null) {
+      FancyNotification.show(
+        context,
+        "Vous devez être connecté pour réserver",
+        type: NotificationType.info,
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => LoginScreen()),
+      );
+      return;
+    }
+
+    SubscriptionHelper.checkPremiumForPropertyReservation(
+      context: context,
+      onProceed: () {
+        Navigator.pushNamed(
+          context,
+          Routes.bookingVisitPageRoute,
+          arguments: {
+            'property': _stubPropertyForBooking(),
+            'agenceVacanceBooking': true,
+            'initialVacanceDate': widget.site.dateVacance,
+            'initialVacanceHeure': widget.site.heureVacance,
+          },
+        );
+      },
     );
   }
 
@@ -337,47 +431,24 @@ class _SiteDetailsPageState extends State<SiteDetailsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.attach_money,
-                      size: 16,
-                      color: _primaryColor,
-                    ),
-                    SizedBox(width: 4),
-                    Text(
-                      'PRIX',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _greyColor,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                  ],
+                Text(
+                  'Droit de participation',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _greyColor,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.6,
+                  ),
                 ),
                 SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '\$',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: _primaryColor,
-                      ),
-                    ),
-                    Text(
-                      '${widget.site.price?.toInt() ?? 0}',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: _primaryColor,
-                        height: 1,
-                      ),
-                    ),
-                  ],
+                Text(
+                  '${widget.site.price?.toInt() ?? 0} \$',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryColor,
+                    height: 1,
+                  ),
                 ),
               ],
             ),
@@ -395,13 +466,13 @@ class _SiteDetailsPageState extends State<SiteDetailsPage> {
         if (widget.site.dateVacance != null && widget.site.dateVacance!.isNotEmpty)
           _buildInfoChip(
             icon: Icons.calendar_month,
-            label: widget.site.dateVacance!,
+            label: 'Date · ${_dateVacanceAffichee(widget.site.dateVacance!)}',
             color: _primaryColor,
           ),
         if (widget.site.heureVacance != null && widget.site.heureVacance!.isNotEmpty)
           _buildInfoChip(
             icon: Icons.access_time,
-            label: widget.site.heureVacance!,
+            label: 'Heure · ${widget.site.heureVacance!}',
             color: _secondaryColor,
           ),
       ],
@@ -579,15 +650,15 @@ class _SiteDetailsPageState extends State<SiteDetailsPage> {
             Divider(height: 24),
             _buildInfoItem(
               icon: Icons.calendar_today,
-              title: 'Date de vacance',
-              value: widget.site.dateVacance!,
+              title: 'Date',
+              value: _dateVacanceAffichee(widget.site.dateVacance!),
             ),
           ],
           if (widget.site.heureVacance != null && widget.site.heureVacance!.isNotEmpty) ...[
             Divider(height: 24),
             _buildInfoItem(
               icon: Icons.schedule,
-              title: 'Horaire',
+              title: 'Heure',
               value: widget.site.heureVacance!,
             ),
           ],
@@ -634,59 +705,44 @@ class _SiteDetailsPageState extends State<SiteDetailsPage> {
   }
 
   Widget _buildBottomActionBar() {
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            offset: Offset(0, -5),
+    final blocked = widget.site.available == false || widget.site.id == null;
+    final buttonLabel =
+        blocked ? 'NON DISPONIBLE' : 'RÉSERVER MAINTENANT';
+
+    return Column(
+      children: [
+        ElevatedButton(
+          onPressed: blocked ? null : _navigateToBooking,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: blocked ? _greyColor : _primaryColor,
+            foregroundColor: Colors.white,
+            disabledForegroundColor: Colors.white.withOpacity(0.9),
+            disabledBackgroundColor: _greyColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: EdgeInsets.symmetric(vertical: 16),
+            elevation: blocked ? 0 : 2,
           ),
-        ],
-      ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: ElevatedButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Réservation en cours de développement'),
-                      backgroundColor: _primaryColor,
-                    ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 0,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.event_available, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      'Réserver maintenant',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                blocked ? Icons.block : Icons.calendar_today,
+                size: 20,
+              ),
+              SizedBox(width: 8),
+              Text(
+                buttonLabel,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }

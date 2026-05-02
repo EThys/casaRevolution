@@ -4,6 +4,7 @@ import 'package:casa/screens/FullScreenProfileImage.dart' hide FullScreenImageVi
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/Routes.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -16,7 +17,6 @@ import '../models/PropertyModel.dart';
 import '../models/PropertyImageModel.dart';
 import '../models/PropertyFeatureModel.dart';
 import '../utils/FancyNotification.dart';
-import '../utils/SubscriptionHelper.dart';
 import '../utils/property_availability_ui.dart';
 import '../utils/property_snapshot_merge.dart';
 import 'dart:async';
@@ -1079,6 +1079,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       if (typeId == 8) return 'Salle de fête';
       if (typeId == 9) return 'Terrain';
       if (typeId == 10) return 'Entrepôt';
+      if (typeId == 11) return 'Tourisme';
     }
 
     // 2. Fallback sur le titre si propertyTypeId est manquant
@@ -1093,7 +1094,8 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     if (lowerTitle.contains('fête') || lowerTitle.contains('fete')) return 'Salle de fête';
     if (lowerTitle.contains('funéra') || lowerTitle.contains('deuil')) return 'Espace Funéraire';
     if (lowerTitle.contains('terrain') || lowerTitle.contains('parcelle')) return 'Terrain';
-    
+    if (lowerTitle.contains('tourisme') || lowerTitle.contains('tourist')) return 'Tourisme';
+
     return 'Propriété';
   }
 

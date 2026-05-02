@@ -3,11 +3,16 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:get_storage/get_storage.dart';
+
+import '../controllers/CotationController.dart';
 import '../models/ServiceRequestModel.dart';
 import '../models/ServiceModel.dart';
+import '../models/UserModel.dart';
 import '../controllers/ServiceRequestController.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/Routes.dart';
+import '../utils/StockageKeys.dart';
 import '../utils/networkCheck.dart';
 import '../utils/database/DatabaseHelper.dart';
 import 'package:shimmer/shimmer.dart';
@@ -28,20 +33,195 @@ class _MyServiceRequestsPageState extends State<MyServiceRequestsPage> {
   final Color _successColor = Color(0xFF00B894);
   final Color _warningColor = Color(0xFFFFA000);
   final Color _errorColor = Color(0xFFD63031);
+  final Color _darkColor = Color(0xFF1A1D26);
   bool _isLoadingData = true;
   bool _isInitialLoad = true;
+
+  final GetStorage _stockage = GetStorage();
+  /// Même clé que [MyServicesPage] : IDs déjà notés (cotation envoyée avec succès).
+  static const String _ratedCotationStorageKey = 'cotation_rated_sollicitation_ids';
+  Set<int> _ratedSolicitationIds = {};
 
   @override
   void initState() {
     super.initState();
+    _loadRatedSolicitationIds();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadRequests();
     });
   }
 
+  void _loadRatedSolicitationIds() {
+    final raw = _stockage.read(_ratedCotationStorageKey);
+    if (raw is List) {
+      final next = <int>{};
+      for (final e in raw) {
+        final v = int.tryParse(e.toString());
+        if (v != null && v > 0) next.add(v);
+      }
+      _ratedSolicitationIds = next;
+    }
+  }
+
+  int? _currentUserIdFromStorage() {
+    final raw = _stockage.read(StockageKeys.userKey);
+    if (raw is Map) {
+      return UserModel.fromJson(Map<String, dynamic>.from(raw)).userId;
+    }
+    return null;
+  }
+
+  /// Demandeur uniquement ; même règles que l’onglet « Mes demandes » de [MyServicesPage].
+  bool _canShowCotationButton(ServiceRequestModel request) {
+    if (request.requestId == null) return false;
+    final me = _currentUserIdFromStorage();
+    if (me == null || request.userId != me) return false;
+    if (_ratedSolicitationIds.contains(request.requestId!)) return false;
+    final st = request.status?.toUpperCase() ?? '';
+    return st == 'COMPLETED' || st == 'ACCEPTED';
+  }
+
+  Future<void> _showCotationDialog(ServiceRequestModel request) async {
+    final me = _currentUserIdFromStorage();
+    if (me == null || request.requestId == null) {
+      FancyNotification.show(
+        context,
+        'Session invalide. Reconnectez-vous.',
+        type: NotificationType.error,
+      );
+      return;
+    }
+
+    final commentCtrl = TextEditingController();
+    double cote = 4.0;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return Consumer<CotationController>(
+          builder: (ctx, cotationCtrl, _) {
+            return StatefulBuilder(
+              builder: (ctx, setDialogState) {
+                return AlertDialog(
+                  title: Text(
+                    'Mettre un avis',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+                  ),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Note : ${cote.toStringAsFixed(1)} / 5',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: _darkColor,
+                          ),
+                        ),
+                        Slider(
+                          value: cote,
+                          min: 0.5,
+                          max: 5.0,
+                          divisions: 9,
+                          label: cote.toStringAsFixed(1),
+                          activeColor: _primaryColor,
+                          onChanged: cotationCtrl.loading
+                              ? null
+                              : (v) => setDialogState(() => cote = v),
+                        ),
+                        SizedBox(height: 8),
+                        TextField(
+                          controller: commentCtrl,
+                          maxLines: 4,
+                          decoration: InputDecoration(
+                            labelText: 'Commentaire',
+                            hintText: 'Décrivez votre expérience',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed:
+                          cotationCtrl.loading ? null : () => Navigator.pop(ctx),
+                      child: Text('Annuler'),
+                    ),
+                    TextButton(
+                      onPressed: cotationCtrl.loading
+                          ? null
+                          : () async {
+                              final text = commentCtrl.text.trim();
+                              if (text.length < 3) {
+                                FancyNotification.show(
+                                  ctx,
+                                  'Le commentaire doit contenir au moins 3 caractères.',
+                                  type: NotificationType.warning,
+                                );
+                                return;
+                              }
+                              final resp = await cotationCtrl.createCotation(
+                                userId: me,
+                                sollicitationId: request.requestId!,
+                                commentaire: text,
+                                cote: cote,
+                              );
+                              if (!ctx.mounted) return;
+                              if (resp.status) {
+                                Navigator.pop(ctx);
+                                if (!mounted) return;
+                                setState(() {
+                                  _ratedSolicitationIds.add(request.requestId!);
+                                });
+                                _stockage.write(
+                                  _ratedCotationStorageKey,
+                                  _ratedSolicitationIds.toList(),
+                                );
+                                FancyNotification.show(
+                                  context,
+                                  'Merci pour votre avis.',
+                                  type: NotificationType.success,
+                                );
+                                await _loadRequests(forceRefresh: true);
+                              } else {
+                                final msg = resp.errorMsg ??
+                                    (resp.data is Map
+                                        ? (resp.data['message']?.toString())
+                                        : null) ??
+                                    'Impossible d\'enregistrer l\'avis.';
+                                FancyNotification.show(
+                                  ctx,
+                                  msg,
+                                  type: NotificationType.error,
+                                );
+                              }
+                            },
+                      child: cotationCtrl.loading
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text('Envoyer'),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+    commentCtrl.dispose();
+  }
+
   Future<void> _loadRequests({bool forceRefresh = false}) async {
     final controller = context.read<ServiceRequestController>();
     final db = DatabaseHelper.instance;
+
+    _loadRatedSolicitationIds();
 
     setState(() {
       _isLoadingData = true;
@@ -334,6 +514,32 @@ class _MyServiceRequestsPageState extends State<MyServiceRequestsPage> {
                   ],
                 ],
               ),
+              if (_canShowCotationButton(request)) ...[
+                SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _showCotationDialog(request),
+                    icon: Icon(Icons.rate_review_rounded, size: 18),
+                    label: Text(
+                      'Mettre un avis',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _primaryColor,
+                      foregroundColor: Colors.white,
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

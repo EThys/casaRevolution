@@ -36,6 +36,15 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   final Color _greyColor = Color(0xFF7F8C8D);
 
   bool _isGridView = true;
+
+  String _locationText(String? commune, String? city) {
+    final parts = <String>[];
+    final c1 = (commune ?? '').trim();
+    final c2 = (city ?? '').trim();
+    if (c1.isNotEmpty) parts.add(c1);
+    if (c2.isNotEmpty) parts.add(c2);
+    return parts.isEmpty ? 'Localisation' : parts.join(', ');
+  }
   String _selectedFilter = 'Tous';
   final List<String> _filters = ['Tous', 'Location', 'Vente', 'Populaires', 'Nouveautés'];
   final RefreshController _refreshController = RefreshController();
@@ -67,6 +76,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final displayCategory = widget.category == 'Vacances' ? 'Tourisme' : widget.category;
     final propertyCtrl = context.watch<PropertyController>();
     
     // Pour les catégories spéciales → liste dédiée uniquement (IDs indépendants par endpoint)
@@ -114,7 +124,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
     return Scaffold(
       backgroundColor: _lightColor,
-      appBar: _buildAppBar(),
+      appBar: _buildAppBar(displayCategory),
       body: SmartRefresher(
         controller: _refreshController,
         enablePullDown: true,
@@ -153,7 +163,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
               child: propertyCtrl.loading
                   ? _buildShimmerLoading()
                   : displayItems.isEmpty
-                  ? _buildEmptyState()
+                  ? _buildEmptyState(displayCategory)
                   : _buildPropertyListOrGrid(displayItems),
             ),
           ],
@@ -310,6 +320,8 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     final categoryMap = {
       'Studio': ['1'],
       'Apparts': ['2'],
+      'Appartement': ['2'],
+      'Appartements': ['2'],
       'Maisons': ['3'],
       'Bureau': ['4'],
       'Hotels': ['5'],
@@ -341,9 +353,8 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   bool _matchesCategoryByName(String propertyTypeName, String category) {
     switch (category) {
       case 'Apparts':
-        return propertyTypeName.contains('appart') ||
-            propertyTypeName.contains('apart') ||
-            propertyTypeName.contains('studio') && !propertyTypeName.contains('studio seul');
+        // IMPORTANT: "Apparts/Appartement" ne doit pas inclure les studios.
+        return propertyTypeName.contains('appart') || propertyTypeName.contains('apart');
       case 'Maisons':
         return propertyTypeName.contains('maison') ||
             propertyTypeName.contains('house') ||
@@ -390,7 +401,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     }
   }
 
-  PreferredSizeWidget _buildAppBar() {
+  PreferredSizeWidget _buildAppBar(String displayCategory) {
     final categoryIcons = {
       'Apparts': FontAwesomeIcons.building,
       'Maisons': FontAwesomeIcons.house,
@@ -399,7 +410,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       'Bureaux': FontAwesomeIcons.buildingColumns,
       'Résidences': FontAwesomeIcons.buildingUser,
       'Hotels': FontAwesomeIcons.hotel,
-      'Vacances': FontAwesomeIcons.umbrellaBeach,
+      'Tourisme': FontAwesomeIcons.umbrellaBeach,
     };
 
     return AppBar(
@@ -419,11 +430,11 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       ),
       title: Row(
         children: [
-          Icon(categoryIcons[widget.category] ?? FontAwesomeIcons.building,
+          Icon(categoryIcons[displayCategory] ?? FontAwesomeIcons.building,
               size: 20, color: Colors.white),
           SizedBox(width: 10),
           Text(
-            widget.category,
+            displayCategory,
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w600,
@@ -464,7 +475,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       'Nouveautés': Icons.fiber_new_rounded,
     };
 
-    // Filter logic specific for 'Vacances'
+    // Filter logic specific for 'Vacances' (UI peut afficher "Tourisme" mais la logique reste basée sur widget.category).
     final activeFilters = widget.category == 'Vacances'
         ? _filters.where((f) => !['Location', 'Vente'].contains(f)).toList()
         : _filters;
@@ -859,7 +870,8 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         ? "${firstImage.path ?? firstImage.path}"
         : null;
 
-    String propertyType = _getPropertyTypeFromTitle(property.propertyType?.name);
+    String propertyType = _getPropertyTypeFromTitle(property.propertyType?.name,
+        propertyTypeId: property.propertyTypeId);
 
     return InkWell(
       onTap: () => _navigateToDetail(property),
@@ -948,44 +960,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     ),
                   ),
 
-                  // Badge type de propriété en haut à gauche
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: _primaryColor.withOpacity(0.9),
-                        borderRadius: BorderRadius.circular(8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 4,
-                            offset: Offset(0, 1),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        propertyType,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  Positioned(
-                    top: 40,
-                    left: 8,
-                    child: PropertyListingStatusChip(
-                      sold: property.sold,
-                      transactionType: property.transactionType,
-                      available: property.available,
-                      listingAllowed: property.listingAllowed,
-                    ),
-                  ),
+                  // (Allégé) Type + statut déplacés dans la barre du bas
 
                   // Bouton favoris en haut à droite
                   if (property.propertyId != null)
@@ -1036,34 +1011,67 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                           ],
                         ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Expanded(
-                            child: Text(
-                              priceText,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.45),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    propertyType,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
                               ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                              const SizedBox(width: 8),
+                              PropertyListingStatusChip(
+                                sold: property.sold,
+                                transactionType: property.transactionType,
+                                available: property.available,
+                                listingAllowed: property.listingAllowed,
+                                onDarkBackground: true,
+                                compact: true,
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: isForRent ? Colors.blue[500] : Colors.green[500],
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  isForRent ? 'LOCATION' : 'VENTE',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isForRent ? Colors.blue[500] : Colors.green[500],
-                              borderRadius: BorderRadius.circular(4),
+                          const SizedBox(height: 6),
+                          Text(
+                            priceText,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
                             ),
-                            child: Text(
-                              isForRent ? 'LOCATION' : 'VENTE',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
@@ -1105,7 +1113,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            "${property.cityValue}, ${property.communeValue}",
+                            _locationText(property.communeValue, property.cityValue),
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 13,
@@ -1123,41 +1131,81 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     // Caractéristiques
                     Builder(
                       builder: (context) {
-                        final typeId = property.propertyType?.propertyTypeId;
+                        final typeId = property.propertyType?.propertyTypeId ?? property.propertyTypeId;
                         final isBureau = typeId == 4;
                         final isFuneraire = typeId == 7;
                         final isFestive = typeId == 8;
+                        final isTerrain = typeId == 9;
+                        final isHotel = typeId == 5;
+                        final isTourisme = typeId == 6;
 
-                        if (isBureau) {
+                        if (isTerrain) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              if ((property.surface ?? 0) > 0)
+                                _buildFeatureItem(
+                                  icon: FontAwesomeIcons.rulerCombined,
+                                  value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
+                                  label: 'm²',
+                                ),
+                            ],
+                          );
+                        } else if (isHotel) {
                           return Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
                               _buildFeatureItem(
-                                icon: FontAwesomeIcons.handshake,
-                                value: '${property.roomMeet ?? 0}',
-                                label: 'Réunion',
+                                icon: Icons.hotel_rounded,
+                                value: '—',
+                                label: 'Hôtel',
                               ),
+                            ],
+                          );
+                        } else if (isTourisme) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildFeatureItem(
+                                icon: Icons.attractions_rounded,
+                                value: '—',
+                                label: 'Tourisme',
+                              ),
+                            ],
+                          );
+                        } else if (isBureau) {
+                          return Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              if ((property.roomMeet ?? 0) > 0)
+                                _buildFeatureItem(
+                                  icon: FontAwesomeIcons.handshake,
+                                  value: '${property.roomMeet ?? 0}',
+                                  label: 'Réunion',
+                                ),
                               _buildFeatureItem(
                                 icon: FontAwesomeIcons.chair,
                                 value: property.isEquip == true ? 'Oui' : 'Non',
                                 label: 'Équipé',
                               ),
-                              _buildFeatureItem(
-                                icon: FontAwesomeIcons.rulerCombined,
-                                value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
-                                label: 'm²',
-                              ),
+                              if ((property.surface ?? 0) > 0)
+                                _buildFeatureItem(
+                                  icon: FontAwesomeIcons.rulerCombined,
+                                  value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
+                                  label: 'm²',
+                                ),
                             ],
                           );
                         } else if (isFestive) {
                           return Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
-                              _buildFeatureItem(
-                                icon: FontAwesomeIcons.users,
-                                value: '${property.capacityPeople ?? 0}',
-                                label: 'Pers.',
-                              ),
+                              if ((property.capacityPeople ?? 0) > 0)
+                                _buildFeatureItem(
+                                  icon: FontAwesomeIcons.users,
+                                  value: '${property.capacityPeople ?? 0}',
+                                  label: 'Pers.',
+                                ),
                               _buildFeatureItem(
                                 icon: FontAwesomeIcons.music,
                                 value: property.pisteDanse == true ? 'Oui' : 'Non',
@@ -1174,16 +1222,18 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                           return Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
-                              _buildFeatureItem(
-                                icon: FontAwesomeIcons.users,
-                                value: '${property.capacityPeople ?? 0}',
-                                label: 'Pers.',
-                              ),
-                              _buildFeatureItem(
-                                icon: FontAwesomeIcons.rulerCombined,
-                                value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
-                                label: 'm²',
-                              ),
+                              if ((property.capacityPeople ?? 0) > 0)
+                                _buildFeatureItem(
+                                  icon: FontAwesomeIcons.users,
+                                  value: '${property.capacityPeople ?? 0}',
+                                  label: 'Pers.',
+                                ),
+                              if ((property.surface ?? 0) > 0)
+                                _buildFeatureItem(
+                                  icon: FontAwesomeIcons.rulerCombined,
+                                  value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
+                                  label: 'm²',
+                                ),
                             ],
                           );
                         }
@@ -1191,21 +1241,24 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         return Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
-                            _buildFeatureItem(
-                              icon: FontAwesomeIcons.bed,
-                              value: '${property.bedrooms ?? 0}',
-                              label: 'Chambres',
-                            ),
-                            _buildFeatureItem(
-                              icon: FontAwesomeIcons.bath,
-                              value: '${property.bathroom ?? 0}',
-                              label: 'SDB',
-                            ),
-                            _buildFeatureItem(
-                              icon: FontAwesomeIcons.rulerCombined,
-                              value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
-                              label: 'm²',
-                            ),
+                            if ((property.bedrooms ?? 0) > 0)
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.bed,
+                                value: '${property.bedrooms ?? 0}',
+                                label: 'Chambres',
+                              ),
+                            if ((property.bathroom ?? 0) > 0)
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.bath,
+                                value: '${property.bathroom ?? 0}',
+                                label: 'SDB',
+                              ),
+                            if ((property.surface ?? 0) > 0)
+                              _buildFeatureItem(
+                                icon: FontAwesomeIcons.rulerCombined,
+                                value: '${property.surface?.toStringAsFixed(0) ?? '0'}',
+                                label: 'm²',
+                              ),
                           ],
                         );
                       },
@@ -1220,7 +1273,15 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     );
   }
 
-  String _getPropertyTypeFromTitle(String? title) {
+  /// Alignée sur [AllPropertiesPage] (IDs prioritaires).
+  String _getPropertyTypeFromTitle(String? title, {int? propertyTypeId}) {
+    if (propertyTypeId == 5) return 'Hôtel';
+    if (propertyTypeId == 9) return 'Terrain';
+    if (propertyTypeId == 6) return 'Vacances';
+    if (propertyTypeId == 4) return 'Bureau';
+    if (propertyTypeId == 8) return 'Festif';
+    if (propertyTypeId == 7) return 'Funéraire';
+
     if (title == null) return 'Propriété';
 
     final lowerTitle = title.toLowerCase();
@@ -1234,36 +1295,64 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       return 'Villa';
     } else if (lowerTitle.contains('bureau')) {
       return 'Bureau';
+    } else if (lowerTitle.contains('terrain')) {
+      return 'Terrain';
     } else if (lowerTitle.contains('hotel')) {
       return 'Hôtel';
+    } else if (lowerTitle.contains('vacance') ||
+        lowerTitle.contains('tourisme')) {
+      return 'Vacances';
     } else if (lowerTitle.contains('penthouse')) {
       return 'Penthouse';
     }
     return 'Propriété';
   }
 
+  /// Grille : même composition visuelle que [AllPropertiesPage._buildPropertyCard].
   Widget _buildPropertyCard(PropertyModel property, bool isForRent) {
-    final priceText = isForRent
-        ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
-        : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final typeName = property.propertyType?.name?.toLowerCase() ?? '';
+    final isHotel = typeName.contains('hotel') ||
+        typeName.contains('hôtel') ||
+        property.propertyTypeId == 5;
+    final isTerrain =
+        typeName.contains('terrain') || property.propertyTypeId == 9;
+    final isFestive = typeName.contains('fête') ||
+        typeName.contains('fete') ||
+        property.propertyTypeId == 8;
+    final isFuneraire = typeName.contains('funéra') ||
+        typeName.contains('funera') ||
+        property.propertyTypeId == 7;
+    final isMonthly = isForRent &&
+        !isHotel &&
+        !isTerrain &&
+        !isFestive &&
+        !isFuneraire;
 
-    // Utilisation des vraies images du modèle PropertyModel
+    final priceText = isHotel
+        ? null
+        : (isMonthly
+            ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+            : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
+
     final firstImage = property.propertyImage?.isNotEmpty ?? false
         ? property.propertyImage!.first
         : null;
-    final imageUrl = firstImage != null
-        ? "${firstImage.path ?? firstImage.path}"
-        : null;
+    final imageUrl =
+        firstImage != null ? "${firstImage.path ?? firstImage.path}" : null;
 
-    String propertyType = _getPropertyTypeFromTitle(property.propertyType?.name);
+    final propertyType = _getPropertyTypeFromTitle(property.propertyType?.name,
+        propertyTypeId: property.propertyTypeId);
+
+    final String heroTag = 'category-grid-${property.propertyId}';
 
     return InkWell(
-      onTap: () => _navigateToDetail(property),
+      onTap: () => _navigateToDetail(property, heroTag: heroTag),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          color: Colors.white,
+          color: isDarkMode ? Colors.grey[900] : Colors.white,
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
@@ -1275,13 +1364,11 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Section Image avec superposition
             Expanded(
               flex: 6,
               child: Container(
-                margin: EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.2),
@@ -1292,45 +1379,51 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                 ),
                 child: Stack(
                   children: [
-                    // Image principale
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Hero(
-                        tag: 'category-grid-${property.propertyId}',
+                    Hero(
+                      tag: heroTag,
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(16),
+                          topRight: Radius.circular(16),
+                        ),
                         child: imageUrl != null
                             ? CachedNetworkImage(
-                          imageUrl: imageUrl,
-                          fit: BoxFit.cover,
-                          width: double.infinity,
-                          height: double.infinity,
-                          placeholder: (context, url) => Container(
-                            color: Colors.grey[200],
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
-                              ),
-                            ),
-                          ),
-                          errorWidget: (context, url, error) {
-                            return Container(
-                              color: Colors.grey[200],
-                              child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
-                            );
-                          },
-                        )
+                                imageUrl: imageUrl,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: double.infinity,
+                                placeholder: (context, url) => Container(
+                                  color: Colors.grey[200],
+                                  child: Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                          _primaryColor),
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) {
+                                  return Container(
+                                    color: Colors.grey[200],
+                                    child: Icon(Icons.home_rounded,
+                                        size: 40, color: Colors.grey[400]),
+                                  );
+                                },
+                              )
                             : Container(
-                          color: Colors.grey[200],
-                          child: Icon(Icons.home_rounded, size: 40, color: Colors.grey[400]),
-                        ),
+                                color: Colors.grey[200],
+                                child: Icon(Icons.home_rounded,
+                                    size: 40, color: Colors.grey[400]),
+                              ),
                       ),
                     ),
-
-                    // Gradient overlay
                     Positioned.fill(
                       child: Container(
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(16),
+                            topRight: Radius.circular(16),
+                          ),
                           gradient: LinearGradient(
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
@@ -1342,40 +1435,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         ),
                       ),
                     ),
-
-                    // Badge type de propriété
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _primaryColor.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          propertyType,
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    Positioned(
-                      top: 40,
-                      left: 8,
-                      child: PropertyListingStatusChip(
-                        sold: property.sold,
-                        transactionType: property.transactionType,
-                        available: property.available,
-                        listingAllowed: property.listingAllowed,
-                      ),
-                    ),
-
-                    // Bouton favoris
                     if (property.propertyId != null)
                       Positioned(
                         top: 8,
@@ -1395,79 +1454,125 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                           child: FavoriteHeartIcon(
                             propertyId: property.propertyId.toString(),
                             propertyTypeId: property.propertyTypeId,
-                            size: 18,
+                            size: 16,
                             splashRadius: 16,
                             activeColor: Colors.red,
                             inactiveColor: _greyColor,
                           ),
                         ),
                       ),
-
-                    // Prix en bas - Design amélioré
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: PropertyListingStatusChip(
+                        sold: property.sold,
+                        transactionType: property.transactionType,
+                        available: property.available,
+                        listingAllowed: property.listingAllowed,
+                        onDarkBackground: true,
+                        compact: true,
+                      ),
+                    ),
                     Positioned(
                       bottom: 0,
                       left: 0,
                       right: 0,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.only(
-                            bottomLeft: Radius.circular(12),
-                            bottomRight: Radius.circular(12),
-                          ),
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withOpacity(0.8),
-                            ],
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                priceText,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 1,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              constraints: const BoxConstraints(maxWidth: 45),
+                      child: (priceText == null)
+                          ? const SizedBox.shrink()
+                          : Container(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 6),
                               decoration: BoxDecoration(
-                                color: isForRent ? Colors.blue[500] : Colors.green[500],
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                isForRent ? 'LOC' : 'VENTE',
-                                style: const TextStyle(
-                                  fontSize: 7,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
+                                borderRadius: BorderRadius.only(
+                                  bottomLeft: Radius.circular(12),
+                                  bottomRight: Radius.circular(12),
                                 ),
-                                textAlign: TextAlign.center,
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 1,
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black.withOpacity(0.8),
+                                  ],
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.max,
+                                    children: [
+                                      Expanded(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 7, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color:
+                                                Colors.black.withOpacity(0.45),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: Text(
+                                            propertyType,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w700,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      ConstrainedBox(
+                                        constraints:
+                                            const BoxConstraints(maxWidth: 92),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 7, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: isForRent
+                                                ? Colors.blue[500]
+                                                : Colors.green[500],
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: Text(
+                                            isForRent
+                                                ? 'LOCATION'
+                                                : 'VENTE',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w800,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Text(
+                                    priceText,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ),
                             ),
-                          ],
-                        ),
-                      ),
                     ),
                   ],
                 ),
               ),
             ),
-
             Expanded(
               flex: 4,
               child: Padding(
@@ -1476,7 +1581,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Titre et localisation avec gestion du overflow
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1487,7 +1591,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               fontSize: 12,
-                              color: _darkColor,
+                              color: isDarkMode ? Colors.white : _darkColor,
                               height: 1.2,
                             ),
                             maxLines: 2,
@@ -1497,11 +1601,13 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(Icons.location_on_outlined, size: 10, color: _greyColor),
+                            Icon(Icons.location_on_outlined,
+                                size: 10, color: _greyColor),
                             SizedBox(width: 2),
                             Expanded(
                               child: Text(
-                                "${property.cityValue}, ${property.communeValue}",
+                                _locationText(
+                                    property.communeValue, property.cityValue),
                                 style: TextStyle(
                                   color: _greyColor,
                                   fontSize: 10,
@@ -1514,49 +1620,79 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         ),
                       ],
                     ),
-
-                    // Caractéristiques
                     Builder(
                       builder: (context) {
-                        final typeId = property.propertyType?.propertyTypeId;
-                        final isBureau = typeId == 4;
-                        final isFuneraire = typeId == 7;
-                        final isFestive = typeId == 8;
-
-                        if (isBureau) {
-                          return Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              _buildMiniFeatureItem(FontAwesomeIcons.handshake, '${property.roomMeet ?? 0}'),
-                              _buildMiniFeatureItem(FontAwesomeIcons.chair, property.isEquip == true ? 'Oui' : 'Non'),
-                              _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
-                            ],
-                          );
-                        } else if (isFestive) {
-                          return Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              _buildMiniFeatureItem(FontAwesomeIcons.users, '${property.capacityPeople ?? 0}'),
-                              _buildMiniFeatureItem(FontAwesomeIcons.music, property.pisteDanse == true ? 'Oui' : 'Non'),
-                              _buildMiniFeatureItem(FontAwesomeIcons.paintRoller, property.isDecore == true ? 'Oui' : 'Non'),
-                            ],
-                          );
-                        } else if (isFuneraire) {
-                          return Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              _buildMiniFeatureItem(FontAwesomeIcons.users, '${property.capacityPeople ?? 0}'),
-                              _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
-                            ],
-                          );
-                        }
+                        final typeId = property.propertyTypeId ??
+                            property.propertyType?.propertyTypeId;
+                        final typeNameLower =
+                            property.propertyType?.name?.toLowerCase() ?? '';
+                        final isTerrainRow =
+                            typeId == 9 || typeNameLower.contains('terrain');
+                        final isHotelRow = typeId == 5 ||
+                            typeNameLower.contains('hotel') ||
+                            typeNameLower.contains('hôtel');
+                        final isTourisme = typeId == 6 ||
+                            typeNameLower.contains('vacance') ||
+                            typeNameLower.contains('tourisme');
+                        final isBureau = typeId == 4 ||
+                            typeNameLower.contains('bureau') ||
+                            typeNameLower.contains('office');
+                        final isFestiveRow = typeId == 8 ||
+                            typeNameLower.contains('fete') ||
+                            typeNameLower.contains('fête');
+                        final isFuneraireRow = typeId == 7 ||
+                            typeNameLower.contains('funeraire') ||
+                            typeNameLower.contains('funéra') ||
+                            typeNameLower.contains('funera');
 
                         return Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            _buildMiniFeatureItem(FontAwesomeIcons.bed, '${property.bedrooms ?? 0}'),
-                            _buildMiniFeatureItem(FontAwesomeIcons.bath, '${property.bathroom ?? 0}'),
-                            _buildMiniFeatureItem(FontAwesomeIcons.rulerCombined, '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
+                            if (isTerrainRow) ...[
+                              if ((property.surface ?? 0) > 0)
+                                _buildMiniFeatureItem(
+                                    FontAwesomeIcons.rulerCombined,
+                                    '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
+                            ] else if (isHotelRow) ...[
+                              _buildMiniFeatureItem(
+                                  Icons.hotel_rounded, 'Hôtel'),
+                            ] else if (isTourisme) ...[
+                              _buildMiniFeatureItem(
+                                  Icons.attractions_rounded, 'Tourisme'),
+                            ] else if (!isBureau &&
+                                !isFuneraireRow &&
+                                !isFestiveRow) ...[
+                              if ((property.bedrooms ?? 0) > 0)
+                                _buildMiniFeatureItem(FontAwesomeIcons.bed,
+                                    '${property.bedrooms ?? 0}'),
+                              if ((property.bathroom ?? 0) > 0)
+                                _buildMiniFeatureItem(FontAwesomeIcons.bath,
+                                    '${property.bathroom ?? 0}'),
+                            ] else ...[
+                              if (isBureau) ...[
+                                if ((property.roomMeet ?? 0) > 0)
+                                  _buildMiniFeatureItem(
+                                      Icons.meeting_room_outlined,
+                                      '${property.roomMeet ?? 0}'),
+                                _buildMiniFeatureItem(
+                                    property.isEquip == true
+                                        ? Icons.chair
+                                        : Icons.chair_outlined,
+                                    property.isEquip == true ? 'Oui' : 'Non'),
+                              ],
+                              if (isFuneraireRow || isFestiveRow) ...[
+                                if ((property.capacityPeople ?? 0) > 0)
+                                  _buildMiniFeatureItem(Icons.people_outline,
+                                      '${property.capacityPeople ?? 0}'),
+                              ],
+                            ],
+                            if (!isTerrainRow &&
+                                !isHotelRow &&
+                                !isTourisme &&
+                                (property.surface ?? 0) > 0)
+                              _buildMiniFeatureItem(
+                                  FontAwesomeIcons.rulerCombined,
+                                  '${property.surface?.toStringAsFixed(0) ?? '0'}m²'),
                           ],
                         );
                       },
@@ -1627,11 +1763,14 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   }
 
   // Navigation vers la page de détail
-  Future<void> _navigateToDetail(PropertyModel property) async {
+  Future<void> _navigateToDetail(PropertyModel property, {String? heroTag}) async {
     await navigateToPropertyDetail(
       context,
       property,
-      heroTag: _isGridView ? 'category-grid-${property.propertyId}' : 'category-list-${property.propertyId}',
+      heroTag: heroTag ??
+          (_isGridView
+              ? 'category-grid-${property.propertyId}'
+              : 'category-list-${property.propertyId}'),
     );
   }
 
@@ -1661,13 +1800,15 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Image shimmer
+                  // Image shimmer (pleine largeur en haut, comme les vraies cartes)
                   Expanded(
                     flex: 6,
                     child: Container(
-                      margin: EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(16),
+                          topRight: Radius.circular(16),
+                        ),
                         color: Colors.white,
                       ),
                     ),
@@ -1792,7 +1933,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(String displayCategory) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1813,7 +1954,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
           ),
           SizedBox(height: 10),
           Text(
-            'Nous n\'avons trouvé aucun ${widget.category.toLowerCase()} correspondant à vos critères',
+            'Nous n\'avons trouvé aucun ${displayCategory.toLowerCase()} correspondant à vos critères',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,

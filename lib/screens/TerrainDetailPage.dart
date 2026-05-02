@@ -6,8 +6,8 @@ import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/Routes.dart';
-import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
+import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
@@ -468,7 +468,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
     );
   }
 
-  /// Zone approximative uniquement : pas d’adresse précise ni quartier (confidentialité).
+  /// Localisation : afficher uniquement commune + ville (confidentialité).
   Widget _buildLocationPreview() {
     final addr = _displayTerrain.address;
     final city = addr?.cityValue ?? _displayTerrain.localAddress?.city?.name ?? 'Kinshasa';
@@ -499,20 +499,13 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('ZONE APPROXIMATIVE', style: TextStyle(
+                Text('LOCALISATION', style: TextStyle(
                   fontSize: 10, fontWeight: FontWeight.bold, color: _greyColor, letterSpacing: 1.2
                 )),
                 SizedBox(height: 4),
                 Text(locationText, style: TextStyle(
                   fontSize: 15, fontWeight: FontWeight.w600, color: _darkColor
                 )),
-                if (addr?.countryValue != null)
-                   Text(addr!.countryValue!, style: TextStyle(fontSize: 13, color: _greyColor)),
-                SizedBox(height: 6),
-                Text(
-                  'L’adresse exacte et les coordonnées GPS ne sont pas affichées sur les terrains.',
-                  style: TextStyle(fontSize: 12, color: _greyColor, height: 1.35),
-                ),
               ],
             ),
           ),

@@ -1,8 +1,28 @@
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import '../models/AgenceModel.dart';
+import '../utils/FancyNotification.dart';
+import '../utils/FavoriteEartIcon.dart';
 import 'SiteDetailsPage.dart';
+
+String _formatAgenceVacanceDateFr(String raw) {
+  final s = raw.trim();
+  try {
+    final d = DateTime.parse(s);
+    return DateFormat('dd/MM/yyyy', 'fr_FR').format(d);
+  } catch (_) {}
+  try {
+    if (RegExp(r'^\d{1,2}/\d{1,2}/\d{4}$').hasMatch(s)) {
+      final p = s.split('/');
+      final d = DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
+      return DateFormat('dd/MM/yyyy', 'fr_FR').format(d);
+    }
+  } catch (_) {}
+  return raw;
+}
 
 class AgenceDetailsPage extends StatelessWidget {
   final AgenceModel agency;
@@ -196,7 +216,7 @@ class AgenceDetailsPage extends StatelessWidget {
                 if (agency.description != null && agency.description!.isNotEmpty)
                   _buildAboutSection(primaryColor, darkColor),
                 SizedBox(height: 20),
-                _buildContactSection(agency, primaryColor, darkColor),
+                _buildContactSection(context, agency, primaryColor, darkColor),
                 SizedBox(height: 20),
                 _buildSitesSection(context, primaryColor, secondaryColor, darkColor),
                 SizedBox(height: 30),
@@ -306,7 +326,12 @@ class AgenceDetailsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildContactSection(AgenceModel agency, Color primaryColor, Color darkColor) {
+  Widget _buildContactSection(
+    BuildContext context,
+    AgenceModel agency,
+    Color primaryColor,
+    Color darkColor,
+  ) {
     final contactItems = <Map<String, dynamic>>[];
     
     if (agency.phone1 != null && agency.phone1!.isNotEmpty) {
@@ -375,8 +400,18 @@ class AgenceDetailsPage extends StatelessWidget {
             ),
             trailing: IconButton(
               icon: Icon(Icons.content_copy, color: Colors.grey[400], size: 20),
-              onPressed: () {
-                // Copy to clipboard functionality
+              onPressed: () async {
+                final v = (item['value']?.toString() ?? '').trim();
+                if (v.isEmpty) return;
+                await Clipboard.setData(ClipboardData(text: v));
+                if (!context.mounted) return;
+                FancyNotification.show(
+                  context,
+                  '${item['label']?.toString() ?? 'Valeur'} copié',
+                  isError: false,
+                  type: NotificationType.success,
+                  duration: 2,
+                );
               },
             ),
           ),
@@ -552,12 +587,40 @@ class AgenceDetailsPage extends StatelessWidget {
                           ],
                         ),
                         child: Text(
-                          "\$${site.price}",
+                          "${(site.price ?? 0).toStringAsFixed((site.price ?? 0) % 1 == 0 ? 0 : 2)} \$",
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
                           ),
+                        ),
+                      ),
+                    ),
+
+                  // Favori (Vacance/Agence) — vacanceId = site.id
+                  if (site.id != null)
+                    Positioned(
+                      top: 14,
+                      left: 14,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.92),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.12),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: FavoriteHeartIcon(
+                          propertyId: site.id.toString(),
+                          propertyTypeId: 11,
+                          size: 20,
+                          splashRadius: 18,
+                          activeColor: Colors.red,
+                          inactiveColor: Colors.grey,
                         ),
                       ),
                     ),
@@ -594,7 +657,7 @@ class AgenceDetailsPage extends StatelessWidget {
                             Icon(Icons.calendar_month_outlined, size: 14, color: secondaryColor),
                             SizedBox(width: 6),
                             Text(
-                              site.dateVacance!,
+                              _formatAgenceVacanceDateFr(site.dateVacance!),
                               style: TextStyle(
                                 fontSize: 13,
                                 color: secondaryColor,

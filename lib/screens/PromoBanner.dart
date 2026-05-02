@@ -17,7 +17,7 @@ class _PromoBannerState extends State<PromoBanner> with SingleTickerProviderStat
       icon: Icons.local_offer_rounded,
     ),
     PromoItem(
-      image: 'assets/images/two.jpg',
+      image: 'assets/images/abstract.jpg',
       title: 'Nouveaux Biens Exclusifs!',
       subtitle: 'Découvrez nos dernières propriétés premium',
       promoCode: 'PREMIUM25',

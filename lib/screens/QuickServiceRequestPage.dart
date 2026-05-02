@@ -50,7 +50,7 @@ class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> with 
     {'type': ServiceType.jardinage, 'label': 'Jardinage', 'icon': Icons.grass_rounded},
     {'type': ServiceType.climatisation, 'label': 'Climatisation', 'icon': Icons.ac_unit_rounded},
     {'type': ServiceType.serrurerie, 'label': 'Serrurerie', 'icon': Icons.lock_rounded},
-    {'type': ServiceType.carrelage, 'label': 'Carrelage', 'icon': Icons.square_foot_rounded},
+    {'type': ServiceType.coiffure, 'label': 'Coiffure', 'icon': Icons.content_cut_rounded},
     {'type': ServiceType.renovation, 'label': 'Rénovation', 'icon': Icons.home_repair_service_rounded},
   ];
 
@@ -466,7 +466,7 @@ class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> with 
             children: [
               Expanded(
                 child: _buildNumberField(
-                  label: 'Min (CDF)',
+                  label: 'Min (FC)',
                   value: _minPrice,
                   onChanged: (value) => setState(() => _minPrice = value),
                 ),
@@ -474,7 +474,7 @@ class _QuickServiceRequestPageState extends State<QuickServiceRequestPage> with 
               SizedBox(width: 12),
               Expanded(
                 child: _buildNumberField(
-                  label: 'Max (CDF)',
+                  label: 'Max (FC)',
                   value: _maxPrice,
                   onChanged: (value) => setState(() => _maxPrice = value),
                 ),

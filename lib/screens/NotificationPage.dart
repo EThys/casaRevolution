@@ -226,6 +226,12 @@ class _NotificationsPageState extends State<NotificationsPage> {
     notifCtrl.markAsRead(notification.id);
 
     final data = notification.data ?? {};
+    final title = (notification.title ?? '').toString();
+    final body = (notification.description ?? '').toString();
+    final blob = '${title.toLowerCase()} ${body.toLowerCase()}';
+    final statusRaw =
+        (data['status'] ?? data['reservationStatus'] ?? '').toString();
+    final statusUpper = statusRaw.toUpperCase();
     final propertyId = data['propertyId'] ?? data['property_id'];
 
     if (propertyId != null) {
@@ -233,6 +239,23 @@ class _NotificationsPageState extends State<NotificationsPage> {
         context,
         Routes.detailPageRoute,
         arguments: {'propertyId': propertyId},
+      );
+      return;
+    }
+
+    // Visite / réservation confirmée -> ouvrir BookingHistory sur Mes réservations / Confirmées.
+    if (notification.type == NotificationType.appointment &&
+        (blob.contains('confirm') ||
+            blob.contains('valid') ||
+            statusUpper == 'CONFIRMED' ||
+            statusUpper == 'APPROVED')) {
+      Navigator.pushNamed(
+        context,
+        Routes.bookingHistoryPageRoute,
+        arguments: {
+          'initialHostView': false,
+          'initialTabIndex': 1, // Confirmées
+        },
       );
       return;
     }

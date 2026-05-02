@@ -581,7 +581,7 @@ class _ServiceRequestDetailPageState extends State<ServiceRequestDetailPage> {
                         Icon(Icons.attach_money, size: 16, color: _primaryColor),
                         SizedBox(width: 4),
                         Text(
-                          '${NumberFormat.currency(locale: 'fr_FR', symbol: '', decimalDigits: 0).format(response.price)} CDF',
+                          '${NumberFormat.currency(locale: 'fr_FR', symbol: '', decimalDigits: 0).format(response.price)} FC',
                           style: GoogleFonts.inter(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,

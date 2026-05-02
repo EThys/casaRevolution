@@ -610,7 +610,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     final confirmPasswordError = _validateConfirmPassword(_confirmPasswordController.text);
 
     if (newPasswordError != null || confirmPasswordError != null) {
-      SnackbarForCasa.error(context, "Veuillez corriger les erreurs ci-dessus");
+      SnackbarForCasa.error(context, "Ajustez le mot de passe selon les indications affichées.");
       return;
     }
 
@@ -621,7 +621,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
     final isConnected = await NetworkUtils.checkInternetConnectivity();
     if (!isConnected) {
-      SnackbarForCasa.error(context, "Pas de connexion internet");
+      SnackbarForCasa.error(
+        context,
+        "Connexion internet indisponible. Réessayez lorsque le réseau est stable.",
+      );
       setState(() => _isLoading = false);
       return;
     }
@@ -637,7 +640,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       if (!mounted) return;
 
       if (res.status == true) {
-        SnackbarForCasa.success(context, "Mot de passe réinitialisé avec succès");
+        SnackbarForCasa.success(context, "Votre nouveau mot de passe est enregistré. Vous pouvez vous connecter.");
 
         forgot.reset();
 
@@ -656,7 +659,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         SnackbarForCasa.error(context, errorMessage);
       }
     } catch (e) {
-      SnackbarForCasa.error(context, "Erreur technique lors de la réinitialisation");
+      SnackbarForCasa.error(
+        context,
+        "La réinitialisation n’a pas abouti. Réessayez dans un instant.",
+      );
       print("Reset password error: $e");
     } finally {
       if (mounted) {

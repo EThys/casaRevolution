@@ -5,6 +5,7 @@ import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:provider/provider.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/api_error_message.dart';
+import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/decertification_access_guard.dart';
 import 'package:casa/utils/networkCheck.dart';
@@ -23,6 +24,8 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:casa/utils/export_directory.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
+import 'package:casa/utils/currency_display.dart';
 
 
 class RequestInterventionPage extends StatefulWidget {
@@ -60,6 +63,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
   String _userEmail = '';
   String _userPhone = '';
   int? _userId;
+  String? _userProfilePhotoUrl;
   pw.MemoryImage? _logoImage;
 
 
@@ -93,6 +97,16 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
       await _loadDevises();
     });
     _loadLogo();
+  }
+
+  Future<void> _precacheProfilePhotoIfNeeded() async {
+    final url = _userProfilePhotoUrl;
+    if (url == null || url.trim().isEmpty) return;
+    try {
+      await precacheImage(CachedNetworkImageProvider(url), context);
+    } catch (_) {
+      // best-effort only
+    }
   }
 
   Future<void> _loadLogo() async {
@@ -187,6 +201,18 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
           
           _userEmail = user['email']?.toString() ?? '';
           _userPhone = user['phone']?.toString() ?? '';
+          final localPath = storage.read('user_image_path');
+          final localFile = (localPath != null) ? File(localPath.toString()) : null;
+          if (localFile != null && localFile.existsSync()) {
+            _userProfilePhotoUrl = null;
+          } else {
+            _userProfilePhotoUrl = _extractProfilePhotoUrl(user, profile);
+          }
+        });
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _precacheProfilePhotoIfNeeded();
         });
       }
     } catch (e) {
@@ -216,6 +242,40 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
       });
     }
     return {};
+  }
+
+  String? _extractProfilePhotoUrl(Map<String, dynamic> user, Map<String, dynamic>? profile) {
+    String? pick(dynamic v) {
+      if (v == null) return null;
+      final s = v.toString().trim();
+      if (s.isEmpty) return null;
+      if (s.toLowerCase() == 'null') return null;
+      return s;
+    }
+
+    final candidates = <dynamic>[
+      profile?['image'],
+      profile?['images'],
+      profile?['profilePicture'],
+      profile?['profile_picture'],
+      profile?['picture'],
+      profile?['photo'],
+      profile?['avatar'],
+      user['image'],
+      user['images'],
+      user['profilePicture'],
+      user['profile_picture'],
+      user['picture'],
+      user['photo'],
+      user['avatar'],
+      (user['user'] is Map) ? (user['user'] as Map)['profilePicture'] : null,
+      (user['user'] is Map) ? (user['user'] as Map)['image'] : null,
+    ];
+    for (final c in candidates) {
+      final out = pick(c);
+      if (out != null) return out;
+    }
+    return null;
   }
 
   int? _getUserId() {
@@ -328,6 +388,10 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
       return;
     }
 
+    final allowed =
+        await SubscriptionHelper.ensurePremiumForSubmit(context: context);
+    if (!allowed || !mounted) return;
+
     if (!mounted || _isLoading) return;
     setState(() => _isLoading = true);
 
@@ -386,6 +450,11 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
 
          _showConfirmationDialog(responseData, startDate: startSnapshot);
       } else {
+         reportApiFailureToCrashlytics(
+           'RequestInterventionPage',
+           response: response,
+           reason: 'create_solicitation',
+         );
          FancyNotification.show(
            context,
            ApiErrorMessages.fromResponse(response),
@@ -393,9 +462,19 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
          );
       }
 
-    } catch (e) {
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'RequestInterventionPage',
+        error: e,
+        stackTrace: st,
+        reason: 'create_solicitation_exception',
+      );
       if (mounted) {
-        FancyNotification.show(context, "Une erreur est survenue, veuillez réessayer.");
+        FancyNotification.show(
+          context,
+          "La demande n’a pas pu être envoyée. Vérifiez la connexion et réessayez.",
+          isError: true,
+        );
       }
       print("Intervention request error: $e");
     } finally {
@@ -428,194 +507,136 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
 
     showDialog(
       context: context,
+      barrierColor: Colors.black.withOpacity(0.45),
       builder: (BuildContext context) {
         return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(20),
-          elevation: 0,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
-                  blurRadius: 30,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [_primaryColor, _primaryLight],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                height: 5,
+                color: _primaryColor,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Demande envoyée',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: _textPrimary,
+                        letterSpacing: -0.3,
                       ),
-                      shape: BoxShape.circle,
+                      textAlign: TextAlign.center,
                     ),
-                    child: Center(
-                      child: Icon(
-                        Icons.check_rounded,
-                        color: Colors.white,
-                        size: 40,
+                    const SizedBox(height: 8),
+                    Text(
+                      'Votre demande d’intervention a bien été envoyée au prestataire.',
+                      style: TextStyle(
+                        color: _textSecondary,
+                        fontSize: 14,
+                        height: 1.35,
                       ),
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  Text(
-                    'Demande envoyée !',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: _textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  Text(
-                    'Votre demande d\'intervention a été envoyée avec succès',
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: 15,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [_accentColor, Colors.white],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F4F8),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: _primaryColor.withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.calendar_month, color: _primaryColor, size: 18),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Intervention programmée',
-                              style: TextStyle(
-                                color: _textPrimary,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Date prévue',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _textSecondary,
+                              letterSpacing: 0.2,
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          formattedDate,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: _textPrimary,
                           ),
-                          textAlign: TextAlign.center,
+                          const SizedBox(height: 10),
+                          Text(
+                            formattedDate,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: _textPrimary,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () async => await _downloadInterventionPdf(successData),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              side: BorderSide(color: _primaryColor.withOpacity(0.45)),
+                              foregroundColor: _primaryColor,
+                            ),
+                            child: const Text(
+                              'Télécharger le PDF',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () async => await _shareInterventionPdf(successData),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              backgroundColor: _primaryColor,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text(
+                              'Partager',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                  // Boutons Partager et Télécharger
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async => await _shareInterventionPdf(successData),
-                          icon: Icon(Icons.ios_share_rounded, color: _primaryColor),
-                          label: Text(
-                            "Partager",
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            side: BorderSide(
-                              color: _primaryColor.withOpacity(0.3),
-                            ),
-                          ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          Navigator.pop(context);
+                        },
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          foregroundColor: _textSecondary,
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async => await _downloadInterventionPdf(successData),
-                          icon: Icon(Icons.download_rounded, color: _primaryColor),
-                          label: Text(
-                            "Télécharger",
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            side: BorderSide(
-                              color: _primaryColor.withOpacity(0.3),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.pop(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        elevation: 2,
-                        shadowColor: _primaryColor.withOpacity(0.3),
-                      ),
-                      child: Text(
-                        'Retour',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
+                        child: const Text(
+                          'Fermer et retourner',
+                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
         );
       },
@@ -671,7 +692,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
 
     // Sollicitation Info
     final budget = solicitation['budget']?.toString() ?? '0';
-    final deviseCode = devise['code']?.toString() ?? 'USD';
+    final deviseCode = CurrencyDisplay.symbolFromCode(devise['code']?.toString() ?? 'USD');
     final startDateStr = solicitation['startDate'];
     final endDateStr = solicitation['endDate'];
     final description = solicitation['description']?.toString() ?? '';
@@ -865,28 +886,44 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
 
   Future<void> _downloadInterventionPdf(Map<String, dynamic> data) async {
     try {
+      final dir = await pickExportDirectoryOrNull();
+      if (dir == null) {
+        if (mounted) {
+          FancyNotification.show(
+            context,
+            "Enregistrement annulé : aucun dossier sélectionné.",
+            type: NotificationType.info,
+          );
+        }
+        return;
+      }
+
       final bytes = await _buildInterventionPdfBytes(data);
-      final dir = await getCasaNayoExportDirectory(CasaNayoExportKind.solicitation);
-      
+
       final solicitationWrapper = data['sollicitation'] ?? {};
       final solicitation = solicitationWrapper['sollicitation'] ?? solicitationWrapper;
       final ref = solicitation['id'] ?? 'NO-REF';
-      
+
       final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
       final fileName = 'Demande_Intervention_Ref_${ref}_du_$generationDate.pdf';
-      
+
       final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes, flush: true);
-      
+
+      if (!mounted) return;
       FancyNotification.show(
         context,
-        "PDF enregistré dans ${dir.path}",
+        "PDF enregistré dans : ${describePickedDirectoryPathForUser(dir.path)}",
         isError: false,
         type: NotificationType.success,
       );
     } catch (e) {
-       print("PDF Download Error: $e");
-      FancyNotification.show(context, "Impossible de générer le PDF");
+      print("PDF Download Error: $e");
+      FancyNotification.show(
+        context,
+        "Le PDF n’a pas pu être enregistré. Vérifiez l’espace disque et réessayez.",
+        isError: true,
+      );
     }
   }
 
@@ -1102,7 +1139,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 // Address hidden as requested
                 // if (widget.service.address != null && widget.service.address!.isNotEmpty)
                 //   Container(
@@ -1131,23 +1168,35 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                 //       ],
                 //     ),
                 //   ),
-                const SizedBox(height: 8),
-                if (widget.service.minPrice != null)
+                if (widget.service.minPrice != null) ...[
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: _primaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
+                      color: const Color(0xFFF0F4F8),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: Text(
-                      _getPriceText(),
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: _primaryColor,
-                        fontSize: 16,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.payments_rounded, size: 16, color: _primaryColor),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            _getPriceText(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: _textPrimary,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                ],
               ],
             ),
           ),
@@ -1160,7 +1209,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     if (widget.service.minPrice == null) return 'Prix sur demande';
 
     final price = widget.service.minPrice!;
-    final displayCurrency = widget.service.currency;
+    final displayCurrency = CurrencyDisplay.symbolFromCode(widget.service.currency);
     final formatted = NumberFormat('#,##0', 'de_DE').format(price);
     return 'À partir de $formatted $displayCurrency';
   }
@@ -1203,10 +1252,38 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                 ),
               ],
             ),
-            child: Icon(
-              Icons.person,
-              color: Colors.white,
-              size: 24,
+            clipBehavior: Clip.antiAlias,
+            child: Builder(
+              builder: (context) {
+                final localPath = storage.read('user_image_path');
+                final localFile = (localPath != null) ? File(localPath.toString()) : null;
+                if (localFile != null && localFile.existsSync()) {
+                  return Image.file(localFile, width: 50, height: 50, fit: BoxFit.cover);
+                }
+                if (_userProfilePhotoUrl != null) {
+                  return CachedNetworkImage(
+                    imageUrl: _userProfilePhotoUrl!,
+                    width: 50,
+                    height: 50,
+                    fit: BoxFit.cover,
+                    fadeInDuration: Duration.zero,
+                    fadeOutDuration: Duration.zero,
+                    placeholder: (_, __) => const Center(
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      ),
+                    ),
+                    errorWidget: (_, __, ___) => const Icon(
+                      Icons.person,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  );
+                }
+                return const Icon(Icons.person, color: Colors.white, size: 24);
+              },
             ),
           ),
           const SizedBox(width: 16),

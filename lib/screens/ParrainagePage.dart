@@ -7,11 +7,13 @@ import 'package:casa/utils/country_codes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/utils/city_suggestions.dart';
 import 'package:casa/utils/requetes.dart';
+import 'package:casa/utils/Endpoints.dart';
 import 'package:casa/controllers/TypeAccountController.dart';
 import 'package:casa/models/CityModel.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 class ParrainagePage extends StatefulWidget {
@@ -42,7 +44,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
 
   bool _isLoading = false;
   bool _showPassword = false;
-  bool _isSearchingParrains = false;
+  bool _loadingParrainUsers = false;
   bool _acceptConditions = false;
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
 
@@ -52,6 +54,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
   // Variables pour le parrainage
   List<Map<String, dynamic>> _availableParrains = [];
   List<Map<String, dynamic>> _filteredParrains = [];
+  bool _isSearchingParrains = false;
   Map<String, dynamic>? _selectedParrain;
 
   // Variables pour suivre l'interaction utilisateur avec chaque champ
@@ -187,7 +190,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
     _contactController.removeListener(_updateContactType);
     _cityController.removeListener(_updateButtonState);
     _passwordController.removeListener(_updateButtonState);
-    
+    _parrainSearchController.dispose();
+
     _firstNameFocus.dispose();
     _lastNameFocus.dispose();
     _contactFocus.dispose();
@@ -256,6 +260,12 @@ class _ParrainagePageState extends State<ParrainagePage> {
     FocusScope.of(context).requestFocus(nextFocus);
   }
 
+  int _userIdFromParrainMap(Map<String, dynamic> parrain) {
+    final v = parrain['userId'];
+    if (v is int) return v;
+    return int.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
   void _searchParrains(String query) {
     if (query.isEmpty) {
       setState(() {
@@ -269,87 +279,278 @@ class _ParrainagePageState extends State<ParrainagePage> {
       _isSearchingParrains = true;
     });
 
-    final filtered = _availableParrains.where((parrain) {
-      return parrain['name'].toLowerCase().contains(query.toLowerCase()) ||
-          parrain['phone'].contains(query) ||
-          parrain['type'].toLowerCase().contains(query.toLowerCase());
-    }).toList();
+    final q = query.toLowerCase().trim();
+    final filtered = _availableParrains
+        .where((parrain) {
+          final name = (parrain['name'] as String? ?? '').toLowerCase();
+          return name.contains(q);
+        })
+        .take(80)
+        .toList();
 
     setState(() {
       _filteredParrains = filtered;
     });
   }
 
-  // Simulation du chargement des parrains
-  void _loadInitialParrains() async {
-    await Future.delayed(Duration(milliseconds: 500));
+  /// Parrain choisi dans la liste, ou saisi au clavier si une seule correspondance exacte sur le nom.
+  Map<String, dynamic>? _resolvedParrainForSubmit() {
+    if (_selectedParrain != null) return _selectedParrain;
+    final q = _parrainSearchController.text.trim().toLowerCase();
+    if (q.isEmpty) return null;
+    final matches = _availableParrains.where((p) {
+      final name = (p['name'] as String? ?? '').trim().toLowerCase();
+      return name == q;
+    }).toList();
+    if (matches.length == 1) return matches.first;
+    return null;
+  }
 
-    if (mounted) {
+  Future<void> _openParrainPicker() async {
+    FocusScope.of(context).unfocus();
+    if (_loadingParrainUsers) {
+      FancyNotification.show(
+        context,
+        'La liste des parrains est en cours de chargement…',
+        type: NotificationType.info,
+      );
+      return;
+    }
+    if (_availableParrains.isEmpty) {
+      FancyNotification.show(
+        context,
+        'Aucun parrain disponible pour le moment. Réessayez plus tard.',
+        type: NotificationType.warning,
+      );
+      return;
+    }
+
+    final filterCtrl = TextEditingController();
+    List<Map<String, dynamic>> filtered =
+        List<Map<String, dynamic>>.from(_availableParrains);
+
+    final picked = await showModalBottomSheet<Map<String, dynamic>?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+        final maxH = MediaQuery.of(ctx).size.height * 0.78;
+        return Padding(
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: StatefulBuilder(
+              builder: (ctx, setModalState) {
+                return Container(
+                  constraints: BoxConstraints(maxHeight: maxH),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 4, 4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Choisir un parrain',
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.bold,
+                                  color: textColor,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              icon: Icon(Icons.close_rounded,
+                                  color: secondaryTextColor),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: TextField(
+                          controller: filterCtrl,
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            hintText: 'Filtrer par nom…',
+                            prefixIcon:
+                                Icon(Icons.search_rounded, color: primaryColor),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                  color: primaryColor, width: 1.5),
+                            ),
+                          ),
+                          onChanged: (v) {
+                            final qq = v.toLowerCase().trim();
+                            setModalState(() {
+                              filtered = qq.isEmpty
+                                  ? List<Map<String, dynamic>>.from(
+                                      _availableParrains)
+                                  : _availableParrains
+                                      .where((p) => (p['name'] as String? ?? '')
+                                          .toLowerCase()
+                                          .contains(qq))
+                                      .take(150)
+                                      .toList();
+                            });
+                          },
+                        ),
+                      ),
+                      Flexible(
+                        child: filtered.isEmpty
+                            ? Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  'Aucun nom ne correspond à votre recherche.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: secondaryTextColor),
+                                ),
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                padding:
+                                    const EdgeInsets.fromLTRB(8, 0, 8, 16),
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, __) =>
+                                    Divider(height: 1, color: Colors.grey.shade100),
+                                itemBuilder: (c, i) {
+                                  final parrain = filtered[i];
+                                  final name =
+                                      parrain['name'] as String? ?? '';
+                                  return ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor:
+                                          primaryColor.withOpacity(0.15),
+                                      child: Icon(Icons.person_rounded,
+                                          color: primaryColor, size: 22),
+                                    ),
+                                    title: Text(
+                                      name,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: textColor,
+                                      ),
+                                    ),
+                                    trailing: Icon(
+                                        Icons.chevron_right_rounded,
+                                        color: Colors.grey.shade400),
+                                    onTap: () => Navigator.pop(ctx, parrain),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    filterCtrl.dispose();
+
+    if (picked != null && mounted) {
       setState(() {
-        _availableParrains = [
-          {
-            'id': 1,
-            'name': 'Jean Kabasele',
-            'type': 'Locataire',
-            'phone': '+243810000001'
-          },
-          {
-            'id': 2,
-            'name': 'Marie Lukusa',
-            'type': 'Commissionnaire',
-            'phone': '+243810000002'
-          },
-          {
-            'id': 3,
-            'name': 'Paul Mbayo',
-            'type': 'Locataire',
-            'phone': '+243810000003'
-          },
-          {
-            'id': 4,
-            'name': 'Sarah Ntumba',
-            'type': 'Commissionnaire',
-            'phone': '+243810000004'
-          },
-          {
-            'id': 5,
-            'name': 'David Mutombo',
-            'type': 'Locataire',
-            'phone': '+243810000005'
-          },
-        ];
+        _selectedParrain = picked;
+        _parrainSearchController.text = picked['name'] as String? ?? '';
       });
     }
   }
 
+  Future<void> _loadInitialParrains() async {
+    if (!mounted) return;
+    setState(() => _loadingParrainUsers = true);
+    try {
+      final response = await getData(Endpoints.publicUsers, token: '');
+      if (!mounted) return;
+      final list = <Map<String, dynamic>>[];
+      if (response is Map && response['users'] is List) {
+        for (final e in response['users'] as List) {
+          if (e is! Map) continue;
+          final m = Map<String, dynamic>.from(e);
+          final rawId = m['userId'];
+          final uid = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+          final name = m['name']?.toString().trim() ?? '';
+          if (uid != null && uid > 0 && name.isNotEmpty) {
+            list.add({'userId': uid, 'name': name});
+          }
+        }
+        list.sort((a, b) => (a['name'] as String)
+            .toLowerCase()
+            .compareTo((b['name'] as String).toLowerCase()));
+      }
+      setState(() {
+        _availableParrains = list;
+        _loadingParrainUsers = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _availableParrains = [];
+          _loadingParrainUsers = false;
+        });
+      }
+    }
+  }
+
+  static const Color _paperBg = Color(0xFFF7F5F2);
+  static const Color _ink = Color(0xFF1C2834);
+  static const Color _muted = Color(0xFF5C6670);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: _paperBg,
       body: Stack(
         children: [
-          // Arrière-plan identique au login/register
           _buildBackground(),
 
-          // Contenu principal
           SafeArea(
             child: AbsorbPointer(
               absorbing: _isLoading,
               child: SingleChildScrollView(
                 physics: BouncingScrollPhysics(),
-                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 24),
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 20),
                 child: Column(
                   children: [
                     Align(
-                      alignment: Alignment.topLeft,
-                      child: IconButton(
-                        icon: Icon(Icons.arrow_back_ios, color: textColor),
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
                         onPressed: () => Navigator.of(context).pop(),
+                        style: TextButton.styleFrom(
+                          foregroundColor: _ink,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 0, vertical: 8),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text(
+                          'Retour',
+                          style: GoogleFonts.sourceSans3(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                            decorationColor: _ink.withOpacity(0.35),
+                          ),
+                        ),
                       ),
                     ),
-                    SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     _buildLogo(),
-                    SizedBox(height: 30),
+                    const SizedBox(height: 28),
                     _buildAuthCard(),
                   ],
                 ),
@@ -362,217 +563,153 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   Widget _buildBackground() {
-    return Stack(
-      children: [
-        // Grand cercle en haut à droite
-        Positioned(
-          top: -100,
-          right: -100,
-          child: Container(
-            width: 300,
-            height: 300,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  primaryColor.withOpacity(0.08),
-                  primaryColor.withOpacity(0.02),
-                ],
-              ),
-            ),
-          ).animate().fadeIn(delay: 100.ms),
+    return Positioned.fill(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              const Color(0xFFECE9E4).withOpacity(0.65),
+              _paperBg,
+            ],
+            stops: const [0.0, 0.28],
+          ),
         ),
-
-        // Petit cercle en haut à gauche
-        Positioned(
-          top: 50,
-          left: -50,
-          child: Container(
-            width: 150,
-            height: 150,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  accentColor.withOpacity(0.06),
-                  accentColor.withOpacity(0.02),
-                ],
-              ),
-            ),
-          ).animate().fadeIn(delay: 200.ms),
-        ),
-
-        // Cercle en bas au centre
-        Positioned(
-          bottom: -150,
-          left: MediaQuery.of(context).size.width / 2 - 150,
-          child: Container(
-            width: 300,
-            height: 300,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  darkBlue.withOpacity(0.05),
-                  darkBlue.withOpacity(0.01),
-                ],
-              ),
-            ),
-          ).animate().fadeIn(delay: 300.ms),
-        ),
-      ],
+      ).animate().fadeIn(duration: 400.ms),
     );
   }
 
   Widget _buildLogo() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Logo container
-        Stack(
-          children: [
-            Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [accentColor, primaryColor],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: primaryColor.withOpacity(0.3),
-                    blurRadius: 25,
-                    spreadRadius: 2,
-                    offset: Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      image: DecorationImage(
-                        image: AssetImage('assets/images/icon.png'),
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ).animate()
-            .scale(delay: 500.ms, duration: 800.ms, curve: Curves.elasticOut)
-            .shake(delay: 1500.ms, duration: 1000.ms),
-
-        SizedBox(width: 8),
         Container(
-          height: 40,
-          width: 1,
-          color: Colors.grey.withOpacity(0.3),
-          margin: EdgeInsets.symmetric(horizontal: 8),
-        ).animate().fadeIn(delay: 650.ms),
-
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ShaderMask(
-                shaderCallback: (bounds) => LinearGradient(
-                  colors: [primaryColor, darkBlue],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                ).createShader(bounds),
-                child: Text(
-                  'CasaNayo',
-                  style: TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 1.0,
-                  ),
-                ),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Rejoignez notre communauté',
-                style: TextStyle(
-                  color: secondaryTextColor,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-                overflow: TextOverflow.ellipsis,
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFD4D0CA), width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
             ],
-          ).animate().slideX(
-            begin: 0.3,
-            duration: 600.ms,
-            delay: 700.ms,
-            curve: Curves.easeOutCubic,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Image.asset(
+              'assets/images/icon.png',
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'PARRAINAGE',
+          style: GoogleFonts.sourceSans3(
+            fontSize: 11,
+            letterSpacing: 2.2,
+            fontWeight: FontWeight.w700,
+            color: _muted,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'CasaNayo',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.libreBaskerville(
+            fontSize: 32,
+            fontWeight: FontWeight.w700,
+            color: _ink,
+            height: 1.05,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Text(
+            'Créez votre compte avec le nom de la personne qui vous invite. '
+            'Rien de plus : pas de code, pas de formalité.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.sourceSans3(
+              fontSize: 15,
+              height: 1.45,
+              color: _muted,
+              fontWeight: FontWeight.w400,
+            ),
           ),
         ),
       ],
-    );
+    ).animate().fadeIn(duration: 450.ms, curve: Curves.easeOut);
   }
 
   Widget _buildParrainageBenefits() {
     return Container(
-      padding: EdgeInsets.all(16),
+      width: double.infinity,
       decoration: BoxDecoration(
-        color: lightBlue.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: primaryColor.withOpacity(0.2)),
+        color: const Color(0xFFF0EDE8),
+        borderRadius: BorderRadius.circular(2),
+        border: Border(
+          left: BorderSide(color: primaryColor.withOpacity(0.85), width: 4),
+        ),
       ),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.workspace_premium_rounded, color: primaryColor, size: 18),
-              SizedBox(width: 8),
-              Text(
-                'Avantages du Parrainage',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: primaryColor,
-                  fontSize: 14,
-                ),
-              ),
-            ],
+          Text(
+            'TOMBOLA',
+            style: GoogleFonts.sourceSans3(
+              fontSize: 10,
+              letterSpacing: 1.8,
+              fontWeight: FontWeight.w700,
+              color: _muted,
+            ),
           ),
-          SizedBox(height: 12),
-          _buildBenefitItem('✓ Participation automatique à notre Grand Jeu Tombola'),
-          _buildBenefitItem('✓ Chance de gagner des prix incroyables (Smartphones, Bons d\'achat, etc.)'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBenefitItem(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 24),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 12,
-              ),
+          const SizedBox(height: 8),
+          Text(
+            'Un tirage, des lots à la clé',
+            style: GoogleFonts.libreBaskerville(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: _ink,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Les inscriptions avec parrain participent au jeu CasaNayo. '
+            'Les gagnants sont annoncés dans l’application ; les dotations varient selon les périodes.',
+            style: GoogleFonts.sourceSans3(
+              fontSize: 14,
+              height: 1.5,
+              color: const Color(0xFF3A4249),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            height: 1,
+            color: const Color(0xFFD8D4CE),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Exemples de lots : smartphones, bons d’achat, offres partenaires — '
+            'la liste est mise à jour régulièrement.',
+            style: GoogleFonts.sourceSans3(
+              fontSize: 13,
+              height: 1.45,
+              color: _muted,
+              fontStyle: FontStyle.italic,
             ),
           ),
         ],
       ),
-    );
+    ).animate().fadeIn(duration: 400.ms, delay: 80.ms);
   }
 
 
@@ -614,6 +751,13 @@ class _ParrainagePageState extends State<ParrainagePage> {
               _parrainFocus.unfocus();
             },
             onChanged: (value) {
+              if (_selectedParrain != null) {
+                final selName =
+                    (_selectedParrain!['name'] as String?)?.trim() ?? '';
+                if (value.trim() != selName) {
+                  setState(() => _selectedParrain = null);
+                }
+              }
               _searchParrains(value);
             },
             decoration: InputDecoration(
@@ -646,7 +790,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
               ),
               filled: true,
               fillColor: lightBlue.withOpacity(0.3),
-              hintText: 'Tapez le nom ou téléphone du parrain...',
+              hintText: _loadingParrainUsers
+                  ? 'Chargement des parrains…'
+                  : 'Tapez le nom du parrain…',
               hintStyle: TextStyle(color: Colors.grey.shade500),
             ),
           ),
@@ -686,14 +832,14 @@ class _ParrainagePageState extends State<ParrainagePage> {
                       ),
                     ),
                     title: Text(
-                      parrain['name'],
+                      parrain['name'] as String,
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         color: textColor,
                       ),
                     ),
                     subtitle: Text(
-                      '${parrain['type']} • ${parrain['phone']}',
+                      'Utilisateur #${_userIdFromParrainMap(parrain)}',
                       style: TextStyle(
                         color: secondaryTextColor,
                         fontSize: 12,
@@ -742,7 +888,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
                         ),
                       ),
                       Text(
-                        '${_selectedParrain!['name']} (${_selectedParrain!['type']})',
+                        '${_selectedParrain!['name']} • ID ${_userIdFromParrainMap(_selectedParrain!)}',
                         style: TextStyle(
                           fontSize: 12,
                           color: textColor,
@@ -2031,17 +2177,26 @@ class _ParrainagePageState extends State<ParrainagePage> {
     final isPasswordValid = _validatePassword(_passwordController.text) == null;
 
     if (!isNameFieldsValid || !isContactValid || !isCityValid || !isPasswordValid) {
-      FancyNotification.show(context, "Veuillez corriger les erreurs ci-dessus");
+      FancyNotification.show(
+        context,
+        "Complétez ou corrigez les champs indiqués avant de continuer.",
+      );
       return;
     }
 
     if (!_isLocataireSelected && _selectedOwnerAccountId == null && _selectedPrestataireAccountId == null) {
-      FancyNotification.show(context, "Veuillez sélectionner au moins un type de compte");
+      FancyNotification.show(
+        context,
+        "Choisissez au moins un type de compte pour finaliser l’inscription.",
+      );
       return;
     }
 
     if (!_acceptConditions) {
-      FancyNotification.show(context, "Veuillez accepter les conditions d'utilisation");
+      FancyNotification.show(
+        context,
+        "Merci d’accepter les conditions d’utilisation pour poursuivre.",
+      );
       return;
     }
 
@@ -2051,7 +2206,10 @@ class _ParrainagePageState extends State<ParrainagePage> {
     FocusScope.of(context).unfocus();
 
     if (!await NetworkUtils.checkInternetConnectivity()) {
-      FancyNotification.show(context, "Pas de connexion internet");
+      FancyNotification.show(
+        context,
+        "Connexion internet indisponible. Réessayez lorsque le réseau est stable.",
+      );
       setState(() => _isLoading = false);
       return;
     }
@@ -2095,6 +2253,10 @@ class _ParrainagePageState extends State<ParrainagePage> {
         "email": isPhone ? "" : emailField,
       };
       
+      final resolvedParrain = _resolvedParrainForSubmit();
+      final parrainUserId =
+          resolvedParrain != null ? _userIdFromParrainMap(resolvedParrain) : 0;
+
       final actorData = {
           "lastName": _lastNameController.text.trim(),
           "firstName": _firstNameController.text.trim(),
@@ -2103,7 +2265,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
           "cardFront": "",
           "cardBack": "",
           "typeCardId": 0,
-          "parrainId": _selectedParrain != null ? _selectedParrain!['id'] : 0,
+          "parrainId": parrainUserId,
           "numberCard": ""
       };
       
@@ -2120,8 +2282,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
 
       if (response.status == true) {
         String successMessage = "Inscription réussie ! Bravo pour votre participation à notre Tombola !";
-        if (_selectedParrain != null) {
-          successMessage += " Votre parrain ${_selectedParrain!['name']} a été notifié.";
+        if (resolvedParrain != null) {
+          successMessage +=
+              " Votre parrain ${resolvedParrain['name']} a été notifié.";
         }
         FancyNotification.show(context, successMessage, isError: false);
         await Future.delayed(const Duration(milliseconds: 1500));
@@ -2130,26 +2293,30 @@ class _ParrainagePageState extends State<ParrainagePage> {
         FancyNotification.show(context, _sanitizeError(response.errorMsg));
       }
     } catch (e) {
-      FancyNotification.show(context, "Une erreur est survenue. Veuillez réessayer.");
+      FancyNotification.show(
+        context,
+        "L’inscription n’a pas abouti. Vérifiez les informations et réessayez.",
+      );
       print("Register error: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
   String _sanitizeError(String? error) {
-    if (error == null || error.isEmpty) return "Erreur lors de l'inscription. Veuillez réessayer.";
+    if (error == null || error.isEmpty) {
+      return "L’inscription n’a pas pu être finalisée. Réessayez dans quelques instants.";
+    }
     final lower = error.toLowerCase();
-    
-    // Masquer les erreurs techniques
-    if (lower.contains("internal server error") || 
-        lower.contains("exception") || 
-        lower.contains("status") || 
+
+    if (lower.contains("internal server error") ||
+        lower.contains("exception") ||
+        lower.contains("status") ||
         lower.contains("timeout") ||
         lower.contains("connection refused") ||
         error.startsWith("{") ||
         error.startsWith("<html>")) {
-      return "Une erreur est survenue. Veuillez réessayer.";
+      return "Le service est momentanément indisponible. Patientez un peu puis réessayez.";
     }
-    return error; 
+    return error;
   }
 }

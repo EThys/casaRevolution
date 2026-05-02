@@ -65,6 +65,14 @@ String _kinshasaQuartierLabel(Map<String, dynamic> q) {
 }
 
 class CreatePropertyPostPage extends StatefulWidget {
+  /// Après création d’agence : préremplit « Vacances » et ouvre directement l’étape des détails (étape 2).
+  final bool openAfterAgencyVacanceStep2;
+
+  const CreatePropertyPostPage({
+    Key? key,
+    this.openAfterAgencyVacanceStep2 = false,
+  }) : super(key: key);
+
   @override
   _CreatePropertyPostPageState createState() => _CreatePropertyPostPageState();
 }
@@ -651,6 +659,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       try {
         _availableQuartiers = locationCtrl.getQuartiersForCommune(_selectedCommune!.communeId!);
         _selectedQuartier = _availableQuartiers.isNotEmpty ? _availableQuartiers.first : null;
+        // Synchroniser le champ texte si aucune saisie (évite invalide au retour).
+        if (_quartierTextController.text.trim().isEmpty) {
+          _quartierTextController.text = _selectedQuartier?.name ?? '';
+        }
       } catch (e) {
         _availableQuartiers = [];
         _selectedQuartier = null;
@@ -883,6 +895,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
   Future<void> _restoreDraft() async {
     try {
+      if (widget.openAfterAgencyVacanceStep2) {
+        return;
+      }
+
       final draftData = _prefs.getString('property_draft');
 
       if (draftData != null && mounted) {
@@ -1165,14 +1181,24 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
 
     // Location validation
     if (_isKinshasaSelected) {
+      final quartierEffective = (() {
+        final t = _quartierTextController.text.trim();
+        if (t.isNotEmpty) return t;
+        return (_selectedQuartier?.name ?? '').trim();
+      })();
       if (_selectedCity == null) _setFieldError(1, 'city', 'Ville requise');
       if (_selectedDistrict == null) _setFieldError(1, 'district', 'District requis');
       if (_selectedCommune == null) _setFieldError(1, 'commune', 'Commune requise');
-      if (_quartierTextController.text.trim().isEmpty) {
+      if (quartierEffective.isEmpty) {
         _setFieldError(1, 'quartier', 'Quartier requis');
       }
-      // IMPORTANT: à Kinshasa l’API a besoin d’un quartierId valide pour créer le bien + images.
-      if (_kinshasaQuartierIdForPayload() <= 0) {
+      // IMPORTANT: à Kinshasa, si on a sélection dans la liste => envoyer quartierId.
+      // Si l'utilisateur a tapé un quartier "libre" (non trouvé), on accepte quartierValue via texte et quartierId=0.
+      final typed = _quartierTextController.text.trim();
+      final selectedName = (_selectedQuartier?.name ?? '').trim();
+      final matchedSelected =
+          typed.isNotEmpty && selectedName.isNotEmpty && typed.toLowerCase() == selectedName.toLowerCase();
+      if (matchedSelected && _kinshasaQuartierIdForPayload() <= 0) {
         _setFieldError(1, 'quartier', 'Choisissez un quartier');
       }
     } else {
@@ -3081,13 +3107,19 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           if (!isHotel)
           _buildModernTextField(
             controller: _priceController,
-            label: (isFestive || isFuneraire) ? 'Prix' : (_isForRent ? 'Prix mensuel' : 'Prix de vente'),
-            hint: (isFestive || isFuneraire) ? '500' : (_isForRent ? '1200' : '450000'),
+            label: (isFestive || isFuneraire || isVacances || isTerrain)
+                ? 'Prix'
+                : (_isForRent ? 'Prix mensuel' : 'Prix de vente'),
+            hint: (isFestive || isFuneraire || isVacances || isTerrain)
+                ? '500'
+                : (_isForRent ? '1200' : '450000'),
             icon: Icons.attach_money_rounded,
             keyboardType: TextInputType.number,
             suffixText: (isFestive || isFuneraire)
                 ? null
-                : (_isForRent ? '$priceDeviseSymbol/mois' : priceDeviseSymbol),
+                : ((isVacances || isTerrain)
+                    ? priceDeviseSymbol
+                    : (_isForRent ? '$priceDeviseSymbol/mois' : priceDeviseSymbol)),
             prefixIconColor: _isForRent ? Colors.blue : Colors.green,
             focusNode: _focusNodes[1],
             nextFocusNode: _isForRent ? _focusNodes[2] : _focusNodes[3],
@@ -6378,6 +6410,10 @@ Widget _buildStep3() {
 
         print(
             "✅ ${_propertyTypes.length} types et ${_features.length} caractéristiques (sync API)");
+
+        if (widget.openAfterAgencyVacanceStep2) {
+          _applyPostAgencyVacancePreset();
+        }
       }
     } catch (e, st) {
       print("❌ Erreur chargement types/features: $e\n$st");
@@ -6395,8 +6431,43 @@ Widget _buildStep3() {
           _loadingFeatures = false;
           _syncHotelTypeMeta();
         });
+        if (widget.openAfterAgencyVacanceStep2) {
+          _applyPostAgencyVacancePreset();
+        }
       }
     }
+  }
+
+  /// Sélectionne le type « Vacances » et passe à l’étape détails (index 1), après chargement des types API.
+  void _applyPostAgencyVacancePreset() {
+    if (!mounted || !widget.openAfterAgencyVacanceStep2) return;
+
+    Map<String, dynamic>? vacanceRow;
+    for (final t in _propertyTypes) {
+      final n = t['name']?.toString().toLowerCase() ?? '';
+      if (n.contains('vacance')) {
+        vacanceRow = t;
+        break;
+      }
+    }
+    if (vacanceRow == null) return;
+
+    final idRaw = vacanceRow['propertyTypeId'];
+    final pid = idRaw is int ? idRaw : int.tryParse(idRaw?.toString() ?? '');
+    final name = vacanceRow['name']?.toString();
+    if (pid == null || name == null || name.isEmpty) return;
+
+    setState(() {
+      _selectedPropertyTypeId = pid;
+      _selectedCategory = name;
+      _currentStep = 1;
+      _syncHotelTypeMeta();
+      _currentStepName = _getStepName(1);
+    });
+
+    _validateStep0();
+    _validateStep1();
+    _saveDraft();
   }
 }
 

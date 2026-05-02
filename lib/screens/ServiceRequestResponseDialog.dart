@@ -145,7 +145,7 @@ class _ServiceRequestResponseDialogState extends State<ServiceRequestResponseDia
                         controller: _priceController,
                         keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          prefixText: 'CDF ',
+                          prefixText: 'FC ',
                           hintText: '0',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),

@@ -5,16 +5,18 @@ import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart'; // Added for date formatting
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:share_plus/share_plus.dart';
+import '../controllers/CotationController.dart';
+import '../models/CotationModel.dart';
 import '../models/PrestationModel.dart';
+import 'CotationsListPage.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/FavoriteEartIcon.dart';
-import '../utils/Routes.dart';
 import 'ServiceFullScreenImageViewer.dart';
 import 'RequestInterventionPage.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:casa/utils/StockageKeys.dart';
-import '../controllers/ServiceController.dart'; // Added
 import '../utils/SubscriptionHelper.dart';
+import '../controllers/ServiceController.dart'; // Added
 import 'package:provider/provider.dart'; // Added
 import 'auth/LoginScreen.dart';
 
@@ -22,10 +24,14 @@ class ServiceDetailPage extends StatefulWidget {
   final PrestationModel service;
   final String? serviceTypeName;
 
+  /// Si on vient d'une sollicitation (MyServices -> Mes demandes), on peut afficher/ajouter l'avis lié à cette sollicitation.
+  final int? sollicitationId;
+
   const ServiceDetailPage({
     Key? key,
     required this.service,
     this.serviceTypeName,
+    this.sollicitationId,
   }) : super(key: key);
 
   @override
@@ -40,56 +46,607 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   late PageController _imageController;
   int _currentImageIndex = 0;
   Timer? _autoScrollTimer;
+  ServiceController? _serviceCtrl;
+  String? _lastGalleryKey;
+  bool _loadingSollicitationCotations = false;
+  bool _loadingPublicCotationsForPrestation = false;
+  bool _loadingHostSollicitationCotationsForPrestation = false;
+  List<CotationModel> _hostDerivedCotationsForPrestation = const [];
+  /// Ids de sollicitation liés à cette prestation (host + mes demandes) — recalcul quand le public rafraîchit.
+  Set<int>? _reviewSollicitationIdsForPrestation;
+  CotationController? _cotCtrl;
 
-  @override
-  void initState() {
-    super.initState();
-    initializeDateFormatting('fr_FR', null);
-    
-    // Ensure images list includes profile if images is empty or null
-    List<String> images = widget.service.images ?? [];
-    if (images.isEmpty && widget.service.profile != null && widget.service.profile!.isNotEmpty) {
-      images = [widget.service.profile!];
-      widget.service.images = images; // Update the service model
+  /// Avis affichés : sollicitation, ou fusion prestation + liste publique (`prestationId`).
+  List<CotationModel> _displayCotations(
+    PrestationModel service,
+    CotationController cotCtrl,
+  ) {
+    if (widget.sollicitationId != null) {
+      return cotCtrl.cotationsForSollicitation(widget.sollicitationId!);
     }
-    
-    _imageController = PageController(initialPage: 0);
-
-    // Démarrage du défilement automatique si plusieurs images
-    if (images.length > 1) {
-      _startAutoScroll();
+    final local = service.cotations ?? <CotationModel>[];
+    if (local.isNotEmpty) return local;
+    final pid = service.id;
+    if (pid != null) {
+      final byP = cotCtrl.cotationsForPrestation(pid);
+      if (byP.isNotEmpty) return byP;
     }
-
-    // SILENT LOADING: Charger la prestation complète en arrière-plan
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.service.id != null) {
-        context.read<ServiceController>().getPrestationById(widget.service.id!);
-      }
-    });
+    return _hostDerivedCotationsForPrestation;
   }
 
-  void _startAutoScroll() {
-    final images = widget.service.images ?? [];
-    if (images.length <= 1) return;
+  List<Widget> _buildStarIcons(double rating, {double size = 16}) {
+    // Clamp and convert to half-step (0.0, 0.5, 1.0 ...)
+    final r = rating.isNaN ? 0.0 : rating.clamp(0.0, 5.0);
+    final halfSteps = (r * 2).round(); // 4.5 -> 9
+    final full = halfSteps ~/ 2;
+    final hasHalf = halfSteps % 2 == 1;
+    final empty = 5 - full - (hasHalf ? 1 : 0);
+
+    final stars = <Widget>[];
+    for (var i = 0; i < full; i++) {
+      stars.add(Icon(Icons.star_rounded, color: Colors.amber, size: size));
+    }
+    if (hasHalf) {
+      stars.add(Icon(Icons.star_half_rounded, color: Colors.amber, size: size));
+    }
+    for (var i = 0; i < empty; i++) {
+      stars.add(
+          Icon(Icons.star_border_rounded, color: Colors.amber, size: size));
+    }
+    return stars;
+  }
+
+  int? _currentUserIdFromStorage() {
+    try {
+      final storage = GetStorage();
+      final raw = storage.read(StockageKeys.userKey);
+      if (raw is Map) {
+        final v = raw['userId'] ?? raw['id'];
+        if (v is int) return v;
+        return int.tryParse(v?.toString() ?? '');
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  bool get _canRateThisSollicitation {
+    final me = _currentUserIdFromStorage();
+    if (me == null) return false;
+    final sid = widget.sollicitationId;
+    if (sid == null) return false;
+    // Pour l'instant, même logique "test": on autorise, le backend filtrera si besoin.
+    return true;
+  }
+
+  Widget _buildAddReviewCta() {
+    final enabled = _canRateThisSollicitation;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primaryColor.withOpacity(0.10),
+            accentColor.withOpacity(0.08),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: primaryColor.withOpacity(0.14)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                )
+              ],
+            ),
+            child: const Icon(Icons.star_rounded, color: primaryColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Mettre un avis',
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF111827),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  enabled
+                      ? 'Aidez-nous à améliorer la qualité.'
+                      : 'Connectez-vous pour noter.',
+                  style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: const Color(0xFF4B5563),
+                      height: 1.3),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            height: 44,
+            child: FilledButton(
+              onPressed: enabled ? _showCotationBottomSheet : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: primaryColor,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: Text('Noter',
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w800)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showCotationBottomSheet() async {
+    final me = _currentUserIdFromStorage();
+    final sid = widget.sollicitationId;
+    if (me == null || sid == null) return;
+
+    final commentCtrl = TextEditingController();
+    double cote = 4.5;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final bottom = MediaQuery.of(ctx).viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.only(bottom: bottom),
+          child: Consumer<CotationController>(
+            builder: (ctx, cotCtrl, _) {
+              return Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: StatefulBuilder(
+                    builder: (ctx, setLocal) {
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Center(
+                              child: Container(
+                                width: 46,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE5E7EB),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [
+                                        Color(0xFF1976D2),
+                                        Color(0xFF64B5F6)
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: const Icon(Icons.rate_review_rounded,
+                                      color: Colors.white),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Votre avis',
+                                          style: GoogleFonts.inter(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w900)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Sollicitation #$sid',
+                                        style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            color: const Color(0xFF6B7280)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: cotCtrl.loading
+                                      ? null
+                                      : () => Navigator.pop(ctx),
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 14),
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF9FAFB),
+                                borderRadius: BorderRadius.circular(16),
+                                border:
+                                    Border.all(color: const Color(0xFFF1F5F9)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          gradient: const LinearGradient(
+                                            colors: [
+                                              Color(0xFF1976D2),
+                                              Color(0xFF64B5F6)
+                                            ],
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                        ),
+                                        child: Text(
+                                          '★ ${cote.toStringAsFixed(1)} / 5',
+                                          style: GoogleFonts.inter(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w900,
+                                              color: Colors.white),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Text(
+                                        'Glissez pour ajuster',
+                                        style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            color: const Color(0xFF6B7280)),
+                                      ),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value: cote,
+                                    min: 0.5,
+                                    max: 5.0,
+                                    divisions: 9,
+                                    label: cote.toStringAsFixed(1),
+                                    activeColor: primaryColor,
+                                    onChanged: cotCtrl.loading
+                                        ? null
+                                        : (v) => setLocal(() => cote = v),
+                                  ),
+                                  TextField(
+                                    controller: commentCtrl,
+                                    maxLines: 4,
+                                    enabled: !cotCtrl.loading,
+                                    decoration: InputDecoration(
+                                      hintText:
+                                          'Ex: Service rapide, pro, respect du délai…',
+                                      hintStyle: GoogleFonts.inter(
+                                          color: const Color(0xFF9CA3AF)),
+                                      border: OutlineInputBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14)),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                        borderSide: const BorderSide(
+                                            color: primaryColor, width: 1.2),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: cotCtrl.loading
+                                        ? null
+                                        : () => Navigator.pop(ctx),
+                                    style: OutlinedButton.styleFrom(
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14)),
+                                      side: const BorderSide(
+                                          color: Color(0xFFE5E7EB)),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 14),
+                                    ),
+                                    child: Text('Annuler',
+                                        style: GoogleFonts.inter(
+                                            fontWeight: FontWeight.w800)),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: cotCtrl.loading
+                                        ? null
+                                        : () async {
+                                            final text =
+                                                commentCtrl.text.trim();
+                                            if (text.length < 3) {
+                                              FancyNotification.show(
+                                                ctx,
+                                                'Le commentaire doit contenir au moins 3 caractères.',
+                                                type: NotificationType.warning,
+                                              );
+                                              return;
+                                            }
+                                            final resp =
+                                                await cotCtrl.createCotation(
+                                              userId: me,
+                                              sollicitationId: sid,
+                                              commentaire: text,
+                                              cote: cote,
+                                            );
+                                            if (!ctx.mounted) return;
+                                            if (resp.status) {
+                                              Navigator.pop(ctx);
+                                              FancyNotification.show(
+                                                context,
+                                                'Merci pour votre avis.',
+                                                type: NotificationType.success,
+                                              );
+                                              await cotCtrl
+                                                  .fetchPublicCotations(
+                                                      forceRefresh: true);
+                                            } else {
+                                              FancyNotification.show(
+                                                ctx,
+                                                resp.errorMsg ??
+                                                    'Impossible d\'enregistrer l\'avis.',
+                                                type: NotificationType.error,
+                                              );
+                                            }
+                                          },
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: primaryColor,
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14)),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 14),
+                                    ),
+                                    child: cotCtrl.loading
+                                        ? const SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white))
+                                        : Text('Envoyer',
+                                            style: GoogleFonts.inter(
+                                                fontWeight: FontWeight.w900)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    commentCtrl.dispose();
+  }
+
+  /// Photo de profil du prestataire en premier, puis les autres visuels (sans doublon profil).
+  List<String> _orderedGallery(PrestationModel s) {
+    final profile = s.profile?.trim();
+    final raw = List<String>.from(s.images ?? []);
+    final rest = <String>[];
+    for (final u in raw) {
+      final t = u.trim();
+      if (t.isEmpty) continue;
+      if (profile != null &&
+          profile.isNotEmpty &&
+          t.toLowerCase() == profile.toLowerCase()) {
+        continue;
+      }
+      if (!rest.contains(u)) rest.add(u);
+    }
+    final out = <String>[];
+    if (profile != null && profile.isNotEmpty) {
+      out.add(profile);
+    }
+    out.addAll(rest);
+    if (out.isEmpty) {
+      for (final u in raw) {
+        if (u.trim().isNotEmpty) out.add(u);
+      }
+    }
+    return out;
+  }
+
+  PrestationModel _serviceForCarousel(ServiceController ctrl) {
+    final cur = ctrl.currentPrestation;
+    if (cur != null && cur.id == widget.service.id) return cur;
+    return widget.service;
+  }
+
+  void _syncAutoCarousel(ServiceController ctrl) {
+    final imgs = _orderedGallery(_serviceForCarousel(ctrl));
+    final key = imgs.join('\u0001');
+    if (key == _lastGalleryKey) return;
+    _lastGalleryKey = key;
 
     _autoScrollTimer?.cancel();
-    _autoScrollTimer = Timer.periodic(Duration(seconds: 4), (timer) {
+    if (imgs.length <= 1) return;
+
+    _autoScrollTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
       if (!mounted || !_imageController.hasClients) {
         timer.cancel();
         return;
       }
-
-      final nextIndex = (_currentImageIndex + 1) % images.length;
+      final latest = _orderedGallery(_serviceForCarousel(ctrl));
+      if (latest.isEmpty) return;
+      final nextIndex = (_currentImageIndex + 1) % latest.length;
       _imageController.animateToPage(
         nextIndex,
-        duration: Duration(milliseconds: 500),
+        duration: const Duration(milliseconds: 500),
         curve: Curves.easeInOut,
       );
     });
   }
 
+  void _onServiceControllerNotify() {
+    if (!mounted) return;
+    final c = _serviceCtrl;
+    if (c == null) return;
+    _syncAutoCarousel(c);
+  }
+
+  void _onCotationControllerNotify() {
+    if (!mounted) return;
+    if (widget.sollicitationId != null || widget.service.id == null) return;
+    final ids = _reviewSollicitationIdsForPrestation;
+    if (ids == null) return;
+    final cotCtrl = _cotCtrl;
+    if (cotCtrl == null) return;
+    final list = cotCtrl.publicCotations
+        .where((c) =>
+            c.sollicitationId != null && ids.contains(c.sollicitationId))
+        .toList();
+    list.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+    setState(() => _hostDerivedCotationsForPrestation = list);
+  }
+
+  /// Après GET /public/cotation : filtre par sollicitationIds connus (host + mes sollicitations pour cette prestation).
+  Future<void> _applySollicitationBasedReviews(
+    ServiceController c,
+    CotationController cotCtrl,
+  ) async {
+    if (!mounted || widget.sollicitationId != null || widget.service.id == null) {
+      return;
+    }
+    final pid = widget.service.id!;
+    try {
+      final results = await Future.wait([
+        c.fetchHostSollicitations(),
+        c.fetchUserSollicitations(),
+      ]);
+      final hostSols = results[0];
+      final userSols = results[1];
+      final ids = <int>{};
+      for (final s in hostSols) {
+        if (s.prestationId == pid && s.id != null) ids.add(s.id!);
+      }
+      for (final s in userSols) {
+        if (s.prestationId == pid && s.id != null) ids.add(s.id!);
+      }
+      if (!mounted) return;
+      _reviewSollicitationIdsForPrestation = ids;
+      final cotations = cotCtrl.publicCotations
+          .where((c) =>
+              c.sollicitationId != null && ids.contains(c.sollicitationId))
+          .toList();
+      cotations.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+      setState(() {
+        _hostDerivedCotationsForPrestation = cotations;
+        _loadingHostSollicitationCotationsForPrestation = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _reviewSollicitationIdsForPrestation = {};
+          _loadingHostSollicitationCotationsForPrestation = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    initializeDateFormatting('fr_FR', null);
+    _imageController = PageController(initialPage: 0);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final c = context.read<ServiceController>();
+      _serviceCtrl = c;
+      c.addListener(_onServiceControllerNotify);
+      _syncAutoCarousel(c);
+      if (widget.service.id != null) {
+        c.getPrestationById(widget.service.id!);
+      }
+
+      // Cotations liées à une sollicitation (SWR: cache instant + refresh)
+      if (widget.sollicitationId != null) {
+        final cotCtrl = context.read<CotationController>();
+        setState(() => _loadingSollicitationCotations = true);
+        cotCtrl.fetchPublicCotations(forceRefresh: false).whenComplete(() {
+          if (!mounted) return;
+          setState(() => _loadingSollicitationCotations = false);
+        });
+        // refresh background
+        cotCtrl.fetchPublicCotations(forceRefresh: true);
+      } else if (widget.service.id != null) {
+        final cotCtrl = context.read<CotationController>();
+        _cotCtrl = cotCtrl;
+        cotCtrl.addListener(_onCotationControllerNotify);
+
+        setState(() {
+          _loadingPublicCotationsForPrestation = true;
+          _loadingHostSollicitationCotationsForPrestation = true;
+        });
+
+        Future<void> loadPublicThenFilter() async {
+          await cotCtrl.fetchPublicCotations(forceRefresh: false);
+          if (!mounted) return;
+          setState(() => _loadingPublicCotationsForPrestation = false);
+          await cotCtrl.fetchPublicCotations(forceRefresh: true);
+          if (!mounted) return;
+          await _applySollicitationBasedReviews(c, cotCtrl);
+        }
+
+        loadPublicThenFilter();
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _cotCtrl?.removeListener(_onCotationControllerNotify);
+    _serviceCtrl?.removeListener(_onServiceControllerNotify);
     _autoScrollTimer?.cancel();
     _imageController.dispose();
     super.dispose();
@@ -135,10 +692,12 @@ Découvrez ce service sur CasaNayo!
   Widget build(BuildContext context) {
     // SILENT LOADING: Ecouter le controller pour mettre à jour les données dès qu'elles arrivent
     final serviceCtrl = context.watch<ServiceController>();
-    final bool hasFullData = serviceCtrl.currentPrestation?.id == widget.service.id;
-    final PrestationModel service = hasFullData ? serviceCtrl.currentPrestation! : widget.service;
+    final bool hasFullData =
+        serviceCtrl.currentPrestation?.id == widget.service.id;
+    final PrestationModel service =
+        hasFullData ? serviceCtrl.currentPrestation! : widget.service;
 
-    final images = service.images ?? [];
+    final images = _orderedGallery(service);
     final hasImages = images.isNotEmpty;
     final firstImage = hasImages ? images.first : null;
 
@@ -173,7 +732,8 @@ Découvrez ce service sur CasaNayo!
                               color: primaryColor.withOpacity(0.1),
                               child: Center(
                                 child: CircularProgressIndicator(
-                                  valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      primaryColor),
                                 ),
                               ),
                             ),
@@ -211,7 +771,8 @@ Découvrez ce service sur CasaNayo!
                   color: Colors.black.withOpacity(0.5),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 16),
+                child: Icon(Icons.arrow_back_ios_new,
+                    color: Colors.white, size: 16),
               ),
               onPressed: () => Navigator.pop(context),
             ),
@@ -219,13 +780,13 @@ Découvrez ce service sur CasaNayo!
               // Bouton favoris
               Container(
                 margin: EdgeInsets.only(right: 8),
-              child: FavoriteHeartIcon(
-                propertyId: service.id.toString(),
-                isPrestation: true,
-                size: 24,
-                activeColor: Colors.red,
-                inactiveColor: Colors.white,
-              ),
+                child: FavoriteHeartIcon(
+                  propertyId: service.id.toString(),
+                  isPrestation: true,
+                  size: 24,
+                  activeColor: Colors.red,
+                  inactiveColor: Colors.white,
+                ),
               ),
               // Bouton partager
               IconButton(
@@ -253,7 +814,8 @@ Découvrez ce service sur CasaNayo!
                   if (service.isCertified == true)
                     Container(
                       margin: EdgeInsets.only(bottom: 16),
-                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: Colors.green,
                         borderRadius: BorderRadius.circular(20),
@@ -293,7 +855,8 @@ Découvrez ce service sur CasaNayo!
                             ),
                             SizedBox(height: 8),
                             Container(
-                              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
                               decoration: BoxDecoration(
                                 color: primaryColor.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(8),
@@ -308,9 +871,12 @@ Découvrez ce service sur CasaNayo!
                                   ),
                                   SizedBox(width: 6),
                                   Consumer<ServiceController>(
-                                    builder: (context, serviceController, child) {
-                                      final resolvedName = widget.serviceTypeName ?? 
-                                                         serviceController.getServiceName(service.serviceId);
+                                    builder:
+                                        (context, serviceController, child) {
+                                      final resolvedName =
+                                          widget.serviceTypeName ??
+                                              serviceController.getServiceName(
+                                                  service.serviceId);
                                       return Text(
                                         resolvedName,
                                         style: GoogleFonts.inter(
@@ -398,7 +964,8 @@ Découvrez ce service sur CasaNayo!
                   ],
 
                   // Expérience professionnelle
-                  if (service.experience != null && service.experience!.isNotEmpty) ...[
+                  if (service.experience != null &&
+                      service.experience!.isNotEmpty) ...[
                     Container(
                       padding: EdgeInsets.all(16),
                       decoration: BoxDecoration(
@@ -418,7 +985,10 @@ Découvrez ce service sur CasaNayo!
                             padding: EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
-                                colors: [primaryColor.withOpacity(0.1), accentColor.withOpacity(0.1)],
+                                colors: [
+                                  primaryColor.withOpacity(0.1),
+                                  accentColor.withOpacity(0.1)
+                                ],
                               ),
                               borderRadius: BorderRadius.circular(10),
                             ),
@@ -442,7 +1012,7 @@ Découvrez ce service sur CasaNayo!
                                   ),
                                 ),
                                 SizedBox(height: 4),
-                                 Text(
+                                Text(
                                   _formatExperience(service.experience),
                                   style: GoogleFonts.inter(
                                     fontSize: 20,
@@ -489,7 +1059,8 @@ Découvrez ce service sur CasaNayo!
                           ),
                         ),
                         SizedBox(height: 16),
-                        if (service.address != null && service.address!.isNotEmpty)
+                        if (service.address != null &&
+                            service.address!.isNotEmpty)
                           _buildInfoRow(
                             Icons.location_on,
                             "${service.cityValue}, ${service.communeValue}",
@@ -642,8 +1213,9 @@ Découvrez ce service sur CasaNayo!
                                     child: Center(
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(
-                                            primaryColor),
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                primaryColor),
                                       ),
                                     ),
                                   ),
@@ -664,7 +1236,7 @@ Découvrez ce service sur CasaNayo!
                     ),
                   ],
 
-                  // Avis clients (statiques)
+                  // Avis clients (API `cotation`)
                   SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -677,50 +1249,157 @@ Découvrez ce service sur CasaNayo!
                           color: darkBlue,
                         ),
                       ),
-                      TextButton.icon(
-                        onPressed: () {
-                          Navigator.pushNamed(
-                            context,
-                            Routes.allReviewsRoute,
-                            arguments: service,
-                          );
-                        },
-                        icon: Icon(Icons.arrow_forward_ios, size: 14),
-                        label: Text(
-                          'Voir tous',
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: primaryColor,
+                      Builder(builder: (context) {
+                        final hasSollicitation = widget.sollicitationId != null;
+                        final cotCtrl = context.watch<CotationController>();
+                        final activeList = _displayCotations(service, cotCtrl);
+
+                        return TextButton.icon(
+                          onPressed: activeList.isEmpty
+                              ? null
+                              : () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => CotationsListPage(
+                                        cotations: activeList,
+                                        title: hasSollicitation
+                                            ? 'Sollicitation #${widget.sollicitationId}'
+                                            : service.title,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          icon: const Icon(Icons.arrow_forward_ios, size: 14),
+                          label: Text(
+                            'Voir tous',
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: primaryColor,
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      }),
                     ],
                   ),
                   SizedBox(height: 12),
-                  _buildReviewCard(
-                    name: 'Patrick K.',
-                    rating: 4.8,
-                    comment:
-                        'Travail propre et rapide, très professionnel. Je recommande.',
-                    datePosted: DateTime.now().subtract(Duration(days: 5)),
-                  ),
-                  SizedBox(height: 8),
-                  _buildReviewCard(
-                    name: 'Mireille N.',
-                    rating: 4.7,
-                    comment:
-                        'Ponctuel et soigneux, les finitions sont impeccables.',
-                    datePosted: DateTime.now().subtract(Duration(days: 12)),
-                  ),
-                  SizedBox(height: 8),
-                  _buildReviewCard(
-                    name: 'Arnaud T.',
-                    rating: 4.9,
-                    comment:
-                        'Très bonne communication et respect des délais.',
-                    datePosted: DateTime.now().subtract(Duration(days: 3)),
-                  ),
+                  Builder(builder: (context) {
+                    final hasSollicitation = widget.sollicitationId != null;
+                    final cotCtrl = context.watch<CotationController>();
+                    final list = _displayCotations(service, cotCtrl);
+
+                    if (hasSollicitation && _loadingSollicitationCotations) {
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: primaryColor.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border:
+                              Border.all(color: primaryColor.withOpacity(0.10)),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)),
+                            const SizedBox(width: 10),
+                            Text('Chargement des avis...',
+                                style: GoogleFonts.inter(
+                                    fontSize: 13, color: Colors.grey[700])),
+                          ],
+                        ),
+                      );
+                    }
+
+                    // Quand on ouvre la page depuis "partout", la prestation détaillée arrive en async.
+                    // Éviter d'afficher "Aucun avis" trop tôt si on n'a pas encore reçu les cotations.
+                    if (!hasSollicitation &&
+                        (_loadingPublicCotationsForPrestation ||
+                            _loadingHostSollicitationCotationsForPrestation) &&
+                        list.isEmpty &&
+                        hasFullData) {
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: primaryColor.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border:
+                              Border.all(color: primaryColor.withOpacity(0.10)),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Chargement des avis...',
+                              style: GoogleFonts.inter(
+                                  fontSize: 13, color: Colors.grey[700]),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    if (!hasSollicitation &&
+                        !hasFullData &&
+                        service.cotations == null) {
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: primaryColor.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border:
+                              Border.all(color: primaryColor.withOpacity(0.10)),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Chargement des avis...',
+                              style: GoogleFonts.inter(
+                                  fontSize: 13, color: Colors.grey[700]),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    if (list.isEmpty) {
+                      return Text(
+                        'Aucun avis pour le moment.',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      );
+                    }
+                    final preview = list.length > 3 ? list.sublist(0, 3) : list;
+                    final widgets = <Widget>[];
+                    for (var i = 0; i < preview.length; i++) {
+                      if (i > 0) widgets.add(const SizedBox(height: 8));
+                      widgets.add(_buildReviewCardFromCotation(preview[i]));
+                    }
+                    return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: widgets);
+                  }),
+
+                  if (widget.sollicitationId != null) ...[
+                    const SizedBox(height: 12),
+                    _buildAddReviewCta(),
+                  ],
 
                   // Bouton principal : Demander une intervention
                   SizedBox(height: 24),
@@ -730,19 +1409,19 @@ Découvrez ce service sur CasaNayo!
                       onPressed: () {
                         final storage = GetStorage();
                         final token = storage.read(StockageKeys.tokenKey);
-                        
+
                         if (token == null) {
-                          FancyNotification.show(
-                            context, 
-                            "Vous devez être connecté pour demander une intervention",
-                            type: NotificationType.info
-                          );
+                          FancyNotification.show(context,
+                              "Vous devez être connecté pour demander une intervention",
+                              type: NotificationType.info);
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (context) => LoginScreen()),
+                            MaterialPageRoute(
+                                builder: (context) => LoginScreen()),
                           );
                         } else {
-                          SubscriptionHelper.checkCertifiedPremiumForSensitiveAction(
+                          SubscriptionHelper
+                              .checkCertifiedPremiumForSensitiveAction(
                             context: context,
                             onProceed: () {
                               Navigator.push(
@@ -901,14 +1580,13 @@ Découvrez ce service sur CasaNayo!
   String _formatPrice(num price) {
     if (price >= 1000000) {
       return '${(price / 1000000).toStringAsFixed(1)}M';
-    } 
+    }
     // Logic for 'K' removed as per request
     return price.toStringAsFixed(0);
   }
 
   String _getPriceRange(PrestationModel service) {
-    if (service.minPrice == null)
-      return 'Prix sur demande';
+    if (service.minPrice == null) return 'Prix sur demande';
 
     final double minPrice = service.minPrice!;
     // Max price ignored for display as per request ("À partir de")
@@ -980,8 +1658,24 @@ Découvrez ce service sur CasaNayo!
     }
   }
 
+  Widget _buildReviewCardFromCotation(CotationModel c) {
+    final name = c.user?.username ?? c.user?.fullName ?? 'Client';
+    final datePosted =
+        c.createdAt != null ? DateTime.tryParse(c.createdAt!) : null;
+    return _buildReviewCard(
+      name: name,
+      avatarUrl: c.user?.profilePicture,
+      rating: c.cote ?? 0,
+      comment: (c.commentaire != null && c.commentaire!.trim().isNotEmpty)
+          ? c.commentaire!.trim()
+          : '—',
+      datePosted: datePosted,
+    );
+  }
+
   Widget _buildReviewCard({
     required String name,
+    String? avatarUrl,
     required double rating,
     required String comment,
     DateTime? datePosted,
@@ -1009,11 +1703,17 @@ Découvrez ce service sur CasaNayo!
               CircleAvatar(
                 radius: 18,
                 backgroundColor: primaryColor.withOpacity(0.1),
-                child: Text(
-                  name.isNotEmpty ? name[0].toUpperCase() : '?',
-                  style: TextStyle(
-                      color: primaryColor, fontWeight: FontWeight.bold),
-                ),
+                backgroundImage:
+                    (avatarUrl != null && avatarUrl.trim().isNotEmpty)
+                        ? CachedNetworkImageProvider(avatarUrl.trim())
+                        : null,
+                child: (avatarUrl != null && avatarUrl.trim().isNotEmpty)
+                    ? null
+                    : Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        style: TextStyle(
+                            color: primaryColor, fontWeight: FontWeight.bold),
+                      ),
               ),
               SizedBox(width: 10),
               Expanded(
@@ -1030,8 +1730,8 @@ Découvrez ce service sur CasaNayo!
                     ),
                     Row(
                       children: [
-                        Icon(Icons.star, color: Colors.amber, size: 16),
-                        SizedBox(width: 4),
+                        ..._buildStarIcons(rating, size: 16),
+                        const SizedBox(width: 6),
                         Text(
                           rating.toStringAsFixed(1),
                           style: GoogleFonts.inter(
@@ -1078,16 +1778,16 @@ Découvrez ce service sur CasaNayo!
     final String? profilePicture = service.profile;
 
     String publisherName = '';
-    
+
     // Essayer postBy d'abord car souvent plus fiable (ex: @LéaReckiel)
     if (postBy != null && postBy.isNotEmpty && postBy != 'null') {
       publisherName = postBy.replaceAll('@', '').trim();
-    } 
+    }
     // Sinon essayer username
     else if (username != null && username.isNotEmpty && username != 'null') {
       publisherName = username.replaceAll('@', '').trim();
     }
-    
+
     if (publisherName.isEmpty) publisherName = 'Prestataire';
 
     return Container(
@@ -1131,56 +1831,56 @@ Découvrez ce service sur CasaNayo!
                   border: Border.all(
                       color: primaryColor.withOpacity(0.3), width: 2),
                 ),
-                  child: GestureDetector(
-                    onTap: () {
-                      if (profilePicture != null && profilePicture.isNotEmpty) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ServiceFullScreenImageViewer(
-                              imageUrls: [profilePicture],
-                              initialIndex: 0,
-                            ),
+                child: GestureDetector(
+                  onTap: () {
+                    if (profilePicture != null && profilePicture.isNotEmpty) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ServiceFullScreenImageViewer(
+                            imageUrls: [profilePicture],
+                            initialIndex: 0,
                           ),
-                        );
-                      }
-                    },
-                    child: Hero(
-                      tag: 'service_profile_${service.id}',
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(23),
-                        child: profilePicture != null &&
-                                profilePicture.isNotEmpty
-                            ? CachedNetworkImage(
-                                imageUrl: profilePicture,
-                                fit: BoxFit.cover,
-                                placeholder: (context, url) => Center(
-                                    child: CircularProgressIndicator(strokeWidth: 2)),
-                                errorWidget: (context, url, error) => Center(
-                                    child: Text(
-                                  publisherName.isNotEmpty
-                                      ? publisherName[0].toUpperCase()
-                                      : 'A',
-                                  style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: primaryColor),
-                                )),
-                              )
-                            : Center(
-                                child: Text(
-                                  publisherName.isNotEmpty
-                                      ? publisherName[0].toUpperCase()
-                                      : 'A',
-                                  style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: primaryColor),
-                                ),
+                        ),
+                      );
+                    }
+                  },
+                  child: Hero(
+                    tag: 'service_profile_${service.id}',
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(23),
+                      child: profilePicture != null && profilePicture.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: profilePicture,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => Center(
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2)),
+                              errorWidget: (context, url, error) => Center(
+                                  child: Text(
+                                publisherName.isNotEmpty
+                                    ? publisherName[0].toUpperCase()
+                                    : 'A',
+                                style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: primaryColor),
+                              )),
+                            )
+                          : Center(
+                              child: Text(
+                                publisherName.isNotEmpty
+                                    ? publisherName[0].toUpperCase()
+                                    : 'A',
+                                style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: primaryColor),
                               ),
-                      ),
+                            ),
                     ),
                   ),
+                ),
               ),
               SizedBox(width: 14),
               Expanded(
@@ -1222,6 +1922,4 @@ Découvrez ce service sur CasaNayo!
       ),
     );
   }
-
 }
-

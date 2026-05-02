@@ -9,10 +9,14 @@ import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/decertification_access_guard.dart';
 import 'package:casa/utils/networkCheck.dart';
-import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/export_directory.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
+import 'package:casa/utils/currency_display.dart';
+import 'package:casa/utils/api_error_message.dart';
+import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/property_availability_ui.dart';
 import 'package:casa/widgets/property_sold_badge.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_datetime_picker_plus/flutter_datetime_picker_plus.dart' as picker;
 import 'package:get_storage/get_storage.dart';
@@ -31,9 +35,19 @@ class BookingVisitPage extends StatefulWidget {
   final dynamic property;
   /// Réservation hôtel : id chambre (`POST …/public/property/hotels/chambre/{id}`).
   final int? chambreId;
+  /// Site agence : `POST …/private/reservations/vacance` (corps VIP : vacanceId, dates, reservationHeure).
+  final bool agenceVacanceBooking;
+  final String? initialVacanceDate;
+  final String? initialVacanceHeure;
 
-  const BookingVisitPage({Key? key, required this.property, this.chambreId})
-      : super(key: key);
+  const BookingVisitPage({
+    Key? key,
+    required this.property,
+    this.chambreId,
+    this.agenceVacanceBooking = false,
+    this.initialVacanceDate,
+    this.initialVacanceHeure,
+  }) : super(key: key);
 
   @override
   _BookingVisitPageState createState() => _BookingVisitPageState();
@@ -63,6 +77,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   String _userEmail = '';
   String _userPhone = '';
   int? _userId;
+  String? _userProfilePhotoUrl;
   Map<String, dynamic>? _lastReservationSummary;
   pw.MemoryImage? _logoImage;
 
@@ -80,19 +95,24 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   String _toFrenchError(String message) {
     final lower = message.toLowerCase();
     if (lower.contains("you already have a pending reservation")) {
-      return "Vous avez déjà une réservation en attente pour ce bien";
+      return "Vous avez déjà une réservation en attente pour ce bien.";
     }
-    if (lower.contains("you can't reserve your own property") ||
-        lower.contains("you can\'t reserve your own property")) {
-      return "Vous ne pouvez pas réserver votre propre bien";
+    if (lower.contains("you can't reserve your own") ||
+        lower.contains("you can\'t reserve your own") ||
+        lower.contains("cant reserve your own")) {
+      return "Vous ne pouvez pas réserver votre propre bien.";
     }
     if (lower.contains("already") && lower.contains("book")) {
-      return "Ce créneau est déjà réservé, veuillez choisir une autre heure.";
+      return "Ce créneau est déjà réservé. Choisissez un autre horaire.";
     }
     if (lower.contains("not available") || lower.contains("unavailable")) {
-      return "Ce créneau n'est plus disponible, choisissez un autre horaire.";
+      return "Ce créneau n’est plus disponible. Choisissez un autre horaire.";
     }
-    return message;
+    return ApiErrorMessages.sanitizeServerText(
+      message,
+      fallback:
+          'La réservation n’a pas pu être enregistrée. Réessayez dans un instant.',
+    );
   }
 
   bool _isSuccessMessage(String? message) {
@@ -193,12 +213,13 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   String get _propertyPriceText {
     if (_isTerrain) {
        final t = _rawProperty as TerrainModel;
-       return "${t.terrain?.price?.toInt() ?? 0} ${t.devise?.code ?? 'USD'}";
+       return "${t.terrain?.price?.toInt() ?? 0} ${CurrencyDisplay.symbolFromCode(t.devise?.code)}";
     }
     final p = _rawProperty as PropertyModel;
     final isForRent = p.transactionType?.toLowerCase().contains('location') ?? false;
     final price = p.price?.toInt() ?? 0;
-    return isForRent ? '${price} ${p.currency} / mois' : '${price} ${p.currency}';
+    final sym = CurrencyDisplay.symbolFromCode(p.currency);
+    return isForRent ? '$price $sym / mois' : '$price $sym';
   }
 
   Future<Uint8List> _buildReservationPdfBytes() async {
@@ -222,9 +243,10 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
     // Infos propriétaire/commissionnaire depuis la réponse API
     // PRIORITÉ au postBy comme demandé par l'utilisateur
-    final publisherName = propertyData?['postBy']?.toString() ?? 
-        publisherData?['username']?.toString() ?? 
-        publisherData?['email']?.toString()?.split('@').first ?? 
+    final publisherEmail = publisherData?['email']?.toString();
+    final publisherName = propertyData?['postBy']?.toString() ??
+        publisherData?['username']?.toString() ??
+        (publisherEmail != null ? publisherEmail.split('@').first : null) ??
         'Non renseigné';
     String? _pickPostByTel(dynamic v) {
       if (v == null) return null;
@@ -238,7 +260,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         _pickPostByTel(propertyData?['postByTel']) ??
         publisherData?['phone']?.toString() ??
         'Non renseigné';
-    final typeAccountName = typeAccountData?['name']?.toString()?.toLowerCase() ?? '';
+    final typeAccountName = (typeAccountData?['name']?.toString() ?? '').toLowerCase();
     final publisherRole = typeAccountName.contains('bailleur')
         ? 'Bailleur'
         : (typeAccountName.contains('commission') || typeAccountName.contains('commissionnaire')
@@ -467,23 +489,37 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       return;
     }
     try {
+      final dir = await pickExportDirectoryOrNull();
+      if (dir == null) {
+        if (!mounted) return;
+        FancyNotification.show(
+          context,
+          "Enregistrement annulé : aucun dossier sélectionné.",
+          type: NotificationType.info,
+        );
+        return;
+      }
+
       final bytes = await _buildReservationPdfBytes();
-      final dir = await getCasaNayoExportDirectory(CasaNayoExportKind.reservation);
-      
       final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
       final fileName = 'Bon_Visite_${(summary['userName'] ?? safeUsername).toString().replaceAll(' ', '_')}_du_$generationDate.pdf';
-      
+
       final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes, flush: true);
-      
+
+      if (!mounted) return;
       FancyNotification.show(
         context,
-        "PDF enregistré dans ${dir.path}",
+        "PDF enregistré dans : ${describePickedDirectoryPathForUser(dir.path)}",
         isError: false,
         type: NotificationType.success,
       );
     } catch (e) {
-      FancyNotification.show(context, "Impossible de générer le PDF");
+      FancyNotification.show(
+        context,
+        "Le PDF n’a pas pu être enregistré. Vérifiez l’espace disque et réessayez.",
+        isError: true,
+      );
     }
   }
 
@@ -578,9 +614,57 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   void initState() {
     super.initState();
     initializeDateFormatting('fr_FR');
+    _applyAgenceVacancePrefill();
     _loadUserInfo();
     _loadLogo();
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureCertifiedForBooking());
+  }
+
+  Future<void> _precacheProfilePhotoIfNeeded() async {
+    final url = _userProfilePhotoUrl;
+    if (url == null || url.trim().isEmpty) return;
+    try {
+      await precacheImage(CachedNetworkImageProvider(url), context);
+    } catch (_) {
+      // best-effort only
+    }
+  }
+
+  void _applyAgenceVacancePrefill() {
+    if (!widget.agenceVacanceBooking) return;
+    final d = _parseVacanceDateString(widget.initialVacanceDate);
+    final t = _parseVacanceHeureString(widget.initialVacanceHeure);
+    if (d != null) _selectedDate = d;
+    if (t != null) _selectedTime = t;
+  }
+
+  DateTime? _parseVacanceDateString(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final s = raw.trim();
+    try {
+      return DateTime.parse(s);
+    } catch (_) {}
+    try {
+      if (RegExp(r'^\d{1,2}/\d{1,2}/\d{4}$').hasMatch(s)) {
+        final p = s.split('/');
+        final d = int.parse(p[0]);
+        final m = int.parse(p[1]);
+        final y = int.parse(p[2]);
+        return DateTime(y, m, d);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  TimeOfDay? _parseVacanceHeureString(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final s = raw.trim().replaceAll('h', ':').replaceAll('H', ':');
+    final parts = s.split(':');
+    if (parts.isEmpty) return null;
+    final h = int.tryParse(parts[0].trim());
+    if (h == null) return null;
+    final minute = parts.length > 1 ? int.tryParse(parts[1].trim()) ?? 0 : 0;
+    return TimeOfDay(hour: h.clamp(0, 23), minute: minute.clamp(0, 59));
   }
 
   /// Uniquement si le compte **a été certifié puis décertifié** : même traitement que les pages « owner ».
@@ -688,6 +772,19 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
           
           _userEmail = user['email']?.toString() ?? '';
           _userPhone = user['phone']?.toString() ?? '';
+          // Priorité: fichier local (comme ProfilePage), sinon URL profil.
+          final localPath = storage.read('user_image_path');
+          final localFile = (localPath != null) ? File(localPath.toString()) : null;
+          if (localFile != null && localFile.existsSync()) {
+            _userProfilePhotoUrl = null;
+          } else {
+            _userProfilePhotoUrl = _extractProfilePhotoUrl(user, profile);
+          }
+        });
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _precacheProfilePhotoIfNeeded();
         });
       }
     } catch (e) {
@@ -708,6 +805,42 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       });
     }
     return {};
+  }
+
+  String? _extractProfilePhotoUrl(Map<String, dynamic> user, Map<String, dynamic>? profile) {
+    String? pick(dynamic v) {
+      if (v == null) return null;
+      final s = v.toString().trim();
+      if (s.isEmpty) return null;
+      if (s.toLowerCase() == 'null') return null;
+      return s;
+    }
+
+    // Même stratégie que ProfilePage: profile['image'] ou profile['images'] (URL) en priorité.
+    final candidates = <dynamic>[
+      profile?['image'],
+      profile?['images'],
+      profile?['profilePicture'],
+      profile?['profile_picture'],
+      profile?['picture'],
+      profile?['photo'],
+      profile?['avatar'],
+      // user map
+      user['image'],
+      user['images'],
+      user['profilePicture'],
+      user['profile_picture'],
+      user['picture'],
+      user['photo'],
+      user['avatar'],
+      (user['user'] is Map) ? (user['user'] as Map)['profilePicture'] : null,
+      (user['user'] is Map) ? (user['user'] as Map)['image'] : null,
+    ];
+    for (final c in candidates) {
+      final out = pick(c);
+      if (out != null) return out;
+    }
+    return null;
   }
 
   // Ajoutez cette méthode utilitaire
@@ -809,6 +942,10 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       return;
     }
 
+    final allowed =
+        await SubscriptionHelper.ensurePremiumForSubmit(context: context);
+    if (!allowed || !mounted) return;
+
     if (!mounted || _isLoading) return;
     setState(() => _isLoading = true);
 
@@ -837,6 +974,15 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       }
 
       // Vérifier localement une réservation en attente déjà existante
+      final pModel = !_isTerrain && _rawProperty is PropertyModel
+          ? _rawProperty as PropertyModel
+          : null;
+      final typeId = pModel?.propertyTypeId;
+      final isVacanceSlot = widget.agenceVacanceBooking ||
+          typeId == 6 ||
+          typeId == 10 ||
+          typeId == 11;
+
       final hasPendingForSameProperty = reservationCtrl.reservations.any(
         (r) {
           if (r.user?.userId?.toString() != userId.toString()) return false;
@@ -844,8 +990,13 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
           if (_effectiveChambreId != null) {
             return r.chambreId?.toString() == _effectiveChambreId.toString();
           }
-          final rId = (_isTerrain ? r.terrainId : r.property?.propertyId)?.toString();
-          return rId == _propertyId?.toString();
+          if (_isTerrain) {
+            return r.terrainId?.toString() == _propertyId?.toString();
+          }
+          if (isVacanceSlot) {
+            return r.vacanceId?.toString() == _propertyId?.toString();
+          }
+          return r.property?.propertyId?.toString() == _propertyId?.toString();
         },
       );
 
@@ -878,11 +1029,9 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       final now = DateTime.now();
       final formattedCreatedAt = DateFormat('yyyy-MM-ddTHH:mm:ss').format(now);
 
-      final pModel = !_isTerrain && _rawProperty is PropertyModel
-          ? _rawProperty as PropertyModel
-          : null;
       final isHotelChambreReservation = pModel?.propertyTypeId == 5 &&
           _effectiveChambreId != null;
+      final isAgenceVacanceVip = widget.agenceVacanceBooking;
 
       final Map<String, dynamic> reservationData = isHotelChambreReservation
           ? {
@@ -896,32 +1045,44 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               "type": "VIP",
               "reservationHeure": formattedTime,
             }
-          : {
-              "userId": userId,
-              "message": _notesController.text.isNotEmpty
-                  ? _notesController.text
-                  : "Intéressé par ${_propertyType.toLowerCase()} $_propertyTitle",
-              "status": "PENDING",
-              "type": "STANDARD",
-              "reservationHeure": formattedTime,
-              "startDate": formattedDate,
-              "endDate": formattedEndDate,
-              "createdAt": formattedCreatedAt,
-            };
+          : isAgenceVacanceVip
+              ? {
+                  "userId": userId,
+                  "vacanceId": _propertyId,
+                  "startDate": formattedDate,
+                  "message": _notesController.text.isNotEmpty
+                      ? _notesController.text
+                      : "Demande de réservation pour ce site.",
+                  "endDate": formattedEndDate,
+                  "type": "VIP",
+                  "reservationHeure": formattedTime,
+                }
+              : {
+                  "userId": userId,
+                  "message": _notesController.text.isNotEmpty
+                      ? _notesController.text
+                      : "Intéressé par ${_propertyType.toLowerCase()} $_propertyTitle",
+                  "status": "PENDING",
+                  "type": "STANDARD",
+                  "reservationHeure": formattedTime,
+                  "startDate": formattedDate,
+                  "endDate": formattedEndDate,
+                  "createdAt": formattedCreatedAt,
+                };
 
       if (_isTerrain) {
         reservationData["terrainId"] = _propertyId;
-      } else if (!isHotelChambreReservation) {
+      } else if (!isHotelChambreReservation && !isAgenceVacanceVip) {
         final p = _rawProperty as PropertyModel;
-        final typeId = p.propertyTypeId;
+        final tid = p.propertyTypeId;
         final typeName = p.propertyType?.name?.toLowerCase() ?? '';
 
-        if (typeId == 4) reservationData["bureauId"] = _propertyId;
-        else if (typeId == 7) reservationData["funeraireId"] = _propertyId;
-        else if (typeId == 8) reservationData["festiveId"] = _propertyId;
-        else if (typeId == 6 || typeId == 11 || typeId == 10) {
+        if (tid == 4) reservationData["bureauId"] = _propertyId;
+        else if (tid == 7) reservationData["funeraireId"] = _propertyId;
+        else if (tid == 8) reservationData["festiveId"] = _propertyId;
+        else if (tid == 6 || tid == 11 || tid == 10) {
           reservationData["vacanceId"] = _propertyId;
-        } else if (typeId == 5) {
+        } else if (tid == 5) {
           reservationData["hotelId"] = _propertyId;
         } else if (typeName.contains('chambre')) {
           reservationData["chambreId"] = _propertyId;
@@ -961,7 +1122,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               rawMessage
                   .toString()
                   .toLowerCase()
-                  .contains("you can't reserve your own property"));
+                  .contains("you can't reserve your own"));
 
       final hasReservationPayload = dataMap?['reservation'] != null;
       final messageIndicatesSuccess =
@@ -1000,10 +1161,16 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         });
         _showConfirmationDialog(selDate, selTime);
       } else {
-        final errorMessage = _toFrenchError(
-          rawMessage?.toString() ?? "Erreur lors de la réservation",
+        reportApiFailureToCrashlytics(
+          'BookingVisitPage',
+          response: response,
+          reason: 'create_reservation',
         );
-        FancyNotification.show(context, errorMessage);
+        final errorMessage = _toFrenchError(
+          rawMessage?.toString() ??
+              "La réservation n’a pas pu être enregistrée. Réessayez.",
+        );
+        FancyNotification.show(context, errorMessage, isError: true);
         print("Erreur réponse: ${response.data}");
         final certMsg = rawMessage?.toString() ??
             response.errorMsg ??
@@ -1032,9 +1199,19 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
           }
         }
       }
-    } catch (e) {
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'BookingVisitPage',
+        error: e,
+        stackTrace: st,
+        reason: 'create_reservation_exception',
+      );
       if (mounted) {
-        FancyNotification.show(context, "Erreur technique lors de la réservation: $e");
+        FancyNotification.show(
+          context,
+          "La réservation n’a pas abouti. Vérifiez la connexion et réessayez.",
+          isError: true,
+        );
       }
       print("Booking error: $e");
     } finally {
@@ -1054,205 +1231,158 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      barrierColor: Colors.black.withOpacity(0.45),
+      builder: (BuildContext dialogContext) {
         return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(20),
-          elevation: 0,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.15),
-                  blurRadius: 30,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [_primaryColor, _primaryLight],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                height: 5,
+                color: _primaryColor,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Visite programmée',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: _textPrimary,
+                        letterSpacing: -0.3,
                       ),
-                      shape: BoxShape.circle,
+                      textAlign: TextAlign.center,
                     ),
-                    child: Center(
-                      child: Icon(
-                        Icons.check_rounded,
-                        color: Colors.white,
-                        size: 40,
+                    const SizedBox(height: 8),
+                    Text(
+                      'Votre demande a bien été envoyée au propriétaire.',
+                      style: TextStyle(
+                        color: _textSecondary,
+                        fontSize: 14,
+                        height: 1.35,
                       ),
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  Text(
-                    'Visite programmée !',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: _textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  Text(
-                    'Votre demande a été envoyée avec succès',
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: 15,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [_accentColor, Colors.white],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 18,
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: _primaryColor.withOpacity(0.2),
-                        width: 1,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F4F8),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.calendar_month, color: _primaryColor, size: 18),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Rendez-vous confirmé',
-                              style: TextStyle(
-                                color: _textPrimary,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Date et heure',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _textSecondary,
+                              letterSpacing: 0.2,
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          formattedDate,
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
-                            color: _primaryColor,
                           ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'à $formattedTime',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: _textPrimary,
+                          const SizedBox(height: 10),
+                          Text(
+                            formattedDate,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: _textPrimary,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
-                          textAlign: TextAlign.center,
+                          const SizedBox(height: 6),
+                          Text(
+                            'à $formattedTime',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: _primaryColor,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () async => await _downloadPdf(),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              side: BorderSide(
+                                color: _primaryColor.withOpacity(0.45),
+                              ),
+                              foregroundColor: _primaryColor,
+                            ),
+                            child: const Text(
+                              'Télécharger le PDF',
+                              style: TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () async => await _sharePdf(),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              backgroundColor: _primaryColor,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text(
+                              'Partager',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 28),
-
-                  // Export / Partage (confirmation)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async => await _downloadPdf(),
-                          icon: Icon(Icons.download_rounded, color: _primaryColor),
-                          label: Text(
-                            "Télécharger",
-                            style: TextStyle(
-                              color: _textPrimary.withOpacity(0.9),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            side: BorderSide(
-                              color: _primaryColor.withOpacity(0.3),
-                            ),
-                          ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          Navigator.pop(context);
+                        },
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          foregroundColor: _textSecondary,
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () async => await _sharePdf(),
-                          icon: Icon(Icons.ios_share_rounded),
-                          label: Text(
-                            "Partager",
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                            ),
+                        child: const Text(
+                          'Fermer et retourner',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
                           ),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            backgroundColor: _primaryColor,
-                            foregroundColor: Colors.white,
-                            elevation: 2,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.pop(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        elevation: 2,
-                        shadowColor: _primaryColor.withOpacity(0.3),
-                      ),
-                      child: Text(
-                        'Retour à l\'accueil',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
         );
       },
@@ -1426,12 +1556,22 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                 fit: StackFit.expand,
                 children: [
                   imageUrl != null
-                      ? Image.network(
-                          imageUrl,
+                      ? CachedNetworkImage(
+                          imageUrl: imageUrl,
                           width: 80,
                           height: 80,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Container(
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey[100],
+                            child: Center(
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor),
+                              ),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) => Container(
                             color: Colors.grey[100],
                             child: Icon(Icons.home_rounded, color: Colors.grey[400], size: 30),
                           ),
@@ -1452,6 +1592,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                                 (_rawProperty as TerrainModel).terrain?.isAvailable,
                             listingAllowed: true,
                             compact: true,
+                            onDarkBackground: true,
                           )
                         : PropertyListingStatusChip(
                             sold: (_rawProperty as PropertyModel).sold,
@@ -1461,6 +1602,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                             listingAllowed:
                                 (_rawProperty as PropertyModel).listingAllowed,
                             compact: true,
+                            onDarkBackground: true,
                           ),
                   ),
                 ],
@@ -1484,66 +1626,34 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                 ),
                 const SizedBox(height: 8),
 
-                // Adresse masquée avec effet de flou
-                GestureDetector(
-                  onTap: () {
-                    // Action pour révéler l'adresse (redirection, popup, etc.)
-                    _showAddressVerification();
-                  },
+                InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: _showAddressVerification,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
-                      color: _accentColor,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _primaryColor.withOpacity(0.2)),
+                      color: const Color(0xFFF0F4F8),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.location_on_rounded, size: 14, color: _primaryColor),
-                        const SizedBox(width: 6),
+                        Icon(Icons.location_on_rounded, size: 16, color: _primaryColor),
+                        const SizedBox(width: 8),
                         Expanded(
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              // Texte flouté
-                              Text(
-                                _propertyAddress,
-                                style: TextStyle(
-                                  color: Colors.transparent,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              // Overlay flou
-                              Container(
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(4),
-                                  color: Colors.black.withOpacity(0.1),
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    "••••••••••••••••••••",
-                                    style: TextStyle(
-                                      color: _textPrimary.withOpacity(0.7),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w500,
-                                      letterSpacing: 1.5,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            'Adresse masquée — appuyez pour voir',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _textSecondary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Icon(
-                          Icons.lock_outline,
-                          size: 14,
-                          color: _primaryColor,
-                        ),
+                        const SizedBox(width: 8),
+                        Icon(Icons.lock_outline_rounded, size: 16, color: _primaryColor),
                       ],
                     ),
                   ),
@@ -1561,7 +1671,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       color: _primaryColor,
-                      fontSize: 16,
+                      fontSize: 15,
                     ),
                   ),
                 ),
@@ -1830,10 +1940,38 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                 ),
               ],
             ),
-            child: Icon(
-              Icons.person,
-              color: Colors.white,
-              size: 24,
+            clipBehavior: Clip.antiAlias,
+            child: Builder(
+              builder: (context) {
+                final localPath = storage.read('user_image_path');
+                final localFile = (localPath != null) ? File(localPath.toString()) : null;
+                if (localFile != null && localFile.existsSync()) {
+                  return Image.file(localFile, width: 50, height: 50, fit: BoxFit.cover);
+                }
+                if (_userProfilePhotoUrl != null) {
+                  return CachedNetworkImage(
+                    imageUrl: _userProfilePhotoUrl!,
+                    width: 50,
+                    height: 50,
+                    fit: BoxFit.cover,
+                    fadeInDuration: Duration.zero,
+                    fadeOutDuration: Duration.zero,
+                    placeholder: (_, __) => const Center(
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      ),
+                    ),
+                    errorWidget: (_, __, ___) => const Icon(
+                      Icons.person,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  );
+                }
+                return const Icon(Icons.person, color: Colors.white, size: 24);
+              },
             ),
           ),
           const SizedBox(width: 16),

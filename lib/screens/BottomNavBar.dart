@@ -12,6 +12,7 @@ import '../utils/StockageKeys.dart';
 import '../utils/Routes.dart';
 import '../utils/AppColors.dart';
 import '../utils/SubscriptionHelper.dart';
+import '../utils/decertification_access_guard.dart';
 import '../controllers/provider/FavoriteProvider.dart';
 import 'package:showcaseview/showcaseview.dart';
 import '../controllers/TutorialController.dart';
@@ -29,7 +30,6 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
   final GetStorage _stockage = GetStorage();
   final PageStorageBucket _bucket = PageStorageBucket();
   bool _isKeyboardVisible = false;
-  final TutorialController _tutorialController = TutorialController();
   bool _didTriggerTutorial = false;
   // Une fois le tuto terminé, on démonte complètement le ShowCaseWidget
   // pour supprimer ses overlays invisibles qui bloquent les interactions.
@@ -45,7 +45,8 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
   @override
   void initState() {
     super.initState();
-    _tutorialController.initializeKeys();
+    // Utiliser l'instance partagée (Provider) pour éviter un décalage de clés Showcase.
+    context.read<TutorialController>().initializeKeys();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
       if (mounted) {
@@ -61,6 +62,17 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
         }
       }
     });
+    // Décertification côté serveur sans notification push : recharger le membre puis alerter.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncMemberAndDecertAlert(forceRefresh: true));
+  }
+
+  Future<void> _syncMemberAndDecertAlert({required bool forceRefresh}) async {
+    if (!mounted) return;
+    final auth = context.read<AuthentificationCtrl>();
+    if (!auth.isLoggedIn || auth.token.isEmpty) return;
+    await auth.refreshMemberFromServer(force: forceRefresh);
+    if (!mounted) return;
+    await DecertificationAccessGuard.presentDecertificationAlertIfNeeded(auth);
   }
 
   @override
@@ -75,7 +87,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
     if (state == AppLifecycleState.resumed && mounted) {
       final auth = context.read<AuthentificationCtrl>();
       if (auth.token.isNotEmpty) {
-        auth.refreshMemberFromServer();
+        _syncMemberAndDecertAlert(forceRefresh: false);
       }
     }
   }
@@ -114,9 +126,9 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           highlightElevation: 0,
           splashColor: Colors.transparent,
           child: Showcase(
-            key: _tutorialController.addButtonKey,
-            title: 'Publier',
-            description: 'Cliquez ici pour publier une propriété ou proposer un service',
+            key: Provider.of<TutorialController>(context, listen: false).addButtonKey,
+            title: 'Publier une annonce',
+            description: 'Ajoutez un bien immobilier ou proposez un service en quelques étapes.',
             child: _addButtonContent(),
           ),
           onPressed: _handleFabPress,
@@ -169,26 +181,26 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
+    final tutorialCtrl = Provider.of<TutorialController>(context, listen: false);
     return ShowCaseWidget(
       enableAutoScroll: true,
       onStart: (index, key) {
         print('Tutorial démarré: $index, $key');
-        _tutorialController.setTutorialInProgress(true);
+        tutorialCtrl.setTutorialInProgress(true);
       },
       onFinish: () {
-        _tutorialController.setTutorialInProgress(false);
-        _tutorialController.completeHomeTutorial();
+        tutorialCtrl.setTutorialInProgress(false);
+        tutorialCtrl.completeHomeTutorial();
         // Le rebuild avec la nouvelle ValueKey va détruire l'ancien ShowCaseWidget
         // effaçant ses états internes et overlays
         if (mounted) setState(() => _tutorialDone = true);
       },
       builder: (showcaseContext) {
-        if (!_didTriggerTutorial && !_tutorialDone && _tutorialController.shouldShowHomeTutorial()) {
+        if (!_didTriggerTutorial && !_tutorialDone && tutorialCtrl.shouldShowHomeTutorial()) {
           _didTriggerTutorial = true;
           // IMPORTANT: Ne déclencher que le Add Button Showcase pour tester si ça scroll
           Future.delayed(Duration(milliseconds: 800), () {
             if (mounted && _currentIndex == 0) {
-              final tutorialCtrl = Provider.of<TutorialController>(context, listen: false);
               ShowCaseWidget.of(showcaseContext).startShowCase([
                 tutorialCtrl.drawerKey,
                 tutorialCtrl.notificationKey,
@@ -234,9 +246,9 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
 
   Widget _buildAddButton() {
     return Showcase(
-      key: _tutorialController.addButtonKey,
-      title: 'Publier',
-      description: 'Cliquez ici pour publier une propriété ou proposer un service',
+      key: Provider.of<TutorialController>(context, listen: false).addButtonKey,
+      title: 'Publier une annonce',
+      description: 'Ajoutez un bien immobilier ou proposez un service en quelques étapes.',
       child: GestureDetector(
         onTap: _handleFabPress,
         child: Container(
@@ -301,7 +313,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
   }
 
   void _checkCertificationAndNavigate(String route) {
-    SubscriptionHelper.checkCertifiedPremiumForSensitiveAction(
+    SubscriptionHelper.checkSubscriptionAndProceed(
       context: context,
       onProceed: () => Navigator.pushNamed(context, route),
     );
@@ -436,8 +448,11 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           color: Colors.transparent,
           child: InkWell(
             onTap: () => setState(() => _currentIndex = index),
-            splashColor: AppColors.primaryBlue.withOpacity(0.1),
+            // UX: pas d’ombre/ripple visible au tap sur la nav (style "pro").
+            splashColor: Colors.transparent,
             highlightColor: Colors.transparent,
+            hoverColor: Colors.transparent,
+            overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
             borderRadius: BorderRadius.circular(8),
             child: Container(
               padding: EdgeInsets.symmetric(vertical: 6), // Supprimé padding horizontal

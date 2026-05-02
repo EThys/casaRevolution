@@ -481,6 +481,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       try {
         _availableQuartiers = locationCtrl.getQuartiersForCommune(_selectedCommune!.communeId!);
         _selectedQuartier = _availableQuartiers.isNotEmpty ? _availableQuartiers.first : null;
+        // Important: garder un état cohérent UI/payload.
+        // Si l'utilisateur n'a rien tapé, on synchronise le champ texte avec la sélection par défaut.
+        if (_quartierTextController.text.trim().isEmpty) {
+          _quartierTextController.text = _selectedQuartier?.name ?? '';
+        }
       } catch (e) {
         _availableQuartiers = [];
         _selectedQuartier = null;
@@ -1792,22 +1797,27 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       case 2:
         _clearStepFieldErrors(2);
         final address = _addressController.text.trim();
+        final quartierEffective = (() {
+          final t = _quartierTextController.text.trim();
+          if (t.isNotEmpty) return t;
+          return (_selectedQuartier?.name ?? '').trim();
+        })();
         
         if (_isKinshasaSelected) {
           if (_selectedCity == null) _setFieldError(2, 'city', 'Ville requise');
           if (_selectedCommune == null) _setFieldError(2, 'commune', 'Commune requise');
-          if (_selectedQuartier == null && _quartierTextController.text.trim().isEmpty) {
+          if (quartierEffective.isEmpty) {
             _setFieldError(2, 'quartier', 'Quartier requis');
-          } else if (_quartierTextController.text.trim().length < 3) {
+          } else if (quartierEffective.length < 3) {
             _setFieldError(2, 'quartier', 'Quartier trop court (min 3 car.)');
           }
         } else {
           if (_cityTextController.text.trim().isEmpty) _setFieldError(2, 'city', 'Ville requise');
           if (_communeTextController.text.trim().isEmpty) _setFieldError(2, 'commune', 'Commune requise');
           
-          if (_quartierTextController.text.trim().isEmpty) {
+          if (quartierEffective.isEmpty) {
             _setFieldError(2, 'quartier', 'Quartier requis');
-          } else if (_quartierTextController.text.trim().length < 3) {
+          } else if (quartierEffective.length < 3) {
             _setFieldError(2, 'quartier', 'Quartier trop court (min 3 car.)');
           }
         }
@@ -1952,6 +1962,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       final ctrl = context.read<ServiceController>();
 
       if (_isEditing) {
+        final qText = _quartierTextController.text.trim();
+        final quartierValue = qText.isNotEmpty ? qText : (_selectedQuartier?.name ?? '');
+        final matchedSelected = _selectedQuartier != null &&
+            (qText.isNotEmpty) &&
+            (( _selectedQuartier?.name ?? '').trim().toLowerCase() == qText.toLowerCase());
         final updateData = {
           "id": _editingPrestation!.id,
           "userId": storedUserId,
@@ -1968,12 +1983,14 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           "maxPrice": double.tryParse(_priceMinController.text) ?? 0.0,
           "address": _addressController.text.trim(),
           "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
-          "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
+          // Si l'utilisateur tape un quartier absent de la liste, c'est **quartierValue** qui doit porter la valeur.
+          "quartierValue": quartierValue,
           "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? "") : _cityTextController.text.trim(),
           "countryValue": "RDC",
           "cityId": _isKinshasaSelected && _selectedCity != null ? (_selectedCity?.cityId ?? 0) : 0,
           "communeId": _isKinshasaSelected && _selectedCommune != null ? (_selectedCommune?.communeId ?? 0) : 0,
-          "quartierId": _isKinshasaSelected && _selectedQuartier != null ? (_selectedQuartier?.quartierId ?? 0) : 0,
+          // On ne remplit quartierId que si la sélection correspond bien au texte (évite mismatch).
+          "quartierId": _isKinshasaSelected && matchedSelected ? (_selectedQuartier?.quartierId ?? 0) : 0,
           // Champs sensibles non modifiables
           "isCertified": _editingPrestation!.isCertified ?? true,
           "isActive": _editingPrestation!.isActive ?? true,
@@ -1983,6 +2000,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         print("📡 [CreateService] Appel à updatePrestation (id: ${_editingPrestation!.id})...");
         finalResponse = await ctrl.updatePrestation(_editingPrestation!.id!, updateData);
       } else {
+        final qText = _quartierTextController.text.trim();
+        final quartierValue = qText.isNotEmpty ? qText : (_selectedQuartier?.name ?? '');
+        final matchedSelected = _selectedQuartier != null &&
+            (qText.isNotEmpty) &&
+            (( _selectedQuartier?.name ?? '').trim().toLowerCase() == qText.toLowerCase());
         final payload = {
           "prestation": {
             "userId": storedUserId,
@@ -1998,12 +2020,14 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             "maxPrice": double.tryParse(_priceMinController.text) ?? 0.0,
             "address": _addressController.text.trim(),
             "communeValue": _isKinshasaSelected ? (_selectedCommune?.name ?? "") : _communeTextController.text.trim(),
-            "quartierValue": _isKinshasaSelected ? (_selectedQuartier?.name ?? "") : _quartierTextController.text.trim(),
+            // Si l'utilisateur tape un quartier absent de la liste, c'est **quartierValue** qui doit porter la valeur.
+            "quartierValue": quartierValue,
             "cityValue": _isKinshasaSelected ? (_selectedCity?.name ?? "") : _cityTextController.text.trim(),
             "countryValue": "RDC",
             "cityId": _isKinshasaSelected && _selectedCity != null ? (_selectedCity?.cityId ?? 0) : 0,
             "communeId": _isKinshasaSelected && _selectedCommune != null ? (_selectedCommune?.communeId ?? 0) : 0,
-            "quartierId": _isKinshasaSelected && _selectedQuartier != null ? (_selectedQuartier?.quartierId ?? 0) : 0,
+            // On ne remplit quartierId que si la sélection correspond bien au texte (évite mismatch).
+            "quartierId": _isKinshasaSelected && matchedSelected ? (_selectedQuartier?.quartierId ?? 0) : 0,
             "districtId": _isKinshasaSelected && _selectedDistrict != null ? (_selectedDistrict?.districtId ?? 0) : 0
           },
           "images": imagesPayload
@@ -2196,6 +2220,13 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               setState(() {
                 _markFieldTouched(fieldKey);
                 controller.text = selection;
+                if (fieldKey == 'quartier') {
+                  // Associer aussi l'objet Quartier quand on peut (utile pour quartierId).
+                  final lower = selection.trim().toLowerCase();
+                  final pool = _kinshasaQuartiers.isNotEmpty ? _kinshasaQuartiers : _availableQuartiers;
+                  final match = pool.where((q) => (q.name ?? '').trim().toLowerCase() == lower).toList();
+                  _selectedQuartier = match.isNotEmpty ? match.first : null;
+                }
                 _validateStep(2);
               });
             }
@@ -2212,6 +2243,18 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 if (mounted) {
                   setState(() {
                     _markFieldTouched(fieldKey);
+                    if (fieldKey == 'quartier') {
+                      final v = value.trim().toLowerCase();
+                      final curName = (_selectedQuartier?.name ?? '').trim().toLowerCase();
+                      if (v.isEmpty || (curName.isNotEmpty && v != curName)) {
+                        _selectedQuartier = null;
+                      } else if (v.isNotEmpty && _selectedQuartier == null) {
+                        // Si le texte correspond exactement à un quartier connu, lier l'objet.
+                        final pool = _kinshasaQuartiers.isNotEmpty ? _kinshasaQuartiers : _availableQuartiers;
+                        final match = pool.where((q) => (q.name ?? '').trim().toLowerCase() == v).toList();
+                        _selectedQuartier = match.isNotEmpty ? match.first : null;
+                      }
+                    }
                     _validateStep(2);
                   });
                 }

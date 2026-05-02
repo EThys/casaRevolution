@@ -22,6 +22,7 @@ import 'package:casa/controllers/NotificationController.dart';
 import 'package:casa/controllers/DeviseController.dart';
 import 'package:casa/controllers/PaymentController.dart';
 import 'package:casa/controllers/AgenceController.dart';
+import 'package:casa/controllers/CotationController.dart';
 import 'package:casa/controllers/ServiceController.dart';
 import 'package:casa/controllers/ServiceRequestController.dart';
 import 'package:casa/controllers/provider/FavoriteProvider.dart';
@@ -86,6 +87,7 @@ class MonApplication extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => LocationController()),
         ChangeNotifierProvider(create: (_) => ServiceController(stockage: _stockage)),
         ChangeNotifierProvider(create: (_) => ServiceRequestController(stockage: _stockage)),
+        ChangeNotifierProvider(create: (_) => CotationController(stockage: _stockage)),
 
 
         ChangeNotifierProvider(create: (_) => AgenceController()),

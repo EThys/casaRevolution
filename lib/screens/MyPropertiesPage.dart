@@ -3,7 +3,9 @@ import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/screens/HotelDetailPage.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/Routes.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/decertification_access_guard.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -14,7 +16,6 @@ import 'package:provider/provider.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../controllers/AuthentificationCtrl.dart';
-import 'auth/IdentityVerificationPage.dart';
 
 class MyPropertiesPage extends StatefulWidget {
   @override
@@ -43,6 +44,10 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
   List<PropertyModel> _myProperties = [];
   List<int> _deletingIds = [];
   bool _isGridView = false; // Toggle pour vue liste/grille
+
+  // Optimisation: éviter de refaire le même enrichissement d’images plusieurs fois.
+  final Map<int, PropertyModel> _imageEnrichCacheById = {};
+  final Map<int, Future<PropertyModel>> _imageEnrichInFlightById = {};
 
   @override
   void initState() {
@@ -82,6 +87,9 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
           _isRefreshing = false;
         });
       }
+
+      // Enrichissement images depuis le cache local (sans spinner / non bloquant).
+      _enrichMyPropertiesFromCache();
     } catch (e) {
       print("❌ Erreur lors du chargement des propriétés: $e");
       if (mounted) {
@@ -89,9 +97,95 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
           _isLoadingData = false;
           _isRefreshing = false;
         });
-        FancyNotification.show(context, "Erreur lors du chargement des propriétés");
+        FancyNotification.show(
+          context,
+          "Vos annonces n’ont pas pu être chargées. Tirez pour rafraîchir ou réessayez plus tard.",
+          isError: true,
+        );
       }
     }
+  }
+
+  Future<void> _enrichMyPropertiesFromCache() async {
+    if (!mounted) return;
+    final propertyCtrl = context.read<PropertyController>();
+
+    bool changed = false;
+    const batchSize = 4;
+    const priorityCount = 10;
+    final candidates = <int>[];
+    for (var i = 0; i < _myProperties.length; i++) {
+      if (_myProperties[i].propertyImage?.isNotEmpty == true) continue;
+      candidates.add(i);
+    }
+
+    Future<bool> enrichAt(int idx) async {
+      final p = _myProperties[idx];
+      final id = p.propertyId;
+      if (id == null) return false;
+
+      final cached = _imageEnrichCacheById[id];
+      if (cached != null && cached.propertyImage?.isNotEmpty == true) {
+        _myProperties[idx] = cached;
+        return true;
+      }
+
+      final inFlight = _imageEnrichInFlightById[id];
+      if (inFlight != null) {
+        try {
+          final enriched = await inFlight;
+          if (enriched.propertyImage?.isNotEmpty == true) {
+            _imageEnrichCacheById[id] = enriched;
+            _myProperties[idx] = enriched;
+            return true;
+          }
+        } catch (_) {}
+        return false;
+      }
+
+      final fut = propertyCtrl.enrichPropertySnapshot(p);
+      _imageEnrichInFlightById[id] = fut;
+      try {
+        final enriched = await fut;
+        _imageEnrichInFlightById.remove(id);
+        if (enriched.propertyImage?.isNotEmpty == true) {
+          _imageEnrichCacheById[id] = enriched;
+          _myProperties[idx] = enriched;
+          return true;
+        }
+      } catch (_) {
+        _imageEnrichInFlightById.remove(id);
+      }
+      return false;
+    }
+
+    // 1) Priorité: premiers éléments visibles.
+    final priority = candidates.take(priorityCount).toList();
+    for (var i = 0; i < priority.length; i += batchSize) {
+      if (!mounted) return;
+      final batchIndexes = priority.skip(i).take(batchSize).toList();
+
+      final futures = batchIndexes.map((idx) async {
+        return enrichAt(idx);
+      }).toList();
+
+      final results = await Future.wait(futures);
+      if (results.any((r) => r)) changed = true;
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    // 2) Reste de la liste (arrière-plan).
+    final rest = candidates.skip(priorityCount).toList();
+    for (var i = 0; i < rest.length; i += batchSize) {
+      if (!mounted) return;
+      final batchIndexes = rest.skip(i).take(batchSize).toList();
+      final futures = batchIndexes.map((idx) async => enrichAt(idx)).toList();
+      final results = await Future.wait(futures);
+      if (results.any((r) => r)) changed = true;
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    if (changed && mounted) setState(() {});
   }
 
   Future<void> _deleteProperty(PropertyModel property) async {
@@ -164,15 +258,32 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
         }
       } else {
         if (mounted) {
+          reportApiFailureToCrashlytics(
+            'MyPropertiesPage',
+            response: response,
+            reason: 'delete_property',
+          );
           FancyNotification.show(
             context,
-            response.errorMsg ?? "Erreur lors de la suppression",
+            response.errorMsg ??
+                "La suppression n’a pas abouti. Réessayez dans un moment.",
+            isError: true,
           );
         }
       }
-    } catch (e) {
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'MyPropertiesPage',
+        error: e,
+        stackTrace: st,
+        reason: 'delete_property_exception',
+      );
       if (mounted) {
-        FancyNotification.show(context, "Erreur: ${e.toString()}");
+        FancyNotification.show(
+          context,
+          "La suppression a été interrompue. Vérifiez la connexion et réessayez.",
+          isError: true,
+        );
       }
     } finally {
       if (mounted && property.propertyId != null) {
@@ -217,21 +328,13 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
       return;
     }
 
-    final authCtrl = context.read<AuthentificationCtrl>();
-    if (authCtrl.user.isCertified != true) {
-      Navigator.push(
-        context, 
-        MaterialPageRoute(builder: (context) => IdentityVerificationPage())
-      ).then((result) {
-        if (result == true) {
-           Navigator.pushNamed(context, Routes.createPropertyRoute).then((_) => _loadMyProperties());
-        }
-      });
-      return;
-    }
-
-    Navigator.pushNamed(context, Routes.createPropertyRoute)
-        .then((_) => _loadMyProperties());
+    SubscriptionHelper.checkCertifiedThenProceed(
+      context: context,
+      onProceed: () {
+        Navigator.pushNamed(context, Routes.createPropertyRoute)
+            .then((_) => _loadMyProperties());
+      },
+    );
   }
 
   /// Filtre « Mes annonces » basé sur [sold] (référence métier), pas sur isActive.
@@ -328,7 +431,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
       elevation: 0,
       flexibleSpace: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: LinearGradient( 
             colors: [_primaryColor, _secondaryColor],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -1182,6 +1285,49 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
 
   List<Widget> _buildFeatureChips(PropertyModel property) {
     final features = <Widget>[];
+    final typeName = property.propertyType?.name?.toLowerCase() ?? '';
+    final tid = property.propertyTypeId ?? property.propertyType?.propertyTypeId ?? 0;
+    final isHotel = tid == 5 || typeName.contains('hotel') || typeName.contains('hôtel');
+    final isTerrain = tid == 9 || typeName.contains('terrain');
+    final isFestive = tid == 8 || typeName.contains('fête') || typeName.contains('fete');
+    final isFuneraire = tid == 7 || typeName.contains('funéra') || typeName.contains('funera');
+    final isBureau = tid == 4 || typeName.contains('bureau') || typeName.contains('office');
+
+    if (isTerrain) {
+      if (property.surface != null && property.surface! > 0) {
+        features.add(_buildFeatureChip('${property.surface!.toStringAsFixed(0)}m²'));
+      }
+      return features;
+    }
+
+    if (isHotel) {
+      features.add(_buildFeatureChip('Hôtel'));
+      if (property.surface != null && property.surface! > 0) {
+        features.add(_buildFeatureChip('${property.surface!.toStringAsFixed(0)}m²'));
+      }
+      return features;
+    }
+
+    if (isFestive || isFuneraire) {
+      if (property.capacityPeople != null && property.capacityPeople! > 0) {
+        features.add(_buildFeatureChip('${property.capacityPeople} pers.'));
+      }
+      if (property.surface != null && property.surface! > 0) {
+        features.add(_buildFeatureChip('${property.surface!.toStringAsFixed(0)}m²'));
+      }
+      return features;
+    }
+
+    if (isBureau) {
+      if (property.roomMeet != null && property.roomMeet! > 0) {
+        features.add(_buildFeatureChip('${property.roomMeet} réunions'));
+      }
+      features.add(_buildFeatureChip(property.isEquip == true ? 'Équipé' : 'Non équipé'));
+      if (property.surface != null && property.surface! > 0) {
+        features.add(_buildFeatureChip('${property.surface!.toStringAsFixed(0)}m²'));
+      }
+      return features;
+    }
 
     if (property.bedrooms != null && property.bedrooms! > 0) {
       features.add(_buildFeatureChip('${property.bedrooms} chambres'));

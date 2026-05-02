@@ -627,7 +627,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       // -----------------------------------------------------------
 
       if (globalCount >= maxDeviceDailyRequests) {
-        SnackbarForCasa.error(context, "Limite quotidienne de sécurité atteinte pour cet appareil.");
+        SnackbarForCasa.error(
+          context,
+          "Pour votre sécurité, le nombre d’envois pour aujourd’hui est atteint sur cet appareil. Revenez demain ou contactez le support.",
+        );
         setState(() => _isLoading = false);
         return;
       }
@@ -674,12 +677,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         );
       } else {
         String errorMessage = res.data != null && res.data is Map
-            ? (res.data as Map)['message'] ?? "Erreur lors de l'envoi du code"
-            : res.errorMsg ?? "Erreur lors de l'envoi du code";
+            ? (res.data as Map)['message'] ??
+                "Nous n’avons pas pu envoyer le code. Vérifiez le numéro et réessayez."
+            : res.errorMsg ??
+                "Nous n’avons pas pu envoyer le code. Vérifiez le numéro et réessayez.";
         print("Forgot password error: $errorMessage");
 
         if (errorMessage.contains("Idenfiant invalide.")) {
-          SnackbarForCasa.error(context, "Ce numéro ne correspond à aucun compte dans CasaNayo. Veuillez d'abord créer un compte.");
+          SnackbarForCasa.error(
+            context,
+            "Ce numéro n’est pas encore inscrit chez nous. Créez d’abord un compte, puis revenez ici.",
+          );
           await Future.delayed(const Duration(seconds: 2));
           if (mounted) {
             Navigator.pushReplacement(
@@ -690,13 +698,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           return;
         }
 
-        // Ne pas afficher les erreurs techniques du serveur
-        SnackbarForCasa.error(context, "Une erreur est survenue lors de l'envoi du code. Veuillez vérifier votre numéro et réessayer.");
+        SnackbarForCasa.error(
+          context,
+          "Le code n’a pas pu être envoyé. Vérifiez votre numéro et réessayez dans un instant.",
+        );
       }
     } catch (e) {
       print("Forgot password error: $e");
-      // Ne pas afficher les erreurs techniques
-      SnackbarForCasa.error(context, "Une erreur est survenue lors de l'envoi du code. Veuillez réessayer.");
+      SnackbarForCasa.error(
+        context,
+        "L’envoi du code a échoué. Vérifiez votre connexion et réessayez.",
+      );
     } finally {
       if (mounted) {
         setState(() {

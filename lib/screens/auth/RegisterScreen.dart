@@ -30,6 +30,7 @@ import '../../utils/country_codes.dart';
 import '../../utils/city_suggestions.dart';
 import '../../utils/requetes.dart';
 import '../../utils/api_error_message.dart';
+import '../../utils/crashlytics_api.dart';
 import '../../controllers/TypeAccountController.dart';
 import '../termsAndPrivacy/TermsAndPrivacyPage.dart';
 
@@ -1062,7 +1063,12 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             if (typeCtrl.ownerTypes.isEmpty) {
                await typeCtrl.fetchTypeAccounts();
                if (typeCtrl.ownerTypes.isEmpty) {
-                  if (mounted) SnackbarForCasa.error(context, "Aucun type de compte immobilier disponible");
+                  if (mounted) {
+                    SnackbarForCasa.error(
+                      context,
+                      "Les types de compte immobilier ne sont pas disponibles pour le moment. Réessayez plus tard.",
+                    );
+                  }
                   return;
                }
             }
@@ -1094,7 +1100,12 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             if (typeCtrl.serviceTypes.isEmpty) {
                await typeCtrl.fetchTypeAccounts();
                if (typeCtrl.serviceTypes.isEmpty) {
-                  if (mounted) SnackbarForCasa.error(context, "Aucun type de service disponible");
+                  if (mounted) {
+                    SnackbarForCasa.error(
+                      context,
+                      "Les types de service ne sont pas disponibles pour le moment. Réessayez plus tard.",
+                    );
+                  }
                   return;
                }
             }
@@ -1938,17 +1949,17 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         _validateContact(_contactController.text) != null || 
         _validateCity(_cityController.text) != null || 
         _validatePassword(_passwordController.text) != null) {
-      SnackbarForCasa.error(context, "Veuillez corriger les erreurs");
+      SnackbarForCasa.error(context, "Certains champs doivent être corrigés avant de continuer.");
       return;
     }
 
     if (!_isLocataireSelected && _selectedOwnerAccountId == null && _selectedPrestataireAccountId == null) {
-      SnackbarForCasa.error(context, "Veuillez sélectionner un type de compte");
+      SnackbarForCasa.error(context, "Choisissez le type de compte qui vous correspond.");
       return;
     }
 
     if (!_acceptConditions) {
-      SnackbarForCasa.error(context, "Veuillez accepter les conditions");
+      SnackbarForCasa.error(context, "Merci d’accepter les conditions d’utilisation pour poursuivre.");
       return;
     }
 
@@ -1956,7 +1967,10 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     FocusScope.of(context).unfocus();
 
     if (!await NetworkUtils.checkInternetConnectivity()) {
-      SnackbarForCasa.error(context, "Pas de connexion internet");
+      SnackbarForCasa.error(
+        context,
+        "Connexion internet indisponible. Réessayez lorsque le réseau est stable.",
+      );
       setState(() => _isLoading = false);
       return;
     }
@@ -1995,7 +2009,10 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     }
       
       if (accountsPayload.isEmpty) {
-          SnackbarForCasa.error(context, "Type de compte invalide");
+          SnackbarForCasa.error(
+            context,
+            "Le type de compte choisi n’est pas reconnu. Sélectionnez à nouveau une option.",
+          );
           setState(() => _isLoading = false);
           return;
       }
@@ -2059,16 +2076,30 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       final response = await authCtrl.register(payload, url: '');
 
       if (response.status == true) {
-         SnackbarForCasa.success(context, "Inscription réussie !");
+         SnackbarForCasa.success(context, "Votre compte est créé. Connectez-vous pour continuer.");
          await Future.delayed(Duration(milliseconds: 500));
          Navigator.of(context).pushReplacementNamed(Routes.loginRoute);
       } else {
+         reportApiFailureToCrashlytics(
+           'RegisterScreen',
+           response: response,
+           reason: 'register',
+         );
          SnackbarForCasa.error(context, ApiErrorMessages.fromResponse(response));
       }
 
-    } catch (e) {
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'RegisterScreen',
+        error: e,
+        stackTrace: st,
+        reason: 'register_exception',
+      );
       print("Erreur inscription: $e");
-      SnackbarForCasa.error(context, "Une erreur est survenue. Veuillez réessayer.");
+      SnackbarForCasa.error(
+        context,
+        "L’inscription n’a pas abouti. Vérifiez les informations et réessayez.",
+      );
     } finally {
       if (mounted) {
         setState(() {

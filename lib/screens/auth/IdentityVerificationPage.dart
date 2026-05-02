@@ -2,13 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:casa/controllers/AuthentificationCtrl.dart';
+import 'package:flutter/foundation.dart' show consolidateHttpClientResponseBytes;
 import 'package:casa/utils/AppColors.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/utils/Endpoints.dart';
 import 'package:casa/utils/requetes.dart';
-import 'package:casa/utils/Constantes.dart';
+import 'package:casa/utils/crashlytics_api.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -83,6 +84,61 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   };
 
   final ImagePicker _picker = ImagePicker();
+  bool _profilePhotoIsExisting = false;
+
+  Future<void> _prefillProfilePhotoIfAvailable() async {
+    if (_imageProfile != null) return;
+    try {
+      final authCtrl = context.read<AuthentificationCtrl>();
+      final storage = authCtrl.stockage;
+
+      // 1) Fichier local utilisé par ProfilePage (upload précédent).
+      final localPath = storage?.read('user_image_path')?.toString();
+      if (localPath != null && localPath.isNotEmpty) {
+        final f = File(localPath);
+        if (await f.exists()) {
+          if (!mounted) return;
+          setState(() {
+            _imageProfile = f;
+            _profilePhotoIsExisting = true;
+          });
+          return;
+        }
+      }
+
+      // 2) URL stockée dans le profil (profile.image / profile.images).
+      final profileData = storage?.read(StockageKeys.profileKey);
+      final url = (profileData is Map)
+          ? (profileData['image']?.toString() ?? profileData['images']?.toString())
+          : null;
+      if (url == null || url.trim().isEmpty) return;
+      final u = url.trim();
+      if (!u.startsWith('http')) return;
+
+      final http = HttpClient();
+      final req = await http.getUrl(Uri.parse(u));
+      final resp = await req.close();
+      if (resp.statusCode < 200 || resp.statusCode >= 300) return;
+      final bytes = await consolidateHttpClientResponseBytes(resp);
+
+      // Sauvegarder en temp pour réutiliser FileImage + base64Encode(readAsBytes()).
+      final tmpDir = Directory.systemTemp;
+      final tmp = File('${tmpDir.path}/casanayo_profile_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await tmp.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      setState(() {
+        _imageProfile = tmp;
+        _profilePhotoIsExisting = true;
+      });
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'IdentityVerificationPage',
+        error: e,
+        stackTrace: st,
+        reason: 'prefill_profile_photo_exception',
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -104,6 +160,28 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       if (authCtrl.user.city != null) {
         _addressController.text = authCtrl.user.city ?? "";
       }
+      // Pré-remplir infos déjà connues (si l’utilisateur avait déjà commencé / terminé une vérification).
+      final profileData = authCtrl.stockage?.read(StockageKeys.profileKey);
+      if (profileData is Map) {
+        final existingType = profileData['typeCardId'] ?? profileData['type_card_id'];
+        final existingNumber = profileData['numberCard'] ?? profileData['number_card'];
+        final tid = existingType is int ? existingType : int.tryParse(existingType?.toString() ?? '');
+        if (tid != null && tid > 0) {
+          _selectedCardTypeId = tid;
+          try {
+            final match = _cardTypes.firstWhere((c) => c['typeCardId'] == tid, orElse: () => {});
+            final name = match is Map ? (match['name']?.toString() ?? '') : '';
+            if (name.isNotEmpty) {
+              _selectedCardTypeDisplay = _getCardDisplayName(name, tid);
+            }
+          } catch (_) {}
+        }
+        final n = existingNumber?.toString() ?? '';
+        if (n.trim().isNotEmpty) {
+          _cardNumberController.text = n.trim();
+        }
+      }
+      _prefillProfilePhotoIfAvailable();
       _loadCardTypes();
     });
   }
@@ -170,45 +248,163 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       String? imagePath;
 
       if (isProfile) {
-        // Demander à l'utilisateur : Caméra ou Galerie ?
+        // Bottomsheet identique à ProfilePage (design original).
+        final hasExisting = _imageProfile != null;
         final ImageSource? source = await showModalBottomSheet<ImageSource>(
           context: context,
           backgroundColor: Colors.transparent,
-          barrierColor: Colors.black.withOpacity(0.5),
-          builder: (context) => Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text("Photo de profil", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 20),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.blue[50], shape: BoxShape.circle),
-                    child: Icon(Icons.camera_alt_rounded, color: Colors.blue[700]),
+          builder: (context) {
+            Widget actionTile({
+              required IconData icon,
+              required String title,
+              required String subtitle,
+              required VoidCallback onTap,
+            }) {
+              return InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryBlue.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(icon, color: AppColors.primaryBlue, size: 22),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              subtitle,
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 13,
+                                height: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                    ],
                   ),
-                  title: const Text("Prendre une photo", style: TextStyle(fontWeight: FontWeight.w600)),
-                  onTap: () => Navigator.pop(context, ImageSource.camera),
                 ),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.purple[50], shape: BoxShape.circle),
-                    child: Icon(Icons.photo_library_rounded, color: Colors.blue[700]),
-                  ),
-                  title: const Text("Choisir depuis la galerie", style: TextStyle(fontWeight: FontWeight.w600)),
-                  onTap: () => Navigator.pop(context, ImageSource.gallery),
+              );
+            }
+
+            return SafeArea(
+              top: false,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
                 ),
-                const SizedBox(height: 12),
-              ],
-            ),
-          ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 10),
+                    Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryBlue.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(Icons.account_circle_rounded, color: AppColors.primaryBlue),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Photo de profil',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: Text('Fermer', style: TextStyle(color: Colors.grey.shade700)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    if (hasExisting) ...[
+                      actionTile(
+                        icon: Icons.fullscreen_rounded,
+                        title: 'Aperçu en plein écran',
+                        subtitle: 'Voir votre photo actuelle.',
+                        onTap: () {
+                          final f = _imageProfile;
+                          Navigator.pop(context);
+                          if (f == null) return;
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => Scaffold(
+                                backgroundColor: Colors.black,
+                                appBar: AppBar(
+                                  backgroundColor: Colors.black,
+                                  elevation: 0,
+                                  leading: IconButton(
+                                    icon: const Icon(Icons.close, color: Colors.white),
+                                    onPressed: () => Navigator.pop(context),
+                                  ),
+                                ),
+                                body: Center(child: Image.file(f, fit: BoxFit.contain)),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      Divider(height: 1, color: Colors.grey.shade200),
+                    ],
+                    actionTile(
+                      icon: Icons.camera_alt_rounded,
+                      title: 'Prendre une photo',
+                      subtitle: 'Utiliser la caméra.',
+                      onTap: () => Navigator.pop(context, ImageSource.camera),
+                    ),
+                    Divider(height: 1, color: Colors.grey.shade200),
+                    actionTile(
+                      icon: Icons.photo_library_rounded,
+                      title: 'Choisir depuis la galerie',
+                      subtitle: 'Sélectionner une image existante.',
+                      onTap: () => Navigator.pop(context, ImageSource.gallery),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            );
+          },
         );
 
         if (source == null) return;
@@ -230,6 +426,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         if (mounted && imagePath != null && imagePath.isNotEmpty) {
           setState(() {
             _imageProfile = File(imagePath!);
+            _profilePhotoIsExisting = false; // l'utilisateur a choisi une nouvelle photo
           });
         }
         return;
@@ -302,7 +499,11 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     // Pour le passeport (typeCardId = 2, car Visa -> Passeport), le verso n'est pas requis
     // Pour les autres types, le verso est requis
     if (_selectedCardTypeId != 2 && _imageBack == null) {
-      FancyNotification.show(context, "Veuillez ajouter la photo verso de votre pièce d'identité", isError: true);
+      FancyNotification.show(
+        context,
+        "Ajoutez aussi le verso de votre pièce d’identité pour continuer.",
+        isError: true,
+      );
       return;
     }
 
@@ -310,7 +511,11 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
 
     if (!await NetworkUtils.checkInternetConnectivity()) {
       setState(() => _isLoading = false);
-      FancyNotification.show(context, "Pas de connexion internet", isError: true);
+      FancyNotification.show(
+        context,
+        "Connexion internet indisponible pour le moment. Réessayez dès que le réseau revient.",
+        isError: true,
+      );
       return;
     }
 
@@ -335,21 +540,30 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         throw Exception("Impossible de déterminer l'ID du profil");
       }
 
-      // 1. D'abord, uploader l'image de profil
-      String profileBase64 = base64Encode(await _imageProfile!.readAsBytes());
-      final profileImageResponse = await authCtrl.updateProfilePicture(targetId, profileBase64);
+      // 1. Photo de profil: si elle existe déjà, ne pas re-uploader.
+      if (!_profilePhotoIsExisting) {
+        final profileBase64 = base64Encode(await _imageProfile!.readAsBytes());
+        final profileImageResponse = await authCtrl.updateProfilePicture(targetId, profileBase64);
 
-      if (!profileImageResponse.status) {
-        FancyNotification.show(
-          context,
-          profileImageResponse.errorMsg ?? "Erreur lors de l'upload de la photo de profil",
-          type: NotificationType.error,
-        );
-        setState(() => _isLoading = false);
-        return;
+        if (!profileImageResponse.status) {
+          reportApiFailureToCrashlytics(
+            'IdentityVerificationPage',
+            response: profileImageResponse,
+            reason: 'profile_picture_upload',
+          );
+          FancyNotification.show(
+            context,
+            profileImageResponse.errorMsg ??
+                "La photo de profil n’a pas pu être envoyée. Vérifiez votre connexion et réessayez.",
+            type: NotificationType.error,
+          );
+          setState(() => _isLoading = false);
+          return;
+        }
+        print("✅ Image de profil uploadée avec succès");
+      } else {
+        print("✅ Photo de profil déjà existante: upload ignoré");
       }
-
-      print("✅ Image de profil uploadée avec succès");
 
       // 2. Ensuite, envoyer la vérification d'identité
       String frontBase64 = base64Encode(await _imageFront!.readAsBytes());
@@ -375,6 +589,10 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
 
       final userData = authCtrl.stockage?.read(StockageKeys.userKey) ?? {};
 
+      final cardNumber = _cardNumberController.text.trim().isEmpty
+          ? "string"
+          : _cardNumberController.text.trim();
+
       final payload = {
         "lastName": lastName,
         "firstName": firstName,
@@ -385,8 +603,9 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         "type_card_id": _selectedCardTypeId, // Fallback snake_case
         "parrainId": parrainId, 
         "parrain_id": parrainId, // Fallback snake_case
-        "numberCard": _cardNumberController.text.trim(), 
-        "number_card": _cardNumberController.text.trim(), // Fallback snake_case
+        // Le backend attend bien `numberCard` (String). On envoie une valeur même si vide.
+        "numberCard": cardNumber, 
+        "number_card": cardNumber, // Fallback snake_case
         "user": {
           "email": (userData['email']?.toString() ?? "").isEmpty ? "string" : userData['email']?.toString() ?? "",
           "phone": _isPhoneRequired ? _formatPhoneNumberForSubmit() : (userData['phone']?.toString() ?? ""),
@@ -408,12 +627,18 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       if (response.status == true) {
         FancyNotification.show(
           context,
-          "Vérification envoyée avec succès !",
+          "Votre demande de vérification a bien été envoyée.",
           type: NotificationType.success,
         );
         Navigator.pop(context, true);
       } else {
-        final errorMsg = response.errorMsg ?? "Erreur lors de la vérification";
+        reportApiFailureToCrashlytics(
+          'IdentityVerificationPage',
+          response: response,
+          reason: 'verify_identity',
+        );
+        final errorMsg = response.errorMsg ??
+            "La vérification n’a pas abouti. Vérifiez les informations et réessayez.";
         FancyNotification.show(
           context,
           _sanitizeError(errorMsg),
@@ -421,9 +646,19 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         );
       }
 
-    } catch (e) {
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'IdentityVerificationPage',
+        error: e,
+        stackTrace: st,
+        reason: 'verify_identity_exception',
+      );
       print("Erreur vérification: $e");
-      FancyNotification.show(context, "Une erreur est survenue. Veuillez réessayer.", isError: true);
+      FancyNotification.show(
+        context,
+        "Quelque chose s’est mal passé de notre côté. Patientez un instant et réessayez.",
+        isError: true,
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -592,9 +827,16 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                   absorbing: !isCardTypeSelected,
                   child: _buildTextField(
                     controller: _cardNumberController,
-                    label: "Numéro de la pièce (Optionnel)",
+                    label: "Numéro de la pièce",
                     icon: Icons.numbers,
-                    validator: null, // Rendu optionnel
+                    validator: (val) {
+                      if (!isCardTypeSelected) return null;
+                      final s = (val ?? '').trim();
+                      if (s.isEmpty) {
+                        return "Veuillez entrer le numéro indiqué sur la pièce";
+                      }
+                      return null;
+                    },
                     onChanged: () {
                       _touchedFields['cardNumber'] = true;
                     },
@@ -747,13 +989,15 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     );
   }
   String _sanitizeError(String? error) {
-    if (error == null || error.isEmpty) return "Une erreur est survenue. Veuillez réessayer.";
+    if (error == null || error.isEmpty) {
+      return "Impossible de finaliser l’étape pour l’instant. Réessayez dans quelques instants.";
+    }
     final lower = error.toLowerCase();
 
     if (lower.contains("internal server error") ||
         lower.contains("exception") ||
         lower.contains("status")) {
-      return "Une erreur est survenue. Veuillez réessayer.";
+      return "Le service est temporairement occupé. Merci de réessayer dans un moment.";
     }
     return error;
   }

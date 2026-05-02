@@ -10,6 +10,7 @@ import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
@@ -27,6 +28,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/property_owner_put_diff.dart';
 import '../utils/requetes.dart' show HttpResponse, deleteData;
+import '../utils/crashlytics_api.dart';
 import 'forms/FestiveFormFields.dart';
 import 'forms/FuneraireFormFields.dart';
 import 'forms/VacanceFormFields.dart';
@@ -124,10 +126,11 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
       if (res.status == true) {
         SnackbarForCasa.success(
           context,
-          'Statut enregistré (sold synchronisé sur le serveur).',
+          'Statut de l’annonce mis à jour.',
         );
       } else {
-        var msg = res.errorMsg ?? 'Impossible de mettre à jour le statut.';
+        var msg = res.errorMsg ??
+            'Le statut n’a pas pu être synchronisé. Réessayez dans un instant.';
         if (res.data is Map) {
           final m = Map<String, dynamic>.from(res.data as Map);
           msg = m['detailMessage']?.toString() ??
@@ -135,12 +138,15 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
               msg;
         }
         print('⚠️ [EditProperty] sync sold: $msg');
-        SnackbarForCasa.error(context, msg);
+        SnackbarForCasa.error(context, _friendlyEditMessage(msg));
       }
     } catch (e) {
       print('⚠️ [EditProperty] sync sold: $e');
       if (mounted) {
-        SnackbarForCasa.error(context, 'Erreur lors de la mise à jour du statut.');
+        SnackbarForCasa.error(
+          context,
+          'Le statut n’a pas pu être mis à jour. Vérifiez la connexion et réessayez.',
+        );
       }
     }
   }
@@ -1769,7 +1775,11 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
         });
       }
     } catch (e) {
-      FancyNotification.show(context, "Erreur lors de la sélection des images", type: NotificationType.error);
+      FancyNotification.show(
+        context,
+        'Les photos n’ont pas pu être ajoutées. Réessayez ou choisissez d’autres fichiers.',
+        type: NotificationType.error,
+      );
     }
   }
 
@@ -2179,11 +2189,33 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     };
   }
 
+  /// Messages API adoucis pour l’utilisateur (pas de détails techniques).
+  String _friendlyEditMessage(String? raw) {
+    if (raw == null || raw.trim().isEmpty) {
+      return 'Les modifications n’ont pas pu être enregistrées. Réessayez.';
+    }
+    final lower = raw.toLowerCase();
+    if (lower.contains('internal server') ||
+        lower.contains('socketexception') ||
+        lower.contains('timeout') ||
+        lower.contains('failed host lookup')) {
+      return 'Connexion instable ou service momentanément indisponible. Patientez un peu puis réessayez.';
+    }
+    return raw;
+  }
+
   Future<void> _handleUpdate() async {
     if (!_formKey.currentState!.validate()) {
-       SnackbarForCasa.error(context, "Veuillez remplir correctement tous les champs obligatoires");
+      SnackbarForCasa.error(
+        context,
+        'Complétez les champs obligatoires indiqués avant d’enregistrer.',
+      );
        return;
     }
+
+    final subscriptionOk =
+        await SubscriptionHelper.ensurePremiumForSubmit(context: context);
+    if (!subscriptionOk || !mounted) return;
 
     setState(() => _isLoading = true);
 
@@ -2194,7 +2226,10 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
       print("🛠️ DEBUG UPDATE - uId: $uId, propertyId: ${widget.property.propertyId}");
 
       if (uId == 0 || widget.property.propertyId == null) {
-        SnackbarForCasa.error(context, "Erreur Fatale: Impossible de déterminer votre identité ou ID propriété");
+        SnackbarForCasa.error(
+          context,
+          'Nous ne parvenons pas à identifier votre compte ou l’annonce. Reconnectez-vous puis réessayez.',
+        );
         setState(() => _isLoading = false);
         return;
       }
@@ -2249,25 +2284,43 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
           widget.property.propertyId!,
           typeId,
         );
-        SnackbarForCasa.success(context, "Votre annonce a été mise à jour avec succès.");
+        SnackbarForCasa.success(context, 'Vos modifications ont bien été enregistrées.');
         Navigator.pop(context, true);
       } else {
-        // Afficher plus de détails sur l'erreur
-        String errorDetail = res.errorMsg ?? "Erreur lors de la mise à jour (Réponse API négative)";
+        reportApiFailureToCrashlytics(
+          'EditPropertyPage',
+          response: res,
+          reason: 'update_property',
+        );
+        String errorDetail = res.errorMsg ??
+            'Les modifications n’ont pas pu être enregistrées. Réessayez.';
         if (res.data != null && res.data is Map) {
-           final Map dataMap = res.data as Map;
-           if (dataMap.containsKey('message')) errorDetail = dataMap['message'].toString();
-           else if (dataMap.containsKey('error')) errorDetail = dataMap['error'].toString();
-           else if (dataMap.containsKey('errors')) errorDetail = dataMap['errors'].toString();
+          final Map dataMap = res.data as Map;
+          if (dataMap.containsKey('message')) {
+            errorDetail = dataMap['message'].toString();
+          } else if (dataMap.containsKey('error')) {
+            errorDetail = dataMap['error'].toString();
+          } else if (dataMap.containsKey('errors')) {
+            errorDetail = dataMap['errors'].toString();
+          }
         }
-        
+
         print("❌ DETAIL ERREUR: $errorDetail");
-        SnackbarForCasa.error(context, errorDetail);
+        SnackbarForCasa.error(context, _friendlyEditMessage(errorDetail));
       }
     } catch (e, stackTrace) {
+      reportApiFailureToCrashlytics(
+        'EditPropertyPage',
+        error: e,
+        stackTrace: stackTrace,
+        reason: 'update_property_exception',
+      );
       print("❌ CRITICAL ERROR DURING UPDATE: $e");
       print("🔍 STACKTRACE: $stackTrace");
-      SnackbarForCasa.error(context, "Erreur de connexion ou technique: ${e.toString()}");
+      SnackbarForCasa.error(
+        context,
+        'L’enregistrement a été interrompu. Vérifiez la connexion et réessayez.',
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -2457,13 +2510,22 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
         setState(() {
           _existingImageUrls[categoryId]!.removeAt(index);
         });
-        SnackbarForCasa.success(context, "Image supprimée avec succès.");
+        SnackbarForCasa.success(context, 'La photo a été retirée de l’annonce.');
       } else {
-        SnackbarForCasa.error(context, res.errorMsg ?? "Erreur lors de la suppression sur le serveur.");
+        SnackbarForCasa.error(
+          context,
+          _friendlyEditMessage(
+            res.errorMsg ??
+                'La photo n’a pas pu être supprimée côté serveur. Réessayez.',
+          ),
+        );
       }
     } catch (e) {
       print("❌ Erreur suppression image: $e");
-      SnackbarForCasa.error(context, "Erreur technique: $e");
+      SnackbarForCasa.error(
+        context,
+        'La suppression de la photo n’a pas abouti. Réessayez dans un instant.',
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

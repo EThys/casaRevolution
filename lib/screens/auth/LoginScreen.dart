@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 
 import '../../utils/FancyNotification.dart';
 import '../../utils/api_error_message.dart';
+import '../../utils/crashlytics_api.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -38,7 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _passwordTouched = false;
 
   // États pour le sélecteur de pays
-  String _selectedCountryCode = '+243'; // RDC par défaut
+  String _selectedCountryCode = '+243';
   bool _isPhoneInput = false;
   final FocusNode _emailFocusNode = FocusNode();
   final FocusNode _passwordFocusNode = FocusNode();
@@ -186,7 +187,7 @@ class _LoginScreenState extends State<LoginScreen> {
           top: -100,
           right: -100,
           child: Container(
-            width: 300,
+            width: 300, 
             height: 300,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -857,7 +858,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final passwordError = _validatePassword(_passwordController.text);
 
     if (emailError != null || passwordError != null) {
-      SnackbarForCasa.error(context, "Veuillez corriger les erreurs ci-dessus");
+      SnackbarForCasa.error(context, "Vérifiez les champs indiqués avant de continuer.");
       return;
     }
 
@@ -868,7 +869,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final isConnected = await NetworkUtils.checkInternetConnectivity();
     if (!isConnected) {
-      SnackbarForCasa.error(context, "Pas de connexion internet");
+      SnackbarForCasa.error(
+        context,
+        "Connexion internet indisponible. Réessayez lorsque le réseau est stable.",
+      );
       setState(() => _isLoading = false);
       return;
     }
@@ -934,8 +938,13 @@ class _LoginScreenState extends State<LoginScreen> {
             : '';
         print("Login error: $rawError");
 
-        if (rawError.contains("Idenfiant invalide.")) {
-          SnackbarForCasa.error(context, "Ce numéro ne correspond à aucun compte dans CasaNayo. Veuillez d'abord créer un compte.");
+        final rawLower = rawError.toLowerCase();
+        if (rawLower.contains('idenfiant invalide') ||
+            rawLower.contains('identifiant invalide')) {
+          SnackbarForCasa.error(
+            context,
+            "Ce compte n'existe pas ou l'identifiant est incorrect.",
+          );
           await Future.delayed(const Duration(seconds: 2));
           if (mounted) {
             Navigator.pushNamed(context, Routes.registerRoute);
@@ -943,13 +952,27 @@ class _LoginScreenState extends State<LoginScreen> {
           return;
         }
 
-        final errorMsg = ApiErrorMessages.fromResponse(res);
+        reportApiFailureToCrashlytics(
+          'LoginScreen',
+          response: res,
+          reason: 'login',
+        );
+        final errorMsg = ApiErrorMessages.fromResponse(res, loginContext: true);
         SnackbarForCasa.error(context, errorMsg);
       }
-    } catch (e) {
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'LoginScreen',
+        error: e,
+        stackTrace: st,
+        reason: 'login_exception',
+      );
       print("Login error: $e");
       // Ne pas afficher les erreurs techniques
-      SnackbarForCasa.error(context, "Une erreur est survenue lors de la connexion. Veuillez réessayer.");
+      SnackbarForCasa.error(
+        context,
+        "La connexion n’a pas abouti. Vérifiez vos identifiants et réessayez.",
+      );
     } finally {
       if (mounted) {
         setState(() {
