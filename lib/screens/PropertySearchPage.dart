@@ -8,7 +8,6 @@ import 'package:provider/provider.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
 import '../controllers/PropertyCtrl.dart';
 import '../controllers/ServiceController.dart';
-import '../models/ServiceModel.dart';
 import '../controllers/LocationController.dart';
 import '../models/CityModel.dart';
 import '../models/CommuneModel.dart';
@@ -24,7 +23,6 @@ import '../controllers/provider/FavoriteProvider.dart';
 import 'package:shimmer/shimmer.dart';
 import '../controllers/TutorialController.dart';
 import 'package:casa/widgets/property_sold_badge.dart';
-
 class PropertySearchPage extends StatefulWidget {
   @override
   _PropertySearchPageState createState() => _PropertySearchPageState();
@@ -47,6 +45,160 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   bool _isSearching = false;
   bool _showSearchLoader = false;
   final TutorialController _tutorialController = TutorialController();
+
+  // Évite de relancer en boucle l’enrichissement chambres hôtels dans la liste.
+  final Set<int> _requestedHotelRoomEnrich = <int>{};
+
+  DateTime? _parsePropertyDate(PropertyModel p) {
+    DateTime? parse(String? s) {
+      if (s == null) return null;
+      final t = s.trim();
+      if (t.isEmpty || t == 'null') return null;
+      return DateTime.tryParse(t);
+    }
+
+    return parse(p.updatedAt) ??
+        parse(p.createdAt) ??
+        parse(p.createdStart);
+  }
+
+  int _comparePropertiesNewestFirst(PropertyModel a, PropertyModel b) {
+    final da = _parsePropertyDate(a);
+    final db = _parsePropertyDate(b);
+
+    if (da != null && db != null) return db.compareTo(da);
+    if (da != null && db == null) return -1;
+    if (da == null && db != null) return 1;
+    return (b.propertyId ?? 0).compareTo(a.propertyId ?? 0);
+  }
+
+  /// Masque les annonces « agence » (hors flux catalogue unifié) pour éviter les doublons / incohérences.
+  bool _isAgenceListing(PropertyModel p) {
+    final typeName = (p.propertyType?.name ?? '').toLowerCase();
+    if (typeName.contains('agence')) return true;
+    final title = (p.title ?? '').toLowerCase().trim();
+    if (title.startsWith('agence ') || title.contains(' agence ')) return true;
+    return false;
+  }
+
+  bool _propertyMatchesSearchQuery(PropertyModel p, String qNorm) {
+    if (qNorm.isEmpty) return true;
+    bool has(String? s) => (s ?? '').toLowerCase().contains(qNorm);
+    return has(p.title) ||
+        has(p.description) ||
+        has(p.address) ||
+        has(p.cityValue) ||
+        has(p.communeValue) ||
+        has(p.quartierValue) ||
+        has(p.postBy) ||
+        has(p.propertyType?.name);
+  }
+
+  bool _propertyMatchesModalFilters(
+    PropertyModel p,
+    LocationController locationController,
+  ) {
+    bool? sold;
+    if (_selectedTransaction == 'Location') {
+      sold = false;
+    } else if (_selectedTransaction == 'Achat') {
+      sold = true;
+    }
+
+    if (sold != null) {
+      final tx = p.transactionType?.toLowerCase() ?? '';
+      final isLocation = tx.contains('location');
+      if (sold == false && !isLocation) return false;
+      if (sold == true && isLocation) return false;
+    }
+
+    final price = p.price;
+    if (price != null &&
+        (price < _priceRange.start || price > _priceRange.end)) {
+      return false;
+    }
+
+    int? propertyTypeId = _propertyTypeMapping[_selectedPropertyType];
+    if (propertyTypeId == 0) propertyTypeId = null;
+    if (propertyTypeId != null && p.propertyTypeId != propertyTypeId) {
+      return false;
+    }
+
+    if (_selectedCity != null && _selectedCity!.trim().isNotEmpty) {
+      final sel = _selectedCity!.trim().toLowerCase();
+      final city = locationController.cities.firstWhere(
+        (c) => (c.name ?? '').toLowerCase() == sel,
+        orElse: () => CityModel(cityId: null),
+      );
+      final cid = city.cityId;
+      final matchId = cid != null && p.cityId != null && p.cityId == cid;
+      final cv = (p.cityValue ?? '').trim().toLowerCase();
+      final matchName = cv.contains(sel) || cv == sel;
+      final addr = (p.address ?? '').toLowerCase();
+      final matchAddr = addr.contains(sel);
+      if (!matchId && !matchName && !matchAddr) return false;
+    }
+
+    if (_selectedCommune != null && _selectedCommune!.trim().isNotEmpty) {
+      final sel = _selectedCommune!.trim().toLowerCase();
+      final commune = locationController.communes.firstWhere(
+        (c) => (c.name ?? '').toLowerCase() == sel,
+        orElse: () => CommuneModel(communeId: null),
+      );
+      final mid = commune.communeId;
+      final matchId = mid != null && p.communeId != null && p.communeId == mid;
+      final cv = (p.communeValue ?? '').trim().toLowerCase();
+      final matchName = cv.contains(sel) || cv == sel;
+      if (!matchId && !matchName) return false;
+    }
+
+    if (_selectedBedrooms != null && _selectedBedrooms!.isNotEmpty) {
+      final br = int.tryParse(_selectedBedrooms!);
+      if (br != null && p.propertyTypeId != 9) {
+        final rooms = p.rooms ?? p.bedrooms ?? 0;
+        if (rooms != br) return false;
+      }
+    }
+
+    return true;
+  }
+
+  /// Recherche texte + filtres du modal combinés sur le catalogue affiché.
+  List<PropertyModel> _computeSearchPropertyList(PropertyController controller) {
+    final locationController =
+        Provider.of<LocationController>(context, listen: false);
+
+    final Map<int, PropertyModel> uniqueById = {};
+    for (final p in controller.allProperties) {
+      final id = p.propertyId;
+      if (id == null || !p.listingAllowed || _isAgenceListing(p)) continue;
+      uniqueById.putIfAbsent(id, () => p);
+    }
+    var list = uniqueById.values.toList();
+
+    final q = _searchController.text.trim().toLowerCase();
+    final hasText = q.isNotEmpty;
+    final hasFilters = _getActiveFilterCount() > 0;
+
+    if (hasFilters) {
+      list = list
+          .where((p) =>
+              _propertyMatchesModalFilters(p, locationController))
+          .toList();
+    }
+    if (hasText) {
+      list =
+          list.where((p) => _propertyMatchesSearchQuery(p, q)).toList();
+    }
+
+    list.sort(_comparePropertiesNewestFirst);
+    return list;
+  }
+
+  bool get _usesLocalRefinement {
+    final q = _searchController.text.trim();
+    return _getActiveFilterCount() > 0 || q.isNotEmpty;
+  }
 
   // Mode de recherche
   String _searchType = 'Propriétés'; // 'Propriétés' ou 'Services'
@@ -91,11 +243,11 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     'Maisons', 
     'Bureau', 
     'Hotels', 
-    'Vacances',
+    // API: propertyTypeId 6 = "Vacances" (on affiche "Tourisme" côté UI).
+    'Tourisme',
     'Salle de fête',
     'Salle funéraires',
     'Terrain',
-    'Entrepôt'
   ];
 
 
@@ -107,16 +259,24 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     'Maisons': 3,
     'Bureau': 4,
     'Hotels': 5,
-    'Vacances': 6,
+    'Tourisme': 6,
     'Salle funéraires': 7,
     'Salle de fête': 8,
     'Terrain': 9,
-    'Entrepôt': 10,
   };
 
   Timer? _searchDebounce;
   final RefreshController _propertyRefreshController = RefreshController(initialRefresh: false);
   final RefreshController _serviceRefreshController = RefreshController(initialRefresh: false);
+
+  String _locationText(String? commune, String? city) {
+    final parts = <String>[];
+    final c1 = (commune ?? '').trim();
+    final c2 = (city ?? '').trim();
+    if (c1.isNotEmpty) parts.add(c1);
+    if (c2.isNotEmpty) parts.add(c2);
+    return parts.isEmpty ? 'Localisation' : parts.join(', ');
+  }
 
   // Remplacement des listes statiques par des données dynamiques
   List<String> _cities = [];
@@ -176,7 +336,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   /// Révèle plus de propriétés et charge la page suivante de l'API si nécessaire
   void _loadMoreProperties() async {
     final ctrl = Provider.of<PropertyController>(context, listen: false);
-    final allProps = ctrl.allProperties;
+    final allProps = _computeSearchPropertyList(ctrl);
     final totalLoaded = allProps.length;
 
     if (_isLoadingMoreProperties) return;
@@ -193,8 +353,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       return;
     }
 
-    // 2. Si on a tout révélé mais que l'API a encore des données (Infinity Scroll réel)
-    if (ctrl.hasMoreData) {
+    // 2. Pagination API seulement sans raffinement local (sinon le tri/filtre est entièrement côté liste calculée).
+    if (ctrl.hasMoreData && !_usesLocalRefinement) {
       setState(() => _isLoadingMoreProperties = true);
       
       final searchTerm = _searchController.text.trim();
@@ -206,8 +366,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
       if (!mounted) return;
       setState(() {
-        // Mettre à jour visibleCount pour inclure les nouveaux arrivants
-        _visiblePropertyCount = ctrl.allProperties.length;
+        _visiblePropertyCount =
+            _computeSearchPropertyList(ctrl).length;
         _isLoadingMoreProperties = false;
       });
     }
@@ -635,16 +795,18 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       int? communeId;
 
       if (_selectedCity != null) {
+        final normalizedCity = _selectedCity!.trim().toLowerCase();
         final city = locationController.cities.firstWhere(
-          (c) => c.name == _selectedCity,
+          (c) => (c.name ?? '').toLowerCase() == normalizedCity,
           orElse: () => CityModel(cityId: null),
         );
         cityId = city.cityId;
       }
 
       if (_selectedCommune != null) {
-         final commune = locationController.communes.firstWhere(
-          (c) => c.name == _selectedCommune,
+        final normalizedCommune = _selectedCommune!.trim().toLowerCase();
+        final commune = locationController.communes.firstWhere(
+          (c) => (c.name ?? '').toLowerCase() == normalizedCommune,
           orElse: () => CommuneModel(communeId: null),
         );
         communeId = commune.communeId;
@@ -664,6 +826,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         sortOrder: 'desc',
         isLoadMore: isLoadMore,
       );
+
+      if (mounted) setState(() {});
   }
 
   // Removed _showRefreshSuccess and _showRefreshError per user request
@@ -1286,8 +1450,10 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         return Icons.business_center;
       case 'Hotels':
         return Icons.hotel;
-      case 'Vacances':
-        return Icons.beach_access;
+      case 'Tourisme':
+        return Icons.attractions;
+      case 'Terrain':
+        return Icons.landscape;
       default:
         return Icons.category;
     }
@@ -1573,6 +1739,13 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             if (pCommune.isNotEmpty && pCommune != sCommune) return false;
             if (pCommune.isEmpty) return false;
           }
+
+          final sq = _searchController.text.trim().toLowerCase();
+          if (sq.isNotEmpty) {
+            final title = prestation.title?.toLowerCase() ?? '';
+            final desc = prestation.description?.toLowerCase() ?? '';
+            if (!title.contains(sq) && !desc.contains(sq)) return false;
+          }
           
           return true;
         }).toList();
@@ -1837,8 +2010,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
           );
         }
 
-        // Utilise allProperties = standard + bureaux + festives + funéraires
-        final allProps = controller.allProperties;
+        final allProps = _computeSearchPropertyList(controller);
 
         if (controller.loading && allProps.isEmpty) {
           return Center(
@@ -2497,9 +2669,38 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         ? "${firstImage.path ?? firstImage.path}"
         : null;
 
-    final priceText = _selectedTransaction == 'Location'
+    final typeName = property.propertyType?.name?.toLowerCase() ?? '';
+    final isHotel = typeName.contains('hotel') || typeName.contains('hôtel') || property.propertyTypeId == 5;
+    final isTourisme = typeName.contains('vacance') || typeName.contains('tourisme') || property.propertyTypeId == 6;
+    final isTerrain = typeName.contains('terrain') || property.propertyTypeId == 9;
+    final isFestive = typeName.contains('fête') || typeName.contains('fete') || property.propertyTypeId == 8;
+    final isFuneraire = typeName.contains('funéra') || typeName.contains('funera') || property.propertyTypeId == 7;
+    final isBureau = typeName.contains('bureau') || typeName.contains('office') || property.propertyTypeId == 4;
+
+    // Prix: pas de “/mois” pour les hôtels (et autres catégories non-locatives).
+    final isMonthly =
+        _selectedTransaction == 'Location' && !isHotel && !isTourisme && !isTerrain && !isFestive && !isFuneraire;
+    final priceText = isMonthly
         ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
         : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
+
+    // Hôtels: enrichir les chambres en cache-first (local + refresh async) pour éviter "0 chambre".
+    if (isHotel && property.propertyId != null) {
+      final id = property.propertyId!;
+      final hasRooms = (property.hotelStructure?.isNotEmpty ?? false);
+      if (!hasRooms && !_requestedHotelRoomEnrich.contains(id)) {
+        _requestedHotelRoomEnrich.add(id);
+        Future.microtask(() {
+          try {
+            context.read<PropertyController>().getPropertyById(
+                  id,
+                  propertyTypeId: 5,
+                  mergeWith: property,
+                );
+          } catch (_) {}
+        });
+      }
+    }
 
     return InkWell(
       onTap: () {_navigateToDetail(property);},
@@ -2552,6 +2753,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         available: property.available,
                         listingAllowed: property.listingAllowed,
                         compact: true,
+                        onDarkBackground: true,
                       ),
                     ),
                   ],
@@ -2617,7 +2819,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            "${property.cityValue}, ${property.communeValue}",
+                            _locationText(property.communeValue, property.cityValue),
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 11,
@@ -2637,16 +2839,48 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                       child: ListView(
                         scrollDirection: Axis.horizontal,
                         children: [
-                          if (property.bedrooms != null)
-                            _buildFeatureChip(Icons.king_bed_rounded, '${property.bedrooms} ch.'),
-                          SizedBox(width: 6),
-                          if (property.bathroom != null)
-                            _buildFeatureChip(Icons.bathtub_rounded, '${property.bathroom} sdb'),
-                          SizedBox(width: 6),
-                          if (property.surface != null)
-                            _buildFeatureChip(Icons.square_foot_rounded, '${property.surface}m²'),
-                          if (property.rooms != null)
-                            _buildFeatureChip(FontAwesomeIcons.doorClosed, '${property.rooms} pièces'),
+                          if (isTerrain) ...[
+                            if (property.surface != null && (property.surface ?? 0) > 0)
+                              _buildFeatureChip(Icons.square_foot_rounded, '${property.surface}m²'),
+                          ] else if (isTourisme) ...[
+                            // Tourisme/Vacances/Agence: pas d'icônes chambres/sdb/surface.
+                            _buildFeatureChip(Icons.attractions_rounded, 'Tourisme'),
+                          ] else if (isFestive || isFuneraire) ...[
+                            if (property.capacityPeople != null && (property.capacityPeople ?? 0) > 0)
+                              _buildFeatureChip(Icons.people_outline_rounded, '${property.capacityPeople} pers.'),
+                            const SizedBox(width: 6),
+                            if (property.surface != null && (property.surface ?? 0) > 0)
+                              _buildFeatureChip(Icons.square_foot_rounded, '${property.surface}m²'),
+                          ] else if (isBureau) ...[
+                            if (property.roomMeet != null && (property.roomMeet ?? 0) > 0)
+                              _buildFeatureChip(Icons.meeting_room_outlined, '${property.roomMeet} salles'),
+                            const SizedBox(width: 6),
+                            _buildFeatureChip(
+                              property.isEquip == true ? Icons.chair : Icons.chair_outlined,
+                              property.isEquip == true ? 'Équipé' : 'Non équipé',
+                            ),
+                            const SizedBox(width: 6),
+                            if (property.surface != null && (property.surface ?? 0) > 0)
+                              _buildFeatureChip(Icons.square_foot_rounded, '${property.surface}m²'),
+                          ] else if (isHotel) ...[
+                            _buildFeatureChip(Icons.hotel_rounded, 'Hôtel'),
+                            const SizedBox(width: 6),
+                            _buildFeatureChip(
+                              Icons.bed_rounded,
+                              '${property.hotelStructure?.length ?? 0} chambre(s)',
+                            ),
+                          ] else ...[
+                            if ((property.bedrooms ?? 0) > 0)
+                              _buildFeatureChip(Icons.king_bed_rounded, '${property.bedrooms} ch.'),
+                            const SizedBox(width: 6),
+                            if ((property.bathroom ?? 0) > 0)
+                              _buildFeatureChip(Icons.bathtub_rounded, '${property.bathroom} sdb'),
+                            const SizedBox(width: 6),
+                            if ((property.surface ?? 0) > 0)
+                              _buildFeatureChip(Icons.square_foot_rounded, '${property.surface}m²'),
+                            if ((property.rooms ?? 0) > 0)
+                              _buildFeatureChip(FontAwesomeIcons.doorClosed, '${property.rooms} pièces'),
+                          ],
                         ].where((element) => element != null).cast<Widget>().toList(),
                       ),
                     ),
@@ -2654,18 +2888,44 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                     SizedBox(height: 6),
 
                     // Prix et statut
-                    Row(
-                      children: [
-                        Text(
-                          priceText,
-                          style: GoogleFonts.inter(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: _primaryColor,
+                    if (!isHotel)
+                      Row(
+                        children: [
+                          Text(
+                            priceText,
+                            style: GoogleFonts.inter(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: _primaryColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    if (isHotel) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: (property.hotelStructure?.isNotEmpty ?? false)
+                              ? () => _showHotelRoomsAndReserve(property)
+                              : null,
+                          icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                          label: Text(
+                            'Réserver une chambre',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _primaryColor,
+                            side: BorderSide(color: _primaryColor.withOpacity(0.35)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -2678,6 +2938,187 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
   Future<void> _navigateToDetail(PropertyModel property) async {
     await navigateToPropertyDetail(context, property);
+  }
+
+  Future<void> _showHotelRoomsAndReserve(PropertyModel hotel) async {
+    final rooms = hotel.hotelStructure ?? const <HotelRoomStructure>[];
+    if (rooms.isEmpty) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final height = MediaQuery.of(ctx).size.height * 0.72;
+        return Container(
+          height: height,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Center(
+                  child: Container(
+                    width: 46,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Chambres — ${hotel.title ?? 'Hôtel'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+                    itemCount: rooms.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final s = rooms[index];
+                      final r = s.chambre;
+                      final roomId = r?.id;
+                      final title = (r?.title ?? 'Chambre').trim();
+                      final desc = (r?.description ?? '').trim();
+                      final img = (s.images?.isNotEmpty ?? false)
+                          ? s.images!.first.path
+                          : null;
+
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF9FAFB),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFE5E7EB)),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  width: 64,
+                                  height: 64,
+                                  color: const Color(0xFFEFF6FF),
+                                  child: (img != null &&
+                                          img.toString().trim().isNotEmpty)
+                                      ? CachedNetworkImage(
+                                          imageUrl: img,
+                                          fit: BoxFit.cover,
+                                          errorWidget: (_, __, ___) =>
+                                              const Icon(
+                                            Icons.bed_rounded,
+                                            color: Color(0xFF1976D2),
+                                          ),
+                                        )
+                                      : const Icon(
+                                          Icons.bed_rounded,
+                                          color: Color(0xFF1976D2),
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    if (desc.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        desc,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12,
+                                          color: const Color(0xFF6B7280),
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(height: 10),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: FilledButton(
+                                        onPressed: roomId == null
+                                            ? null
+                                            : () {
+                                                Navigator.pop(ctx);
+                                                Navigator.pushNamed(
+                                                  context,
+                                                  Routes.bookingVisitPageRoute,
+                                                  arguments: {
+                                                    'property': hotel,
+                                                    'chambreId': roomId,
+                                                  },
+                                                );
+                                              },
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: _primaryColor,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'Réserver',
+                                          style: GoogleFonts.inter(
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildSuggestionChip(String text) {
@@ -2751,11 +3192,10 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       case 3: return 'Maisons';
       case 4: return 'Bureau';
       case 5: return 'Hotels';
-      case 6: return 'Vacances';
+      case 6: return 'Tourisme';
       case 7: return 'Salle funéraires';
       case 8: return 'Salle de fête';
       case 9: return 'Terrain';
-      case 10: return 'Entrepôt';
       default: return 'Autre';
     }
   }
