@@ -113,13 +113,19 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    CasaPaymentLog.log('UI/Subscription', 'lifecycle → $state (awaitingCard=$_awaitingCardCheckout)');
-    if (state != AppLifecycleState.resumed || !_awaitingCardCheckout) return;
-    if (!mounted) return;
     CasaPaymentLog.log(
       'UI/Subscription',
-      'retour au 1er plan après checkout carte — confiance aux notifs STOMP uniquement (pas de GET membre)',
+      'lifecycle → $state (awaitingCard=$_awaitingCardCheckout awaitingWs=$_awaitingSubscriptionWs)',
     );
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    if (!_awaitingCardCheckout && !_awaitingSubscriptionWs) return;
+    final auth = context.read<AuthentificationCtrl>();
+    if (auth.token.isEmpty) return;
+    CasaPaymentLog.log(
+      'UI/Subscription',
+      'retour au 1er plan pendant attente paiement — refresh membre (STOMP / push OneSignal)',
+    );
+    unawaited(auth.refreshMemberFromServer(force: true));
   }
 
   /// Extrait l’URL du checkout depuis la réponse API (formes courantes).
