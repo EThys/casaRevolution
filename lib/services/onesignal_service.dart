@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 
 import '../config/onesignal_config.dart';
+import 'onesignal_member_refresh.dart';
 
 /// Initializes OneSignal push (Android / iOS only). No-op if [kOneSignalAppId] is empty.
 ///
@@ -37,6 +38,9 @@ Future<void> initOneSignal() async {
   }
 
   OneSignal.initialize(kOneSignalAppId);
+
+  // Paiement / décertification : au tap sur une notif ou en premier plan, resync le membre.
+  attachOneSignalMemberRefreshHooks();
 
   // IMPORTANT:
   // Ne pas demander la permission ici, sinon Android/iOS peut afficher le prompt
