@@ -366,7 +366,12 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
         if (response.data != null && response.data is Map && response.data.containsKey('message')) {
             message = response.data['message'];
         }
-        FancyNotification.show(context, message, isError: false);
+        FancyNotification.show(
+          context,
+          message,
+          isError: false,
+          type: NotificationType.success,
+        );
         // Retour avec un résultat pour informer la page précédente
         Navigator.pop(context, true);
       } else {
