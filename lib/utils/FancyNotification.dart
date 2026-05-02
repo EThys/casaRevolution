@@ -16,6 +16,9 @@ class FancyNotification {
     String? actionLabel,
     String? title,
   }) {
+    final NotificationType resolvedType =
+        isError ? type : NotificationType.success;
+
     final overlay = Overlay.of(context);
     late OverlayEntry overlayEntry;
 
@@ -23,7 +26,7 @@ class FancyNotification {
       builder: (context) => _CasaToastOverlay(
         message: message,
         title: title,
-        type: type,
+        type: resolvedType,
         onTap: onTap,
         actionLabel: actionLabel,
         autoDismissSeconds: duration,
