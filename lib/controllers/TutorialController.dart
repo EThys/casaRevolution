@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:showcaseview/showcaseview.dart';
@@ -26,7 +27,8 @@ class TutorialController extends ChangeNotifier {
   // GlobalKeys for Showcase
   GlobalKey searchKey = GlobalKey();
   GlobalKey quickServiceKey = GlobalKey();
-  GlobalKey addButtonKey = GlobalKey();
+  GlobalKey fabAddButtonKey = GlobalKey();
+  GlobalKey navAddButtonKey = GlobalKey();
   GlobalKey favoritesKey = GlobalKey();
   GlobalKey profileKey = GlobalKey();
   
@@ -54,10 +56,18 @@ class TutorialController extends ChangeNotifier {
 
   // Re-initialiser les clés pour éviter les conflits lors de la navigation
   // entre plusieurs instances d'une même page (ex: BottomNavBar poussée plusieurs fois)
+  /// Clé Showcase du bouton publier réellement présente dans l’arbre (selon la plateforme).
+  GlobalKey addButtonKeyForCurrentPlatform() {
+    return defaultTargetPlatform == TargetPlatform.iOS
+        ? navAddButtonKey
+        : fabAddButtonKey;
+  }
+
   void initializeKeys() {
     searchKey = GlobalKey();
     quickServiceKey = GlobalKey();
-    addButtonKey = GlobalKey();
+    fabAddButtonKey = GlobalKey();
+    navAddButtonKey = GlobalKey();
     favoritesKey = GlobalKey();
     profileKey = GlobalKey();
     drawerKey = GlobalKey();
@@ -102,7 +112,7 @@ class TutorialController extends ChangeNotifier {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         // IMPORTANT: Ne passer que les clés qui ont réellement un widget Showcase
         // dans l'arbre courant. Des clés sans widget bloquent le ShowCaseWidget.
-        final keysToShow = customKeys ?? [addButtonKey];
+        final keysToShow = customKeys ?? [addButtonKeyForCurrentPlatform()];
         ShowCaseWidget.of(context).startShowCase(keysToShow);
       });
     }
@@ -173,7 +183,7 @@ class TutorialController extends ChangeNotifier {
   void startAddTutorial(BuildContext context) {
     if (shouldShowAddTutorial()) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ShowCaseWidget.of(context).startShowCase([addButtonKey]);
+        ShowCaseWidget.of(context).startShowCase([addButtonKeyForCurrentPlatform()]);
         completeAddTutorial();
       });
     }

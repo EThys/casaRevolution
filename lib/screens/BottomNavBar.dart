@@ -34,6 +34,8 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
   // Une fois le tuto terminé, on démonte complètement le ShowCaseWidget
   // pour supprimer ses overlays invisibles qui bloquent les interactions.
   bool _tutorialDone = false;
+  /// Dernière mise en arrière-plan réelle (écran éteint / autre app) pour forcer un refresh au retour.
+  DateTime? _lastPausedAt;
 
   late final List<Widget> _screens = [
     HomePage(shouldRefresh: widget.shouldRefresh),
@@ -84,11 +86,18 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused) {
+      _lastPausedAt = DateTime.now();
+      return;
+    }
     if (state == AppLifecycleState.resumed && mounted) {
       final auth = context.read<AuthentificationCtrl>();
-      if (auth.token.isNotEmpty) {
-        _syncMemberAndDecertAlert(forceRefresh: false);
-      }
+      if (auth.token.isEmpty) return;
+      // Après verrouillage ou plusieurs minutes en arrière-plan : contourner le throttle 25s du refresh membre.
+      final away = _lastPausedAt != null &&
+          DateTime.now().difference(_lastPausedAt!) > const Duration(seconds: 3);
+      _lastPausedAt = null;
+      _syncMemberAndDecertAlert(forceRefresh: away);
     }
   }
 
@@ -126,7 +135,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           highlightElevation: 0,
           splashColor: Colors.transparent,
           child: Showcase(
-            key: Provider.of<TutorialController>(context, listen: false).addButtonKey,
+            key: Provider.of<TutorialController>(context, listen: false).fabAddButtonKey,
             title: 'Publier une annonce',
             description: 'Ajoutez un bien immobilier ou proposez un service en quelques étapes.',
             child: _addButtonContent(),
@@ -209,7 +218,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
                 tutorialCtrl.seeAllCleaningKey,
                 tutorialCtrl.seeAllMovingKey,
                 tutorialCtrl.seeAllOtherServicesKey,
-                tutorialCtrl.addButtonKey,
+                tutorialCtrl.addButtonKeyForCurrentPlatform(),
               ]);
             }
           });
@@ -246,7 +255,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
 
   Widget _buildAddButton() {
     return Showcase(
-      key: Provider.of<TutorialController>(context, listen: false).addButtonKey,
+      key: Provider.of<TutorialController>(context, listen: false).navAddButtonKey,
       title: 'Publier une annonce',
       description: 'Ajoutez un bien immobilier ou proposez un service en quelques étapes.',
       child: GestureDetector(
