@@ -81,18 +81,71 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     return out;
   }
 
-  /// Avis affichés : **tous** les avis publics rattachés à la prestation (`prestationId` ou sollicitation imbriquée).
-  /// [sollicitationId] ne limite plus la liste ; il sert uniquement au formulaire « Noter ».
+  /// Avis affichés : **tous** les avis publics rattachés à la prestation.
+  ///
+  /// Stratégie de résolution (par ordre de priorité) :
+  /// 1. Avis publics filtrés par `prestationId` (si l'API le renvoie).
+  /// 2. Avis publics filtrés par les `sollicitationId` rattachés à cette prestation
+  ///    (l'endpoint `/public/cotation` renvoie `sollicitationId` mais pas `prestationId`).
+  ///    Ces sollicitationIds sont extraits des cotations locales embarquées dans la prestation.
+  /// 3. Cotations locales embarquées dans l'objet prestation.
+  /// 4. Fallback sur [_hostDerivedCotationsForPrestation] (cache interne).
+  ///
+  /// [sollicitationId] ne limite pas la liste ; il sert uniquement au formulaire « Noter ».
+  /// Collecte les sollicitationIds connus pour cette prestation :
+  ///   1. Depuis les cotations locales embarquées dans la prestation (service.cotations)
+  ///   2. Depuis le param widget.sollicitationId (si vient d'une sollicitation)
+  ///   3. Depuis ServiceController.solicitations où prestationId == service.id
+  ///      (fonctionne pour les utilisateurs connectés)
+  Set<int> _knownSollicitationIds(PrestationModel service) {
+    final ids = <int>{};
+    // Source 1 : cotations locales
+    for (final c in service.cotations ?? <CotationModel>[]) {
+      if (c.sollicitationId != null) ids.add(c.sollicitationId!);
+    }
+    // Source 2 : param sollicitationId
+    if (widget.sollicitationId != null) ids.add(widget.sollicitationId!);
+    // Source 3 : sollicitations chargées dans ServiceController (utilisateur connecté)
+    // Permet de retrouver les avis même si la prestation n'a pas de cotations embarquées.
+    if (service.id != null) {
+      try {
+        final sCtrl = _serviceCtrl;
+        if (sCtrl != null) {
+          for (final sol in sCtrl.solicitations) {
+            if (sol.prestationId == service.id && sol.id != null) {
+              ids.add(sol.id!);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return ids;
+  }
+
   List<CotationModel> _displayCotations(
     PrestationModel service,
     CotationController cotCtrl,
   ) {
     final pid = service.id;
+    final local = service.cotations ?? <CotationModel>[];
+
     if (pid != null) {
-      final fromPublic = cotCtrl.cotationsForPrestation(pid);
-      final local = service.cotations ?? <CotationModel>[];
-      final merged = _mergeCotationsDedupe(fromPublic, local);
+      // 1. Filtre par prestationId (si l'API le renvoie — rare avec /public/cotation)
+      final fromPublicByPrestationId = cotCtrl.cotationsForPrestation(pid);
+
+      // 2. Filtre par sollicitationIds rattachés à cette prestation
+      //    (source principale car /public/cotation renvoie sollicitationId, pas prestationId)
+      final knownSids = _knownSollicitationIds(service);
+      final fromPublicBySollicitation = cotCtrl.cotationsForSollicitations(knownSids);
+
+      // Fusion dédupliquée : public par prestationId + public par sollicitationId + local
+      final merged = _mergeCotationsDedupe(
+        _mergeCotationsDedupe(fromPublicByPrestationId, fromPublicBySollicitation),
+        local,
+      );
       if (merged.isNotEmpty) return merged;
+
+      // Fallback : cache interne (synchro async)
       if (_hostDerivedCotationsForPrestation.isNotEmpty) {
         return _mergeCotationsDedupe(
           List<CotationModel>.from(_hostDerivedCotationsForPrestation),
@@ -101,9 +154,10 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
       }
       if (local.isNotEmpty) return local;
     } else {
-      final local = service.cotations ?? <CotationModel>[];
       if (local.isNotEmpty) return local;
     }
+
+    // Fallback final : sollicitationId unique si passé en param
     if (widget.sollicitationId != null) {
       return cotCtrl.cotationsForSollicitation(widget.sollicitationId!);
     }
@@ -581,12 +635,32 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   }
 
   /// Après GET /public/cotation : tous les avis dont la prestation correspond.
+  /// Synchronise [_hostDerivedCotationsForPrestation] depuis le cache public.
+  /// Utilise en priorité le filtre par prestationId, puis par sollicitationIds
+  /// extraits des cotations locales de la prestation (car /public/cotation ne
+  /// renvoie pas toujours prestationId).
   Future<void> _syncPrestationReviewsFromPublic(
     CotationController cotCtrl,
   ) async {
     if (!mounted || widget.service.id == null) return;
     final pid = widget.service.id!;
-    final cotations = cotCtrl.cotationsForPrestation(pid);
+
+    // 1. Filtre par prestationId
+    List<CotationModel> cotations = cotCtrl.cotationsForPrestation(pid);
+
+    // 2. Fallback : filtre par sollicitationIds connus (cotations locales + param)
+    if (cotations.isEmpty) {
+      final local = widget.service.cotations ?? <CotationModel>[];
+      final knownSollicitationIds = <int>{};
+      for (final c in local) {
+        if (c.sollicitationId != null) knownSollicitationIds.add(c.sollicitationId!);
+      }
+      if (widget.sollicitationId != null) {
+        knownSollicitationIds.add(widget.sollicitationId!);
+      }
+      cotations = cotCtrl.cotationsForSollicitations(knownSollicitationIds);
+    }
+
     cotations.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
     if (!mounted) return;
     setState(() {

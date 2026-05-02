@@ -111,6 +111,18 @@ class CotationController with ChangeNotifier {
     return list;
   }
 
+  /// Filtre les avis publics par un ensemble de [sollicitationIds].
+  /// Utilise quand l'API ne renvoie pas de `prestationId` directement
+  /// (cas de `/api/v1/public/cotation`). Accessible sans connexion.
+  List<CotationModel> cotationsForSollicitations(Set<int> sollicitationIds) {
+    if (sollicitationIds.isEmpty) return [];
+    final list = _publicCotations
+        .where((c) => c.sollicitationId != null && sollicitationIds.contains(c.sollicitationId))
+        .toList();
+    list.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+    return list;
+  }
+
   void _loadPublicFromCache() {
     try {
       final cached = stockage?.read(_publicCacheKey);
