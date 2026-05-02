@@ -13,7 +13,6 @@ import 'package:casa/models/CityModel.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 class ParrainagePage extends StatefulWidget {
@@ -266,6 +265,15 @@ class _ParrainagePageState extends State<ParrainagePage> {
     return int.tryParse(v?.toString() ?? '') ?? 0;
   }
 
+  /// Libellé public pour la liste / la puce (aucun identifiant métier affiché).
+  String _parrainPublicSubtitle(Map<String, dynamic> parrain) {
+    for (final key in ['city', 'ville', 'commune']) {
+      final s = parrain[key]?.toString().trim() ?? '';
+      if (s.isNotEmpty && s != 'null') return s;
+    }
+    return 'Membre CasaNayo';
+  }
+
   void _searchParrains(String query) {
     if (query.isEmpty) {
       setState(() {
@@ -443,6 +451,13 @@ class _ParrainagePageState extends State<ParrainagePage> {
                                         color: textColor,
                                       ),
                                     ),
+                                    subtitle: Text(
+                                      _parrainPublicSubtitle(parrain),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: secondaryTextColor,
+                                      ),
+                                    ),
                                     trailing: Icon(
                                         Icons.chevron_right_rounded,
                                         color: Colors.grey.shade400),
@@ -486,7 +501,15 @@ class _ParrainagePageState extends State<ParrainagePage> {
           final uid = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
           final name = m['name']?.toString().trim() ?? '';
           if (uid != null && uid > 0 && name.isNotEmpty) {
-            list.add({'userId': uid, 'name': name});
+            final row = <String, dynamic>{'userId': uid, 'name': name};
+            for (final key in ['city', 'ville', 'commune']) {
+              final loc = m[key]?.toString().trim();
+              if (loc != null && loc.isNotEmpty && loc != 'null') {
+                row['city'] = loc;
+                break;
+              }
+            }
+            list.add(row);
           }
         }
         list.sort((a, b) => (a['name'] as String)
@@ -507,51 +530,34 @@ class _ParrainagePageState extends State<ParrainagePage> {
     }
   }
 
-  static const Color _paperBg = Color(0xFFF7F5F2);
-  static const Color _ink = Color(0xFF1C2834);
-  static const Color _muted = Color(0xFF5C6670);
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _paperBg,
+      backgroundColor: Colors.white,
       body: Stack(
+        alignment: Alignment.center,
         children: [
           _buildBackground(),
-
-          SafeArea(
-            child: AbsorbPointer(
-              absorbing: _isLoading,
-              child: SingleChildScrollView(
-                physics: BouncingScrollPhysics(),
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          AbsorbPointer(
+            absorbing: _isLoading,
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 24),
+              child: SafeArea(
                 child: Column(
                   children: [
                     Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton(
+                      alignment: Alignment.topLeft,
+                      child: IconButton(
+                        icon: Icon(Icons.arrow_back_ios, color: textColor),
                         onPressed: () => Navigator.of(context).pop(),
-                        style: TextButton.styleFrom(
-                          foregroundColor: _ink,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 0, vertical: 8),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: Text(
-                          'Retour',
-                          style: GoogleFonts.sourceSans3(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            decoration: TextDecoration.underline,
-                            decorationColor: _ink.withOpacity(0.35),
-                          ),
-                        ),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 10),
                     _buildLogo(),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 30),
                     _buildAuthCard(),
+                    const SizedBox(height: 10),
                   ],
                 ),
               ),
@@ -563,147 +569,208 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   Widget _buildBackground() {
-    return Positioned.fill(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              const Color(0xFFECE9E4).withOpacity(0.65),
-              _paperBg,
-            ],
-            stops: const [0.0, 0.28],
-          ),
+    return Stack(
+      children: [
+        Positioned(
+          top: -100,
+          right: -100,
+          child: Container(
+            width: 300,
+            height: 300,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  primaryColor.withOpacity(0.08),
+                  primaryColor.withOpacity(0.02),
+                ],
+              ),
+            ),
+          ).animate().fadeIn(delay: 100.ms),
         ),
-      ).animate().fadeIn(duration: 400.ms),
+        Positioned(
+          top: 50,
+          left: -50,
+          child: Container(
+            width: 150,
+            height: 150,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  accentColor.withOpacity(0.06),
+                  accentColor.withOpacity(0.02),
+                ],
+              ),
+            ),
+          ).animate().fadeIn(delay: 200.ms),
+        ),
+        Positioned(
+          bottom: -150,
+          left: MediaQuery.of(context).size.width / 2 - 150,
+          child: Container(
+            width: 300,
+            height: 300,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  darkBlue.withOpacity(0.05),
+                  darkBlue.withOpacity(0.01),
+                ],
+              ),
+            ),
+          ).animate().fadeIn(delay: 300.ms),
+        ),
+      ],
     );
   }
 
   Widget _buildLogo() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        Stack(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [accentColor, primaryColor],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: primaryColor.withOpacity(0.3),
+                    blurRadius: 25,
+                    spreadRadius: 2,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  image: DecorationImage(
+                    image: AssetImage('assets/images/icon.png'),
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ).animate().scale(
+              delay: 500.ms,
+              duration: 800.ms,
+              curve: Curves.elasticOut,
+            ),
+        const SizedBox(width: 8),
         Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFD4D0CA), width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+          height: 40,
+          width: 1,
+          margin: const EdgeInsets.symmetric(horizontal: 8),
+          color: Colors.grey.withOpacity(0.3),
+        ).animate().fadeIn(delay: 650.ms),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ShaderMask(
+                shaderCallback: (bounds) => LinearGradient(
+                  colors: [primaryColor, darkBlue],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ).createShader(bounds),
+                child: const Text(
+                  'CasaNayo',
+                  style: TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Inscription avec parrain',
+                style: TextStyle(
+                  color: secondaryTextColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ],
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Image.asset(
-              'assets/images/icon.png',
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
-        const SizedBox(height: 18),
-        Text(
-          'PARRAINAGE',
-          style: GoogleFonts.sourceSans3(
-            fontSize: 11,
-            letterSpacing: 2.2,
-            fontWeight: FontWeight.w700,
-            color: _muted,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'CasaNayo',
-          textAlign: TextAlign.center,
-          style: GoogleFonts.libreBaskerville(
-            fontSize: 32,
-            fontWeight: FontWeight.w700,
-            color: _ink,
-            height: 1.05,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Text(
-            'Créez votre compte avec le nom de la personne qui vous invite. '
-            'Rien de plus : pas de code, pas de formalité.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.sourceSans3(
-              fontSize: 15,
-              height: 1.45,
-              color: _muted,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
+          ).animate().slideX(
+                begin: 0.3,
+                duration: 600.ms,
+                delay: 700.ms,
+                curve: Curves.easeOutCubic,
+              ),
         ),
       ],
-    ).animate().fadeIn(duration: 450.ms, curve: Curves.easeOut);
+    );
   }
 
   Widget _buildParrainageBenefits() {
     return Container(
       width: double.infinity,
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0EDE8),
-        borderRadius: BorderRadius.circular(2),
-        border: Border(
-          left: BorderSide(color: primaryColor.withOpacity(0.85), width: 4),
-        ),
+        color: lightBlue.withOpacity(0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade100),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'TOMBOLA',
-            style: GoogleFonts.sourceSans3(
-              fontSize: 10,
-              letterSpacing: 1.8,
-              fontWeight: FontWeight.w700,
-              color: _muted,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Un tirage, des lots à la clé',
-            style: GoogleFonts.libreBaskerville(
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              color: _ink,
-              height: 1.2,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Tombola & avantages',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Text(
-            'Les inscriptions avec parrain participent au jeu CasaNayo. '
-            'Les gagnants sont annoncés dans l’application ; les dotations varient selon les périodes.',
-            style: GoogleFonts.sourceSans3(
+            'Créez votre compte avec le nom de la personne qui vous invite'
+            'Les inscriptions avec parrain '
+            'participent au jeu CasaNayo ; les gagnants sont annoncés sur nos réseaux sociaux.',
+            style: TextStyle(
               fontSize: 14,
-              height: 1.5,
-              color: const Color(0xFF3A4249),
+              height: 1.45,
+              color: secondaryTextColor,
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            height: 1,
-            color: const Color(0xFFD8D4CE),
-          ),
+          Divider(height: 1, color: Colors.grey.shade300),
           const SizedBox(height: 12),
           Text(
-            'Exemples de lots : smartphones, bons d’achat, offres partenaires — '
-            'la liste est mise à jour régulièrement.',
-            style: GoogleFonts.sourceSans3(
+            'Exemples de lots : smartphones, bons d’achat, vehicules ',
+            style: TextStyle(
               fontSize: 13,
               height: 1.45,
-              color: _muted,
+              color: secondaryTextColor.withOpacity(0.9),
               fontStyle: FontStyle.italic,
             ),
           ),
@@ -839,7 +906,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
                       ),
                     ),
                     subtitle: Text(
-                      'Utilisateur #${_userIdFromParrainMap(parrain)}',
+                      _parrainPublicSubtitle(parrain),
                       style: TextStyle(
                         color: secondaryTextColor,
                         fontSize: 12,
@@ -888,10 +955,18 @@ class _ParrainagePageState extends State<ParrainagePage> {
                         ),
                       ),
                       Text(
-                        '${_selectedParrain!['name']} • ID ${_userIdFromParrainMap(_selectedParrain!)}',
+                        (_selectedParrain!['name'] as String?) ?? '',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: textColor,
+                        ),
+                      ),
+                      Text(
+                        _parrainPublicSubtitle(_selectedParrain!),
                         style: TextStyle(
                           fontSize: 12,
-                          color: textColor,
+                          color: secondaryTextColor,
                         ),
                       ),
                     ],
@@ -2286,7 +2361,12 @@ class _ParrainagePageState extends State<ParrainagePage> {
           successMessage +=
               " Votre parrain ${resolvedParrain['name']} a été notifié.";
         }
-        FancyNotification.show(context, successMessage, isError: false);
+        FancyNotification.show(
+          context,
+          successMessage,
+          isError: false,
+          type: NotificationType.success,
+        );
         await Future.delayed(const Duration(milliseconds: 1500));
         if (mounted) Navigator.pushNamedAndRemoveUntil(context, Routes.loginRoute, (route) => false);
       } else {
