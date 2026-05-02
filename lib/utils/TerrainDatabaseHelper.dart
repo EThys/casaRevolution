@@ -20,8 +20,14 @@ class TerrainDatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _createDB,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          // Ajout de l'avatar annonceur (champ API: "image")
+          await db.execute('ALTER TABLE terrains ADD COLUMN image TEXT');
+        }
+      },
     );
   }
 
@@ -43,6 +49,7 @@ class TerrainDatabaseHelper {
         transactionType $textType,
         available $intType,
         postBy $textType,
+        image $textType,
         address $textType,
         communeValue $textType,
         quartierValue $textType,
@@ -90,6 +97,7 @@ class TerrainDatabaseHelper {
           'transactionType': terrainData['transactionType'],
           'available': terrainData['available'] == true ? 1 : 0,
           'postBy': terrain['postBy'],
+          'image': terrain['image'],
           'address': address['address'],
           'communeValue': address['communeValue'],
           'quartierValue': address['quartierValue'],
@@ -144,6 +152,7 @@ class TerrainDatabaseHelper {
           'tauxLocal': row['deviseTauxLocal'],
         },
         'postBy': row['postBy'],
+        'image': row['image'],
         'address': {
           'address': row['address'],
           'communeValue': row['communeValue'],

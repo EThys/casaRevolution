@@ -10,14 +10,9 @@ import 'FancyNotification.dart';
 import 'StockageKeys.dart';
 
 class SubscriptionHelper {
-  /// Visites / réservations biens **et** sollicitations de service : identité certifiée → abonnement
-  /// premium (comme la publication via le menu création).
-  ///
-  /// Si certification et premium manquent : d’abord [IdentityVerificationPage], puis à validation
-  /// effective [PaymentSubscriptionPage].
-  static Future<void> checkCertifiedPremiumForSensitiveAction({
+  /// **Avant** réservation, publication, sollicitation : identité certifiée uniquement (pas l’abonnement).
+  static Future<bool> ensureCertifiedForSensitiveAccess({
     required BuildContext context,
-    required VoidCallback onProceed,
   }) async {
     final auth = Provider.of<AuthentificationCtrl>(context, listen: false);
 
@@ -27,12 +22,11 @@ class SubscriptionHelper {
         'Connectez-vous pour continuer.',
         type: NotificationType.info,
       );
-      return;
+      return false;
     }
 
     final user = auth.user;
 
-    // --- Certification (même logique que [_checkCertificationAndNavigate] dans BottomNavBar) ---
     if (user.isCertified != true) {
       final userId = user.userId?.toString() ?? '';
       final storage = GetStorage();
@@ -42,13 +36,13 @@ class SubscriptionHelper {
           storage.read<String>('${StockageKeys.decertificationReasonKey}_$userId');
 
       if (wasCertified) {
-        if (!context.mounted) return;
+        if (!context.mounted) return false;
         await Navigator.of(context).push<void>(
           MaterialPageRoute<void>(
             builder: (context) => DecertificationInfoPage(reason: reason),
           ),
         );
-        return;
+        return false;
       }
 
       final verified = await Navigator.of(context).push<bool>(
@@ -56,63 +50,106 @@ class SubscriptionHelper {
           builder: (context) => const IdentityVerificationPage(),
         ),
       );
-      if (!context.mounted) return;
-      if (verified != true) return;
+      if (!context.mounted) return false;
+      if (verified != true) return false;
 
       await auth.refreshMemberFromServer(force: true);
-      if (!context.mounted) return;
+      if (!context.mounted) return false;
       if (auth.user.isCertified != true) {
         FancyNotification.show(
           context,
           'Votre identité doit être validée avant de poursuivre. Vous serez informé une fois l’analyse terminée.',
           type: NotificationType.info,
         );
-        return;
+        return false;
       }
     }
 
-    // --- Premium ---
-    if (auth.user.isPremium == true) {
-      onProceed();
-      return;
+    return true;
+  }
+
+  static Future<void> checkCertifiedThenProceed({
+    required BuildContext context,
+    required VoidCallback onProceed,
+  }) async {
+    final ok = await ensureCertifiedForSensitiveAccess(context: context);
+    if (ok && context.mounted) onProceed();
+  }
+
+  /// **Au submit uniquement** : abonnement payant (la certification est déjà exigée à l’accès).
+  static Future<bool> ensurePremiumForSubmit({
+    required BuildContext context,
+  }) async {
+    final auth = Provider.of<AuthentificationCtrl>(context, listen: false);
+
+    if (!auth.isLoggedIn) {
+      FancyNotification.show(
+        context,
+        'Connectez-vous pour continuer.',
+        type: NotificationType.info,
+      );
+      return false;
     }
 
-    if (!context.mounted) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (context) => PaymentSubscriptionPage(
-          onSuccess: () {
-            Navigator.of(context).pop();
-            SnackbarForCasa.success(
-              context,
-              'Paiement réussi ! Vous pouvez maintenant continuer.',
-            );
-            onProceed();
-          },
+    if (auth.user.isCertified != true) {
+      FancyNotification.show(
+        context,
+        'Terminez d’abord la vérification d’identité avant de valider.',
+        type: NotificationType.info,
+      );
+      return false;
+    }
+
+    if (auth.user.isPremium == true) return true;
+
+    if (!context.mounted) return false;
+
+    final paid = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        fullscreenDialog: true,
+        builder: (subContext) => PaymentSubscriptionPage(
+          onSuccess: () {},
         ),
       ),
     );
+
+    if (paid == true && context.mounted) {
+      SnackbarForCasa.success(
+        context,
+        'Paiement réussi ! Vous pouvez maintenant continuer.',
+      );
+    }
+
+    return paid == true;
   }
 
-  /// Alias pour réservations / visites (même garde que les sollicitations).
+  /// Délègue à [ensurePremiumForSubmit] (compatibilité).
+  static Future<bool> ensureCertifiedPremiumForSubmit({
+    required BuildContext context,
+  }) =>
+      ensurePremiumForSubmit(context: context);
+
+  /// Garde à l’entrée : **certification** seulement.
+  static Future<void> checkCertifiedPremiumForSensitiveAction({
+    required BuildContext context,
+    required VoidCallback onProceed,
+  }) {
+    return checkCertifiedThenProceed(context: context, onProceed: onProceed);
+  }
+
+  /// Avant réservation / visite : **certification** seulement.
   static Future<void> checkPremiumForPropertyReservation({
     required BuildContext context,
     required VoidCallback onProceed,
   }) {
-    return checkCertifiedPremiumForSensitiveAction(
-      context: context,
-      onProceed: onProceed,
-    );
+    return checkCertifiedThenProceed(context: context, onProceed: onProceed);
   }
 
-  /// Utilisé par le flux « publier une offre » depuis la barre de navigation.
+  /// Avant écran de création (FAB) : **certification** seulement.
   static Future<void> checkSubscriptionAndProceed({
     required BuildContext context,
     required VoidCallback onProceed,
   }) {
-    return checkCertifiedPremiumForSensitiveAction(
-      context: context,
-      onProceed: onProceed,
-    );
+    return checkCertifiedThenProceed(context: context, onProceed: onProceed);
   }
 }

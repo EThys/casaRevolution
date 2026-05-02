@@ -38,8 +38,23 @@ Future<void> initOneSignal() async {
 
   OneSignal.initialize(kOneSignalAppId);
 
-  // Prompt for notification permission (use In-App Messages in production if preferred).
-  await OneSignal.Notifications.requestPermission(false);
+  // IMPORTANT:
+  // Ne pas demander la permission ici, sinon Android/iOS peut afficher le prompt
+  // avant même que l'UI soit visible (délai perçu à l'ouverture).
+}
+
+/// À appeler **après** l'ouverture de l'app (post-frame) pour demander la permission
+/// quand l'utilisateur voit déjà l'écran.
+Future<void> requestOneSignalNotificationPermissionAfterLaunch() async {
+  if (kIsWeb) return;
+  if (defaultTargetPlatform != TargetPlatform.android &&
+      defaultTargetPlatform != TargetPlatform.iOS) {
+    return;
+  }
+  if (kOneSignalAppId.isEmpty) return;
+  try {
+    await OneSignal.Notifications.requestPermission(true);
+  } catch (_) {}
 }
 
 /// Lie l’utilisateur applicatif à OneSignal (**external id**). À appeler après login réussi.

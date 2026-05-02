@@ -130,6 +130,27 @@ class PrestationDatabaseHelper {
     }).where((p) => p.id != null).toList();
   }
 
+  // Récupérer une prestation par id (cache-first pour ServiceDetailPage / favoris).
+  Future<PrestationModel?> getPrestationById(int prestationId) async {
+    final db = await database;
+    final maps = await db.query(
+      table,
+      where: '$columnId = ?',
+      whereArgs: [prestationId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    try {
+      final raw = maps.first[columnData];
+      final jsonData = json.decode(raw is String ? raw : raw.toString());
+      final p = PrestationModel.fromJson(jsonData);
+      return p.id == null ? null : p;
+    } catch (e) {
+      print("❌ [PrestationDB] Erreur getPrestationById: $e");
+      return null;
+    }
+  }
+
   // Supprimer une prestation
   Future<int> deletePrestation(int id) async {
     final db = await database;

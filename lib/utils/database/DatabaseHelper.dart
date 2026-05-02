@@ -9,13 +9,14 @@ import 'dart:convert';
 
 class DatabaseHelper {
   static const _databaseName = "properties.db";
-  static const _databaseVersion = 8;
+  static const _databaseVersion = 9;
   static const table = 'properties';
   static const tableBureaux = 'bureaux';
   static const tableFestives = 'festives';
   static const tableFuneraires = 'funeraires';
   static const tableVacances = 'vacances';
   static const tableHotels = 'hotels';
+  static const tableHotelRooms = 'hotel_rooms';
   static const tableSolicitationsUser = 'solicitations_user';
   static const tableSolicitationsHost = 'solicitations_host';
   static const tableReservationsUser = 'reservations_user';
@@ -164,6 +165,15 @@ class DatabaseHelper {
         )
       ''');
     }
+
+    if (oldVersion < 9) {
+      await db.execute('''
+        CREATE TABLE $tableHotelRooms (
+          $columnId INTEGER PRIMARY KEY,
+          $columnData TEXT NOT NULL
+        )
+      ''');
+    }
   }
 
   Future _onCreate(Database db, int version) async {
@@ -239,6 +249,13 @@ class DatabaseHelper {
     
     await db.execute('''
       CREATE TABLE $tableVacances (
+        $columnId INTEGER PRIMARY KEY,
+        $columnData TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableHotelRooms (
         $columnId INTEGER PRIMARY KEY,
         $columnData TEXT NOT NULL
       )
@@ -357,6 +374,44 @@ class DatabaseHelper {
     );
   }
 
+  /// Cache une chambre d’hôtel (clé = chambreId).
+  Future<int> insertOrUpdateHotelRoom(HotelRoomStructure structure) async {
+    final id = structure.chambre?.id;
+    if (id == null) return 0;
+    final db = await database;
+    return await db.insert(
+      tableHotelRooms,
+      {
+        columnId: id,
+        columnData: json.encode(structure.toJson()),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Renvoie une chambre depuis le cache (par chambreId), sinon `null`.
+  Future<HotelRoomStructure?> getHotelRoomById(int chambreId) async {
+    final db = await database;
+    final maps = await db.query(
+      tableHotelRooms,
+      where: '$columnId = ?',
+      whereArgs: [chambreId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    final raw = maps.first[columnData];
+    if (raw == null) return null;
+    try {
+      final decoded = json.decode(raw as String);
+      if (decoded is Map) {
+        return HotelRoomStructure.fromJson(Map<String, dynamic>.from(decoded));
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Une entrée par id (liste ou détail hôtel / autre catégorie).
   Future<PropertyModel?> getCategoryPropertyById(String tableName, int id) async {
     final db = await database;
@@ -391,6 +446,11 @@ class DatabaseHelper {
   Future<int> clearCategory(String tableName) async {
     final db = await database;
     return await db.delete(tableName);
+  }
+
+  Future<int> clearHotelRooms() async {
+    final db = await database;
+    return await db.delete(tableHotelRooms);
   }
 
   // Méthode pour compter le nombre de propriétés

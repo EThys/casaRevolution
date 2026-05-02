@@ -47,7 +47,7 @@ class CasaPaymentLog {
     for (final k in m.keys.toList()) {
       if (keys.contains(k.toString().toLowerCase())) {
         m[k] = '***REDACTED***';
-      }
+      } 
     }
     if (m['data'] is Map) {
       m['data'] = _redactSecrets(m['data']);

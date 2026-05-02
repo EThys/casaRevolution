@@ -9,8 +9,21 @@ import 'StockageKeys.dart';
 
 /// Garde réservée au cas **déjà certifié puis décertifié** (`was_certified` + `isCertified != true`).
 /// Les comptes jamais certifiés ne sont pas concernés par ce flux « extrême ».
+///
+/// Même sans WebSocket / notification push : après [AuthentificationCtrl.refreshMemberFromServer],
+/// appeler [presentDecertificationAlertIfNeeded] pour informer l’utilisateur au prochain lancement
+/// ou retour sur l’app.
 class DecertificationAccessGuard {
   DecertificationAccessGuard._();
+
+  static DateTime? _lastPresentAttempt;
+  static String? _lastPresentUserId;
+
+  /// Réinitialise l’anti-doublon (ex. après déconnexion si besoin).
+  static void resetPresentationDebounce() {
+    _lastPresentAttempt = null;
+    _lastPresentUserId = null;
+  }
 
   static bool isInactiveDecertifiedAccount(AuthentificationCtrl auth) {
     if (!auth.isLoggedIn) return false;
@@ -53,5 +66,47 @@ class DecertificationAccessGuard {
       );
     }
     return true;
+  }
+
+  /// Affiche [DecertificationInfoPage] sur le navigateur racine si le compte était certifié
+  /// et ne l’est plus côté serveur (détecté via stockage + profil rechargé).
+  ///
+  /// Évite les doubles empilements rapides (démarrage + `resumed` quasi simultanés).
+  static Future<void> presentDecertificationAlertIfNeeded(
+    AuthentificationCtrl auth,
+  ) async {
+    if (!isInactiveDecertifiedAccount(auth)) return;
+
+    final uid = auth.user.userId?.toString() ?? '';
+    if (uid.isEmpty) return;
+
+    final now = DateTime.now();
+    if (_lastPresentAttempt != null &&
+        _lastPresentUserId == uid &&
+        now.difference(_lastPresentAttempt!) < const Duration(seconds: 2)) {
+      return;
+    }
+    _lastPresentAttempt = now;
+    _lastPresentUserId = uid;
+
+    final nav = MonApplication.navigatorKey.currentState;
+    if (nav == null || !nav.mounted) {
+      resetPresentationDebounce();
+      return;
+    }
+
+    final reason = GetStorage()
+        .read<String>('${StockageKeys.decertificationReasonKey}_$uid');
+
+    try {
+      await nav.push<void>(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (context) => DecertificationInfoPage(reason: reason),
+        ),
+      );
+    } finally {
+      resetPresentationDebounce();
+    }
   }
 }

@@ -144,12 +144,12 @@ class StaticServicesData {
           "https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=800",
         ],
 
-      // CARRELEUR
+      // COIFFURE (compte API « coiffure »)
       ServiceModel()
         ..serviceId = 7
-        ..title = "Carreleur expert - Carrelage de qualité"
-        ..description = "Pose de carrelage pour sols et murs. Salles de bain, cuisines, salons. Carrelage céramique, grès, faïence. Travaux soignés et durables."
-        ..serviceType = ServiceType.carrelage
+        ..title = "Salon coiffure — coupes et soins"
+        ..description = "Coupes femmes et hommes, brushings, tresses, soins capillaires. À domicile ou en salon. Produits professionnels."
+        ..serviceType = ServiceType.coiffure
         ..price = 25000.0
         ..priceUnit = "Par m²"
         ..address = "Lemba, Kinshasa"
@@ -261,7 +261,7 @@ class StaticServicesData {
       ServiceModel()
         ..serviceId = 12
         ..title = "Rénovation complète de maisons"
-        ..description = "Rénovation complète de maisons et appartements. Plomberie, électricité, peinture, carrelage. Gestion complète de votre projet de rénovation."
+        ..description = "Rénovation complète de maisons et appartements. Plomberie, électricité, peinture, revêtements. Gestion complète de votre projet de rénovation."
         ..serviceType = ServiceType.renovation
         ..price = 500000.0
         ..priceUnit = "Par projet"

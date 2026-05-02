@@ -13,6 +13,8 @@ class Endpoints {
   static const String resetPassword = "$version/protected/reset/password";
   static const String updateProfilePicture = "$version/protected/members";
   static const String protectedMembers = "$version/protected/members";
+  /// Détail membre connecté / refresh profil — `GET .../protected/users/{userId}`.
+  static const String protectedUsers = "$version/protected/users";
 
 
   // OTP Endpoints
@@ -43,7 +45,8 @@ class Endpoints {
   static const String electriciens = "electriciens";
   static const String salubrites = "salubrites";
   static const String peintres = "peintres";
-  static const String carreleurs = "carreleurs";
+  /// Compte API `coiffure` (remplace l’ancien segment carreleurs).
+  static const String carreleurs = "coiffure";
   static const String menuisiers = "menuisiers";
   static const String frigoristes = "frigoristes";
   static const String ajusteurs = "ajusteurs";
@@ -164,7 +167,7 @@ class Endpoints {
   static const String favoritesUserDelete = "$version/protected/favorite/user/delete";
 
   // Hotel Favorites
-  static const String favoriteHotel = "$version/protected/hotel/favorite";
+  static const String favoriteHotel = "$version/private/hotel/favorite";
   static const String favoriteHotelDelete = "$version/protected/hotel/favorite/delete";
   static const String favoriteHotelDeleteAll = "$version/protected/hotel/favorite/delete/all";
   static const String favoriteHotelByUser = "$version/protected/hotel/favorite/user";
@@ -275,6 +278,9 @@ class Endpoints {
   static const String reservationsFestiveByHost = "$version/protected/reservations/festive/user/host/";
   static const String reservationsBureauByHost = "$version/protected/reservations/bureau/user/host/";
   static const String reservationsChambreByHost = "$version/protected/reservations/chambre/user/host/";
+  /// Réservations liées à une chambre — `GET …/chambre/chambre/{chambreId}` (Bearer).
+  static const String reservationsChambreByChambreEntity =
+      "$version/protected/reservations/chambre/chambre/";
 
   // Search Endpoints
   static const String propertyFilter = "property/filter";
@@ -299,6 +305,9 @@ class Endpoints {
 
   // Cotation Endpoints
   static const String cotation = "$version/private/cotation";
+  static const String cotationPublic = "$version/public/cotation";
+  /// Liste publique des utilisateurs (noms / userId) — ex. suggestions parrain.
+  static const String publicUsers = "$version/public/users";
   static const String deleteCotation = "$version/protected/cotation/delete";
 
   // Service Requests Endpoints

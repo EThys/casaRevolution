@@ -10,6 +10,8 @@ class PropertyListingStatusChip extends StatelessWidget {
   final bool? available;
   final bool listingAllowed;
   final bool compact;
+  /// Sur photo sombre (ex. carte accueil) : texte un peu plus grand + léger contour blanc pour la lisibilité.
+  final bool onDarkBackground;
 
   static const Color _success = Color(0xFF00B894);
   static const Color _error = Color(0xFFD63031);
@@ -21,6 +23,7 @@ class PropertyListingStatusChip extends StatelessWidget {
     this.available,
     this.listingAllowed = true,
     this.compact = false,
+    this.onDarkBackground = false,
   }) : super(key: key);
 
   @override
@@ -36,30 +39,52 @@ class PropertyListingStatusChip extends StatelessWidget {
       transactionType: transactionType,
       listingAllowed: listingAllowed,
     );
-    final chipText = statusLabel ?? 'Disponible';
+    final rawChipText = statusLabel ?? 'Disponible';
+    final chipText = (rawChipText.toLowerCase().trim() == 'non disponible')
+        ? 'Non dispo…'
+        : rawChipText;
+
+    final double fontSize = onDarkBackground
+        ? (compact ? 10 : 11)
+        : (compact ? 9 : 10);
+    final hPad = onDarkBackground ? (compact ? 8.0 : 10.0) : (compact ? 6.0 : 8.0);
+    final vPad = onDarkBackground ? (compact ? 4.0 : 5.0) : (compact ? 3.0 : 4.0);
 
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 6 : 8,
-        vertical: compact ? 3 : 4,
-      ),
+      padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
       decoration: BoxDecoration(
-        color: canVisit ? _success.withOpacity(0.9) : _error.withOpacity(0.9),
+        color: canVisit ? _success.withOpacity(0.95) : _error.withOpacity(0.95),
         borderRadius: BorderRadius.circular(compact ? 8 : 12),
+        border: onDarkBackground
+            ? Border.all(color: Colors.white.withOpacity(0.5), width: 1)
+            : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 4,
+            color: Colors.black.withOpacity(onDarkBackground ? 0.35 : 0.2),
+            blurRadius: onDarkBackground ? 6 : 4,
             offset: const Offset(0, 1),
           ),
         ],
       ),
       child: Text(
         chipText,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: false,
         style: TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.bold,
-          fontSize: compact ? 9 : 10,
+          fontSize: fontSize,
+          letterSpacing: onDarkBackground ? 0.2 : 0,
+          shadows: onDarkBackground
+              ? [
+                  Shadow(
+                    color: Colors.black.withOpacity(0.45),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ]
+              : null,
         ),
       ),
     );

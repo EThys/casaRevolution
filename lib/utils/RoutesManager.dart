@@ -12,6 +12,7 @@ import 'package:casa/screens/HomePage.dart';
 import 'package:casa/screens/HotelDetailPage.dart';
 import 'package:casa/screens/PropertyDetailPage.dart';
 import 'package:casa/screens/MyPropertiesPage.dart';
+import 'package:casa/screens/MyHotelsPage.dart';
 import 'package:casa/screens/MyServicesPage.dart';
 import 'package:casa/screens/Splashcreen.dart';
 import 'package:flutter/cupertino.dart';
@@ -169,10 +170,16 @@ class RoutesManager {
           final int? chambreId = cid is int
               ? cid
               : (cid != null ? int.tryParse(cid.toString()) : null);
+          final agenceVac = args['agenceVacanceBooking'] == true;
+          final initialDate = args['initialVacanceDate']?.toString();
+          final initialHeure = args['initialVacanceHeure']?.toString();
           return MaterialPageRoute(
             builder: (_) => BookingVisitPage(
               property: prop ?? args,
               chambreId: chambreId,
+              agenceVacanceBooking: agenceVac,
+              initialVacanceDate: initialDate,
+              initialVacanceHeure: initialHeure,
             ),
           );
         }
@@ -182,11 +189,18 @@ class RoutesManager {
       case Routes.bookingHistoryPageRoute:
         final bhArgs = r.arguments;
         var initialHostView = false;
+        int? initialTabIndex;
         if (bhArgs is Map && bhArgs['initialHostView'] == true) {
           initialHostView = true;
         }
+        if (bhArgs is Map && bhArgs['initialTabIndex'] != null) {
+          initialTabIndex = int.tryParse(bhArgs['initialTabIndex'].toString());
+        }
         return MaterialPageRoute(
-          builder: (_) => BookingHistoryPage(initialHostView: initialHostView),
+          builder: (_) => BookingHistoryPage(
+            initialHostView: initialHostView,
+            initialTabIndex: initialTabIndex,
+          ),
         );
       case Routes.ParrainagePageRoute:
         return MaterialPageRoute(builder: (_)=>ParrainagePage());
@@ -194,6 +208,8 @@ class RoutesManager {
         return MaterialPageRoute(builder: (_)=>FavoritesPage());
       case Routes.myPropertiesRoute:
         return MaterialPageRoute(builder: (_)=>MyPropertiesPage());
+      case Routes.myHotelsRoute:
+        return MaterialPageRoute(builder: (_)=> const MyHotelsPage());
       case Routes.myServicesRoute:
         final msArgs = r.arguments;
         int? msTab;
@@ -206,7 +222,14 @@ class RoutesManager {
           builder: (_) => MyServicesPage(initialTabIndex: msTab),
         );
       case Routes.createPropertyRoute:
-        return MaterialPageRoute(builder: (_)=>CreatePropertyPostPage());
+        final cpArgs = r.arguments;
+        final openAfterAgency = cpArgs is Map &&
+            cpArgs['openAfterAgencyVacanceStep2'] == true;
+        return MaterialPageRoute(
+          builder: (_) => CreatePropertyPostPage(
+            openAfterAgencyVacanceStep2: openAfterAgency,
+          ),
+        );
       case Routes.editPropertyRoute:
         return MaterialPageRoute(builder: (_)=>EditPropertyPage(property: r.arguments as PropertyModel));
       case Routes.forgotPasswordRoute:
@@ -255,8 +278,30 @@ class RoutesManager {
       case Routes.notificationPageRoute:
         return MaterialPageRoute(builder: (_)=>NotificationsPage());
       case Routes.serviceDetail:
-        final PrestationModel service = r.arguments as PrestationModel;
-        return MaterialPageRoute(builder: (_)=>ServiceDetailPage(service: service));
+        final args = r.arguments;
+        if (args is Map) {
+          final raw = args['service'];
+          if (raw is! PrestationModel) {
+            return MaterialPageRoute(builder: (_) => OnboardingScreen());
+          }
+          int? sollicitationId;
+          final sid = args['sollicitationId'];
+          if (sid != null) {
+            sollicitationId = int.tryParse(sid.toString());
+          }
+          return MaterialPageRoute(
+            builder: (_) => ServiceDetailPage(
+              service: raw,
+              sollicitationId: sollicitationId,
+            ),
+          );
+        }
+        if (args is! PrestationModel) {
+          return MaterialPageRoute(builder: (_) => OnboardingScreen());
+        }
+        return MaterialPageRoute(
+          builder: (_) => ServiceDetailPage(service: args),
+        );
       case Routes.createAgenceRoute:
         return MaterialPageRoute(builder: (_)=>CreateAgencePage());
       case Routes.helpSupportRoute:

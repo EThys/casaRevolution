@@ -4,6 +4,7 @@ String frReservationStatus(String? status) {
     case 'PENDING':
       return 'En attente';
     case 'CONFIRMED':
+    case 'APPROVED':
       return 'Confirmée';
     case 'COMPLETED':
       return 'Terminée';
