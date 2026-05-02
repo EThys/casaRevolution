@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'CotationModel.dart';
 import 'UserModel.dart';
 
 PrestationModel prestationModelFromJson(String str) => PrestationModel.fromJson(json.decode(str));
@@ -59,6 +60,8 @@ class PrestationModel {
   String? email;
   String? whatsapp;
   UserModel? user;
+  /// Avis clients (`cotation` dans la réponse API détail prestation).
+  List<CotationModel>? cotations;
 
   PrestationModel({
     this.id,
@@ -91,7 +94,25 @@ class PrestationModel {
     this.email,
     this.whatsapp,
     this.user,
+    this.cotations,
   });
+
+  static List<CotationModel>? _parseCotations(Map<String, dynamic> json) {
+    dynamic raw = json['cotation'] ?? json['cotations'];
+    if (raw == null) return null;
+
+    // Certains endpoints renvoient { cotation: { cotation: [ ... ] } } ou { cotations: { cotation: [...] } }
+    if (raw is Map) {
+      final m = Map<String, dynamic>.from(raw);
+      raw = m['cotation'] ?? m['cotations'] ?? m['data'];
+    }
+
+    if (raw is! List) return null;
+    return raw
+        .whereType<Map>()
+        .map((e) => CotationModel.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
 
   factory PrestationModel.fromJson(Map<String, dynamic> json) => PrestationModel(
     id: _parseInt(json["id"]),
@@ -128,6 +149,7 @@ class PrestationModel {
     email: json["email"],
     whatsapp: json["whatsapp"],
     user: json["user"] != null ? UserModel.fromJson(json["user"]) : null,
+    cotations: _parseCotations(json),
   );
 
   Map<String, dynamic> toJson() => {
@@ -161,6 +183,14 @@ class PrestationModel {
     "email": email,
     "whatsapp": whatsapp,
     "user": user?.toJson(),
+    "cotation": cotations?.map((e) => {
+          "id": e.id,
+          "userId": e.userId,
+          "sollicitationId": e.sollicitationId,
+          "commentaire": e.commentaire,
+          "cote": e.cote,
+          "createdAt": e.createdAt,
+        }).toList(),
   };
 
   // Compatibility getter

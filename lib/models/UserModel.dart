@@ -41,17 +41,58 @@ class UserModel {
   factory UserModel.fromJson(Map<String, dynamic> json) {
     try {
       // Détection de la structure imbriquée (comme vu dans GetStorage)
-      final source = (json.containsKey('user') && json['user'] is Map) 
-          ? json['user'] as Map<String, dynamic> 
+      final source = (json.containsKey('user') && json['user'] is Map)
+          ? json['user'] as Map<String, dynamic>
           : json;
 
+      // GET /protected/users/{id} : `profile` est un objet (images, fullName, …)
+      Map<String, dynamic>? profileMap;
+      if (source['profile'] is Map) {
+        profileMap = Map<String, dynamic>.from(source['profile'] as Map);
+      } else if (json['profile'] is Map) {
+        profileMap = Map<String, dynamic>.from(json['profile'] as Map);
+      }
+
+      String? profilePicture = _safeParseString(source["profilePicture"] ??
+          source["avatar"] ??
+          json["profilePicture"] ??
+          json["avatar"]);
+      if ((profilePicture == null || profilePicture.isEmpty) &&
+          profileMap != null) {
+        profilePicture = _safeParseString(profileMap['images']);
+      }
+
+      String? fullName = _safeParseString(source["fullName"] ??
+          source["fullname"] ??
+          json["fullName"] ??
+          json["fullname"]);
+      if ((fullName == null || fullName.isEmpty) && profileMap != null) {
+        fullName = _safeParseString(
+            profileMap['fullName'] ?? profileMap['full_name']);
+        if (fullName == null || fullName.isEmpty) {
+          final f = _safeParseString(
+              profileMap['firstName'] ?? profileMap['first_name']);
+          final l = _safeParseString(
+              profileMap['lastName'] ?? profileMap['last_name']);
+          final combined = '${f ?? ''} ${l ?? ''}'.trim();
+          if (combined.isNotEmpty) fullName = combined;
+        }
+      }
+
       return UserModel(
-        userId: _safeParseInt(source["userId"] ?? source["id"] ?? json["userId"] ?? json["id"]),
+        userId: _safeParseInt(source["userId"] ??
+            source["id"] ??
+            json["userId"] ??
+            json["id"]),
         password: _safeParseString(source["password"] ?? json["password"]),
-        typeAccount: _safeParseTypeAccount(source["typeAccount"] ?? json["typeAccount"]),
+        typeAccount:
+            _safeParseTypeAccount(source["typeAccount"] ?? json["typeAccount"]),
         email: _safeParseString(source["email"] ?? json["email"]),
         username: _safeParseString(source["username"] ?? json["username"]),
-        phone: _safeParseString(source["phone"] ?? source["telephone"] ?? json["phone"] ?? json["telephone"]),
+        phone: _safeParseString(source["phone"] ??
+            source["telephone"] ??
+            json["phone"] ??
+            json["telephone"]),
         city: _safeParseString(source["city"] ?? json["city"]),
         country: _safeParseString(source["country"] ?? json["country"]),
         isPremium: _parsePremium(
@@ -62,11 +103,15 @@ class UserModel {
               json["premium"] ??
               json["is_premium"],
         ),
-        isCertified: _safeParseBool(source["isCertified"] ?? source["certified"] ?? json["isCertified"] ?? json["certified"]),
+        isCertified: _safeParseBool(source["isCertified"] ??
+            source["certified"] ??
+            json["isCertified"] ??
+            json["certified"]),
         cityModel: _safeParseCityModel(source["cityModel"] ?? json["cityModel"]),
-        createdStart: _safeParseString(json["createdStart"] ?? json["createdAt"]),
-        profilePicture: _safeParseString(source["profilePicture"] ?? source["avatar"] ?? json["profilePicture"] ?? json["avatar"]),
-        fullName: _safeParseString(source["fullName"] ?? source["fullname"] ?? json["fullName"] ?? json["fullname"]),
+        createdStart:
+            _safeParseString(json["createdStart"] ?? json["createdAt"]),
+        profilePicture: profilePicture,
+        fullName: fullName,
       );
     } catch (e, stack) {
       print("❌ Erreur dans UserModel.fromJson: $e");
@@ -151,6 +196,7 @@ class UserModel {
     "premium": isPremium,
     "is_premium": isPremium,
     "isCertified": isCertified,
+    "certified": isCertified,
     "cityModel": cityModel?.toJson(),
     "createdStart": createdStart,
     "profilePicture": profilePicture,

@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'UserModel.dart';
 import 'PrestationModel.dart';
 
-SollicitationModel sollicitationModelFromJson(String str) => SollicitationModel.fromJson(json.decode(str));
-String sollicitationModelToJson(SollicitationModel data) => json.encode(data.toJson());
+SollicitationModel sollicitationModelFromJson(String str) =>
+    SollicitationModel.fromJson(json.decode(str));
+String sollicitationModelToJson(SollicitationModel data) =>
+    json.encode(data.toJson());
 
 class SollicitationModel {
   int? id;
@@ -18,6 +20,9 @@ class SollicitationModel {
   String? createdAt;
   UserModel? user;
   PrestationModel? prestation;
+
+  /// Photo profil demandeur renvoyée par certains endpoints (ex: profile/reservation).
+  String? userImage;
 
   /// Téléphone annonceur / prestataire (`postByTel`) renvoyé par l’API sur création / liste.
   String? postByTel;
@@ -36,6 +41,7 @@ class SollicitationModel {
     this.user,
     this.prestation,
     this.postByTel,
+    this.userImage,
   });
 
   static String? _parsePostByTel(
@@ -57,7 +63,7 @@ class SollicitationModel {
 
   factory SollicitationModel.fromJson(Map<String, dynamic> json) {
     Map<String, dynamic>? sollicitationData;
-    
+
     // Gérer la structure imbriquée : {"sollicitation": {...}, "user": {...}, ...}
     if (json.containsKey("sollicitation") && json["sollicitation"] is Map) {
       sollicitationData = json["sollicitation"] as Map<String, dynamic>;
@@ -77,23 +83,28 @@ class SollicitationModel {
       endDate: sollicitationData?["endDate"],
       createdAt: sollicitationData?["createdAt"],
       user: json["user"] == null ? null : UserModel.fromJson(json["user"]),
-      prestation: json["prestation"] == null ? null : PrestationModel.fromJson(json["prestation"]),
+      prestation: json["prestation"] == null
+          ? null
+          : PrestationModel.fromJson(json["prestation"]),
+      userImage:
+          (json["userImage"] ?? sollicitationData?["userImage"])?.toString(),
     );
   }
 
   Map<String, dynamic> toJson() => {
-    "id": id,
-    "userId": userId,
-    "prestationId": prestationId,
-    "deviseId": deviseId,
-    "budget": budget,
-    "description": description,
-    "status": status,
-    "startDate": startDate,
-    "endDate": endDate,
-    "createdAt": createdAt,
-    "user": user?.toJson(),
-    "prestation": prestation?.toJson(),
-    "postByTel": postByTel,
-  };
+        "id": id,
+        "userId": userId,
+        "prestationId": prestationId,
+        "deviseId": deviseId,
+        "budget": budget,
+        "description": description,
+        "status": status,
+        "startDate": startDate,
+        "endDate": endDate,
+        "createdAt": createdAt,
+        "user": user?.toJson(),
+        "prestation": prestation?.toJson(),
+        "postByTel": postByTel,
+        "userImage": userImage,
+      };
 }

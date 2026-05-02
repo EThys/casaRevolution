@@ -79,10 +79,7 @@ class TutorialController extends ChangeNotifier {
     print("🔑 [TutorialController] Clés ré-initialisées pour une nouvelle instance");
   }
 
-  // Singleton pattern
-  static final TutorialController _instance = TutorialController._internal();
-  factory TutorialController() => _instance;
-  TutorialController._internal();
+  TutorialController();
 
   bool shouldShowHomeTutorial() {
     return _storage.read(keyHomeTutorial) ?? true;

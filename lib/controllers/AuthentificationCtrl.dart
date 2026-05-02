@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:get_storage/get_storage.dart';
 import '../models/UserModel.dart';
 import '../utils/Constantes.dart';
@@ -63,6 +64,21 @@ class AuthentificationCtrl with ChangeNotifier {
     _user = value;
     try {
       stockage?.write(StockageKeys.userKey, value.toJson());
+
+      // Crashlytics: associer les erreurs au bon utilisateur dans la console Firebase.
+      // (Utile pour filtrer Non‑fatal/Crashes par userId)
+      final uid = value.userId?.toString();
+      if (uid != null && uid.isNotEmpty) {
+        FirebaseCrashlytics.instance.setUserIdentifier(uid);
+        FirebaseCrashlytics.instance.setCustomKey('userId', uid);
+        if ((value.email ?? '').trim().isNotEmpty) {
+          FirebaseCrashlytics.instance.setCustomKey('email', value.email!.trim());
+        }
+        if ((value.username ?? '').trim().isNotEmpty) {
+          FirebaseCrashlytics.instance.setCustomKey('username', value.username!.trim());
+        }
+      }
+
       notifyListeners();
     } catch (e) {
       print("Erreur d'encodage de l'utilisateur: $e");
@@ -358,11 +374,26 @@ class AuthentificationCtrl with ChangeNotifier {
   DateTime? _lastMemberRefreshAt;
 
   /// Extrait la map `user` depuis une réponse API type login ou GET membre.
+  /// Prend en charge : `{ user: {...} }`, `{ member: { user: {...} } }`,
+  /// `{ member: { userId: … } }`, `{ data: { userId, profile, … } }` (refresh member),
+  /// ou objet plat `GET /protected/users/{id}` avec `userId` + `profile` à la racine.
   Map<String, dynamic>? _extractUserMapFromMemberPayload(Map<String, dynamic> root) {
+    if (root['data'] is Map) {
+      final d = Map<String, dynamic>.from(root['data'] as Map);
+      if (d['user'] is Map) {
+        return Map<String, dynamic>.from(d['user'] as Map);
+      }
+      if (d['userId'] != null) {
+        return Map<String, dynamic>.from(d);
+      }
+    }
     if (root['member'] is Map) {
       final m = root['member'] as Map<String, dynamic>;
       if (m['user'] is Map) {
         return Map<String, dynamic>.from(m['user'] as Map);
+      }
+      if (m['userId'] != null) {
+        return Map<String, dynamic>.from(m);
       }
     }
     if (root['user'] is Map) {
@@ -374,8 +405,52 @@ class AuthentificationCtrl with ChangeNotifier {
     return null;
   }
 
-  /// Recharge premium / certified depuis le serveur (`GET .../protected/members/{userId}`).
-  /// Si l’API ne supporte pas GET (erreur « Request method 'GET' is not supported »), tente un **POST** avec corps vide (même chemin), selon configuration serveur.
+  /// Normalise le bloc `profile` renvoyé par `GET /protected/users/{userId}` pour [StockageKeys.profileKey].
+  Future<void> _persistProfileFromRefreshRoot(
+    Map<String, dynamic> root,
+    Map<String, dynamic> mergedUser,
+  ) async {
+    final profileRaw = root['profile'];
+    if (profileRaw is! Map) return;
+    final p = Map<String, dynamic>.from(profileRaw);
+    final profileForStorage = <String, dynamic>{
+      'id': p['id'],
+      'firstname': p['firstName'] ?? p['first_name'],
+      'lastname': p['lastName'] ?? p['last_name'],
+      'fullname': p['fullName'] ?? p['full_name'],
+      'address': p['address'],
+      'images': p['images'],
+      'cardFront': p['cardFront'] ?? p['card_front'],
+      'cardBack': p['cardBack'] ?? p['card_back'],
+      'numberCard': p['numberCard'] ?? p['number_card'],
+      'typeCardId': p['typeCardId'] ?? p['type_card_id'],
+      'userId': p['userId'],
+    }..removeWhere((_, v) => v == null);
+
+    if (profileForStorage.isEmpty) return;
+
+    final existingProf = stockage?.read(StockageKeys.profileKey);
+    if (existingProf is Map) {
+      final m = Map<String, dynamic>.from(existingProf);
+      m.addAll(profileForStorage);
+      await stockage!.write(StockageKeys.profileKey, m);
+    } else {
+      await stockage!.write(StockageKeys.profileKey, profileForStorage);
+    }
+
+    final img = p['images']?.toString().trim();
+    if (img != null && img.isNotEmpty && img != 'null') {
+      mergedUser['profilePicture'] = img;
+    }
+    final fn = (p['fullName'] ?? p['full_name'])?.toString().trim();
+    if (fn != null && fn.isNotEmpty && fn != 'null') {
+      mergedUser['fullName'] = fn;
+    }
+  }
+
+  /// Recharge premium / certified / profil depuis le serveur (`GET .../protected/users/{userId}`).
+  /// Si l’API ne supporte pas GET (erreur « Request method 'GET' is not supported »), tente un **POST** avec corps vide (même chemin).
+  /// Secours : `.../protected/members/{userId}` si la route `users` est indisponible.
   /// À utiliser au retour au premier plan ou pour réaligner le stockage local.
   Future<void> refreshMemberFromServer({bool force = false}) async {
     if (stockage == null) return;
@@ -392,36 +467,47 @@ class AuthentificationCtrl with ChangeNotifier {
     if (uid == null || uid.isEmpty) return;
 
     try {
-      final url = "${Endpoints.protectedMembers}/$uid";
-      print("🔄 [AuthentificationCtrl] refreshMemberFromServer: $url");
-
-      dynamic raw = await getDataAllowErrorJson(url, token: token);
-      if (raw is Map) {
-        final dm = raw['detailMessage']?.toString() ?? '';
-        if (dm.contains('GET') && dm.contains('not supported')) {
-          print(
-            "🔄 [AuthentificationCtrl] GET non supporté par l’API — tentative POST sur le même chemin…",
-          );
-          final postResp = await postData(
-            url,
-            <String, dynamic>{},
-            token: token,
-            allowDefaultToken: false,
-          );
-          if (postResp.status == true && postResp.data != null) {
-            raw = postResp.data;
-          } else {
+      Future<dynamic> fetchRaw(String basePath) async {
+        final url = "$basePath/$uid";
+        print("🔄 [AuthentificationCtrl] refreshMemberFromServer: $url");
+        dynamic r = await getDataAllowErrorJson(url, token: token);
+        if (r is Map) {
+          final dm = r['detailMessage']?.toString() ?? '';
+          if (dm.contains('GET') && dm.contains('not supported')) {
             print(
-              "⚠️ [AuthentificationCtrl] refreshMemberFromServer: POST échoué — ${postResp.errorMsg}",
+              "🔄 [AuthentificationCtrl] GET non supporté — tentative POST sur le même chemin…",
             );
-            return;
+            final postResp = await postData(
+              url,
+              <String, dynamic>{},
+              token: token,
+              allowDefaultToken: false,
+            );
+            if (postResp.status == true && postResp.data != null) {
+              r = postResp.data;
+            } else {
+              print(
+                "⚠️ [AuthentificationCtrl] refreshMemberFromServer: POST échoué — ${postResp.errorMsg}",
+              );
+              return null;
+            }
+          } else if (r['detailMessage'] != null &&
+              r['user'] == null &&
+              r['member'] == null &&
+              r['userId'] == null) {
+            print(
+                "⚠️ [AuthentificationCtrl] refreshMemberFromServer: erreur API — ${r['detailMessage']}");
+            return null;
           }
-        } else if (raw['detailMessage'] != null &&
-            raw['user'] == null &&
-            raw['member'] == null) {
-          print("⚠️ [AuthentificationCtrl] refreshMemberFromServer: erreur API — ${raw['detailMessage']}");
-          return;
         }
+        return r;
+      }
+
+      dynamic raw = await fetchRaw(Endpoints.protectedUsers);
+      if (raw == null || raw is! Map) {
+        print(
+            "🔄 [AuthentificationCtrl] refreshMemberFromServer: secours members/$uid");
+        raw = await fetchRaw(Endpoints.protectedMembers);
       }
 
       if (raw == null || raw is! Map) {
@@ -475,6 +561,8 @@ class AuthentificationCtrl with ChangeNotifier {
         merged['premium'] = p;
         merged['is_premium'] = p;
       }
+
+      await _persistProfileFromRefreshRoot(root, merged);
 
       await stockage!.write(StockageKeys.userKey, merged);
       _user = UserModel.fromJson(merged);
@@ -772,6 +860,9 @@ class AuthentificationCtrl with ChangeNotifier {
       _token = "";
       _user = UserModel();
       _userAuth = UserModel();
+
+      // Crashlytics: éviter d'attribuer les erreurs à l'ancien utilisateur après logout.
+      FirebaseCrashlytics.instance.setUserIdentifier('');
 
       StompService().disconnect();
 

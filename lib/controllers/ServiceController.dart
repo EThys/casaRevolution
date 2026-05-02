@@ -3,12 +3,14 @@ import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/ServiceModel.dart';
 import '../models/PrestationModel.dart';
+import '../models/CotationModel.dart';
 import '../models/SollicitationModel.dart';
 import '../models/DeviseModel.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/Constantes.dart';
-import '../utils/requetes.dart' show getData, postData, patchData, putData, deleteData, HttpResponse;
+import '../utils/requetes.dart'
+    show getData, postData, patchData, putData, deleteData, HttpResponse;
 import '../utils/database/PrestationDatabaseHelper.dart';
 
 class ServiceController with ChangeNotifier {
@@ -39,17 +41,18 @@ class ServiceController with ChangeNotifier {
   // Charger les comptes de service (API accounts)
   Future<void> fetchServiceAccounts() async {
     try {
-      final url = Endpoints.accounts; // Ensure this endpoint exists in Endpoints.dart
-      // If Endpoints.accounts is not defined, use specific string or define it. 
+      final url =
+          Endpoints.accounts; // Ensure this endpoint exists in Endpoints.dart
+      // If Endpoints.accounts is not defined, use specific string or define it.
       // Assuming it maps to /api/accounts or similar as per user request context.
       // Based on user provided JSON, it's likely just 'accounts' if using base URL.
       // Checking HomePage uses Endpoints.accounts.
-      
+
       var response = await getData(url);
-      
+
       if (response != null && response is Map<String, dynamic>) {
         final accounts = response['accounts'] as List<dynamic>?;
-        
+
         if (accounts != null) {
           serviceIdToNameMap.clear();
           for (var acc in accounts) {
@@ -57,14 +60,16 @@ class ServiceController with ChangeNotifier {
             final name = acc['name'];
             final typeAccount = acc['typeAccount'];
             // Check typeAccountId (can be nested or flat depending on parsing, user showed nested)
-            final typeAccountId = typeAccount is Map ? typeAccount['typeAccountId'] : null;
-            
+            final typeAccountId =
+                typeAccount is Map ? typeAccount['typeAccountId'] : null;
+
             // Filter: typeAccountId == 3 (Prestataire de service)
             if (id != null && name != null && typeAccountId == 3) {
               serviceIdToNameMap[id] = name.toString();
             }
           }
-          print("✅ [ServiceController] Mapping services chargé: ${serviceIdToNameMap.length} entrées");
+          print(
+              "✅ [ServiceController] Mapping services chargé: ${serviceIdToNameMap.length} entrées");
           notifyListeners();
         }
       }
@@ -97,18 +102,19 @@ class ServiceController with ChangeNotifier {
           services = servicesData
               .where((e) => e != null)
               .map<ServiceModel>((e) {
-            try {
-              return ServiceModel.fromJson(e);
-            } catch (e) {
-              print("Erreur lors du parsing d'un service: $e");
-              return ServiceModel();
-            }
-          })
+                try {
+                  return ServiceModel.fromJson(e);
+                } catch (e) {
+                  print("Erreur lors du parsing d'un service: $e");
+                  return ServiceModel();
+                }
+              })
               .where((service) => service.serviceId != null)
               .toList();
-          
+
           // Trier par serviceId décroissant (plus récent en premier)
-          services.sort((a, b) => (b.serviceId ?? 0).compareTo(a.serviceId ?? 0));
+          services
+              .sort((a, b) => (b.serviceId ?? 0).compareTo(a.serviceId ?? 0));
         }
       }
     } catch (e) {
@@ -142,42 +148,138 @@ class ServiceController with ChangeNotifier {
   }
 
   Future<PrestationModel?> getPrestationById(int prestationId) async {
+    // Cache-first: si on a déjà la prestation complète (images portfolio),
+    // on l'affiche immédiatement (Favorite/Reservation → ServiceDetailPage).
+    try {
+      final cached = await PrestationDatabaseHelper.instance
+          .getPrestationById(prestationId);
+      if (cached != null) {
+        currentPrestation = cached;
+        notifyListeners();
+      }
+    } catch (_) {}
+
     loading = true;
     notifyListeners();
 
     try {
-      final url = "${Endpoints.prestations}/$prestationId";
-      var response = await getData(url);
+      PrestationModel? _parse(dynamic response) {
+        if (response == null) return null;
+        if (response is! Map<String, dynamic>) return null;
 
-      if (response != null && response is Map<String, dynamic>) {
-        // Prestation structure check
-        // Check if response is the wrapped object {"prestation": ..., "image": ...}
-        PrestationModel? result;
-        if (response.containsKey('prestation')) {
-           final prestationData = response['prestation'] as Map<String, dynamic>;
-           result = PrestationModel.fromJson(prestationData);
-           
-           if (response.containsKey('image') && response['image'] is List) {
-             final images = (response['image'] as List).map((img) {
-               if (img is String) return img;
-               if (img is Map) return img['path'] ?? img['url'] ?? '';
-               return '';
-             }).where((path) => path.isNotEmpty).cast<String>().toList();
-             result.images = images;
-           }
-        } else {
-           final data = response.containsKey('data') ? response['data'] : response;
-           if (data is Map<String, dynamic>) {
-              result = PrestationModel.fromJson(data);
-           }
-        }
+        // Wrapped object {"prestation": ..., "image": ...}
+        if (response.containsKey('prestation') &&
+            response['prestation'] is Map) {
+          final prestationData =
+              Map<String, dynamic>.from(response['prestation'] as Map);
 
-        if (result != null) {
-          currentPrestation = result;
-          notifyListeners();
+          // Certains endpoints renvoient les avis au niveau racine (cotation/cotations).
+          // On les fusionne dans l'objet prestation pour que PrestationModel._parseCotations les lise.
+          if (!prestationData.containsKey('cotation') &&
+              !prestationData.containsKey('cotations')) {
+            final rootCotations = response['cotation'] ??
+                response['cotations'] ??
+                (response['data'] is Map
+                    ? (response['data']['cotation'] ?? response['data']['cotations'])
+                    : null);
+            if (rootCotations != null) {
+              prestationData['cotation'] = rootCotations;
+            }
+          }
+
+          final result = PrestationModel.fromJson(prestationData);
+
+          if (response.containsKey('image') && response['image'] is List) {
+            final images = (response['image'] as List)
+                .map((img) {
+                  if (img is String) return img;
+                  if (img is Map) return img['path'] ?? img['url'] ?? '';
+                  return '';
+                })
+                .where((path) => path.isNotEmpty)
+                .cast<String>()
+                .toList();
+            result.images = images;
+          }
           return result;
         }
+
+        // Some endpoints wrap as {"data": {...}}
+        final data = response.containsKey('data') ? response['data'] : response;
+        if (data is Map) {
+          final map = Map<String, dynamic>.from(data);
+          if (!map.containsKey('cotation') && !map.containsKey('cotations')) {
+            final rootCotations = response['cotation'] ??
+                response['cotations'] ??
+                map['cotation'] ??
+                map['cotations'];
+            if (rootCotations != null) {
+              map['cotation'] = rootCotations;
+            }
+          }
+          return PrestationModel.fromJson(map);
+        }
+        return null;
       }
+
+      // 1) Public detail first (works for everyone; includes cotations when backend provides them)
+      PrestationModel? publicParsed;
+      final publicUrl = "${Endpoints.publicPrestations}/$prestationId";
+      final publicResp = await getData(publicUrl, token: "");
+      publicParsed = _parse(publicResp);
+      if (publicParsed != null) {
+        currentPrestation = publicParsed;
+        try {
+          await PrestationDatabaseHelper.instance
+              .insertOrUpdatePrestation(publicParsed);
+        } catch (_) {}
+        notifyListeners();
+      }
+
+      // 2) Private detail (if user token exists) to enrich fields
+      final token = stockage?.read<String>(StockageKeys.tokenKey);
+      final userToken = token?.toString().trim() ?? '';
+      if (userToken.isNotEmpty) {
+        final privateUrl = "${Endpoints.prestations}/$prestationId";
+        final privateResp = await getData(privateUrl, token: userToken);
+        final privateParsed = _parse(privateResp);
+        if (privateParsed != null) {
+          // La réponse privée écrase souvent la publique mais sans les avis — les conserver.
+          final pubC = publicParsed?.cotations;
+          if (pubC != null && pubC.isNotEmpty) {
+            final privC = privateParsed.cotations;
+            if (privC == null || privC.isEmpty) {
+              privateParsed.cotations = List<CotationModel>.from(pubC);
+            } else {
+              final seen = privC.map((c) => c.id).whereType<int>().toSet();
+              final merged = List<CotationModel>.from(privC);
+              for (final c in pubC) {
+                final id = c.id;
+                if (id != null) {
+                  if (!seen.contains(id)) {
+                    seen.add(id);
+                    merged.add(c);
+                  }
+                } else {
+                  merged.add(c);
+                }
+              }
+              merged.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+              privateParsed.cotations = merged;
+            }
+          }
+          currentPrestation = privateParsed;
+          try {
+            await PrestationDatabaseHelper.instance
+                .insertOrUpdatePrestation(privateParsed);
+          } catch (_) {}
+          notifyListeners();
+          return privateParsed;
+        }
+      }
+
+      // Return best available (private > public > cache already set)
+      return currentPrestation;
     } catch (e) {
       print("Erreur lors de la récupération de la prestation: $e");
     } finally {
@@ -196,23 +298,28 @@ class ServiceController with ChangeNotifier {
     }
     try {
       final dynamic userData = stockage?.read(StockageKeys.userKey);
-      print("📦 [ServiceController] userData récupéré: ${userData != null ? 'non null' : 'null'}");
+      print(
+          "📦 [ServiceController] userData récupéré: ${userData != null ? 'non null' : 'null'}");
       if (userData != null && userData is Map) {
-        print("📋 [ServiceController] userData est une Map, clés: ${userData.keys.toList()}");
+        print(
+            "📋 [ServiceController] userData est une Map, clés: ${userData.keys.toList()}");
         final typeAccount = userData['typeAccount'];
-        print("👤 [ServiceController] typeAccount: ${typeAccount != null ? 'non null' : 'null'}");
+        print(
+            "👤 [ServiceController] typeAccount: ${typeAccount != null ? 'non null' : 'null'}");
         if (typeAccount != null && typeAccount is Map) {
           final typeName = typeAccount['name']?.toString().toLowerCase();
           print("✅ [ServiceController] Type de compte trouvé: $typeName");
           return typeName;
         } else {
-          print("⚠️ [ServiceController] typeAccount n'est pas une Map ou est null");
+          print(
+              "⚠️ [ServiceController] typeAccount n'est pas une Map ou est null");
         }
       } else {
         print("⚠️ [ServiceController] userData n'est pas une Map");
       }
     } catch (e, stackTrace) {
-      print("❌ [ServiceController] Erreur lors de la récupération du type de compte: $e");
+      print(
+          "❌ [ServiceController] Erreur lors de la récupération du type de compte: $e");
       print("📚 Stack trace: $stackTrace");
     }
     print("❌ [ServiceController] Aucun type de compte trouvé");
@@ -220,11 +327,13 @@ class ServiceController with ChangeNotifier {
   }
 
   // Créer un nouveau service
-  Future<HttpResponse> createService(Map<String, dynamic> data, {List<XFile>? images}) async {
+  Future<HttpResponse> createService(Map<String, dynamic> data,
+      {List<XFile>? images}) async {
     print("🚀 [ServiceController] ========== DÉBUT createService ==========");
-    print("📊 [ServiceController] Nombre de clés dans data: ${data.keys.length}");
+    print(
+        "📊 [ServiceController] Nombre de clés dans data: ${data.keys.length}");
     print("📋 [ServiceController] Clés dans data: ${data.keys.toList()}");
-    
+
     loading = true;
     notifyListeners();
 
@@ -232,7 +341,7 @@ class ServiceController with ChangeNotifier {
       // Récupérer le type de compte de l'utilisateur connecté
       print("🔍 [ServiceController] Récupération du type de compte...");
       final typeAccountName = _getUserTypeAccount();
-      
+
       if (typeAccountName == null || typeAccountName.isEmpty) {
         print("❌ [ServiceController] Type de compte non trouvé ou vide");
         return HttpResponse(
@@ -246,10 +355,11 @@ class ServiceController with ChangeNotifier {
       // Exemple: peintre -> peintres/service, ajusteur -> ajusteurs/service
       final typeAccountPlural = '${typeAccountName}s';
       final url = "$typeAccountPlural/service";
-      
+
       print("🔗 [ServiceController] Endpoint de création de service: $url");
-      print("📋 [ServiceController] Type de compte: $typeAccountName -> $typeAccountPlural");
-      
+      print(
+          "📋 [ServiceController] Type de compte: $typeAccountName -> $typeAccountPlural");
+
       // Récupérer le token
       print("🔑 [ServiceController] Récupération du token...");
       final token = stockage?.read<String>(StockageKeys.tokenKey);
@@ -258,53 +368,60 @@ class ServiceController with ChangeNotifier {
       } else {
         print("⚠️ [ServiceController] Token non trouvé ou vide");
       }
-      
+
       // Afficher un résumé des données (sans les images en base64 pour ne pas surcharger)
       final dataSummary = Map<String, dynamic>.from(data);
       if (dataSummary.containsKey('images') && dataSummary['images'] is List) {
         final imagesList = dataSummary['images'] as List;
         dataSummary['images'] = '[${imagesList.length} images en base64]';
       }
-      if (dataSummary.containsKey('realisation') && dataSummary['realisation'] is List) {
+      if (dataSummary.containsKey('realisation') &&
+          dataSummary['realisation'] is List) {
         final realisationsList = dataSummary['realisation'] as List;
-        dataSummary['realisation'] = '[${realisationsList.length} réalisations]';
+        dataSummary['realisation'] =
+            '[${realisationsList.length} réalisations]';
       }
       print("📦 [ServiceController] Données à envoyer (résumé): $dataSummary");
-      
+
       // Si des images sont fournies, vous devrez utiliser FormData
       // Pour l'instant, on envoie juste les données JSON
       print("📡 [ServiceController] Appel à postData avec URL: $url");
       print("⏳ [ServiceController] En attente de la réponse...");
-      
+
       final startTime = DateTime.now();
       HttpResponse response = await postData(url, data, token: token);
       final duration = DateTime.now().difference(startTime);
-      
-      print("⏱️ [ServiceController] Réponse reçue après ${duration.inMilliseconds}ms");
+
+      print(
+          "⏱️ [ServiceController] Réponse reçue après ${duration.inMilliseconds}ms");
       print("📥 [ServiceController] Status de la réponse: ${response.status}");
       print("📥 [ServiceController] errorMsg: ${response.errorMsg ?? 'null'}");
       print("📥 [ServiceController] isException: ${response.isException}");
-      
+
       if (response.data != null) {
         print("📥 [ServiceController] Response.data existe");
         if (response.data is Map) {
           final responseData = response.data as Map;
-          print("📥 [ServiceController] Response.data clés: ${responseData.keys.toList()}");
+          print(
+              "📥 [ServiceController] Response.data clés: ${responseData.keys.toList()}");
           if (responseData.containsKey('message')) {
             print("📥 [ServiceController] Message: ${responseData['message']}");
           }
           if (responseData.containsKey('error')) {
-            print("❌ [ServiceController] Erreur dans response.data: ${responseData['error']}");
+            print(
+                "❌ [ServiceController] Erreur dans response.data: ${responseData['error']}");
           }
         } else {
-          print("📥 [ServiceController] Response.data type: ${response.data.runtimeType}");
+          print(
+              "📥 [ServiceController] Response.data type: ${response.data.runtimeType}");
         }
       } else {
         print("⚠️ [ServiceController] Response.data est null");
       }
 
       if (response.status == true) {
-        print("✅ [ServiceController] Service créé avec succès, rechargement de la liste...");
+        print(
+            "✅ [ServiceController] Service créé avec succès, rechargement de la liste...");
         // Recharger la liste des services
         await fetchServices();
         print("✅ [ServiceController] Liste des services rechargée");
@@ -315,10 +432,12 @@ class ServiceController with ChangeNotifier {
       print("🏁 [ServiceController] ========== FIN createService ==========");
       return response;
     } catch (e, stackTrace) {
-      print("❌ [ServiceController] ========== EXCEPTION dans createService ==========");
+      print(
+          "❌ [ServiceController] ========== EXCEPTION dans createService ==========");
       print("❌ [ServiceController] Erreur: $e");
       print("📚 [ServiceController] Stack trace: $stackTrace");
-      print("🏁 [ServiceController] ========== FIN createService (avec erreur) ==========");
+      print(
+          "🏁 [ServiceController] ========== FIN createService (avec erreur) ==========");
       return HttpResponse(
         status: false,
         errorMsg: e.toString(),
@@ -327,12 +446,14 @@ class ServiceController with ChangeNotifier {
     } finally {
       loading = false;
       notifyListeners();
-      print("🔄 [ServiceController] loading mis à false, notifyListeners() appelé");
+      print(
+          "🔄 [ServiceController] loading mis à false, notifyListeners() appelé");
     }
   }
 
   // Mettre à jour un service
-  Future<HttpResponse> updateService(int serviceId, Map<String, dynamic> data) async {
+  Future<HttpResponse> updateService(
+      int serviceId, Map<String, dynamic> data) async {
     loading = true;
     notifyListeners();
 
@@ -409,13 +530,13 @@ class ServiceController with ChangeNotifier {
           services = servicesData
               .where((e) => e != null)
               .map<ServiceModel>((e) {
-            try {
-              return ServiceModel.fromJson(e);
-            } catch (e) {
-              print("Erreur lors du parsing d'un service: $e");
-              return ServiceModel();
-            }
-          })
+                try {
+                  return ServiceModel.fromJson(e);
+                } catch (e) {
+                  print("Erreur lors du parsing d'un service: $e");
+                  return ServiceModel();
+                }
+              })
               .where((service) => service.serviceId != null)
               .toList();
         }
@@ -453,13 +574,13 @@ class ServiceController with ChangeNotifier {
           services = servicesData
               .where((e) => e != null)
               .map<ServiceModel>((e) {
-            try {
-              return ServiceModel.fromJson(e);
-            } catch (e) {
-              print("Erreur lors du parsing d'un service: $e");
-              return ServiceModel();
-            }
-          })
+                try {
+                  return ServiceModel.fromJson(e);
+                } catch (e) {
+                  print("Erreur lors du parsing d'un service: $e");
+                  return ServiceModel();
+                }
+              })
               .where((service) => service.serviceId != null)
               .toList();
         }
@@ -471,6 +592,7 @@ class ServiceController with ChangeNotifier {
       notifyListeners();
     }
   }
+
   // Créer une nouvelle prestation (Nouveau endpoint /api/prestations)
   Future<HttpResponse> createPrestation(Map<String, dynamic> data) async {
     loading = true;
@@ -479,7 +601,7 @@ class ServiceController with ChangeNotifier {
     try {
       final token = stockage?.read<String>(StockageKeys.tokenKey);
       final url = "${Endpoints.prestations}";
-      
+
       HttpResponse response = await postData(url, data, token: token);
 
       if (response.status == true) {
@@ -501,14 +623,15 @@ class ServiceController with ChangeNotifier {
   }
 
   // Mettre à jour une prestation
-  Future<HttpResponse> updatePrestation(int id, Map<String, dynamic> data) async {
+  Future<HttpResponse> updatePrestation(
+      int id, Map<String, dynamic> data) async {
     loading = true;
     notifyListeners();
 
     try {
       final token = stockage?.read<String>(StockageKeys.tokenKey);
       final url = "${Endpoints.updatePrestation}$id";
-      
+
       // On utilise patchData pour la mise à jour
       HttpResponse response = await patchData(url, data, token: token);
 
@@ -535,26 +658,30 @@ class ServiceController with ChangeNotifier {
   List<PrestationModel> prestations = [];
   List<SollicitationModel> solicitations = [];
   List<DeviseModel> devisesList = [];
-  
+
   // Récupérer les prestations de l'utilisateur connecté (avec cache SQLite)
   Future<List<PrestationModel>> getMyPrestations() async {
     loading = true;
     notifyListeners();
-    
+
     try {
       final userData = stockage?.read(StockageKeys.userKey);
       String? userId;
-      
+
       if (userData is Map) {
-        if (userData.containsKey('user') && userData['user'] is Map && userData['user']?['userId'] != null) {
+        if (userData.containsKey('user') &&
+            userData['user'] is Map &&
+            userData['user']?['userId'] != null) {
           userId = userData['user']?['userId']?.toString();
-        } else if (userData.containsKey('userId') && userData['userId'] != null) {
+        } else if (userData.containsKey('userId') &&
+            userData['userId'] != null) {
           userId = userData['userId']?.toString();
         }
       }
-      
+
       if (userId == null || userId.isEmpty) {
-        print("❌ [ServiceController] Aucun user ID trouvé pour récupérer les prestations");
+        print(
+            "❌ [ServiceController] Aucun user ID trouvé pour récupérer les prestations");
         // Charger depuis le cache local
         final dbHelper = PrestationDatabaseHelper.instance;
         final cachedPrestations = await dbHelper.getAllPrestations();
@@ -565,11 +692,14 @@ class ServiceController with ChangeNotifier {
 
       print("✅ [ServiceController] UserId récupéré: $userId");
       final dbHelper = PrestationDatabaseHelper.instance;
-      
+
       // D'abord, charger depuis le cache local pour affichage immédiat
-      List<PrestationModel> cachedPrestations = await dbHelper.getAllPrestations();
-      final userCachedPrestations = cachedPrestations.where((p) => p.userId?.toString() == userId).toList();
-      
+      List<PrestationModel> cachedPrestations =
+          await dbHelper.getAllPrestations();
+      final userCachedPrestations = cachedPrestations
+          .where((p) => p.userId?.toString() == userId)
+          .toList();
+
       // Ensuite, charger depuis l'API et mettre à jour le cache en arrière-plan
       try {
         final token = stockage?.read<String>(StockageKeys.tokenKey);
@@ -591,35 +721,42 @@ class ServiceController with ChangeNotifier {
             final apiPrestations = prestationsData
                 .where((e) => e != null)
                 .map<PrestationModel>((e) {
-              try {
-                Map<String, dynamic> prestationData;
-                List<String> images = [];
-                
-                if (e is Map<String, dynamic> && e.containsKey('prestation')) {
-                  prestationData = e['prestation'] as Map<String, dynamic>;
-                  // Injecter postBy dans les données de prestation si présent à la racine
-                  if (e.containsKey('postBy')) {
-                    prestationData['postBy'] = e['postBy'];
+                  try {
+                    Map<String, dynamic> prestationData;
+                    List<String> images = [];
+
+                    if (e is Map<String, dynamic> &&
+                        e.containsKey('prestation')) {
+                      prestationData = e['prestation'] as Map<String, dynamic>;
+                      // Injecter postBy dans les données de prestation si présent à la racine
+                      if (e.containsKey('postBy')) {
+                        prestationData['postBy'] = e['postBy'];
+                      }
+                      if (e.containsKey('image') && e['image'] is List) {
+                        images = (e['image'] as List)
+                            .map((img) {
+                              if (img is String) return img;
+                              if (img is Map)
+                                return img['path'] ?? img['url'] ?? '';
+                              return '';
+                            })
+                            .where((path) => path.isNotEmpty)
+                            .cast<String>()
+                            .toList();
+                      }
+                    } else {
+                      prestationData = e as Map<String, dynamic>;
+                    }
+
+                    final prestation = PrestationModel.fromJson(prestationData);
+                    prestation.images = images.isNotEmpty ? images : null;
+                    return prestation;
+                  } catch (e) {
+                    print(
+                        "❌ [ServiceController] Erreur parsing prestation: $e");
+                    return PrestationModel();
                   }
-                  if (e.containsKey('image') && e['image'] is List) {
-                    images = (e['image'] as List).map((img) {
-                      if (img is String) return img;
-                      if (img is Map) return img['path'] ?? img['url'] ?? '';
-                      return '';
-                    }).where((path) => path.isNotEmpty).cast<String>().toList();
-                  }
-                } else {
-                  prestationData = e as Map<String, dynamic>;
-                }
-                
-                final prestation = PrestationModel.fromJson(prestationData);
-                prestation.images = images.isNotEmpty ? images : null;
-                return prestation;
-              } catch (e) {
-                print("❌ [ServiceController] Erreur parsing prestation: $e");
-                return PrestationModel();
-              }
-            })
+                })
                 .where((p) => p.id != null && p.userId?.toString() == userId)
                 .toList();
 
@@ -628,14 +765,15 @@ class ServiceController with ChangeNotifier {
             // Cependant, deleteByOwnerId n'existe pas, donc on utilise clearAll ou on remplace tout
             // Dans getMyPrestations, on peut filtrer par userId en mémoire et supprimer ceux qui ne sont plus là
             final existing = await dbHelper.getAllPrestations();
-            for(var p in existing) {
-              if (p.userId?.toString() == userId && !apiPrestations.any((a) => a.id == p.id)) {
+            for (var p in existing) {
+              if (p.userId?.toString() == userId &&
+                  !apiPrestations.any((a) => a.id == p.id)) {
                 await dbHelper.deletePrestation(p.id!);
               }
             }
-            
+
             await dbHelper.insertOrUpdatePrestations(apiPrestations);
-            
+
             loading = false;
             notifyListeners();
             return apiPrestations;
@@ -644,25 +782,30 @@ class ServiceController with ChangeNotifier {
       } catch (e) {
         print("⚠️ [ServiceController] Erreur API, utilisation du cache: $e");
       }
-      
+
       // Retourner les données du cache si l'API échoue
       loading = false;
       notifyListeners();
       return userCachedPrestations;
     } catch (e) {
-      print("❌ [ServiceController] Erreur lors de la récupération des prestations: $e");
+      print(
+          "❌ [ServiceController] Erreur lors de la récupération des prestations: $e");
       // En cas d'erreur, charger depuis le cache
       final dbHelper = PrestationDatabaseHelper.instance;
       final cachedPrestations = await dbHelper.getAllPrestations();
       final userData = stockage?.read(StockageKeys.userKey);
       String? userId;
       if (userData is Map) {
-        if (userData.containsKey('user') && userData['user'] is Map && userData['user']?['userId'] != null) {
+        if (userData.containsKey('user') &&
+            userData['user'] is Map &&
+            userData['user']?['userId'] != null) {
           userId = userData['user']?['userId']?.toString();
         }
       }
-      final userCachedPrestations = userId != null 
-          ? cachedPrestations.where((p) => p.userId?.toString() == userId).toList()
+      final userCachedPrestations = userId != null
+          ? cachedPrestations
+              .where((p) => p.userId?.toString() == userId)
+              .toList()
           : <PrestationModel>[];
       loading = false;
       notifyListeners();
@@ -671,13 +814,15 @@ class ServiceController with ChangeNotifier {
   }
 
   // Récupérer les prestations par serviceId (avec cache SQLite)
-  Future<List<PrestationModel>> fetchPrestationsByServiceId(int serviceId) async {
+  Future<List<PrestationModel>> fetchPrestationsByServiceId(
+      int serviceId) async {
     try {
       final dbHelper = PrestationDatabaseHelper.instance;
-      
+
       // D'abord, charger depuis le cache local
-      List<PrestationModel> cachedPrestations = await dbHelper.getPrestationsByServiceId(serviceId);
-      
+      List<PrestationModel> cachedPrestations =
+          await dbHelper.getPrestationsByServiceId(serviceId);
+
       // Ensuite, charger depuis l'API et mettre à jour le cache
       final url = "${Endpoints.prestationsByServiceId}$serviceId";
       var response = await getData(url);
@@ -697,48 +842,58 @@ class ServiceController with ChangeNotifier {
           final apiPrestations = prestationsData
               .where((e) => e != null)
               .map<PrestationModel>((e) {
-            try {
-              // La structure API est : {"prestation": {...}, "image": [...]}
-              Map<String, dynamic> prestationData;
-              List<String> images = [];
-              
-              if (e is Map<String, dynamic> && e.containsKey('prestation')) {
-                prestationData = e['prestation'] as Map<String, dynamic>;
-                // Injecter postBy dans les données de prestation si présent à la racine
-                if (e.containsKey('postBy')) {
-                  prestationData['postBy'] = e['postBy'];
+                try {
+                  // La structure API est : {"prestation": {...}, "image": [...]}
+                  Map<String, dynamic> prestationData;
+                  List<String> images = [];
+
+                  if (e is Map<String, dynamic> &&
+                      e.containsKey('prestation')) {
+                    prestationData = e['prestation'] as Map<String, dynamic>;
+                    // Injecter postBy dans les données de prestation si présent à la racine
+                    if (e.containsKey('postBy')) {
+                      prestationData['postBy'] = e['postBy'];
+                    }
+                    // Extraire les images
+                    if (e.containsKey('image') && e['image'] is List) {
+                      images = (e['image'] as List)
+                          .map((img) {
+                            if (img is String) return img;
+                            if (img is Map)
+                              return img['path'] ?? img['url'] ?? '';
+                            return '';
+                          })
+                          .where((path) => path.isNotEmpty)
+                          .cast<String>()
+                          .toList();
+                    }
+                  } else {
+                    prestationData = e as Map<String, dynamic>;
+                  }
+
+                  final prestation = PrestationModel.fromJson(prestationData);
+                  prestation.images = images.isNotEmpty ? images : null;
+
+                  // Debug: vérifier les images
+                  if (prestation.images != null &&
+                      prestation.images!.isNotEmpty) {
+                    print(
+                        "✅ [ServiceController] Prestation ${prestation.id} a ${prestation.images!.length} image(s): ${prestation.images!.take(2).join(', ')}");
+                  } else {
+                    print(
+                        "⚠️ [ServiceController] Prestation ${prestation.id} n'a pas d'images (extracted: ${images.length})");
+                  }
+
+                  return prestation;
+                } catch (e) {
+                  print("Erreur lors du parsing d'une prestation: $e");
+                  return PrestationModel();
                 }
-                // Extraire les images
-                if (e.containsKey('image') && e['image'] is List) {
-                  images = (e['image'] as List).map((img) {
-                    if (img is String) return img;
-                    if (img is Map) return img['path'] ?? img['url'] ?? '';
-                    return '';
-                  }).where((path) => path.isNotEmpty).cast<String>().toList();
-                }
-              } else {
-                prestationData = e as Map<String, dynamic>;
-              }
-              
-              final prestation = PrestationModel.fromJson(prestationData);
-              prestation.images = images.isNotEmpty ? images : null;
-              
-              // Debug: vérifier les images
-              if (prestation.images != null && prestation.images!.isNotEmpty) {
-                print("✅ [ServiceController] Prestation ${prestation.id} a ${prestation.images!.length} image(s): ${prestation.images!.take(2).join(', ')}");
-              } else {
-                print("⚠️ [ServiceController] Prestation ${prestation.id} n'a pas d'images (extracted: ${images.length})");
-              }
-              
-              return prestation;
-            } catch (e) {
-              print("Erreur lors du parsing d'une prestation: $e");
-              return PrestationModel();
-            }
-          })
-              .where((prestation) => prestation.id != null && prestation.serviceId == serviceId)
+              })
+              .where((prestation) =>
+                  prestation.id != null && prestation.serviceId == serviceId)
               .toList();
-          
+
           // Mettre à jour le cache
           // Pour assurer la disparition des éléments supprimés (compte supprimé), on vide le cache spécifique
           await dbHelper.clearPrestationsByServiceId(serviceId);
@@ -746,7 +901,7 @@ class ServiceController with ChangeNotifier {
           return apiPrestations;
         }
       }
-      
+
       // Retourner le cache si l'API n'a pas retourné de données
       return cachedPrestations;
     } catch (e) {
@@ -767,7 +922,7 @@ class ServiceController with ChangeNotifier {
       // La structure API est : {"prestation": {...}, "image": [...]}
       Map<String, dynamic> prestationData;
       List<String> images = [];
-      
+
       if (e is Map<String, dynamic> && e.containsKey('prestation')) {
         prestationData = e['prestation'] as Map<String, dynamic>;
         // Injecter postBy dans les données de prestation si présent à la racine
@@ -776,16 +931,20 @@ class ServiceController with ChangeNotifier {
         }
         // Extraire les images
         if (e.containsKey('image') && e['image'] is List) {
-          images = (e['image'] as List).map((img) {
-            if (img is String) return img;
-            if (img is Map) return img['path'] ?? img['url'] ?? '';
-            return '';
-          }).where((path) => path.isNotEmpty).cast<String>().toList();
+          images = (e['image'] as List)
+              .map((img) {
+                if (img is String) return img;
+                if (img is Map) return img['path'] ?? img['url'] ?? '';
+                return '';
+              })
+              .where((path) => path.isNotEmpty)
+              .cast<String>()
+              .toList();
         }
       } else {
         prestationData = e as Map<String, dynamic>;
       }
-      
+
       final prestation = PrestationModel.fromJson(prestationData);
       prestation.images = images.isNotEmpty ? images : null;
       return prestation;
@@ -796,7 +955,8 @@ class ServiceController with ChangeNotifier {
   }
 
   // Récupérer toutes les prestations (avec cache SQLite)
-  Future<List<PrestationModel>> fetchAllPrestations({int page = 0, int size = 15, bool isLoadMore = false}) async {
+  Future<List<PrestationModel>> fetchAllPrestations(
+      {int page = 0, int size = 15, bool isLoadMore = false}) async {
     try {
       if (!isLoadMore) {
         currentPage = 0;
@@ -804,18 +964,20 @@ class ServiceController with ChangeNotifier {
       }
 
       final dbHelper = PrestationDatabaseHelper.instance;
-      
+
       // D'abord, charger depuis le cache local (uniquement au premier chargement)
       if (!isLoadMore && page == 0) {
-        List<PrestationModel> cachedPrestations = await dbHelper.getAllPrestations();
+        List<PrestationModel> cachedPrestations =
+            await dbHelper.getAllPrestations();
         if (cachedPrestations.isNotEmpty) {
           prestations = cachedPrestations;
           notifyListeners();
         }
       }
-      
+
       // Ensuite, charger depuis l'API avec l'endpoint public (pas besoin de token)
-      final url = "${Endpoints.publicPrestations}?page=${isLoadMore ? currentPage + 1 : page}&size=$size";
+      final url =
+          "${Endpoints.publicPrestations}?page=${isLoadMore ? currentPage + 1 : page}&size=$size";
       var response = await getData(url);
 
       if (response != null && response is Map<String, dynamic>) {
@@ -837,17 +999,19 @@ class ServiceController with ChangeNotifier {
               .map<PrestationModel>((e) => _parsePrestation(e))
               .where((prestation) => prestation.id != null)
               .toList();
-          
+
           if (isLoadMore) {
-             final existingIds = prestations.map((p) => p.id).toSet();
-             final newItems = apiPrestations.where((p) => !existingIds.contains(p.id)).toList();
-             prestations.addAll(newItems);
-             currentPage++;
+            final existingIds = prestations.map((p) => p.id).toSet();
+            final newItems = apiPrestations
+                .where((p) => !existingIds.contains(p.id))
+                .toList();
+            prestations.addAll(newItems);
+            currentPage++;
           } else {
-             // Mettre à jour le cache uniquement sur le refresh complet (page 0)
-             await dbHelper.clearAllPrestations();
-             await dbHelper.insertOrUpdatePrestations(apiPrestations);
-             prestations = apiPrestations;
+            // Mettre à jour le cache uniquement sur le refresh complet (page 0)
+            await dbHelper.clearAllPrestations();
+            await dbHelper.insertOrUpdatePrestations(apiPrestations);
+            prestations = apiPrestations;
           }
 
           // Gérer le hasMoreData (format Spring Pageable)
@@ -874,32 +1038,38 @@ class ServiceController with ChangeNotifier {
   }
 
   // Convertir PrestationModel en ServiceModel pour l'affichage
-  ServiceModel prestationToServiceModel(PrestationModel prestation, ServiceType? serviceType) {
+  ServiceModel prestationToServiceModel(
+      PrestationModel prestation, ServiceType? serviceType) {
     // Utiliser profile en premier, puis les images de portfolio
     List<String>? imagesList = [];
-    
+
     // Ajouter la photo de profil en premier si elle existe
     if (prestation.profile != null && prestation.profile!.isNotEmpty) {
       imagesList.add(prestation.profile!);
-      print("📸 [ServiceController] Prestation ${prestation.id} a une photo de profil");
+      print(
+          "📸 [ServiceController] Prestation ${prestation.id} a une photo de profil");
     }
-    
+
     // Ajouter les images de portfolio après
     if (prestation.images != null && prestation.images!.isNotEmpty) {
       imagesList.addAll(prestation.images!);
-      print("📸 [ServiceController] Prestation ${prestation.id} a ${prestation.images!.length} image(s) de portfolio");
+      print(
+          "📸 [ServiceController] Prestation ${prestation.id} a ${prestation.images!.length} image(s) de portfolio");
     }
-    
+
     if (imagesList.isEmpty) {
       imagesList = null;
-      print("⚠️ [ServiceController] Prestation ${prestation.id} n'a pas d'images");
+      print(
+          "⚠️ [ServiceController] Prestation ${prestation.id} n'a pas d'images");
     } else {
-      print("✅ [ServiceController] Prestation ${prestation.id} a ${imagesList.length} image(s) total (profil + portfolio)");
+      print(
+          "✅ [ServiceController] Prestation ${prestation.id} a ${imagesList.length} image(s) total (profil + portfolio)");
     }
-    
+
     // Mapper le serviceId vers ServiceType si non fourni
-    final finalServiceType = serviceType ?? _mapServiceIdToServiceType(prestation.serviceId);
-    
+    final finalServiceType =
+        serviceType ?? _mapServiceIdToServiceType(prestation.serviceId);
+
     return ServiceModel()
       ..serviceId = prestation.id
       ..title = prestation.title ?? ''
@@ -914,8 +1084,12 @@ class ServiceController with ChangeNotifier {
       ..isVerified = prestation.isCertified ?? false
       ..username = prestation.username // AJOUT
       ..createdAt = prestation.dateCreated?.toIso8601String() // AJOUT
-      ..availableDays = prestation.plageJourPrestation != null && prestation.plageJourPrestation!.isNotEmpty
-          ? prestation.plageJourPrestation!.split(',').map((e) => e.trim()).toList()
+      ..availableDays = prestation.plageJourPrestation != null &&
+              prestation.plageJourPrestation!.isNotEmpty
+          ? prestation.plageJourPrestation!
+              .split(',')
+              .map((e) => e.trim())
+              .toList()
           : null // AJOUT
       ..availableHours = prestation.plageHeurePrestation // AJOUT
       ..images = imagesList; // Transférer les images (profil en premier)
@@ -924,7 +1098,7 @@ class ServiceController with ChangeNotifier {
   // Mapper serviceId (ID du compte) vers ServiceType basé sur le nom du compte
   ServiceType? _mapServiceIdToServiceType(int? serviceId) {
     if (serviceId == null) return null;
-    
+
     // Cette méthode sera complétée avec le mapping depuis user_accounts
     // Pour l'instant, on retourne null et on laissera HomePage faire le mapping
     return null;
@@ -937,22 +1111,24 @@ class ServiceController with ChangeNotifier {
   Future<HttpResponse> createSolicitation(Map<String, dynamic> data) async {
     loading = true;
     notifyListeners();
-    
+
     try {
       print("📤 Création de sollicitation...");
       String? token = stockage?.read(StockageKeys.tokenKey);
-      final response = await postData(Endpoints.sollicitation, data, token: token);
-      
+      final response =
+          await postData(Endpoints.sollicitation, data, token: token);
+
       print("📥 Réponse sollicitation: ${response.status} - ${response.data}");
-      
+
       if (response.status) {
         // Success logic if needed
       }
-      
+
       return response;
     } catch (e) {
       print("❌ Erreur lors de la création de la sollicitation: $e");
-      return HttpResponse(status: false, errorMsg: "Une erreur est survenue: $e");
+      return HttpResponse(
+          status: false, errorMsg: "Une erreur est survenue: $e");
     } finally {
       loading = false;
       notifyListeners();
@@ -967,23 +1143,28 @@ class ServiceController with ChangeNotifier {
     try {
       final userData = stockage?.read(StockageKeys.userKey);
       String? userId;
-      
+
       if (userData is Map) {
-        if (userData.containsKey('user') && userData['user'] is Map && userData['user']?['userId'] != null) {
+        if (userData.containsKey('user') &&
+            userData['user'] is Map &&
+            userData['user']?['userId'] != null) {
           userId = userData['user']?['userId']?.toString();
-        } else if (userData.containsKey('userId') && userData['userId'] != null) {
+        } else if (userData.containsKey('userId') &&
+            userData['userId'] != null) {
           userId = userData['userId']?.toString();
         }
       }
 
       if (userId == null) {
-        print("❌ [ServiceController] UserId non trouvé pour récupérer les sollicitations");
+        print(
+            "❌ [ServiceController] UserId non trouvé pour récupérer les sollicitations");
         return [];
       }
 
       final url = "${Endpoints.sollicitationsByUser}$userId";
-      print("🔍 [ServiceController] Récupération des sollicitations depuis: $url");
-      
+      print(
+          "🔍 [ServiceController] Récupération des sollicitations depuis: $url");
+
       String? token = stockage?.read(StockageKeys.tokenKey);
       var response = await getData(url, token: token);
 
@@ -992,19 +1173,21 @@ class ServiceController with ChangeNotifier {
         if (response.containsKey('data')) {
           data = response['data'];
         } else {
-           data = response;
+          data = response;
         }
 
         if (data is List) {
-           solicitations = data.map((e) => SollicitationModel.fromJson(e)).toList();
-           print("✅ [ServiceController] ${solicitations.length} sollicitations récupérées");
+          solicitations =
+              data.map((e) => SollicitationModel.fromJson(e)).toList();
+          print(
+              "✅ [ServiceController] ${solicitations.length} sollicitations récupérées");
         }
       }
-      
-      return solicitations;
 
+      return solicitations;
     } catch (e) {
-      print("❌ [ServiceController] Erreur lors de la récupération des sollicitations: $e");
+      print(
+          "❌ [ServiceController] Erreur lors de la récupération des sollicitations: $e");
       return [];
     } finally {
       loading = false;
@@ -1015,17 +1198,25 @@ class ServiceController with ChangeNotifier {
   Future<List<DeviseModel>> fetchDevises() async {
     try {
       final localData = stockage?.read(StockageKeys.devisesKey);
-      if (localData != null && localData is Map && localData['devises'] != null) {
-          devisesList = (localData['devises'] as List).map((e) => DeviseModel.fromJson(e)).toList();
-          notifyListeners();
+      if (localData != null &&
+          localData is Map &&
+          localData['devises'] != null) {
+        devisesList = (localData['devises'] as List)
+            .map((e) => DeviseModel.fromJson(e))
+            .toList();
+        notifyListeners();
       }
 
       final token = stockage?.read(StockageKeys.tokenKey);
-      var response = await getData("${Constantes.URL_BASE}${Endpoints.devises}", token: token);
+      // `getData` préfixe déjà avec `${Constantes.BASE_URL}` si l'URL n'est pas absolue.
+      // Endpoints.devises = "v1/public/devises" → https://migration.casanayo.com/api/v1/public/devises
+      var response = await getData(Endpoints.devises, token: token);
       if (response != null && response is Map && response['devises'] != null) {
-          devisesList = (response['devises'] as List).map((e) => DeviseModel.fromJson(e)).toList();
-          stockage?.write(StockageKeys.devisesKey, response);
-          notifyListeners();
+        devisesList = (response['devises'] as List)
+            .map((e) => DeviseModel.fromJson(e))
+            .toList();
+        stockage?.write(StockageKeys.devisesKey, response);
+        notifyListeners();
       }
       return devisesList;
     } catch (e) {
@@ -1042,14 +1233,14 @@ class ServiceController with ChangeNotifier {
     try {
       final token = stockage?.read<String>(StockageKeys.tokenKey);
       final url = "${Endpoints.deletePrestation}$prestationId";
-      
+
       HttpResponse response = await deleteData(url, token: token);
 
       if (response.status == true) {
         // Supprimer du cache local
         final dbHelper = PrestationDatabaseHelper.instance;
         await dbHelper.deletePrestation(prestationId);
-        
+
         // Recharger les prestations
         await getMyPrestations();
       }
@@ -1076,29 +1267,34 @@ class ServiceController with ChangeNotifier {
     try {
       final userData = stockage?.read(StockageKeys.userKey);
       String? userId;
-      
+
       if (userData is Map) {
-        if (userData.containsKey('user') && userData['user'] is Map && userData['user']?['userId'] != null) {
+        if (userData.containsKey('user') &&
+            userData['user'] is Map &&
+            userData['user']?['userId'] != null) {
           userId = userData['user']?['userId']?.toString();
-        } else if (userData.containsKey('userId') && userData['userId'] != null) {
+        } else if (userData.containsKey('userId') &&
+            userData['userId'] != null) {
           userId = userData['userId']?.toString();
         }
       }
 
       if (userId == null) {
-        print("❌ [ServiceController] UserId non trouvé pour récupérer les sollicitations host");
+        print(
+            "❌ [ServiceController] UserId non trouvé pour récupérer les sollicitations host");
         return [];
       }
 
       final url = "${Endpoints.sollicitationsByHost}$userId";
-      print("🔍 [ServiceController] Récupération des sollicitations host depuis: $url");
-      
+      print(
+          "🔍 [ServiceController] Récupération des sollicitations host depuis: $url");
+
       String? token = stockage?.read(StockageKeys.tokenKey);
       var response = await getData(url, token: token);
 
       if (response != null && response is Map<String, dynamic>) {
         dynamic data;
-        
+
         // The API returns {reservation: [...]}
         if (response.containsKey('reservation')) {
           data = response['reservation'];
@@ -1109,16 +1305,18 @@ class ServiceController with ChangeNotifier {
         }
 
         if (data is List) {
-           final hostSolicitations = data.map((e) => SollicitationModel.fromJson(e)).toList();
-           print("✅ [ServiceController] ${hostSolicitations.length} sollicitations host récupérées");
-           return hostSolicitations;
+          final hostSolicitations =
+              data.map((e) => SollicitationModel.fromJson(e)).toList();
+          print(
+              "✅ [ServiceController] ${hostSolicitations.length} sollicitations host récupérées");
+          return hostSolicitations;
         }
       }
-      
-      return [];
 
+      return [];
     } catch (e) {
-      print("❌ [ServiceController] Erreur lors de la récupération des sollicitations host: $e");
+      print(
+          "❌ [ServiceController] Erreur lors de la récupération des sollicitations host: $e");
       return [];
     } finally {
       loading = false;
@@ -1135,7 +1333,8 @@ class ServiceController with ChangeNotifier {
   }
 
   /// Met à jour le statut d'une sollicitation (ACCEPTED, REJECTED, CANCELLED, etc.) via **protected** PATCH.
-  Future<HttpResponse> updateSollicitationStatus(int sollicitationId, String status) async {
+  Future<HttpResponse> updateSollicitationStatus(
+      int sollicitationId, String status) async {
     loading = true;
     notifyListeners();
 
@@ -1143,7 +1342,8 @@ class ServiceController with ChangeNotifier {
       print("📤 Mise à jour sollicitation $sollicitationId vers $status");
       String? token = stockage?.read(StockageKeys.tokenKey);
 
-      final url = "${Endpoints.updateSollicitationStatusProtected}$sollicitationId";
+      final url =
+          "${Endpoints.updateSollicitationStatusProtected}$sollicitationId";
       final data = {
         'status': status,
         'userId': _currentUserIdAsInt(),
@@ -1152,15 +1352,15 @@ class ServiceController with ChangeNotifier {
       final response = await putData(url, data, token: token);
 
       print("📥 Réponse mise à jour sollicitation: ${response.status}");
-      
+
       return response;
     } catch (e) {
       print("❌ Erreur lors de la mise à jour de la sollicitation: $e");
-      return HttpResponse(status: false, errorMsg: "Une erreur est survenue: $e");
+      return HttpResponse(
+          status: false, errorMsg: "Une erreur est survenue: $e");
     } finally {
       loading = false;
       notifyListeners();
     }
   }
 }
-

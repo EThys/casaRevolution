@@ -393,7 +393,8 @@ class ReservationController with ChangeNotifier {
             propertyOwnerId.toString() == userId) {
           loading = false;
           notifyListeners();
-          const errorMsg = "You can't reserve your own property";
+          const errorMsg =
+              "Vous ne pouvez pas réserver votre propre bien.";
           return HttpResponse(
             status: false,
             data: {'error': errorMsg},
@@ -503,6 +504,24 @@ class ReservationController with ChangeNotifier {
         if (reservationJson != null) {
           final newReservation = ReservationModel.fromJson(reservationJson);
           reservations.add(newReservation);
+
+          // Déclencher la notification propriétaire/partenaires (backend) si disponible.
+          // Certains backends n'émettent plus le push sur POST réservation : on appelle explicitement l'endpoint.
+          try {
+            final rid = newReservation.reservationId;
+            if (rid != null) {
+              final notifUrl = "${Endpoints.partnersReservationNotification}$rid";
+              // Endpoint private: token utilisateur requis.
+              await getDataAllowErrorJson(notifUrl, token: tkn);
+              if (kDebugMode) {
+                print("🔔 [ReservationController] Notification partners déclenchée: $notifUrl");
+              }
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              print("⚠️ [ReservationController] Notification partners non déclenchée: $e");
+            }
+          }
 
           // Sauvegarder en local
           final db = ReservationDatabaseHelper.instance;
@@ -757,6 +776,36 @@ class ReservationController with ChangeNotifier {
     loading = false;
     notifyListeners();
     return [];
+  }
+
+  /// Réservations pour une chambre (`GET` [Endpoints.reservationsChambreByChambreEntity]`{chambreId}`).
+  Future<List<ReservationModel>> fetchReservationsForChambre(int chambreId) async {
+    if (chambreId <= 0) return [];
+    final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+    final url = "${Endpoints.reservationsChambreByChambreEntity}$chambreId";
+    final List<ReservationModel> out = [];
+    try {
+      final response = await getDataAllowErrorJson(url, token: tkn);
+      if (response != null &&
+          (response['reservation'] != null || response['data'] != null || response['reservations'] != null)) {
+        final reservationsData =
+            response['reservation'] ?? response['reservations'] ?? response['data'];
+        if (reservationsData is List) {
+          for (final item in reservationsData) {
+            if (item is Map) {
+              try {
+                out.add(ReservationModel.fromJson(Map<String, dynamic>.from(item)));
+              } catch (e) {
+                print("❌ fetchReservationsForChambre parse: $e");
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print("⚠️ fetchReservationsForChambre: $e");
+    }
+    return out;
   }
 
   // Vider le cache local des réservations de l'utilisateur

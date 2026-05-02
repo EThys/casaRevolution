@@ -64,7 +64,7 @@ enum ServiceType {
   chauffage,
   serrurerie,
   vitrerie,
-  carrelage,
+  coiffure,
   hotel,
   bureau,
   vacances,
@@ -119,8 +119,8 @@ extension ServiceTypeExtension on ServiceType {
         return 'serrurerie';
       case ServiceType.vitrerie:
         return 'vitrerie';
-      case ServiceType.carrelage:
-        return 'carrelage';
+      case ServiceType.coiffure:
+        return 'coiffure';
       case ServiceType.hotel:
         return 'hotel';
       case ServiceType.bureau:
@@ -182,8 +182,8 @@ extension ServiceTypeExtension on ServiceType {
         return 'Dépannage et sécurité serrures';
       case ServiceType.vitrerie:
         return 'Pose et remplacement de vitres';
-      case ServiceType.carrelage:
-        return 'Pose de carrelage et revêtements';
+      case ServiceType.coiffure:
+        return 'Coiffure et soins capillaires';
       case ServiceType.hotel:
         return 'Séjours hôteliers confortables';
       case ServiceType.bureau:
@@ -245,8 +245,8 @@ extension ServiceTypeExtension on ServiceType {
         return 'Serrurerie';
       case ServiceType.vitrerie:
         return 'Vitrerie';
-      case ServiceType.carrelage:
-        return 'Carrelage';
+      case ServiceType.coiffure:
+        return 'Coiffure';
       case ServiceType.hotel:
         return 'Hôtel';
       case ServiceType.bureau:
@@ -308,8 +308,8 @@ extension ServiceTypeExtension on ServiceType {
         return Icons.lock_rounded;
       case ServiceType.vitrerie:
         return Icons.window_rounded;
-      case ServiceType.carrelage:
-        return Icons.square_foot_rounded;
+      case ServiceType.coiffure:
+        return Icons.content_cut_rounded;
       case ServiceType.hotel:
         return Icons.hotel_rounded;
       case ServiceType.bureau:
@@ -379,8 +379,13 @@ extension ServiceTypeExtension on ServiceType {
         return ServiceType.serrurerie;
       case 'vitrerie':
         return ServiceType.vitrerie;
+      case 'coiffure':
+      case 'coiffeur':
       case 'carrelage':
-        return ServiceType.carrelage;
+      case 'carreleur':
+      case 'carreleurs':
+      case 'carrelleur':
+        return ServiceType.coiffure;
       case 'hotel':
       case 'hôtel':
         return ServiceType.hotel;

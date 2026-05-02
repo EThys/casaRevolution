@@ -283,7 +283,9 @@ class PropertyFavoriteCtrl with ChangeNotifier {
              url = Endpoints.favoriteTerrain;
              data = {"userId": uid, "terrainId": pid};
              break;
-           case 11: // Vacance
+           case 6: // Vacance (agences) - ids variables selon l'API
+           case 10:
+           case 11:
               url = Endpoints.favoriteVacance;
               data = {"userId": uid, "vacanceId": pid};
               break;
@@ -364,7 +366,9 @@ class PropertyFavoriteCtrl with ChangeNotifier {
           case 9: // Terrain
             url = "${Endpoints.favoriteTerrainDelete}/$uid/$pid";
             break;
-          case 11: // Vacance
+          case 6: // Vacance (agences)
+          case 10:
+          case 11:
             url = "${Endpoints.favoriteVacanceDelete}/$uid/$pid";
             break;
           default:

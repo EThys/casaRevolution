@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'UserModel.dart';
 import 'PropertyModel.dart';
+import 'PropertyImageModel.dart';
 
 ReservationModel reservationModelFromJson(String str) => ReservationModel.fromJson(json.decode(str));
 String reservationModelToJson(ReservationModel data) => json.encode(data.toJson());
@@ -99,12 +100,84 @@ class ReservationModel {
       }
     }
 
+    List<PropertyImageModel> parseImages(dynamic imagesRaw) {
+      final List<PropertyImageModel> imgs = [];
+      if (imagesRaw is List) {
+        for (final it in imagesRaw) {
+          if (it is Map) {
+            final m = Map<String, dynamic>.from(it);
+            final p = m["path"]?.toString();
+            if (p != null && p.trim().isNotEmpty) {
+              imgs.add(PropertyImageModel(path: p.trim()));
+            }
+          } else if (it is String) {
+            final p = it.trim();
+            if (p.isNotEmpty) imgs.add(PropertyImageModel(path: p));
+          }
+        }
+      }
+      return imgs;
+    }
+
+    // Réservations chambre: structure spéciale
+    // { reservation: {...}, chambre: {...}, user: {...}, imageChambre: [...] }
+    PropertyModel? parsedProperty;
+    if (json["chambre"] is Map) {
+      final chambre = Map<String, dynamic>.from(json["chambre"] as Map);
+      parsedProperty = PropertyModel(
+        propertyId: chambre["hotelId"] is int ? chambre["hotelId"] as int : null,
+        propertyTypeId: 5,
+        title: chambre["title"]?.toString(),
+        description: chambre["description"]?.toString(),
+        price: (chambre["price"] is num) ? (chambre["price"] as num).toDouble() : null,
+        deviseId: chambre["deviseId"] is int ? chambre["deviseId"] as int : null,
+        propertyImage: parseImages(json["imageChambre"]),
+      );
+    } else if (json["terrain"] is Map) {
+      // Réservations terrains
+      // { reservation: {...}, terrain: {...}, user: {...}, imageTerrain: [...] }
+      final t = Map<String, dynamic>.from(json["terrain"] as Map);
+      parsedProperty = PropertyModel(
+        propertyId: t["id"] is int ? t["id"] as int : null,
+        propertyTypeId: 9,
+        userId: t["userId"] is int ? t["userId"] as int : null,
+        title: t["title"]?.toString(),
+        description: t["description"]?.toString(),
+        price: (t["price"] is num) ? (t["price"] as num).toDouble() : null,
+        deviseId: t["deviseId"] is int ? t["deviseId"] as int : null,
+        quartierValue: t["quartierValue"]?.toString(),
+        communeValue: t["communeValue"]?.toString(),
+        cityValue: t["cityValue"]?.toString(),
+        countryValue: t["countryValue"]?.toString(),
+        surface: (t["surface"] is num) ? (t["surface"] as num).toDouble() : null,
+        propertyImage: parseImages(json["imageTerrain"]),
+      );
+    } else if (json["vacance"] is Map) {
+      // Réservations agences / tourisme (vacance)
+      // { reservation: {...}, vacance: {...}, user: {...}, imageVacance: [...] }
+      final v = Map<String, dynamic>.from(json["vacance"] as Map);
+      parsedProperty = PropertyModel(
+        propertyId: v["id"] is int ? v["id"] as int : null,
+        propertyTypeId: 6, // Tourisme (Vacances)
+        agenceId: v["agenceId"] is int ? v["agenceId"] as int : null,
+        userId: v["userId"] is int ? v["userId"] as int : null,
+        title: v["title"]?.toString(),
+        description: v["description"]?.toString(),
+        price: (v["price"] is num) ? (v["price"] as num).toDouble() : null,
+        address: v["address"]?.toString(),
+        cityValue: v["cityValue"]?.toString(),
+        countryValue: v["countryValue"]?.toString(),
+        propertyImage: parseImages(json["imageVacance"]),
+      );
+    } else {
+      // Structure habituelle: PropertyModel sait extraire les champs depuis json / reservation.
+      parsedProperty = PropertyModel.fromJson(json);
+    }
+
     return ReservationModel(
       reservationId: parsedId,
-      user: json["user"] == null
-          ? null
-          : UserModel.fromJson(json["user"]),
-      property: PropertyModel.fromJson(json),
+      user: json["user"] == null ? null : UserModel.fromJson(json["user"]),
+      property: parsedProperty,
       message: reservationData["message"]?.toString(),
       status: reservationData["status"]?.toString(),
       type: reservationData["type"]?.toString(),

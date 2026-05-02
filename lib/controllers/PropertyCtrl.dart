@@ -55,7 +55,9 @@ class PropertyController with ChangeNotifier {
   /// Toutes les propriétés combinées (standard + bureaux + festives + funéraires + terrains).
   /// En mode filtré, on retourne uniquement la liste 'properties' qui contient les résultats unifiés.
   List<PropertyModel> get allProperties {
-    if (isFiltered) return _listedOnly(properties);
+    // IMPORTANT: même en mode filtré, certains écrans (AllPropertiesPage / listes unifiées)
+    // attendent un pool global. `properties` peut contenir un sous-ensemble filtré,
+    // mais on garde aussi les catégories dédiées pour éviter de "perdre" terrains/hôtels/vacances.
     return [
       ..._listedOnly(properties),
       ..._listedOnly(bureaux),
@@ -103,8 +105,20 @@ class PropertyController with ChangeNotifier {
 
     final surfaceRaw = terrainData['surface'];
     double? surface;
-    if (surfaceRaw is num)   surface = surfaceRaw.toDouble();
-    if (surfaceRaw is String) surface = double.tryParse(surfaceRaw);
+    if (surfaceRaw is num) {
+      surface = surfaceRaw.toDouble();
+    } else if (surfaceRaw is String) {
+      final s = surfaceRaw.trim();
+      // API terrains: surface peut venir en "20×25" / "20x25" (dimensions). On convertit en m².
+      final normalized = s.replaceAll(' ', '').toLowerCase();
+      final parts = normalized.split(RegExp(r'[x×]'));
+      if (parts.length == 2) {
+        final a = double.tryParse(parts[0].replaceAll(',', '.'));
+        final b = double.tryParse(parts[1].replaceAll(',', '.'));
+        if (a != null && b != null) surface = a * b;
+      }
+      surface ??= double.tryParse(s.replaceAll(',', '.'));
+    }
 
     // Ne pas passer `false` quand l’API omet les champs (sinon badge « Non disponible » à tort).
     bool? listingAvail;
@@ -130,6 +144,8 @@ class PropertyController with ChangeNotifier {
       propertyId:      terrainData['id'] as int?,
       title:           terrainData['title'] as String?,
       description:     terrainData['description'] as String?,
+      postBy:          t['postBy'] as String?,
+      image:           t['image'] as String?,
       price:           (terrainData['price'] as num?)?.toDouble(),
       surface:         surface,
       transactionType: terrainData['transactionType'] as String?,
@@ -164,7 +180,8 @@ class PropertyController with ChangeNotifier {
       }
 
       String? token = stockage?.read(StockageKeys.tokenKey);
-      var response = await getData("${Constantes.BASE_URL}${Endpoints.devises}", token: token);
+      // Endpoints.devises = "v1/public/devises" → getData construit https://.../api/v1/public/devises
+      var response = await getData(Endpoints.devises, token: token);
       if (response != null && response is Map && response['devises'] != null) {
           devisesList = (response['devises'] as List).map((e) => DeviseModel.fromJson(e)).toList();
           stockage?.write(StockageKeys.devisesKey, response);
@@ -472,9 +489,15 @@ class PropertyController with ChangeNotifier {
     try {
       final response = await getData(Endpoints.propertyTerrains);
       if (response != null && response is Map<String, dynamic>) {
-        final rawData = response['terrain'];
+        dynamic rawData = response['terrain'];
+        // Tolérance: certaines versions API renvoient `data` ou `terrains`.
+        rawData ??= response['terrains'];
+        rawData ??= response['data'];
         if (rawData != null && rawData is List) {
-          final List<Map<String, dynamic>> terrainList = rawData.cast<Map<String, dynamic>>();
+          final List<Map<String, dynamic>> terrainList = rawData
+              .where((e) => e is Map)
+              .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
 
           // Store in local database
           final db = TerrainDatabaseHelper.instance;
@@ -871,6 +894,16 @@ class PropertyController with ChangeNotifier {
   Future<PropertyModel?> _fetchHotelFromPublicCatalog(int hotelId,
       {PropertyModel? mergeWith}) async {
     try {
+      // Cache local: si on a déjà un hôtel enrichi (structures + images chambres), on peut éviter
+      // de re-télécharger les détails de chaque chambre (très lent sur réseau mobile).
+      PropertyModel? cachedHotel;
+      try {
+        cachedHotel = await DatabaseHelper.instance
+            .getCategoryPropertyById(DatabaseHelper.tableHotels, hotelId);
+      } catch (_) {
+        cachedHotel = null;
+      }
+
       final response = await getData(Endpoints.propertyHotelsPublic);
       if (response == null || response is! Map<String, dynamic>) return null;
       final data = response['data'];
@@ -897,45 +930,119 @@ class PropertyController with ChangeNotifier {
           property.propertyId == mergeWith.propertyId) {
         property = PropertySnapshotMerge.mergeFillMissing(mergeWith, property);
       }
+      if (cachedHotel != null &&
+          cachedHotel.propertyId != null &&
+          cachedHotel.propertyId == property.propertyId) {
+        // Préférer les champs riches déjà en cache (structures/images) + garder les champs récents du catalogue.
+        property = PropertySnapshotMerge.mergeFillMissing(property, cachedHotel);
+      }
 
       final structures = property.hotelStructure;
       if (structures != null && structures.isNotEmpty) {
-        final List<HotelRoomStructure> updated = [];
+        // Map cache chambreId -> structure enrichie (si dispo).
+        final Map<int, HotelRoomStructure> cachedById = {};
+        final cachedStructs = cachedHotel?.hotelStructure ?? const <HotelRoomStructure>[];
+        for (final s in cachedStructs) {
+          final id = s.chambre?.id;
+          if (id == null) continue;
+          cachedById[id] = s;
+        }
+
+        // 1) Construire une version "instantanée" en utilisant cache chambreId quand dispo.
+        final List<HotelRoomStructure> immediate = [];
+        final List<int> toFetch = [];
         for (final struct in structures) {
           final cid = struct.chambre?.id;
           if (cid == null) {
-            updated.add(struct);
+            immediate.add(struct);
             continue;
           }
+          HotelRoomStructure? roomCache;
           try {
-            final chResp =
-                await getData("${Endpoints.propertyHotelRoomsPublic}/$cid");
-            if (chResp is Map<String, dynamic> && chResp['data'] is List) {
-              final arr = chResp['data'] as List;
-              if (arr.isNotEmpty && arr.first is Map) {
-                final enriched = HotelRoomStructure.fromJson(
-                  Map<String, dynamic>.from(arr.first as Map),
-                );
-                final catalogImgs = struct.images;
-                final apiImgs = enriched.images;
-                final mergedImages = (apiImgs != null && apiImgs.isNotEmpty)
-                    ? apiImgs
-                    : (catalogImgs ?? []);
-                updated.add(
-                  HotelRoomStructure(
-                    chambre: enriched.chambre ?? struct.chambre,
-                    images: mergedImages,
-                  ),
-                );
-                continue;
-              }
-            }
-          } catch (e) {
-            print('⚠️ Détail chambre $cid: $e');
+            roomCache = await DatabaseHelper.instance.getHotelRoomById(cid);
+          } catch (_) {
+            roomCache = null;
           }
-          updated.add(struct);
+          final cachedStruct = cachedById[cid];
+          final cachedImgs = (roomCache?.images?.isNotEmpty == true)
+              ? (roomCache?.images ?? const <PropertyImageModel>[])
+              : (cachedStruct?.images ?? const <PropertyImageModel>[]);
+          final cachedHasDetailText =
+              ((roomCache?.chambre?.description?.trim().isNotEmpty ?? false) ||
+                  (cachedStruct?.chambre?.description?.trim().isNotEmpty ?? false));
+          if (cachedImgs.isNotEmpty || cachedHasDetailText) {
+            immediate.add(
+              HotelRoomStructure(
+                chambre: roomCache?.chambre ?? cachedStruct?.chambre ?? struct.chambre,
+                images: cachedImgs.isNotEmpty ? cachedImgs : (struct.images ?? const <PropertyImageModel>[]),
+              ),
+            );
+          } else {
+            immediate.add(struct);
+            toFetch.add(cid);
+          }
         }
-        property = property.copyWith(hotelStructure: updated);
+        property = property.copyWith(hotelStructure: immediate);
+
+        // 2) Enrichissement en arrière-plan (parallèle, limité) + cache `hotel_rooms` + update hôtel.
+        if (toFetch.isNotEmpty) {
+          Future(() async {
+            try {
+              // limiter la concurrence: lots de 6
+              const int chunkSize = 6;
+              final Map<int, HotelRoomStructure> fetchedById = {};
+              for (var i = 0; i < toFetch.length; i += chunkSize) {
+                final chunk = toFetch.sublist(i, (i + chunkSize).clamp(0, toFetch.length));
+                final futures = chunk.map((cid) async {
+                  try {
+                    final chResp = await getData("${Endpoints.propertyHotelRoomsPublic}/$cid");
+                    if (chResp is Map<String, dynamic> && chResp['data'] is List) {
+                      final arr = chResp['data'] as List;
+                      if (arr.isNotEmpty && arr.first is Map) {
+                        final enriched = HotelRoomStructure.fromJson(
+                          Map<String, dynamic>.from(arr.first as Map),
+                        );
+                        fetchedById[cid] = enriched;
+                        // cache chambreId
+                        await DatabaseHelper.instance.insertOrUpdateHotelRoom(enriched);
+                      }
+                    }
+                  } catch (_) {}
+                }).toList();
+                await Future.wait(futures);
+              }
+
+              if (fetchedById.isEmpty) return;
+
+              // Fusionner avec le snapshot courant + sauvegarder l’hôtel enrichi.
+              final mergedRooms = <HotelRoomStructure>[];
+              for (final s in immediate) {
+                final cid = s.chambre?.id;
+                final fetched = (cid != null) ? fetchedById[cid] : null;
+                if (fetched == null) {
+                  mergedRooms.add(s);
+                } else {
+                  final apiImgs = fetched.images;
+                  final catalogImgs = s.images;
+                  final mergedImages = (apiImgs != null && apiImgs.isNotEmpty)
+                      ? apiImgs
+                      : (catalogImgs ?? const <PropertyImageModel>[]);
+                  mergedRooms.add(
+                    HotelRoomStructure(
+                      chambre: fetched.chambre ?? s.chambre,
+                      images: mergedImages,
+                    ),
+                  );
+                }
+              }
+              final enrichedHotel = property.copyWith(hotelStructure: mergedRooms);
+              await DatabaseHelper.instance.insertOrUpdateInCategory(DatabaseHelper.tableHotels, enrichedHotel);
+              // notifier les listeners pour refresh UI si l’écran écoute le controller
+              hotels = hotels.map((h) => h.propertyId == enrichedHotel.propertyId ? enrichedHotel : h).toList();
+              notifyListeners();
+            } catch (_) {}
+          });
+        }
       }
 
       currentProperty = property;
@@ -1308,6 +1415,133 @@ class PropertyController with ChangeNotifier {
         isException: true,
         data: {'error': e.toString()},
       );
+    }
+  }
+
+  /// Création chambre (`POST` [Endpoints.propertyHotelRoom]) — aligné dashboard `hotel/hotels/[id]`.
+  Future<HttpResponse> createHotelRoom(Map<String, dynamic> body) async {
+    try {
+      loading = true;
+      notifyListeners();
+
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final response = await postData(Endpoints.propertyHotelRoom, body, token: tkn);
+
+      loading = false;
+      notifyListeners();
+      return response;
+    } catch (e) {
+      loading = false;
+      notifyListeners();
+      return HttpResponse(
+        status: false,
+        errorMsg: "Erreur lors de la création de la chambre: ${e.toString()}",
+        isException: true,
+        data: {'error': e.toString()},
+      );
+    }
+  }
+
+  /// Identifiant utilisateur pour les endpoints « owner » (hôtels, etc.).
+  String? _ownerUserIdFromStorage() {
+    String? userId;
+    final userData = stockage?.read(StockageKeys.userKey);
+    final profileData = stockage?.read(StockageKeys.profileKey);
+    if (userData is Map || profileData is Map) {
+      if (userData is Map) {
+        if (userData.containsKey('user') && userData['user'] is Map && userData['user']?['userId'] != null) {
+          userId = userData['user']?['userId']?.toString();
+        } else if (userData.containsKey('userId') && userData['userId'] != null) {
+          userId = userData['userId']?.toString();
+        }
+        if ((userId == null || userId.isEmpty) && userData.containsKey('profile') && userData['profile'] is Map) {
+          userId = userData['profile']?['userId']?.toString();
+        }
+      }
+    }
+    return (userId != null && userId.isNotEmpty) ? userId : null;
+  }
+
+  /// Hôtels type 5 depuis le cache utilisateur (affichage immédiat).
+  Future<List<PropertyModel>> loadMyHotelsFromDatabase() async {
+    final userId = _ownerUserIdFromStorage();
+    if (userId == null) return [];
+    try {
+      return (await PropertyDatabaseHelper.instance.getMyProperties(userId))
+          .where((p) => p.propertyTypeId == 5)
+          .toList();
+    } catch (e) {
+      print('⚠️ loadMyHotelsFromDatabase: $e');
+      return [];
+    }
+  }
+
+  /// Récupère les hôtels sur l’API et met à jour [PropertyDatabaseHelper]. Renvoie `[]` si échec réseau / vide.
+  Future<List<PropertyModel>> syncOwnerHotelsToDatabase() async {
+    final userId = _ownerUserIdFromStorage();
+    if (userId == null) return [];
+
+    try {
+      final fresh = await fetchHotelsByOwner();
+      if (fresh.isEmpty) return [];
+
+      final userDb = PropertyDatabaseHelper.instance;
+      final cached = await loadMyHotelsFromDatabase();
+      final cachedIds = cached.map((p) => p.propertyId).whereType<int>().toSet();
+      final onlineIds = fresh.map((p) => p.propertyId).whereType<int>().toSet();
+      for (final id in cachedIds.difference(onlineIds)) {
+        await userDb.deleteProperty(id.toString());
+      }
+      for (final h in fresh) {
+        await userDb.insertOrUpdateProperty(h, userId);
+      }
+      notifyListeners();
+      return fresh;
+    } catch (e) {
+      print('⚠️ syncOwnerHotelsToDatabase: $e');
+      return [];
+    }
+  }
+
+  /// Cache puis API (pour appels one-shot). Préférer [loadMyHotelsFromDatabase] + [syncOwnerHotelsToDatabase] pour l’UI progressive.
+  Future<List<PropertyModel>> getMyHotelsOfflineFirst() async {
+    final cached = await loadMyHotelsFromDatabase();
+    final fresh = await syncOwnerHotelsToDatabase();
+    return fresh.isNotEmpty ? fresh : cached;
+  }
+
+  /// Hôtels du propriétaire (`GET` [Endpoints.propertyHotelsByOwner]`{userId}`).
+  Future<List<PropertyModel>> fetchHotelsByOwner() async {
+    final userId = _ownerUserIdFromStorage();
+    if (userId == null) return [];
+
+    final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+    final url = "${Endpoints.propertyHotelsByOwner}$userId";
+    try {
+      final response = await getData(url, token: tkn);
+      if (response == null) return [];
+      dynamic raw = response;
+      if (response is Map) {
+        raw = response['data'] ?? response['hotels'] ?? response['properties'] ?? response;
+      }
+      if (raw is! List) return [];
+      final out = <PropertyModel>[];
+      for (final e in raw) {
+        if (e == null) continue;
+        try {
+          final m = Map<String, dynamic>.from(e as Map);
+          final p = PropertyModel.fromJson(m);
+          p.propertyTypeId ??= 5;
+          p.propertyType ??= PropertyTypeModel(propertyTypeId: 5, name: 'Hôtel');
+          if (p.propertyId != null) out.add(p);
+        } catch (err) {
+          print("⚠️ fetchHotelsByOwner parse: $err");
+        }
+      }
+      return out;
+    } catch (e) {
+      print("❌ fetchHotelsByOwner: $e");
+      return [];
     }
   }
 
@@ -2154,11 +2388,21 @@ class PropertyController with ChangeNotifier {
     final bureauRepo = await db.getFromCategory(DatabaseHelper.tableBureaux);
     final festiveRepo = await db.getFromCategory(DatabaseHelper.tableFestives);
     final funeraireRepo = await db.getFromCategory(DatabaseHelper.tableFuneraires);
+    final vacancesRepo = await db.getFromCategory(DatabaseHelper.tableVacances);
+    final hotelsRepo = await db.getFromCategory(DatabaseHelper.tableHotels);
     final terrainRepoRaw = await TerrainDatabaseHelper.instance.getAllTerrains();
     final terrainRepo = terrainRepoRaw.map(_terrainToPropertyModel).toList();
 
     // Pool complet : standard + toutes catégories spéciales
-    final allPool = [...standardProps, ...bureauRepo, ...festiveRepo, ...funeraireRepo, ...terrainRepo];
+    final allPool = [
+      ...standardProps,
+      ...bureauRepo,
+      ...festiveRepo,
+      ...funeraireRepo,
+      ...vacancesRepo,
+      ...hotelsRepo,
+      ...terrainRepo,
+    ];
 
     bool _matches(PropertyModel property) {
       // Filtre sold / transactionType
@@ -2209,6 +2453,18 @@ class PropertyController with ChangeNotifier {
       final cachedTerrains = await TerrainDatabaseHelper.instance.getAllTerrains();
       terrainProperties = cachedTerrains.map(_terrainToPropertyModel).where(_matches).toList();
     } else terrainProperties = [];
+
+    // Vacances / Hôtels (pour les pages dédiées et la cohérence du pool)
+    if (typeMaison == null || typeMaison == 6 || typeMaison == 10 || typeMaison == 11) {
+      vacances = (await db.getFromCategory(DatabaseHelper.tableVacances)).where(_matches).toList();
+    } else {
+      vacances = [];
+    }
+    if (typeMaison == null || typeMaison == 5) {
+      hotels = (await db.getFromCategory(DatabaseHelper.tableHotels)).where(_matches).toList();
+    } else {
+      hotels = [];
+    }
 
     print("🔍 Filtrage local: ${allProperties.length} résultats (${properties.length} std + ${bureaux.length} bur + ${festives.length} fes + ${funeraires.length} fun + ${terrainProperties.length} terra)");
   }
@@ -2335,17 +2591,29 @@ class PropertyController with ChangeNotifier {
     final bureauRepo = await db.getFromCategory(DatabaseHelper.tableBureaux);
     final festiveRepo = await db.getFromCategory(DatabaseHelper.tableFestives);
     final funeraireRepo = await db.getFromCategory(DatabaseHelper.tableFuneraires);
+    final vacancesRepo = await db.getFromCategory(DatabaseHelper.tableVacances);
+    final hotelsRepo = await db.getFromCategory(DatabaseHelper.tableHotels);
     final terrainRepoRaw = await TerrainDatabaseHelper.instance.getAllTerrains();
     final terrainRepo = terrainRepoRaw.map(_terrainToPropertyModel).toList();
 
     // Pool complet pour la recherche unifiée
-    final allPool = [...standardProps, ...bureauRepo, ...festiveRepo, ...funeraireRepo, ...terrainRepo];
+    final allPool = [
+      ...standardProps,
+      ...bureauRepo,
+      ...festiveRepo,
+      ...funeraireRepo,
+      ...vacancesRepo,
+      ...hotelsRepo,
+      ...terrainRepo,
+    ];
     properties = allPool.where(_matchesSearch).toList();
 
     // Mettre à jour les listes filtrées par catégorie
     bureaux = bureauRepo.where(_matchesSearch).toList();
     festives = festiveRepo.where(_matchesSearch).toList();
     funeraires = funeraireRepo.where(_matchesSearch).toList();
+    vacances = vacancesRepo.where(_matchesSearch).toList();
+    hotels = hotelsRepo.where(_matchesSearch).toList();
     terrainProperties = terrainRepo.where(_matchesSearch).toList();
 
     print("🔍 Recherche locale terminée: ${allProperties.length} résultats globaux pour '$searchTerm'");
