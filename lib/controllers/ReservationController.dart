@@ -638,6 +638,9 @@ class ReservationController with ChangeNotifier {
 
         notifyListeners();
         print("✅ Réservation $reservationId annulée");
+
+        // Notifier le client (ou l’hôte selon qui annule) — push / file WebSocket côté serveur.
+        await _notifyReservationPartyAfterCancellation(reservationId, tkn);
       }
 
       loading = false;
@@ -820,6 +823,28 @@ class ReservationController with ChangeNotifier {
     reservations.clear();
     notifyListeners();
     print("🗑️ Cache réservations vidé pour user: $userId");
+  }
+
+  Future<void> _notifyReservationPartyAfterCancellation(
+    int reservationId,
+    String? token,
+  ) async {
+    if (token == null || token.isEmpty) return;
+    try {
+      final url = "${Endpoints.cancelReservationNotification}$reservationId";
+      final resp = await putData(url, <String, dynamic>{}, token: token);
+      if (kDebugMode) {
+        print(
+          "🔔 [ReservationController] Notification annulation / refus réservation → $url (ok=${resp.status})",
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print(
+          "⚠️ [ReservationController] Endpoint notification annulation indisponible ou erreur: $e",
+        );
+      }
+    }
   }
 
   // Valider une réservation et envoyer une notification
