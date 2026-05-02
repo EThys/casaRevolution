@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'PropertyModel.dart';
+
 AgenceModel agenceModelFromJson(String str) => AgenceModel.fromJson(json.decode(str));
 String agenceModelToJson(AgenceModel data) => json.encode(data.toJson());
 
@@ -89,7 +91,7 @@ class AgenceSiteModel {
     final imageList = json['image'] as List?;
 
     return AgenceSiteModel(
-      id: _parseInt(vacance["id"]),
+      id: _parseInt(vacance["id"]) ?? _parseInt(json["id"]),
       title: vacance["title"],
       description: vacance["description"],
       price: (vacance["price"] as num?)?.toDouble(),
@@ -97,6 +99,33 @@ class AgenceSiteModel {
       heureVacance: vacance["heureVacance"],
       available: vacance["available"] as bool?,
       images: imageList?.map((img) => img['path'] as String).toList() ?? [],
+    );
+  }
+
+  /// Fiche site depuis un [PropertyModel] (favoris vacances / catalogue agence).
+  factory AgenceSiteModel.fromVacanceProperty(PropertyModel p) {
+    final urls = <String>[];
+    void addUrl(String? u) {
+      final s = u?.trim();
+      if (s != null && s.isNotEmpty) urls.add(s);
+    }
+
+    if (p.propertyImage != null) {
+      for (final img in p.propertyImage!) {
+        addUrl(img.path);
+      }
+    }
+    addUrl(p.image);
+
+    return AgenceSiteModel(
+      id: p.propertyId,
+      title: p.title,
+      description: p.description,
+      price: p.price,
+      dateVacance: null,
+      heureVacance: null,
+      available: p.available,
+      images: urls.isEmpty ? null : urls,
     );
   }
   

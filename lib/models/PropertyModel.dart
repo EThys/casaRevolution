@@ -115,6 +115,8 @@ class PropertyModel {
   int? propertyTypeId;
   PropertyTypeModel? propertyType;
   int? userId;
+  /// Vacances / agences: identifiant agence quand présent dans l’API `vacances`.
+  int? agenceId;
   UserModel? user;
   double? latitude;
   double? longitude;
@@ -185,6 +187,7 @@ class PropertyModel {
     this.propertyTypeId,
     this.propertyType,
     this.userId,
+    this.agenceId,
     this.user,
     this.latitude,
     this.longitude,
@@ -335,7 +338,7 @@ class PropertyModel {
                             inferredTypeId == 7 ? 'Funéraire' : 
                             inferredTypeId == 8 ? 'Salle de fête' : 
                             inferredTypeId == 9 ? 'Terrain' : 
-                            inferredTypeId == 11 ? 'Vacance' : 'Produit') 
+                            inferredTypeId == 11 ? 'Tourisme' : 'Produit') 
                   : null)),
 
       userId: _parseInt(dataNode["userId"]) ?? 
@@ -343,6 +346,7 @@ class PropertyModel {
               (json["user"] is Map && json["user"]["userId"] != null 
                 ? _parseInt(json["user"]["userId"]) 
                 : 0),
+      agenceId: _parseInt(dataNode["agenceId"]) ?? _parseInt(container["agenceId"]) ?? _parseInt(json["agenceId"]),
       user: json["user"] is Map<String, dynamic>
           ? UserModel.fromJson(json["user"])
           : null,
@@ -388,7 +392,7 @@ class PropertyModel {
           ((json["features"] ?? json["feature"] ?? dataNode["features"]) as List).where((x) => x != null).map((x) => PropertyFeatureModel.fromJson(x)))
           : <PropertyFeatureModel>[],
           
-      propertyImage: _parseImages(container["propertyImage"] ?? json["propertyImage"] ?? container["images"] ?? json["images"] ?? dataNode["profile"]),
+      propertyImage: _parseImages(container["propertyImage"] ?? json["propertyImage"] ?? container["images"] ?? json["images"] ?? container["image"] ?? json["image"] ?? dataNode["profile"]),
       propertyImageRoom: _parseRoomImages(container["propertyImageRoom"] ?? json["propertyImageRoom"] ?? container["images"] ?? json["images"]),
       propertyImageLivingRoom: _parseLivingRoomImages(container["propertyImageLivingRoom"] ?? json["propertyImageLivingRoom"] ?? container["images"] ?? json["images"]),
       propertyImageKitchen: _parseKitchenImages(container["propertyImageKitchen"] ?? json["propertyImageKitchen"] ?? container["images"] ?? json["images"]),
@@ -432,6 +436,7 @@ class PropertyModel {
     "propertyTypeId": propertyTypeId,
     "propertyType": propertyType?.toJson(),
     "userId": userId,
+    "agenceId": agenceId,
     "user": user?.toJson(),
     "latitude": latitude,
     "longitude": longitude,
@@ -633,6 +638,7 @@ class PropertyModel {
     int? propertyTypeId,
     PropertyTypeModel? propertyType,
     int? userId,
+    int? agenceId,
     UserModel? user,
     double? latitude,
     double? longitude,
@@ -703,6 +709,7 @@ class PropertyModel {
       propertyTypeId: propertyTypeId ?? this.propertyTypeId,
       propertyType: propertyType ?? this.propertyType,
       userId: userId ?? this.userId,
+      agenceId: agenceId ?? this.agenceId,
       user: user ?? this.user,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,

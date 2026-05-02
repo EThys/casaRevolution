@@ -7,6 +7,7 @@ import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/models/PrestationModel.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -20,6 +21,9 @@ import '../controllers/TutorialController.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../controllers/PropertyCtrl.dart';
 import '../controllers/ServiceController.dart';
+import '../models/AgenceModel.dart';
+import '../utils/property_detail_navigation.dart';
+import 'SiteDetailsPage.dart';
 import '../utils/Routes.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/property_availability_ui.dart';
@@ -56,6 +60,23 @@ class _FavoritesPageState extends State<FavoritesPage>
 
   List<int> _deletingIds = [];
   bool _isGridView = true;
+
+  // Optimisation: éviter de refaire le même enrichissement d’images plusieurs fois.
+  final Map<int, PropertyModel> _imageEnrichCacheById = {};
+  final Map<int, Future<PropertyModel>> _imageEnrichInFlightById = {};
+
+  String? _stableImageUrlForProperty(PropertyModel? p) {
+    if (p == null) return null;
+    final direct = (p.propertyImage?.isNotEmpty == true) ? p.propertyImage!.first.path : null;
+    if (direct != null && direct.toString().trim().isNotEmpty) return direct;
+
+    final id = p.propertyId;
+    if (id == null) return null;
+    final cached = _imageEnrichCacheById[id];
+    final fromCache = (cached?.propertyImage?.isNotEmpty == true) ? cached!.propertyImage!.first.path : null;
+    if (fromCache != null && fromCache.toString().trim().isNotEmpty) return fromCache;
+    return null;
+  }
 
   @override
   void initState() {
@@ -156,9 +177,20 @@ class _FavoritesPageState extends State<FavoritesPage>
         favoriteProvider.syncFavorites(userId); // Pas besoin d'await ici pour ne pas bloquer l'UI
         
         print("📊 Favoris chargés: ${propertyCtrl.propertyFavorites.length}");
+
+        // Enrichissement rapide depuis le cache local (sans spinner / sans bloquer l’UI):
+        // permet de récupérer les images déjà disponibles localement (terrains/bureaux/etc.)
+        // même si l’API favoris ne renvoie pas toujours les images.
+        _enrichFavoritePropertiesFromCache(propertyCtrl);
       }
 
-    } catch (e) {
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'FavoritesPage',
+        error: e,
+        stackTrace: st,
+        reason: 'load_favorites',
+      );
       print("❌ Erreur lors du chargement des favoris: $e");
       // FancyNotification.show(context, "Erreur lors du chargement des favoris"); // Silent error
     } finally {
@@ -171,6 +203,101 @@ class _FavoritesPageState extends State<FavoritesPage>
     }
   }
 
+  Future<void> _enrichFavoritePropertiesFromCache(PropertyFavoriteCtrl favCtrl) async {
+    if (!mounted) return;
+    final propertyCtrl = context.read<PropertyController>();
+
+    // Ne pas bloquer l’UI: enrichissement en arrière-plan (par lots),
+    // et un seul refresh UI à la fin.
+    bool changed = false;
+
+    // Limiter la charge CPU/IO: 4 enrichissements en parallèle max.
+    const batchSize = 4;
+    const priorityCount = 10;
+    final candidates = favCtrl.propertyFavorites
+        .where((fav) => fav.property != null)
+        .where((fav) => fav.property!.propertyImage?.isNotEmpty != true)
+        .where((fav) {
+          final tid = fav.property!.propertyTypeId;
+          // Ne pas fusionner le cache SQLite par id seul : collision possible avec funéraire/festif.
+          if (tid == 6 || tid == 10 || tid == 11) return false;
+          return true;
+        })
+        .toList();
+
+    Future<bool> enrichOne(PropertyFavoriteModel fav) async {
+      final p = fav.property;
+      if (p == null) return false;
+      final id = p.propertyId;
+      if (id == null) return false;
+
+      final cached = _imageEnrichCacheById[id];
+      if (cached != null && cached.propertyImage?.isNotEmpty == true) {
+        fav.property = cached;
+        return true;
+      }
+
+      final inFlight = _imageEnrichInFlightById[id];
+      if (inFlight != null) {
+        try {
+          final enriched = await inFlight;
+          if (enriched.propertyImage?.isNotEmpty == true) {
+            _imageEnrichCacheById[id] = enriched;
+            fav.property = enriched;
+            return true;
+          }
+        } catch (_) {}
+        return false;
+      }
+
+      final fut = propertyCtrl.enrichPropertySnapshot(p);
+      _imageEnrichInFlightById[id] = fut;
+      try {
+        final enriched = await fut;
+        _imageEnrichInFlightById.remove(id);
+        if (enriched.propertyImage?.isNotEmpty == true) {
+          _imageEnrichCacheById[id] = enriched;
+          fav.property = enriched;
+          return true;
+        }
+      } catch (_) {
+        _imageEnrichInFlightById.remove(id);
+      }
+      return false;
+    }
+
+    // 1) Priorité: premiers éléments visibles.
+    final priority = candidates.take(priorityCount).toList();
+    for (var i = 0; i < priority.length; i += batchSize) {
+      if (!mounted) return;
+      final batch = priority.skip(i).take(batchSize).toList();
+
+      final futures = batch.map((fav) async {
+        return enrichOne(fav);
+      }).toList();
+
+      final results = await Future.wait(futures);
+      if (results.any((r) => r)) changed = true;
+
+      // Laisser respirer l’UI.
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    // 2) Reste de la liste (arrière-plan).
+    final rest = candidates.skip(priorityCount).toList();
+    for (var i = 0; i < rest.length; i += batchSize) {
+      if (!mounted) return;
+      final batch = rest.skip(i).take(batchSize).toList();
+
+      final futures = batch.map((fav) async => enrichOne(fav)).toList();
+      final results = await Future.wait(futures);
+      if (results.any((r) => r)) changed = true;
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    if (changed && mounted) setState(() {});
+  }
+
   void _removeFavorite(int? propertyId, {int? propertyTypeId, bool isPrestation = false}) {
     if (propertyId == null) return;
 
@@ -178,7 +305,10 @@ class _FavoritesPageState extends State<FavoritesPage>
     final userId = authCtrl.user.userId?.toString();
 
     if (userId == null) {
-      _showNotification("Erreur: Utilisateur non connecté", isError: true);
+      _showNotification(
+        "Connectez-vous pour gérer vos favoris.",
+        isError: true,
+      );
       return;
     }
 
@@ -219,6 +349,10 @@ class _FavoritesPageState extends State<FavoritesPage>
         final favoriteProvider = Provider.of<FavoriteProvider>(context, listen: false);
         favoriteProvider.syncFavorites(userId);
       } else if (removedItem != null && index != null) {
+        reportApiFailureToCrashlytics(
+          'FavoritesPage',
+          reason: 'remove_favorite_failed',
+        );
         // En cas d'échec non géré par le cache hors ligne, restaurer l'élément
         if (mounted) {
           setState(() {
@@ -227,7 +361,13 @@ class _FavoritesPageState extends State<FavoritesPage>
           _showNotification("Échec de la suppression", isError: true);
         }
       }
-    } catch (e) {
+    } catch (e, st) {
+      reportApiFailureToCrashlytics(
+        'FavoritesPage',
+        error: e,
+        stackTrace: st,
+        reason: 'remove_favorite_exception',
+      );
       print("Erreur lors de la suppression en arrière-plan: $e");
       if (removedItem != null && index != null && mounted) {
         setState(() {
@@ -247,15 +387,41 @@ class _FavoritesPageState extends State<FavoritesPage>
 
   Future<void> _navigateToPropertyDetail(PropertyModel? property) async {
     if (property == null) return;
-    final enriched = await context
-        .read<PropertyController>()
-        .enrichPropertySnapshot(property);
+    final tid = property.propertyTypeId;
+    final PropertyModel enriched;
+    if (tid == 6 || tid == 10 || tid == 11) {
+      enriched = property;
+    } else {
+      enriched = await context
+          .read<PropertyController>()
+          .enrichPropertySnapshot(property);
+    }
     if (!mounted) return;
-    Navigator.pushNamed(context, Routes.detailPageRoute, arguments: enriched);
+
+    if (tid == 6 || tid == 10 || tid == 11) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SiteDetailsPage(
+            site: AgenceSiteModel.fromVacanceProperty(enriched),
+          ),
+        ),
+      );
+      return;
+    }
+
+    await navigateToPropertyDetail(context, enriched);
   }
 
   void _navigateToPrestationDetail(PrestationModel? prestation) {
     if (prestation == null) return;
+    // Pré-charger depuis cache/API (non bloquant) pour récupérer les images portfolio
+    // avant/pendant l'affichage du détail.
+    final id = prestation.id;
+    if (id != null) {
+      // Fire-and-forget: ServiceDetailPage écoute déjà le controller.
+      context.read<ServiceController>().getPrestationById(id);
+    }
     Navigator.pushNamed(context, Routes.serviceDetail, arguments: prestation);
   }
 
@@ -447,10 +613,21 @@ class _FavoritesPageState extends State<FavoritesPage>
     );
   }
 
+  /// Tourisme / vacances / fiches liées agence : masqués provisoirement (cohérence navigation).
+  bool _isHiddenTourismeOrAgenceFavorite(PropertyFavoriteModel fav) {
+    if (fav.prestation != null) return false;
+    final p = fav.property;
+    if (p == null) return false;
+    final tid = p.propertyTypeId ?? p.propertyType?.propertyTypeId;
+    return tid == 6 || tid == 10 || tid == 11;
+  }
+
   List<PropertyFavoriteModel> _filterFavorites(List<PropertyFavoriteModel> favorites, String filter) {
+    final visible =
+        favorites.where((f) => !_isHiddenTourismeOrAgenceFavorite(f)).toList();
     switch (filter) {
       case 'available':
-        return favorites.where((fav) {
+        return visible.where((fav) {
           if (fav.prestation != null) return fav.prestation?.isActive ?? true;
           final p = fav.property;
           if (p == null) return false;
@@ -461,10 +638,12 @@ class _FavoritesPageState extends State<FavoritesPage>
           );
         }).toList();
       case 'rent':
-        return favorites.where((fav) => fav.property?.transactionType == 'location').toList();
+        return visible
+            .where((fav) => fav.property?.transactionType == 'location')
+            .toList();
       case 'all':
       default:
-        return favorites;
+        return visible;
     }
   }
 
@@ -598,14 +777,21 @@ class _FavoritesPageState extends State<FavoritesPage>
     final p = propertyData;
     final isDeleting = _deletingIds.contains(propertyData?.propertyId);
 
-    final firstImage = propertyData?.propertyImage?.isNotEmpty ?? false
-        ? propertyData?.propertyImage?.first
-        : null;
-    final imageUrl = firstImage?.path;
+    final imageUrl = _stableImageUrlForProperty(propertyData);
 
-    final priceText = isForRent
+    final typeName = propertyData?.propertyType?.name?.toLowerCase() ?? '';
+    final tid = propertyData?.propertyTypeId ?? propertyData?.propertyType?.propertyTypeId ?? 0;
+    final isHotel = tid == 5 || typeName.contains('hotel') || typeName.contains('hôtel');
+    final isTerrain = tid == 9 || typeName.contains('terrain');
+    final isFestive = tid == 8 || typeName.contains('fête') || typeName.contains('fete');
+    final isFuneraire = tid == 7 || typeName.contains('funéra') || typeName.contains('funera');
+    final showMonthly = isForRent && !isHotel && !isTerrain && !isFestive && !isFuneraire;
+
+    final priceText = showMonthly
         ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}/mois'
         : '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}';
+
+    final showPriceOnCard = !isHotel;
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -676,6 +862,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                                 transactionType: p.transactionType,
                                 available: p.available,
                                 listingAllowed: p.listingAllowed,
+                                onDarkBackground: true,
                               )
                             : const SizedBox.shrink(),
                       ),
@@ -707,27 +894,28 @@ class _FavoritesPageState extends State<FavoritesPage>
                           ),
                         ),
                       ),
-                      Positioned(
-                        top: 8,
-                        left: 8,
-                        child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.7),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            priceText,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 11,
+                      if (showPriceOnCard)
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.7),
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            child: Text(
+                              priceText,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -845,14 +1033,21 @@ class _FavoritesPageState extends State<FavoritesPage>
     final isForRent = propertyData.transactionType == 'location';
     final isDeleting = _deletingIds.contains(propertyData.propertyId);
 
-    final firstImage = propertyData.propertyImage?.isNotEmpty ?? false
-        ? propertyData.propertyImage?.first
-        : null;
-    final imageUrl = firstImage?.path;
+    final imageUrl = _stableImageUrlForProperty(propertyData);
 
-    final priceText = isForRent
+    final typeName = propertyData.propertyType?.name?.toLowerCase() ?? '';
+    final tid = propertyData.propertyTypeId ?? propertyData.propertyType?.propertyTypeId ?? 0;
+    final isHotel = tid == 5 || typeName.contains('hotel') || typeName.contains('hôtel');
+    final isTerrain = tid == 9 || typeName.contains('terrain');
+    final isFestive = tid == 8 || typeName.contains('fête') || typeName.contains('fete');
+    final isFuneraire = tid == 7 || typeName.contains('funéra') || typeName.contains('funera');
+    final showMonthly = isForRent && !isHotel && !isTerrain && !isFestive && !isFuneraire;
+
+    final priceText = showMonthly
         ? '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}/mois'
         : '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}';
+
+    final showPriceOnCard = !isHotel;
 
     final cardContent = InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -921,6 +1116,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                         transactionType: propertyData.transactionType,
                         available: propertyData.available,
                         listingAllowed: propertyData.listingAllowed,
+                        onDarkBackground: true,
                       ),
                     ),
                     Positioned(
@@ -929,22 +1125,24 @@ class _FavoritesPageState extends State<FavoritesPage>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.7),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              priceText,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                          if (showPriceOnCard) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.7),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                priceText,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
+                            const SizedBox(width: 8),
+                          ],
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.9),
@@ -1407,17 +1605,70 @@ class _FavoritesPageState extends State<FavoritesPage>
   List<Widget> _buildFeatureChips(PropertyModel? propertyData) {
     final features = <Widget>[];
 
-    if (propertyData?.bedrooms != null) {
-      features.add(_buildFeatureChip('${propertyData!.bedrooms} chambres'));
+    final typeName = propertyData?.propertyType?.name?.toLowerCase() ?? '';
+    final tid = propertyData?.propertyTypeId ?? propertyData?.propertyType?.propertyTypeId ?? 0;
+    final isHotel = tid == 5 || typeName.contains('hotel') || typeName.contains('hôtel');
+    final isTerrain = tid == 9 || typeName.contains('terrain');
+    final isFestive = tid == 8 || typeName.contains('fête') || typeName.contains('fete');
+    final isFuneraire = tid == 7 || typeName.contains('funéra') || typeName.contains('funera');
+    final isBureau = tid == 6 || typeName.contains('bureau');
+
+    if (isTerrain) {
+      if (propertyData?.surface != null) {
+        features.add(_buildFeatureChip('${propertyData!.surface}m²'));
+      }
+      return features;
     }
-    if (propertyData?.bathroom != null) {
-      features.add(_buildFeatureChip('${propertyData!.bathroom} sdb'));
+
+    if (isHotel) {
+      if (propertyData?.rooms != null && (propertyData!.rooms ?? 0) > 0) {
+        features.add(_buildFeatureChip('${propertyData.rooms} chambres'));
+      } else if (propertyData?.bedrooms != null && (propertyData!.bedrooms ?? 0) > 0) {
+        features.add(_buildFeatureChip('${propertyData.bedrooms} chambres'));
+      }
+      if (propertyData?.surface != null) {
+        features.add(_buildFeatureChip('${propertyData!.surface}m²'));
+      }
+      return features;
+    }
+
+    if (isFestive || isFuneraire) {
+      if (propertyData?.surface != null) {
+        features.add(_buildFeatureChip('${propertyData!.surface}m²'));
+      }
+      final cap = propertyData?.capacityPeople;
+      if (cap != null && cap > 0) {
+        features.add(_buildFeatureChip('$cap pers.'));
+      }
+      return features;
+    }
+
+    if (isBureau) {
+      if (propertyData?.surface != null) {
+        features.add(_buildFeatureChip('${propertyData!.surface}m²'));
+      }
+      final meet = propertyData?.roomMeet;
+      if (meet != null && meet > 0) {
+        features.add(_buildFeatureChip('$meet salle(s)'));
+      }
+      final equip = propertyData?.isEquip;
+      if (equip != null && equip.toString().toLowerCase() == 'oui') {
+        features.add(_buildFeatureChip('Équipé'));
+      }
+      return features;
+    }
+
+    if (propertyData?.bedrooms != null && (propertyData!.bedrooms ?? 0) > 0) {
+      features.add(_buildFeatureChip('${propertyData.bedrooms} chambres'));
+    }
+    if (propertyData?.bathroom != null && (propertyData!.bathroom ?? 0) > 0) {
+      features.add(_buildFeatureChip('${propertyData.bathroom} sdb'));
     }
     if (propertyData?.surface != null) {
       features.add(_buildFeatureChip('${propertyData!.surface}m²'));
     }
-    if (propertyData?.rooms != null) {
-      features.add(_buildFeatureChip('${propertyData!.rooms} pièces'));
+    if (propertyData?.rooms != null && (propertyData!.rooms ?? 0) > 0) {
+      features.add(_buildFeatureChip('${propertyData.rooms} pièces'));
     }
 
     return features;
