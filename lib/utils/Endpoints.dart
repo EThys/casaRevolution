@@ -262,6 +262,13 @@ class Endpoints {
   static const String partnersReservationNotification = "$version/private/reservations/notification/partners/"; // {reservationId}
   static const String cancelReservationNotification = "$version/private/reservations/notification/cancel/"; // {reservationId}
 
+  /// Sollicitation — notifier l’autre partie (WebSocket / push), même schéma que les réservations.
+  /// À implémenter côté API si absent : `PUT` corps vide, Bearer = l’utilisateur qui vient de changer le statut.
+  static const String sollicitationNotificationState =
+      "$version/protected/sollicitation/notification/state/"; // {sollicitationId}/{true|false}
+  static const String sollicitationNotificationCancel =
+      "$version/private/sollicitation/notification/cancel/"; // {sollicitationId}
+
   // Get specialized reservations by user (protected)
   static const String reservationsVacanceByUser = "$version/protected/reservations/vacance/user/";
   static const String reservationsTerrainByUser = "$version/protected/reservations/terrain/user/";

@@ -1332,26 +1332,68 @@ class ServiceController with ChangeNotifier {
     return int.tryParse(uid.toString()) ?? 0;
   }
 
-  /// Met à jour le statut d'une sollicitation (ACCEPTED, REJECTED, CANCELLED, etc.) via **protected** PATCH.
+  /// Push / WebSocket vers le demandeur (acceptation) ou la contrepartie (annulation / refus).
+  Future<void> _notifySollicitationOtherParty({
+    required int sollicitationId,
+    required String normalizedStatus,
+    required String? token,
+  }) async {
+    if (token == null || token.isEmpty) return;
+    try {
+      if (normalizedStatus == 'APPROVED') {
+        final u =
+            "${Endpoints.sollicitationNotificationState}$sollicitationId/true";
+        await putData(u, <String, dynamic>{}, token: token);
+        print(
+          "🔔 [ServiceController] Notification sollicitation acceptée → $u",
+        );
+      } else if (normalizedStatus == 'CANCELLED') {
+        final u =
+            "${Endpoints.sollicitationNotificationCancel}$sollicitationId";
+        await putData(u, <String, dynamic>{}, token: token);
+        print(
+          "🔔 [ServiceController] Notification sollicitation annulée / refusée → $u",
+        );
+      }
+    } catch (e) {
+      print(
+        "⚠️ [ServiceController] Notification sollicitation non envoyée (vérifiez l’API): $e",
+      );
+    }
+  }
+
+  /// Met à jour le statut d'une sollicitation via **protected** PATCH.
+  /// Côté serveur l’énumération suit `ReservationStatus` : `PENDING`, `APPROVED`, `CANCELLED` (pas `ACCEPTED`).
   Future<HttpResponse> updateSollicitationStatus(
       int sollicitationId, String status) async {
     loading = true;
     notifyListeners();
 
     try {
-      print("📤 Mise à jour sollicitation $sollicitationId vers $status");
+      var normalized = status.toUpperCase().trim();
+      if (normalized == 'ACCEPTED') normalized = 'APPROVED';
+
+      print("📤 Mise à jour sollicitation $sollicitationId vers $normalized");
       String? token = stockage?.read(StockageKeys.tokenKey);
 
       final url =
           "${Endpoints.updateSollicitationStatusProtected}$sollicitationId";
       final data = {
-        'status': status,
+        'status': normalized,
         'userId': _currentUserIdAsInt(),
       };
 
       final response = await putData(url, data, token: token);
 
       print("📥 Réponse mise à jour sollicitation: ${response.status}");
+
+      if (response.status == true) {
+        await _notifySollicitationOtherParty(
+          sollicitationId: sollicitationId,
+          normalizedStatus: normalized,
+          token: token,
+        );
+      }
 
       return response;
     } catch (e) {
