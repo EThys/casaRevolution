@@ -708,6 +708,18 @@ class AuthentificationCtrl with ChangeNotifier {
 
       print("Réponse API (Inscription): ${response.data}");
 
+      // HTTP 201 Created sur `public/members` : compte créé même sans token (réponse métier ambiguë possible).
+      if (response.httpStatus == 201) {
+        final data = response.data;
+        final msg = data is Map ? data['message']?.toString() : null;
+        return HttpResponse(
+          status: true,
+          data: response.data,
+          errorMsg: msg,
+          httpStatus: 201,
+        );
+      }
+
       // Vérification du succès (similaire au login souvent, ou présence de token/member)
       // La réponse exemple n'est pas explicite sur le succès, mais on suppose un 200 OK avec structure similaire
        String message = response.data['message']?.toString() ?? '';
