@@ -34,12 +34,22 @@ class AgenceController extends ChangeNotifier {
           httpStatus: 401,
         );
       }
-      final response = await postData(
+      HttpResponse response = await postData(
         Endpoints.storeAgence,
         payload,
         token: tkn,
         allowDefaultToken: false,
       );
+
+      // 200/201 avec corps JSON valide : création réussie même si le corps contient success:false.
+      final httpOk = response.httpStatus == 200 || response.httpStatus == 201;
+      if (!response.status && httpOk && response.data != null) {
+        response = HttpResponse(
+          status: true,
+          data: response.data,
+          httpStatus: response.httpStatus,
+        );
+      }
 
       _isLoading = false;
 
