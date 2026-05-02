@@ -21,6 +21,7 @@ String frSolicitationStatus(String? status) {
   switch (status?.toUpperCase().trim()) {
     case 'PENDING':
       return 'En attente';
+    case 'APPROVED':
     case 'ACCEPTED':
       return 'Acceptée';
     case 'REJECTED':

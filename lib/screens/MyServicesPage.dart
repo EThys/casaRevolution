@@ -220,7 +220,10 @@ class _MyServicesPageState extends State<MyServicesPage>
     final st = item.status?.toUpperCase() ?? '';
     // Règle cible: pas PENDING / pas CANCELLED. Mais pour tests, on autorise aussi PENDING.
     if (st == 'CANCELLED' || st == 'REJECTED') return false;
-    return st == 'COMPLETED' || st == 'ACCEPTED' || st == 'PENDING';
+    return st == 'COMPLETED' ||
+        st == 'APPROVED' ||
+        st == 'ACCEPTED' ||
+        st == 'PENDING';
   }
 
   Future<void> _showCotationDialog(SollicitationModel item) async {
@@ -1942,7 +1945,7 @@ class _MyServicesPageState extends State<MyServicesPage>
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () =>
-                        _handleSolicitationAction(item, 'ACCEPTED'),
+                        _handleSolicitationAction(item, 'APPROVED'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _successColor,
                       foregroundColor: Colors.white,
@@ -2043,7 +2046,8 @@ class _MyServicesPageState extends State<MyServicesPage>
       SollicitationModel item, String status) async {
     Navigator.pop(context); // Fermer le BottomSheet
 
-    final bool isAccept = status == 'ACCEPTED';
+    final bool isAccept =
+        status == 'APPROVED' || status.toUpperCase() == 'ACCEPTED';
 
     // Demander confirmation via le nouveau ModernCustomDialog pour le refus
     if (!isAccept) {
@@ -2507,6 +2511,7 @@ class _MyServicesPageState extends State<MyServicesPage>
 
   Color _getStatusColor(String? status) {
     switch (status?.toUpperCase()) {
+      case 'APPROVED':
       case 'ACCEPTED':
       case 'CONFIRMED':
         return _successColor;
