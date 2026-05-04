@@ -34,6 +34,7 @@ import '../screens/ServiceRequestsForProvidersPage.dart';
 import '../screens/RequestInterventionPage.dart';
 import '../screens/NotificationPage.dart';
 import '../screens/ServiceDetailPage.dart';
+import '../screens/PrestationIdDetailLoader.dart';
 import '../screens/CreateAgencePage.dart';
 import '../screens/HelpSupportPage.dart';
 import '../screens/PaymentSubscriptionPage.dart';
@@ -280,19 +281,43 @@ class RoutesManager {
       case Routes.serviceDetail:
         final args = r.arguments;
         if (args is Map) {
-          final raw = args['service'];
-          if (raw is! PrestationModel) {
-            return MaterialPageRoute(builder: (_) => OnboardingScreen());
+          final pidRaw = args['prestationId'] ?? args['prestation_id'];
+          final prestationId =
+              pidRaw != null ? int.tryParse(pidRaw.toString()) : null;
+          if (prestationId != null) {
+            int? sollicitationId;
+            final sid = args['sollicitationId'] ?? args['sollicitation_id'];
+            if (sid != null) {
+              sollicitationId = int.tryParse(sid.toString());
+            }
+            final typeName = args['serviceTypeName']?.toString();
+            return MaterialPageRoute(
+              builder: (_) => PrestationIdDetailLoader(
+                prestationId: prestationId,
+                sollicitationId: sollicitationId,
+                serviceTypeName: typeName,
+              ),
+            );
           }
-          int? sollicitationId;
-          final sid = args['sollicitationId'];
-          if (sid != null) {
-            sollicitationId = int.tryParse(sid.toString());
+          final raw = args['service'];
+          if (raw is PrestationModel) {
+            int? sollicitationId;
+            final sid = args['sollicitationId'] ?? args['sollicitation_id'];
+            if (sid != null) {
+              sollicitationId = int.tryParse(sid.toString());
+            }
+            return MaterialPageRoute(
+              builder: (_) => ServiceDetailPage(
+                service: raw,
+                sollicitationId: sollicitationId,
+              ),
+            );
           }
           return MaterialPageRoute(
-            builder: (_) => ServiceDetailPage(
-              service: raw,
-              sollicitationId: sollicitationId,
+            builder: (_) => const Scaffold(
+              body: Center(
+                child: Text('Navigation vers le détail : données invalides.'),
+              ),
             ),
           );
         }
