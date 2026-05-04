@@ -111,9 +111,8 @@ class CotationController with ChangeNotifier {
     return list;
   }
 
-  /// Filtre les avis publics par un ensemble de [sollicitationIds].
-  /// Utilise quand l'API ne renvoie pas de `prestationId` directement
-  /// (cas de `/api/v1/public/cotation`). Accessible sans connexion.
+  /// Filtre les avis publics par `sollicitationId` (ex. écran lié à une sollicitation précise).
+  /// La liste principale par prestation utilise [cotationsForPrestation].
   List<CotationModel> cotationsForSollicitations(Set<int> sollicitationIds) {
     if (sollicitationIds.isEmpty) return [];
     final list = _publicCotations
