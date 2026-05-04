@@ -51,6 +51,10 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   bool _loadingSollicitationCotations = false;
   bool _loadingPublicCotationsForPrestation = false;
   bool _loadingHostSollicitationCotationsForPrestation = false;
+  /// `true` une fois le flux GET /public/cotation terminé — avant cela, on n’affiche pas
+  /// seulement les cotations embarquées sur la prestation (souvent un sous-ensemble) : tout
+  /// le monde, y compris non connecté, voit d’abord la liste filtrée par [prestationId] côté public.
+  bool _publicCotationsLoadSettled = false;
   /// Copie des avis publics pour cette prestation (backup si cache pas encore notifié).
   List<CotationModel> _hostDerivedCotationsForPrestation = const [];
   CotationController? _cotCtrl;
@@ -81,47 +85,12 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     return out;
   }
 
-  /// Avis affichés : **tous** les avis publics rattachés à la prestation.
+  /// Avis affichés : liste **publique** (même utilisateur non connecté) filtrée par
+  /// `prestationId` == id prestation, puis fusion dédupliquée avec les cotations embarquées
+  /// sur l’objet prestation **uniquement après** chargement public terminé (évite d’afficher
+  /// seulement un sous-ensemble « embarqué » le temps du fetch).
   ///
-  /// Stratégie de résolution (par ordre de priorité) :
-  /// 1. Avis publics filtrés par `prestationId` (si l'API le renvoie).
-  /// 2. Avis publics filtrés par les `sollicitationId` rattachés à cette prestation
-  ///    (l'endpoint `/public/cotation` renvoie `sollicitationId` mais pas `prestationId`).
-  ///    Ces sollicitationIds sont extraits des cotations locales embarquées dans la prestation.
-  /// 3. Cotations locales embarquées dans l'objet prestation.
-  /// 4. Fallback sur [_hostDerivedCotationsForPrestation] (cache interne).
-  ///
-  /// [sollicitationId] ne limite pas la liste ; il sert uniquement au formulaire « Noter ».
-  /// Collecte les sollicitationIds connus pour cette prestation :
-  ///   1. Depuis les cotations locales embarquées dans la prestation (service.cotations)
-  ///   2. Depuis le param widget.sollicitationId (si vient d'une sollicitation)
-  ///   3. Depuis ServiceController.solicitations où prestationId == service.id
-  ///      (fonctionne pour les utilisateurs connectés)
-  Set<int> _knownSollicitationIds(PrestationModel service) {
-    final ids = <int>{};
-    // Source 1 : cotations locales
-    for (final c in service.cotations ?? <CotationModel>[]) {
-      if (c.sollicitationId != null) ids.add(c.sollicitationId!);
-    }
-    // Source 2 : param sollicitationId
-    if (widget.sollicitationId != null) ids.add(widget.sollicitationId!);
-    // Source 3 : sollicitations chargées dans ServiceController (utilisateur connecté)
-    // Permet de retrouver les avis même si la prestation n'a pas de cotations embarquées.
-    if (service.id != null) {
-      try {
-        final sCtrl = _serviceCtrl;
-        if (sCtrl != null) {
-          for (final sol in sCtrl.solicitations) {
-            if (sol.prestationId == service.id && sol.id != null) {
-              ids.add(sol.id!);
-            }
-          }
-        }
-      } catch (_) {}
-    }
-    return ids;
-  }
-
+  /// [sollicitationId] ne filtre pas la liste ; il sert uniquement au formulaire « Noter ».
   List<CotationModel> _displayCotations(
     PrestationModel service,
     CotationController cotCtrl,
@@ -130,22 +99,18 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     final local = service.cotations ?? <CotationModel>[];
 
     if (pid != null) {
-      // 1. Filtre par prestationId (si l'API le renvoie — rare avec /public/cotation)
-      final fromPublicByPrestationId = cotCtrl.cotationsForPrestation(pid);
+      final fromPublic = cotCtrl.cotationsForPrestation(pid);
+      if (!_publicCotationsLoadSettled) {
+        if (fromPublic.isNotEmpty) return fromPublic;
+        if (_hostDerivedCotationsForPrestation.isNotEmpty) {
+          return List<CotationModel>.from(_hostDerivedCotationsForPrestation);
+        }
+        return const [];
+      }
 
-      // 2. Filtre par sollicitationIds rattachés à cette prestation
-      //    (source principale car /public/cotation renvoie sollicitationId, pas prestationId)
-      final knownSids = _knownSollicitationIds(service);
-      final fromPublicBySollicitation = cotCtrl.cotationsForSollicitations(knownSids);
-
-      // Fusion dédupliquée : public par prestationId + public par sollicitationId + local
-      final merged = _mergeCotationsDedupe(
-        _mergeCotationsDedupe(fromPublicByPrestationId, fromPublicBySollicitation),
-        local,
-      );
+      final merged = _mergeCotationsDedupe(fromPublic, local);
       if (merged.isNotEmpty) return merged;
 
-      // Fallback : cache interne (synchro async)
       if (_hostDerivedCotationsForPrestation.isNotEmpty) {
         return _mergeCotationsDedupe(
           List<CotationModel>.from(_hostDerivedCotationsForPrestation),
@@ -157,11 +122,10 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
       if (local.isNotEmpty) return local;
     }
 
-    // Fallback final : sollicitationId unique si passé en param
-    if (widget.sollicitationId != null) {
-      return cotCtrl.cotationsForSollicitation(widget.sollicitationId!);
+    if (_hostDerivedCotationsForPrestation.isNotEmpty) {
+      return List<CotationModel>.from(_hostDerivedCotationsForPrestation);
     }
-    return _hostDerivedCotationsForPrestation;
+    return const [];
   }
 
   List<Widget> _buildStarIcons(double rating, {double size = 16}) {
@@ -634,33 +598,14 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     setState(() => _hostDerivedCotationsForPrestation = list);
   }
 
-  /// Après GET /public/cotation : tous les avis dont la prestation correspond.
-  /// Synchronise [_hostDerivedCotationsForPrestation] depuis le cache public.
-  /// Utilise en priorité le filtre par prestationId, puis par sollicitationIds
-  /// extraits des cotations locales de la prestation (car /public/cotation ne
-  /// renvoie pas toujours prestationId).
+  /// Après GET /public/cotation : avis dont `prestationId` sur chaque cotation = id prestation.
   Future<void> _syncPrestationReviewsFromPublic(
     CotationController cotCtrl,
   ) async {
     if (!mounted || widget.service.id == null) return;
     final pid = widget.service.id!;
 
-    // 1. Filtre par prestationId
-    List<CotationModel> cotations = cotCtrl.cotationsForPrestation(pid);
-
-    // 2. Fallback : filtre par sollicitationIds connus (cotations locales + param)
-    if (cotations.isEmpty) {
-      final local = widget.service.cotations ?? <CotationModel>[];
-      final knownSollicitationIds = <int>{};
-      for (final c in local) {
-        if (c.sollicitationId != null) knownSollicitationIds.add(c.sollicitationId!);
-      }
-      if (widget.sollicitationId != null) {
-        knownSollicitationIds.add(widget.sollicitationId!);
-      }
-      cotations = cotCtrl.cotationsForSollicitations(knownSollicitationIds);
-    }
-
+    final cotations = cotCtrl.cotationsForPrestation(pid);
     cotations.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
     if (!mounted) return;
     setState(() {
@@ -701,17 +646,23 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
         });
 
         Future<void> loadPublicReviews() async {
-          await cotCtrl.fetchPublicCotations(forceRefresh: false);
-          if (!mounted) return;
-          setState(() {
-            _loadingPublicCotationsForPrestation = false;
-            if (widget.sollicitationId != null) {
-              _loadingSollicitationCotations = false;
+          try {
+            await cotCtrl.fetchPublicCotations(forceRefresh: false);
+            if (!mounted) return;
+            setState(() {
+              _loadingPublicCotationsForPrestation = false;
+              if (widget.sollicitationId != null) {
+                _loadingSollicitationCotations = false;
+              }
+            });
+            await cotCtrl.fetchPublicCotations(forceRefresh: true);
+            if (!mounted) return;
+            await _syncPrestationReviewsFromPublic(cotCtrl);
+          } finally {
+            if (mounted) {
+              setState(() => _publicCotationsLoadSettled = true);
             }
-          });
-          await cotCtrl.fetchPublicCotations(forceRefresh: true);
-          if (!mounted) return;
-          await _syncPrestationReviewsFromPublic(cotCtrl);
+          }
         }
 
         loadPublicReviews();
@@ -719,9 +670,14 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
         setState(() => _loadingSollicitationCotations = true);
         cotCtrl.fetchPublicCotations(forceRefresh: false).whenComplete(() {
           if (!mounted) return;
-          setState(() => _loadingSollicitationCotations = false);
+          setState(() {
+            _loadingSollicitationCotations = false;
+            _publicCotationsLoadSettled = true;
+          });
         });
         cotCtrl.fetchPublicCotations(forceRefresh: true);
+      } else {
+        setState(() => _publicCotationsLoadSettled = true);
       }
     });
   }
@@ -1372,6 +1328,36 @@ Découvrez ce service sur CasaNayo!
                         ? (_loadingPublicCotationsForPrestation ||
                             _loadingHostSollicitationCotationsForPrestation)
                         : (hasSollicitation && _loadingSollicitationCotations);
+                    final awaitingPublicReviews = widget.service.id != null &&
+                        !_publicCotationsLoadSettled;
+
+                    // Liste publique complète (invités inclus) : ne pas conclure trop tôt.
+                    if (awaitingPublicReviews && list.isEmpty) {
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: primaryColor.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border:
+                              Border.all(color: primaryColor.withOpacity(0.10)),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Chargement des avis...',
+                              style: GoogleFonts.inter(
+                                  fontSize: 13, color: Colors.grey[700]),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
 
                     // Quand on ouvre la page depuis "partout", la prestation détaillée arrive en async.
                     // Éviter d'afficher "Aucun avis" trop tôt si on n'a pas encore reçu les cotations.
