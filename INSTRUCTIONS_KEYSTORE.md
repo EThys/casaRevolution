@@ -29,7 +29,7 @@ VotreAutreProjet/
 
 2. **Collez-le** dans :
    ```
-   D:\myproject\casaNayo\casaRevolution\android\app\upload-keystore.jks
+   D:\myproject\casaYasuka\casaRevolution\android\app\upload-keystore.jks
    ```
 
 3. **Remplacez** le fichier existant si demandé
