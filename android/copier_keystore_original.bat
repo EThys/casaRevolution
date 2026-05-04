@@ -4,8 +4,8 @@ echo Copie du keystore original
 echo ========================================
 echo.
 
-REM Chemin du projet original
-set ORIGINAL_PROJECT_PATH=D:\myproject\casa
+REM Chemin du projet de reference (meme keystore / Play Store)
+set ORIGINAL_PROJECT_PATH=D:\myproject\casaFinale\casaRevolution
 
 REM Vérifier si le chemin existe
 if not exist "%ORIGINAL_PROJECT_PATH%" (
