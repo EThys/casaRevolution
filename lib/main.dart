@@ -57,6 +57,13 @@ void main() async {
       } catch (_) {}
     });
   }, (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    // Ne pas laisser Crashlytics masquer la cause si Firebase n’est pas prêt.
+    try {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    } catch (_) {
+      FlutterError.dumpErrorToConsole(
+        FlutterErrorDetails(exception: error, stack: stack),
+      );
+    }
   });
 }

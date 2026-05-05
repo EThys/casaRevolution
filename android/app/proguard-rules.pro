@@ -31,8 +31,10 @@
 -keep class com.google.android.gms.maps.** { *; }
 -keep class com.google.maps.android.** { *; }
 
-# Activity
+# Activity / Fragment (embedding Flutter + plugins)
 -keep class androidx.activity.** { *; }
+-keep class androidx.fragment.app.** { *; }
+-keep public class * extends androidx.fragment.app.Fragment
 
 # Firebase
 -keep class com.google.firebase.** { *; }

@@ -6,20 +6,22 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.os.Build
 import android.provider.Settings
-import androidx.activity.enableEdgeToEdge
-import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.android.FlutterActivity
 
-class MainActivity: FlutterFragmentActivity() {
+/**
+ * Même base que le projet de référence (FlutterActivity simple).
+ * FlutterFragmentActivity + enableEdgeToEdge() côté natif a été relié à des fermetures
+ * immédiates sur certains appareils ; le bord à bord reste géré dans [lib/main.dart]
+ * via SystemChrome.setEnabledSystemUIMode(edgeToEdge).
+ */
+class MainActivity : FlutterActivity() {
 
   companion object {
-    // Utiliser cet ID dans OneSignal (Android Notification Category / android_channel_id).
+    /// Utiliser cet ID dans OneSignal (Android Notification Category / android_channel_id).
     const val CASANAYO_DEFAULT_CHANNEL_ID = "casanayo_default"
   }
 
   override fun onCreate(savedInstanceState: android.os.Bundle?) {
-    // API AndroidX recommandée par Google (Android 15+) pour le bord à bord,
-    // à la place des anciens flags View / setSystemUiVisibility.
-    enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     createCasaNayoNotificationChannel()
   }
@@ -40,17 +42,11 @@ class MainActivity: FlutterFragmentActivity() {
       enableVibration(true)
       setShowBadge(true)
 
-      // Son par défaut du système. L'utilisateur peut personnaliser ce canal dans les réglages Android.
       val attrs = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_NOTIFICATION)
         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
         .build()
       setSound(Settings.System.DEFAULT_NOTIFICATION_URI, attrs)
-
-      // Pour un son personnalisé CasaNayo:
-      // - ajouter un fichier dans android/app/src/main/res/raw/ (ex: casanayo_notify.mp3)
-      // - utiliser: Uri.parse("android.resource://" + packageName + "/" + R.raw.casanayo_notify)
-      // - puis setSound(customUri, attrs)
     }
 
     nm.createNotificationChannel(channel)
