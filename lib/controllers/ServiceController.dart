@@ -654,6 +654,37 @@ class ServiceController with ChangeNotifier {
     }
   }
 
+  /// Mise à jour d'une prestation via **PUT** (même endpoint que [updatePrestation]).
+  /// Utile quand le backend n'accepte pas PATCH sur `.../prestations/update/{id}`.
+  Future<HttpResponse> updatePrestationPut(int id, Map<String, dynamic> data) async {
+    loading = true;
+    notifyListeners();
+
+    try {
+      final token = stockage?.read<String>(StockageKeys.tokenKey);
+      final url = "${Endpoints.updatePrestation}$id";
+
+      // Même endpoint, mais méthode HTTP PUT
+      final response = await putData(url, data, token: token);
+
+      if (response.status == true) {
+        await getMyPrestations();
+      }
+
+      return response;
+    } catch (e) {
+      print("Erreur lors de la mise à jour (PUT) de la prestation: $e");
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
   // Liste des prestations
   List<PrestationModel> prestations = [];
   List<SollicitationModel> solicitations = [];

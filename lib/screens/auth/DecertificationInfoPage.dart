@@ -1,11 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:provider/provider.dart';
 import '../../utils/AppColors.dart';
+import '../../utils/StockageKeys.dart';
+import '../../controllers/AuthentificationCtrl.dart';
 import 'IdentityVerificationPage.dart';
 
 class DecertificationInfoPage extends StatelessWidget {
   final String? reason;
 
   const DecertificationInfoPage({Key? key, this.reason}) : super(key: key);
+
+  void _snooze(BuildContext context) {
+    try {
+      final auth = context.read<AuthentificationCtrl>();
+      final uid = auth.user.userId?.toString() ?? '';
+      if (uid.isNotEmpty) {
+        GetStorage().write('${StockageKeys.decertificationSnoozeKey}_$uid', true);
+      }
+    } catch (_) {}
+    Navigator.pop(context);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +100,7 @@ class DecertificationInfoPage extends StatelessWidget {
                 width: double.infinity,
                 height: 54,
                 child: TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => _snooze(context),
                   style: TextButton.styleFrom(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),

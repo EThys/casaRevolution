@@ -90,32 +90,37 @@ class _TermsAndPrivacyPageState extends State<TermsAndPrivacyPage> with SingleTi
                   color: Colors.white,
                   child: TabBar(
                     controller: _tabController,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
                     labelColor: _primaryColor,
                     unselectedLabelColor: _greyColor,
                     indicatorColor: _primaryColor,
                     indicatorWeight: 3,
-                    indicatorPadding: EdgeInsets.symmetric(horizontal: 20),
+                    indicatorPadding: const EdgeInsets.symmetric(horizontal: 12),
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 10),
                     labelStyle: TextStyle(
                       fontWeight: FontWeight.w600,
-                      fontSize: 14,
+                      fontSize: 13,
                     ),
-                    tabs: [
+                    tabs: const [
                       Tab(
-                        icon: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        height: 48,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.description_rounded, size: 18),
-                            SizedBox(width: 8),
-                            Text("Conditions d'utilisation"),
+                            SizedBox(width: 6),
+                            Text("Conditions d'utilisat…"),
                           ],
                         ),
                       ),
                       Tab(
-                        icon: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        height: 48,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.privacy_tip_rounded, size: 18),
-                            SizedBox(width: 8),
+                            SizedBox(width: 6),
                             Text("Confidentialité"),
                           ],
                         ),
@@ -542,7 +547,7 @@ class _TermsAndPrivacyPageState extends State<TermsAndPrivacyPage> with SingleTi
           _buildModernContactItem(
             icon: Icons.phone_rounded,
             title: "Téléphone",
-            subtitle: "+243 810 000 000",
+            subtitle: "+243 836 323 805",
             description: "Lun-Ven, 8h-17h",
             gradient: [_primaryDark, _primaryColor],
           ),

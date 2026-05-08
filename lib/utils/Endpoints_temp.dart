@@ -26,7 +26,8 @@ class Endpoints {
   static const String updateProfile = "profile";
   static const String logout = "logout";
   static const String changePassword = "change/password";
-  static const String deleteAccount = "delete/user";
+  // Aligné sur l'API versionnée (`Constantes.BASE_URL` ajoute déjà `/api/`).
+  static const String deleteAccount = "v1/protected/users/delete/user";
   static const String accounts = "accounts";
 
   static const String bailleur = "bailleurs";

@@ -155,35 +155,93 @@ Future<HttpResponse> postDataOtp(String api_url, Map data, {String? token}) asyn
 
 Future<HttpResponse> putData(String api_url, Map data,
     {String? token, bool sendBearer = true}) async {
+  print("🌐 [putData] ========== DÉBUT putData ==========");
+  print("🌐 [putData] api_url: $api_url");
   try {
-    var url = Uri.parse("${Constantes.BASE_URL}$api_url");
-    String dataStr = json.encode(data);
-    var headers = {
+    final urlStr = api_url.startsWith("http") ? api_url : "${Constantes.BASE_URL}$api_url";
+    final url = Uri.parse(urlStr);
+    print("🌐 [putData] URL complète: $url");
+
+    final dataStr = json.encode(data);
+    print("🌐 [putData] Payload JSON: ${dataStr.length} caractères");
+    // Afficher le payload (sécurisé) pour debug API: éviter de spammer si base64.
+    try {
+      if (dataStr.length <= 2000) {
+        print("📤 [putData] Payload: $dataStr");
+      } else {
+        final keys = data.keys.map((e) => e.toString()).toList();
+        print("📤 [putData] Payload (tronqué): keys=$keys");
+        print("📤 [putData] Payload (tronqué): ${dataStr.substring(0, 900)} … (${dataStr.length} chars)");
+      }
+    } catch (_) {}
+
+    final headers = <String, String>{
       "Content-Type": "application/json",
     };
+
     if (sendBearer) {
-      var tkn = token ?? Constantes.DefaultToken;
+      final tkn = _authTokenOrDefault(token);
+      print("🌐 [putData] Bearer activé: Oui — token: ${tkn.isNotEmpty ? 'Oui (${tkn.length} caractères)' : 'Non'}");
       if (tkn.isNotEmpty) {
         headers["Authorization"] = "Bearer $tkn";
       }
+    } else {
+      print("🌐 [putData] Bearer activé: Non");
     }
-    
-    var response = await http.put(url, body: dataStr, headers: headers).timeout(Duration(seconds: 30));
 
-    var successList = [200, 201];
-    var msg = json.decode(utf8.decode(response.bodyBytes));
-    var st = successList.contains(response.statusCode);
-    
+    final response = await http
+        .put(url, body: dataStr, headers: headers)
+        .timeout(const Duration(seconds: 30));
+
+    final statusCode = response.statusCode;
+    final rawBody = utf8.decode(response.bodyBytes);
+    final st = statusCode == 200 || statusCode == 201;
+
+    dynamic msg;
+    try {
+      msg = json.decode(rawBody);
+    } catch (_) {
+      msg = rawBody;
+    }
+
+    if (!st) {
+      print("⚠️ [putData] HTTP $statusCode — $url");
+      try {
+        print("📄 [putData] Body: $rawBody");
+      } catch (_) {
+        print("📄 [putData] Body: ${response.bodyBytes.length} bytes");
+      }
+    } else {
+      // Garder un log léger en succès (utile en prod quand on chasse un 500 intermittent).
+      print("✅ [putData] HTTP $statusCode — OK");
+    }
+
     String? errorMsg;
     if (!st && msg is Map) {
-      errorMsg = msg['message'] ?? msg['error'] ?? msg['detailMessage'] ?? msg['errors']?.toString();
+      errorMsg = msg['message'] ??
+          msg['error'] ??
+          msg['detailMessage'] ??
+          msg['errors']?.toString();
+    } else if (!st && msg is String) {
+      errorMsg = msg.toString();
     }
 
-    return HttpResponse(status: st, data: msg, errorMsg: errorMsg);
+    return HttpResponse(
+      status: st,
+      data: msg,
+      errorMsg: errorMsg,
+      httpStatus: statusCode,
+    );
   } catch (e, trace) {
     print("❌ [putData] Exception: $e");
+    print(trace.toString());
     return HttpResponse(
-        status: false, errorMsg: "Erreur inattendue", isException: true);
+      status: false,
+      errorMsg: e.toString(),
+      isException: true,
+    );
+  } finally {
+    print("🌐 [putData] ========== FIN putData ==========");
   }
 }
 
@@ -357,8 +415,8 @@ Future<HttpResponse> putData(String api_url, Map data,
 
 Future<HttpResponse> deleteData(String api_url, {Map<String, dynamic>? data, String? token}) async {
   try {
-    var url = Uri.parse("${Constantes.BASE_URL}$api_url");
-    var tkn = token ?? Constantes.DefaultToken;
+    final url = Uri.parse("${Constantes.BASE_URL}$api_url");
+    final tkn = token ?? Constantes.DefaultToken;
 
     var headers = {
       "Content-Type": "application/json",
@@ -390,16 +448,49 @@ Future<HttpResponse> deleteData(String api_url, {Map<String, dynamic>? data, Str
         alice.onHttpResponse(response);
       }*/
 
-    var successList = [200, 201, 204];
-    var msg = response.body.isNotEmpty ? json.decode(response.body) : {'message': 'Supprimé avec succès'};
-    var st = successList.contains(response.statusCode);
+    final successList = [200, 201, 204];
+    final st = successList.contains(response.statusCode);
 
-    return HttpResponse(status: st, data: msg);
+    dynamic msg;
+    String? errorMsg;
+    if (response.bodyBytes.isNotEmpty) {
+      try {
+        msg = json.decode(utf8.decode(response.bodyBytes));
+      } catch (_) {
+        // Certaines erreurs API renvoient du texte/HTML.
+        msg = {'message': response.body};
+      }
+    } else {
+      msg = {'message': 'Supprimé avec succès'};
+    }
+
+    if (!st && msg is Map) {
+      errorMsg = msg['message']?.toString() ??
+          msg['error']?.toString() ??
+          msg['detailMessage']?.toString() ??
+          msg['errors']?.toString();
+    }
+
+    if (!st) {
+      print("⚠️ [deleteData] HTTP ${response.statusCode} — $url");
+      try {
+        print("📄 [deleteData] Body: ${utf8.decode(response.bodyBytes)}");
+      } catch (_) {
+        print("📄 [deleteData] Body: ${response.bodyBytes.length} bytes");
+      }
+    }
+
+    return HttpResponse(
+      status: st,
+      data: msg,
+      errorMsg: errorMsg,
+      httpStatus: response.statusCode,
+    );
   } catch (e, trace) {
-    print(e.toString());
+    print("❌ [deleteData] Exception: $e");
     print(trace.toString());
     return HttpResponse(
-        status: false, errorMsg: "Erreur inattendue", isException: true);
+        status: false, errorMsg: e.toString(), isException: true);
   }
 }
 

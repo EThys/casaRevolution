@@ -54,7 +54,9 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
 
   /// Mobile Money : validation push + latence réseau.
   /// Attente notification STOMP : Mobile Money et carte (même délai).
-  static const Duration _kStompWaitTimeout = Duration(minutes: 1);
+  // UX: si l’utilisateur annule côté opérateur / interface externe et que le backend
+  // ne push pas immédiatement un event STOMP, on ne doit pas bloquer l’écran trop longtemps.
+  static const Duration _kStompWaitTimeout = Duration(seconds: 20);
 
   @override
   void initState() {
@@ -1138,7 +1140,7 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text("NUMÉRO DE RÉCEPTION", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFF6B7280), letterSpacing: 0.5)),
+            Text("Votre numéro", style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w700, color: const Color(0xFF6B7280), letterSpacing: 0.5)),
             _buildNetworkStatusRow(),
           ],
         ),

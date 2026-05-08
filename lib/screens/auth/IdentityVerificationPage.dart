@@ -12,6 +12,7 @@ import 'package:casa/utils/requetes.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../camera/SelfieCameraScreen.dart';
 import '../camera/DocumentCameraScreen.dart';
@@ -86,6 +87,40 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   final ImagePicker _picker = ImagePicker();
   bool _profilePhotoIsExisting = false;
 
+  Future<File> _persistPickedImage(File source, {required String prefix}) async {
+    // Certains fichiers (caméra / cache) peuvent disparaître entre la capture et l'envoi en prod.
+    // On copie donc dans un dossier persistant propre à l'app.
+    final supportDir = await getApplicationSupportDirectory();
+    final kycDir = Directory('${supportDir.path}/kyc_images');
+    if (!await kycDir.exists()) {
+      await kycDir.create(recursive: true);
+    }
+
+    // Préserver l’extension si possible.
+    final name = source.path.split('/').last;
+    final dot = name.lastIndexOf('.');
+    final ext = (dot >= 0 && dot < name.length - 1) ? name.substring(dot) : '.jpg';
+    final dst = File('${kycDir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}$ext');
+    try {
+      return await source.copy(dst.path);
+    } catch (_) {
+      // Fallback: si copy échoue (permissions, etc.), garder le fichier initial.
+      return source;
+    }
+  }
+
+  Future<String?> _ensureFileExists(File? f, String label) async {
+    if (f == null) return "Fichier manquant ($label).";
+    try {
+      if (!await f.exists()) {
+        return "La photo $label n'est plus disponible. Reprenez-la puis réessayez.";
+      }
+    } catch (_) {
+      return "Impossible d'accéder à la photo $label. Reprenez-la puis réessayez.";
+    }
+    return null;
+  }
+
   Future<void> _prefillProfilePhotoIfAvailable() async {
     if (_imageProfile != null) return;
     try {
@@ -121,9 +156,13 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       if (resp.statusCode < 200 || resp.statusCode >= 300) return;
       final bytes = await consolidateHttpClientResponseBytes(resp);
 
-      // Sauvegarder en temp pour réutiliser FileImage + base64Encode(readAsBytes()).
-      final tmpDir = Directory.systemTemp;
-      final tmp = File('${tmpDir.path}/casanayo_profile_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      // Sauvegarder dans support dir pour éviter les suppressions de cache en prod.
+      final supportDir = await getApplicationSupportDirectory();
+      final kycDir = Directory('${supportDir.path}/kyc_images');
+      if (!await kycDir.exists()) {
+        await kycDir.create(recursive: true);
+      }
+      final tmp = File('${kycDir.path}/profile_prefill_${DateTime.now().millisecondsSinceEpoch}.jpg');
       await tmp.writeAsBytes(bytes, flush: true);
       if (!mounted) return;
       setState(() {
@@ -424,8 +463,10 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         }
 
         if (mounted && imagePath != null && imagePath.isNotEmpty) {
+          final persisted = await _persistPickedImage(File(imagePath!), prefix: 'profile');
+          if (!mounted) return;
           setState(() {
-            _imageProfile = File(imagePath!);
+            _imageProfile = persisted;
             _profilePhotoIsExisting = false; // l'utilisateur a choisi une nouvelle photo
           });
         }
@@ -449,11 +490,16 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
 
       // Only update state if widget is still mounted and we have a valid path
       if (mounted && imagePath != null && imagePath.isNotEmpty) {
+        final persisted = await _persistPickedImage(
+          File(imagePath!),
+          prefix: isFront ? 'card_front' : 'card_back',
+        );
+        if (!mounted) return;
         setState(() {
           if (isFront) {
-            _imageFront = File(imagePath!);
+            _imageFront = persisted;
           } else {
-            _imageBack = File(imagePath!);
+            _imageBack = persisted;
           }
         });
       }
@@ -520,6 +566,27 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     }
 
     try {
+      final missingProfile = await _ensureFileExists(_imageProfile, "de profil");
+      if (missingProfile != null) {
+        FancyNotification.show(context, missingProfile, isError: true);
+        setState(() => _isLoading = false);
+        return;
+      }
+      final missingFront = await _ensureFileExists(_imageFront, "recto");
+      if (missingFront != null) {
+        FancyNotification.show(context, missingFront, isError: true);
+        setState(() => _isLoading = false);
+        return;
+      }
+      if (_selectedCardTypeId != 2) {
+        final missingBack = await _ensureFileExists(_imageBack, "verso");
+        if (missingBack != null) {
+          FancyNotification.show(context, missingBack, isError: true);
+          setState(() => _isLoading = false);
+          return;
+        }
+      }
+
       final authCtrl = context.read<AuthentificationCtrl>();
       if (authCtrl.user.userId == null) {
         throw Exception("Utilisateur non identifié");
@@ -831,10 +898,6 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                     icon: Icons.numbers,
                     validator: (val) {
                       if (!isCardTypeSelected) return null;
-                      final s = (val ?? '').trim();
-                      if (s.isEmpty) {
-                        return "Veuillez entrer le numéro indiqué sur la pièce";
-                      }
                       return null;
                     },
                     onChanged: () {

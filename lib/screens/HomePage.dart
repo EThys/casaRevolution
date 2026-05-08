@@ -1802,12 +1802,13 @@ class _HomePageState extends State<HomePage> {
                               bool showMesProprietes = false;
                               bool showMesServices = false;
                               bool showMonAgence = false;
+                              bool isGerant = false;
 
                               // Analyser user_accounts
                               if (userAccounts != null &&
                                   userAccounts is List) {
                                 // Vérifier d'abord si Gérant est présent
-                                bool isGerant = userAccounts.any((acc) {
+                                isGerant = userAccounts.any((acc) {
                                   final typeId = (acc['typeAccount']
                                           ?['typeAccountId'] ??
                                       (acc['typeAccountId'] ??
@@ -1826,6 +1827,9 @@ class _HomePageState extends State<HomePage> {
                                 // Gérant -> voit Mon Agence
                                 if (isGerant) {
                                   showMonAgence = true;
+                                // Le gérant est aussi un owner: il doit voir "Mes propriétés"
+                                // (ex. salles de fête / funéraires).
+                                showMesProprietes = true;
                                 }
 
                                 for (var acc in userAccounts) {
@@ -1840,7 +1844,7 @@ class _HomePageState extends State<HomePage> {
                                   final accId = acc['id']; // id du compte
 
                                   // Propriétaire (typeAccountId == 2)
-                                  // MAIS EXCLURE GÉRANT (qui a aussi typeAccountId == 2)
+                                  // (le gérant est déjà autorisé via showMesProprietes)
                                   if (typeId == 2) {
                                     // Si c'est un gérant, on l'a déjà traité pour showMonAgence
                                     // Si ce N'EST PAS un gérant, alors c'est Commissionnaire ou Bailleur -> voit Mes Propriétés
@@ -1859,11 +1863,11 @@ class _HomePageState extends State<HomePage> {
 
                               return Column(
                                 children: [
-                                  // "Mes propriétés" - Seulement pour Commissionnaire/Bailleur (PAS Gérant)
+                                  // "Mes propriétés" - Commissionnaire/Bailleur + Gérant
                                   if (showMesProprietes)
                                     _buildDrawerItem(
                                       icon: Icons.apartment_rounded,
-                                      title: 'Mes propriétés',
+                                      title: isGerant ? 'Mes salles' : 'Mes propriétés',
                                       routeName: Routes.myPropertiesRoute,
                                       isSelected: selectedRoute ==
                                           Routes.myPropertiesRoute,

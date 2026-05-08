@@ -839,6 +839,10 @@ class AuthentificationCtrl with ChangeNotifier {
       var tkn = token;
 
       print("Suppression du compte en cours...");
+      print("🌐 [deleteAccount] Endpoint: $url");
+      print("🌐 [deleteAccount] Base: ${Constantes.BASE_URL}");
+      print("🌐 [deleteAccount] URL complète: ${Constantes.BASE_URL}$url");
+      print("🔐 [deleteAccount] Token utilisateur présent: ${tkn.trim().isNotEmpty ? 'Oui (${tkn.trim().length} caractères)' : 'Non'}");
       // Habituellement on envoie le userId ou c'est géré via le token
       final response = await deleteData(url, token: tkn);
 
@@ -846,7 +850,12 @@ class AuthentificationCtrl with ChangeNotifier {
         print("Compte supprimé avec succès sur le serveur");
         await _clearLocalAuthData();
       } else {
-        print("Échec de la suppression du compte");
+        print("❌ Échec de la suppression du compte");
+        print("🌐 [deleteAccount] httpStatus: ${response.httpStatus}");
+        print("🌐 [deleteAccount] errorMsg: ${response.errorMsg}");
+        try {
+          print("🌐 [deleteAccount] data: ${response.data}");
+        } catch (_) {}
       }
 
       loading = false;
@@ -891,8 +900,21 @@ class AuthentificationCtrl with ChangeNotifier {
       await stockage?.remove('card_back_path');
       await stockage?.remove('user_accounts');
       await stockage?.remove('published_properties_count');
+      await stockage?.remove('publication_count_last_update');
       await stockage?.remove('referrals_count');
       await stockage?.remove('user_data'); 
+
+      // Sécurité: supprimer toute variante éventuelle (clé suffixée/prefixée) de ces compteurs.
+      try {
+        final keys = stockage?.getKeys() ?? <String>{};
+        for (final k in keys) {
+          if (k.contains('published_properties_count') ||
+              k.contains('publication_count_last_update') ||
+              k.contains('referrals_count')) {
+            await stockage?.remove(k);
+          }
+        }
+      } catch (_) {}
 
       // NETTOYAGE RADICAL DES BASES DE DONNÉES SQL (Sécurité totale)
       try {

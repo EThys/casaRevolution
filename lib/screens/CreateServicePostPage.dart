@@ -24,6 +24,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:casa/utils/requetes.dart';
 import 'package:casa/utils/crashlytics_api.dart';
@@ -87,6 +88,27 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   bool _isLoading = false;
   int _currentStep = 0;
   final ImagePicker _picker = ImagePicker();
+
+  Future<XFile> _persistPickedXFile(XFile x, {required String prefix}) async {
+    final src = File(x.path);
+    if (!await src.exists()) return x;
+
+    final supportDir = await getApplicationSupportDirectory();
+    final dir = Directory('${supportDir.path}/persisted_images');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    final name = x.path.replaceAll('\\', '/').split('/').last;
+    final dot = name.lastIndexOf('.');
+    final ext = (dot >= 0 && dot < name.length - 1) ? name.substring(dot) : '.jpg';
+    final dst = File('${dir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}$ext');
+    try {
+      final copied = await src.copy(dst.path);
+      return XFile(copied.path);
+    } catch (_) {
+      return x;
+    }
+  }
   late PageController _pageController;
   
   // Images: Photo principale = visage, Photos de réalisations
@@ -1318,6 +1340,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               _profileImage = XFile(imagePath);
               _validateStep(0);
             });
+            try {
+              final persisted = await _persistPickedXFile(_profileImage!, prefix: 'service_profile');
+              if (!mounted) return;
+              setState(() => _profileImage = persisted);
+            } catch (_) {}
           }
         } catch (e) {
           print('Erreur lors de la capture du selfie: $e');
@@ -1343,6 +1370,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               _profileImage = file;
               _validateStep(0);
             });
+            try {
+              final persisted = await _persistPickedXFile(file, prefix: 'service_profile');
+              if (!mounted) return;
+              setState(() => _profileImage = persisted);
+            } catch (_) {}
           }
         } catch (e) {
           print('Erreur lors du choix en galerie: $e');
@@ -1388,9 +1420,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             maxWidth: 1440,
           );
           if (!mounted || image == null) return;
+          final persisted = await _persistPickedXFile(image, prefix: 'service_portfolio');
+          if (!mounted) return;
           setState(() {
             _markFieldTouched('portfolio_images');
-            _portfolioImages.add(image);
+            _portfolioImages.add(persisted);
             _validateStep(0);
           });
         } catch (e) {
@@ -1413,11 +1447,18 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           );
           if (!mounted || list.isEmpty) return;
           final n = list.length > remaining ? remaining : list.length;
+          final persisted = <XFile>[];
+          for (var i = 0; i < n; i++) {
+            try {
+              persisted.add(await _persistPickedXFile(list[i], prefix: 'service_portfolio'));
+            } catch (_) {
+              persisted.add(list[i]);
+            }
+          }
+          if (!mounted) return;
           setState(() {
             _markFieldTouched('portfolio_images');
-            for (var i = 0; i < n; i++) {
-              _portfolioImages.add(list[i]);
-            }
+            _portfolioImages.addAll(persisted);
             _validateStep(0);
           });
           if (list.length > remaining && mounted) {
@@ -1908,7 +1949,17 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       // Photo de profil (obligatoire, en base64)
       String? profileBase64;
       if (_profileImage != null) {
-        final profileBytes = await File(_profileImage!.path).readAsBytes();
+        final f = File(_profileImage!.path);
+        if (!await f.exists()) {
+          FancyNotification.show(
+            context,
+            "La photo de profil n'est plus disponible. Reprenez-la puis réessayez.",
+            isError: true,
+          );
+          setState(() => _isLoading = false);
+          return;
+        }
+        final profileBytes = await f.readAsBytes();
         profileBase64 = base64Encode(profileBytes);
         print("✅ [CreateService] Photo de profil convertie en base64");
       } else {
@@ -1924,9 +1975,16 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       
       // Images de portfolio (multiples)
       for (var img in _portfolioImages) {
-        final bytes = await File(img.path).readAsBytes();
-        final base64Image = base64Encode(bytes);
-        imagesPayload.add({"image": base64Image});
+        final f = File(img.path);
+        if (!await f.exists()) {
+          // Ne pas crasher si une image a été nettoyée du cache.
+          continue;
+        }
+        try {
+          final bytes = await f.readAsBytes();
+          final base64Image = base64Encode(bytes);
+          imagesPayload.add({"image": base64Image});
+        } catch (_) {}
       }
       
       // Si aucune image de portfolio n'est ajoutée, ajouter une image vide pour éviter erreur backend si requis

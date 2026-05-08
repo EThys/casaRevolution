@@ -792,6 +792,65 @@ class _MyServicesPageState extends State<MyServicesPage>
     }
   }
 
+  Future<void> _togglePrestationActive(PrestationModel prestation) async {
+    final id = prestation.id;
+    if (id == null) return;
+    final me = _currentUserIdFromStorage();
+    if (me == null || prestation.userId != me) return;
+
+    final nextActive = !(prestation.isActive == true);
+
+    setState(() {
+      final idx = _myPrestations.indexWhere((p) => p.id == id);
+      if (idx != -1) _myPrestations[idx].isActive = nextActive;
+    });
+
+    try {
+      final serviceCtrl = context.read<ServiceController>();
+      final resp = await serviceCtrl.updatePrestationPut(id, {
+        // API migration: disponibilité via `status`
+        // (on garde aussi les anciens champs en fallback si backend mixte).
+        'status': nextActive,
+        'active': nextActive,
+        'isActive': nextActive,
+      });
+
+      if (resp.status == true) {
+        FancyNotification.show(
+          context,
+          nextActive ? "Service rendu disponible" : "Service rendu indisponible",
+          type: NotificationType.success,
+        );
+      } else {
+        setState(() {
+          final idx = _myPrestations.indexWhere((p) => p.id == id);
+          if (idx != -1) _myPrestations[idx].isActive = !nextActive;
+        });
+        FancyNotification.show(
+          context,
+          resp.errorMsg ?? "Impossible de changer le statut. Réessayez.",
+          isError: true,
+        );
+      }
+    } catch (_) {
+      setState(() {
+        final idx = _myPrestations.indexWhere((p) => p.id == id);
+        if (idx != -1) _myPrestations[idx].isActive = !nextActive;
+      });
+      FancyNotification.show(
+        context,
+        "Erreur réseau. Réessayez.",
+        isError: true,
+      );
+    }
+  }
+
+  bool _isOwnerPrestation(PrestationModel p) {
+    final me = _currentUserIdFromStorage();
+    if (me == null) return false;
+    return p.userId != null && p.userId == me;
+  }
+
   void _navigateToCreateService() {
     SubscriptionHelper.checkCertifiedThenProceed(
       context: context,
@@ -1230,29 +1289,28 @@ class _MyServicesPageState extends State<MyServicesPage>
                       SizedBox(height: 4),
                       SizedBox(height: 8),
                       // Action Buttons
-                      if (!isGrid) // Use buttons primarily in List View where there is space
+                      if (!isGrid && _isOwnerPrestation(prestation)) // owner only
                         Row(
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: () {
-                                  if (prestation.id != null) {
-                                    Navigator.pushNamed(
-                                      context,
-                                      Routes.createServicePostRoute,
-                                      arguments: {'prestation': prestation},
-                                    ).then((result) {
-                                      if (result == true) {
-                                        _loadMyPrestations();
-                                      }
-                                    });
-                                  }
-                                },
-                                icon: Icon(Icons.edit,
-                                    size: 14, color: _primaryColor),
-                                label: Text("Modifier",
-                                    style: TextStyle(
-                                        fontSize: 12, color: _primaryColor)),
+                                onPressed: () => _togglePrestationActive(prestation),
+                                icon: Icon(
+                                  (prestation.isActive == true)
+                                      ? Icons.toggle_off_rounded
+                                      : Icons.toggle_on_rounded,
+                                  size: 16,
+                                  color: _primaryColor,
+                                ),
+                                label: Text(
+                                  (prestation.isActive == true)
+                                      ? "Rendre indisponible"
+                                      : "Rendre disponible",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _primaryColor,
+                                  ),
+                                ),
                                 style: OutlinedButton.styleFrom(
                                   alignment: Alignment.center,
                                   padding: EdgeInsets.symmetric(
@@ -1266,69 +1324,27 @@ class _MyServicesPageState extends State<MyServicesPage>
                                 ),
                               ),
                             ),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _deletePrestation(prestation),
-                                icon: Icon(Icons.delete,
-                                    size: 14, color: _errorColor),
-                                label: Text("Supprimer",
-                                    style: TextStyle(
-                                        fontSize: 12, color: _errorColor)),
-                                style: OutlinedButton.styleFrom(
-                                  alignment: Alignment.center,
-                                  padding: EdgeInsets.symmetric(
-                                      vertical: 0, horizontal: 8),
-                                  side: BorderSide(
-                                      color: _errorColor.withOpacity(0.5)),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8)),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              ),
-                            ),
                           ],
                         )
-                      else // In Grid View, keep simple menu or IconButtons
+                      else if (isGrid && _isOwnerPrestation(prestation)) // owner only
                         Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             InkWell(
-                              onTap: () {
-                                if (prestation.id != null) {
-                                  Navigator.pushNamed(
-                                    context,
-                                    Routes.createServicePostRoute,
-                                    arguments: {'prestation': prestation},
-                                  ).then((result) {
-                                    if (result == true) {
-                                      _loadMyPrestations();
-                                    }
-                                  });
-                                }
-                              },
+                              onTap: () => _togglePrestationActive(prestation),
                               child: Container(
                                 padding: EdgeInsets.all(4),
                                 decoration: BoxDecoration(
                                   color: _primaryColor.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: Icon(Icons.edit,
-                                    size: 16, color: _primaryColor),
-                              ),
-                            ),
-                            SizedBox(width: 8),
-                            InkWell(
-                              onTap: () => _deletePrestation(prestation),
-                              child: Container(
-                                padding: EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: _errorColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
+                                child: Icon(
+                                  (prestation.isActive == true)
+                                      ? Icons.toggle_off_rounded
+                                      : Icons.toggle_on_rounded,
+                                  size: 18,
+                                  color: _primaryColor,
                                 ),
-                                child: Icon(Icons.delete,
-                                    size: 16, color: _errorColor),
                               ),
                             ),
                           ],

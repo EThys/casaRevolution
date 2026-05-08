@@ -641,6 +641,9 @@ class ReservationController with ChangeNotifier {
 
         // Notifier le client (ou l’hôte selon qui annule) — push / file WebSocket côté serveur.
         await _notifyReservationPartyAfterCancellation(reservationId, tkn);
+        if (kDebugMode) {
+          print("📡 [ReservationController] Annulation: notification WebSocket déclenchée (reservationId=$reservationId)");
+        }
       }
 
       loading = false;
@@ -848,20 +851,37 @@ class ReservationController with ChangeNotifier {
   }
 
   // Valider une réservation et envoyer une notification
-  Future<HttpResponse> validateReservation(int reservationId, bool isValid) async {
+  //
+  // Important: on met à jour le statut via `/protected/reservations/.../update/status/{id}`.
+  // L’endpoint `.../notification/state/{id}/{true|false}` peut échouer côté serveur (500)
+  // et ne doit pas bloquer l’action principale.
+  Future<HttpResponse> validateReservation(
+    int reservationId,
+    bool isValid, {
+    ReservationModel? reservation,
+  }) async {
     try {
       loading = true;
       notifyListeners();
 
-      final url = "${Endpoints.validateReservationNotification}$reservationId/$isValid";
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final status = isValid ? 'CONFIRMED' : 'REJECTED';
 
-      print("🌐 [ReservationController] Validation réservation: $url");
+      final base = reservation != null
+          ? _protectedReservationStatusBase(reservation)
+          : Endpoints.updateReservationStandardStatusProtected;
+      final updateUrl = "$base$reservationId";
 
-      // La requête est spécifiée comme PUT par l'utilisateur
-      HttpResponse response = await putData(url, {}, token: tkn);
-
-      print("📡 [ReservationController] Réponse API détaillée: ${response.data}");
+      print("🌐 [ReservationController] Validation réservation (update status): $updateUrl");
+      final response = await putData(
+        updateUrl,
+        <String, dynamic>{
+          'status': status,
+          'userId': _currentUserIdAsInt(),
+        },
+        token: tkn,
+      );
+      print("📡 [ReservationController] Réponse update status: ${response.data}");
 
       if (response.status == true) {
         print("✅ [ReservationController] Réservation $reservationId validée avec succès");
@@ -869,10 +889,24 @@ class ReservationController with ChangeNotifier {
         // Mettre à jour localement si nécessaire
         final index = reservations.indexWhere((r) => r.reservationId == reservationId);
         if (index != -1) {
-          reservations[index].status = isValid ? 'CONFIRMED' : 'REJECTED';
+          reservations[index].status = status;
         }
 
-        // await getAllReservations(); // Supprimé pour éviter de ralentir l'UI (déjà actualisé par l'appelant)
+        // Notification websocket/push (best effort)
+        try {
+          final notifUrl =
+              "${Endpoints.validateReservationNotification}$reservationId/$isValid";
+          final notifResp = await putData(notifUrl, <String, dynamic>{}, token: tkn);
+          if (kDebugMode) {
+            print(
+              "🔔 [ReservationController] Notification validation → $notifUrl (ok=${notifResp.status} http=${notifResp.httpStatus})",
+            );
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print("⚠️ [ReservationController] Notification validation ignorée: $e");
+          }
+        }
       }
 
       loading = false;

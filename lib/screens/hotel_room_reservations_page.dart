@@ -51,6 +51,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
   late List<ReservationModel> _items;
   pw.MemoryImage? _logoImage;
   bool _busy = false;
+  bool _showingCancelSheet = false;
   final List<String> _cancellingIds = [];
 
   static const Color _primaryColor = Color(0xFF1976D2);
@@ -259,15 +260,111 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
   }
 
   void _showHostActionSuccessDialog(ReservationModel reservation) {
-    ModernModal.showSuccess(
+    // Uniformisation UX: utiliser le même modèle que le bottomsheet (Partager / Télécharger).
+    showModalBottomSheet<void>(
       context: context,
-      title: "Réservation validée",
-      message:
-          "Vous avez confirmé cette réservation de chambre. Le client a été notifié. Vous pouvez partager ou télécharger le bon maintenant.",
-      actionLabel: "PARTAGER LE BON",
-      onAction: () => _shareReservationPdf(reservation),
-      secondaryLabel: "TÉLÉCHARGER (PDF)",
-      onSecondary: () => _downloadReservationPdf(reservation),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return SafeArea(
+          top: false,
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            padding: EdgeInsets.fromLTRB(24, 16, 24, 24 + MediaQuery.of(sheetContext).padding.bottom),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  "Réservation validée",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: _darkColor),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  "Vous avez confirmé cette réservation de chambre. Le client a été notifié. Vous pouvez partager ou télécharger le bon maintenant.",
+                  style: TextStyle(color: _mediumGrey, height: 1.35),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async => await _shareReservationPdf(reservation),
+                        icon: const Icon(Icons.ios_share_rounded, color: _primaryColor),
+                        label: Text(
+                          "Partager le bon",
+                          style: TextStyle(
+                            color: _darkColor.withOpacity(0.9),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          side: BorderSide(
+                            color: _primaryColor.withOpacity(0.3),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async => await _downloadReservationPdf(reservation),
+                        icon: const Icon(Icons.download_rounded, color: _primaryColor),
+                        label: Text(
+                          "Télécharger (PDF)",
+                          style: TextStyle(
+                            color: _darkColor.withOpacity(0.9),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          side: BorderSide(
+                            color: _primaryColor.withOpacity(0.3),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(sheetContext),
+                    child: const Text(
+                      "Fermer",
+                      style: TextStyle(color: _mediumGrey, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -283,6 +380,13 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
     String? reason;
 
     if (action == 'CANCELLED') {
+      // Important: éviter les bottom sheets imbriqués (host management sheet -> cancel reason sheet),
+      // ça peut déclencher des erreurs Overlay/GlobalKey sur certains devices.
+      if (fromBottomSheet && mounted) {
+        Navigator.pop(context);
+        // Laisser une frame au Navigator/Overlay pour se stabiliser.
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+      }
       final result = await _showHostRefuseDialog();
       if (result != null && result['confirmed'] == true) {
         confirm = true;
@@ -295,9 +399,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
 
     if (!confirm) return;
 
-    if (fromBottomSheet && mounted) {
-      Navigator.pop(context);
-    }
+    // Si on venait du bottom sheet, on l'a déjà fermé au-dessus avant d'ouvrir le dialog de raison.
 
     setState(() => _busy = true);
     final rid = reservation.reservationId!.toString();
@@ -316,10 +418,19 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
     try {
       HttpResponse? lastResp;
       bool success = false;
+
+      // Logs UX: endpoint/payload/réponse détaillés sont loggés par putData().
+      print('📌 [HotelRoomReservationsPage] action=$action reservationId=${reservation.reservationId} roomId=${widget.roomId}');
+      try {
+        print('📌 [HotelRoomReservationsPage] status=${reservation.status} type=${reservation.type} hotelId=${reservation.hotelId} chambreId=${reservation.chambreId}');
+      } catch (_) {}
+
       if (action == 'CANCELLED') {
+        final usedReason = reason ?? "Refusé par l'hôte";
+        print('📤 [HotelRoomReservationsPage] cancelReservation payload: {"status":"CANCELLED","reason":"$usedReason","userId":...}');
         lastResp = await ctrl.cancelReservation(
           reservation.reservationId!,
-          reason ?? "Refusé par l'hôte",
+          usedReason,
           reservation: reservation,
         );
         success = lastResp.status == true;
@@ -335,7 +446,12 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
           }
         }
       } else {
-        lastResp = await ctrl.validateReservation(reservation.reservationId!, true);
+        print('📤 [HotelRoomReservationsPage] validateReservation isValid=true');
+        lastResp = await ctrl.validateReservation(
+          reservation.reservationId!,
+          true,
+          reservation: reservation,
+        );
         success = lastResp.status == true;
         if (success) {
           _patchLocalStatus(reservation.reservationId, 'CONFIRMED');
@@ -345,6 +461,11 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
           }
         }
       }
+
+      try {
+        print('📌 [HotelRoomReservationsPage] result ok=$success httpStatus=${lastResp?.httpStatus} errorMsg=${lastResp?.errorMsg}');
+        print('📌 [HotelRoomReservationsPage] data=${lastResp?.data}');
+      } catch (_) {}
 
       if (success) {
         widget.onParentRefresh?.call();
@@ -386,193 +507,21 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
   }
 
   Future<Map<String, dynamic>?> _showHostRefuseDialog() async {
-    final reasonController = TextEditingController();
+    if (_showingCancelSheet) return null;
+    _showingCancelSheet = true;
     try {
-      return await showDialog<Map<String, dynamic>>(
+      return await showModalBottomSheet<Map<String, dynamic>>(
         context: context,
-        barrierDismissible: false,
-        builder: (context) {
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  )
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 24),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFFEBEE),
-                      borderRadius:
-                          BorderRadius.vertical(top: Radius.circular(24)),
-                    ),
-                    child: Center(
-                      child: Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFFFFEBEE).withOpacity(0.5),
-                              blurRadius: 10,
-                              spreadRadius: 5,
-                            )
-                          ],
-                        ),
-                        child: const Icon(Icons.cancel_outlined,
-                            color: Color(0xFFD32F2F), size: 36),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'Refuser la réservation ?',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1A1A1A),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFF9C4).withOpacity(0.3),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                                color: const Color(0xFFFBC02D).withOpacity(0.2)),
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.info_outline,
-                                  color: Color(0xFFFBC02D), size: 20),
-                              SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Cette action refusera définitivement la demande du client.',
-                                  style: TextStyle(
-                                    color: Color(0xFF5D4037),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'Motif du refus (optionnel)',
-                            style: TextStyle(
-                              color: Color(0xFF666666),
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: reasonController,
-                          maxLines: 3,
-                          style: const TextStyle(fontSize: 14),
-                          decoration: InputDecoration(
-                            hintText:
-                                'Ex: dates non disponibles, capacité atteinte…',
-                            hintStyle: const TextStyle(
-                                color: Color(0xFFAAAAAA), fontSize: 14),
-                            fillColor: Color(0xFFF5F5F5),
-                            filled: true,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.all(16),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                    child: Column(
-                      children: [
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              final reason = reasonController.text.trim().isEmpty
-                                  ? "Refusé par l'hôte"
-                                  : reasonController.text.trim();
-                              Navigator.pop(context, {
-                                'confirmed': true,
-                                'reason': reason,
-                              });
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFD32F2F),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                            child: const Text(
-                              'Confirmer le refus',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: TextButton(
-                            onPressed: () => Navigator.pop(context, null),
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                            ),
-                            child: const Text(
-                              'Annuler',
-                              style: TextStyle(
-                                color: Color(0xFF666666),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+        useRootNavigator: true,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) => const _HostRoomCancelReasonSheet(),
       );
     } finally {
-      reasonController.dispose();
+      _showingCancelSheet = false;
     }
   }
+
 
   Future<bool?> _showHostValidateDialog() async {
     return showDialog<bool>(
@@ -1613,6 +1562,234 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
           if (_busy)
             const Center(child: CircularProgressIndicator()),
         ],
+      ),
+    );
+  }
+}
+
+/// Bottom sheet « annuler » (même principe que [BookingHistoryPage]) : le [TextEditingController]
+/// vit dans l’état du sheet et n’est disposé qu’à la destruction de la route (évite IME / focus après dispose).
+class _HostRoomCancelReasonSheet extends StatefulWidget {
+  const _HostRoomCancelReasonSheet();
+
+  @override
+  State<_HostRoomCancelReasonSheet> createState() => _HostRoomCancelReasonSheetState();
+}
+
+class _HostRoomCancelReasonSheetState extends State<_HostRoomCancelReasonSheet> {
+  final TextEditingController _reasonController = TextEditingController();
+  bool _isSheetLoading = false;
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  void _onConfirm() {
+    final reason = _reasonController.text.trim();
+    if (reason.isEmpty) {
+      FancyNotification.show(context, "Veuillez entrer une raison simple");
+      return;
+    }
+    setState(() => _isSheetLoading = true);
+    Navigator.pop(context, {
+      'confirmed': true,
+      'reason': reason,
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SafeArea(
+        top: false,
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.12),
+                blurRadius: 24,
+                offset: const Offset(0, -8),
+              ),
+            ],
+          ),
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 22),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFFEBEE),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFFFEBEE).withOpacity(0.55),
+                            blurRadius: 10,
+                            spreadRadius: 5,
+                          )
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.warning_amber_rounded,
+                        color: Color(0xFFD32F2F),
+                        size: 36,
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 22, 24, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Center(
+                        child: Text(
+                          'Annuler la réservation ?',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1A1A1A),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF9C4).withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: const Color(0xFFFBC02D).withOpacity(0.2),
+                          ),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.info_outline, color: Color(0xFFFBC02D), size: 20),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Attention : Cette action est définitive.',
+                                style: TextStyle(
+                                  color: Color(0xFF5D4037),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Pourquoi souhaitez-vous annuler ?',
+                        style: TextStyle(
+                          color: Color(0xFF666666),
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _reasonController,
+                        enabled: !_isSheetLoading,
+                        maxLines: 3,
+                        style: const TextStyle(fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Ex: empêchement de dernière minute…',
+                          hintStyle: const TextStyle(
+                            color: Color(0xFFAAAAAA),
+                            fontSize: 14,
+                          ),
+                          fillColor: const Color(0xFFF5F5F5),
+                          filled: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.all(16),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isSheetLoading ? null : _onConfirm,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFD32F2F),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: _isSheetLoading
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Confirmer l\'annulation',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton(
+                          onPressed: _isSheetLoading ? null : () => Navigator.pop(context),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                          child: const Text(
+                            'Garder la réservation',
+                            style: TextStyle(
+                              color: Color(0xFF666666),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

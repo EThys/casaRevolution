@@ -3,7 +3,10 @@ import 'package:casa/screens/auth/DecertificationInfoPage.dart';
 import 'package:casa/screens/auth/IdentityVerificationPage.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/models/PropertyTypeModel.dart';
 import 'package:casa/models/TerrainModel.dart';
+import 'package:casa/models/ReservationModel.dart';
+import 'package:casa/models/UserModel.dart';
 import 'package:casa/utils/Endpoints.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
@@ -15,6 +18,7 @@ import 'package:casa/utils/currency_display.dart';
 import 'package:casa/utils/api_error_message.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/property_availability_ui.dart';
+import 'package:casa/utils/reservation_pdf_bytes.dart';
 import 'package:casa/widgets/property_sold_badge.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -224,6 +228,147 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
 
   Future<Uint8List> _buildReservationPdfBytes() async {
     final summary = _lastReservationSummary;
+    // Uniformiser le document: utiliser le même générateur que BookingHistoryPage (bottomsheet).
+    // On tente d'abord de reconstruire un ReservationModel depuis la réponse API.
+    try {
+      final responseData = summary?['responseData'];
+      if (responseData is Map) {
+        final parsed = ReservationModel.fromJson(
+          Map<String, dynamic>.from(responseData as Map),
+        );
+
+        // Garder les mêmes props qu'avant (BookingVisitPage) pour les champs PDF:
+        // adresse, type de propriété, annonceur (propriétaire).
+        final rd = Map<String, dynamic>.from(responseData as Map);
+        final reservationData = rd['reservation'] is Map
+            ? Map<String, dynamic>.from(rd['reservation'] as Map)
+            : <String, dynamic>{};
+        final innerReservation = reservationData['reservation'] is Map
+            ? Map<String, dynamic>.from(reservationData['reservation'] as Map)
+            : <String, dynamic>{};
+
+        Map<String, dynamic>? propertyData;
+        for (final k in ['property', 'chambre', 'terrain', 'vacance', 'bureau', 'festive', 'funeraire']) {
+          final v = reservationData[k];
+          if (v is Map) {
+            propertyData = Map<String, dynamic>.from(v);
+            break;
+          }
+        }
+
+        final proprietaireData =
+            rd['proprietaire'] is Map ? Map<String, dynamic>.from(rd['proprietaire'] as Map) : null;
+        final publisherData = proprietaireData ??
+            (propertyData?['user'] is Map ? Map<String, dynamic>.from(propertyData?['user'] as Map) : null);
+
+        String cleanAddress(dynamic raw) {
+          if (raw == null) return '';
+          final str = raw.toString();
+          if (str.contains('{') && str.contains('}')) {
+            final match = RegExp(r'(?:adresse|address)\\s?[:=]\\s?([^,}]+)').firstMatch(str);
+            if (match != null) {
+              return (match.group(1) ?? '')
+                  .trim()
+                  .replaceAll('"', '')
+                  .replaceAll("'", '');
+            }
+          }
+          return str.trim();
+        }
+
+        String? pickTypeName(dynamic raw) {
+          if (raw == null) return null;
+          if (raw is Map) {
+            final m = Map<String, dynamic>.from(raw);
+            final n = m['name']?.toString().trim();
+            if (n != null && n.isNotEmpty) return n;
+          }
+          final s = raw.toString().trim();
+          return s.isEmpty ? null : s;
+        }
+
+        // Adresse (priorités BookingVisitPage: adresseVacance / adresseHotel / address + commune/city)
+        final adresseVacance = rd['adresseVacance'] ?? reservationData['adresseVacance'] ?? propertyData?['adresseVacance'];
+        final adresseHotel = rd['adresseHotel'] ?? reservationData['adresseHotel'] ?? propertyData?['adresseHotel'];
+        final baseAddr = cleanAddress(adresseVacance ?? adresseHotel ?? propertyData?['address']);
+
+        final communeName = (propertyData?['commune'] is Map)
+                ? (propertyData?['commune']['name']?.toString() ?? '')
+                : (propertyData?['communeValue']?.toString() ?? '');
+        final cityName = (propertyData?['city'] is Map)
+                ? (propertyData?['city']['name']?.toString() ?? '')
+                : (propertyData?['cityValue']?.toString() ?? '');
+        final countryName = (propertyData?['country'] is Map)
+                ? (propertyData?['country']['name']?.toString() ?? '')
+                : (propertyData?['countryValue']?.toString() ?? '');
+        final quartierName = (propertyData?['quartier'] is Map)
+                ? (propertyData?['quartier']['name']?.toString() ?? '')
+                : (propertyData?['quartierValue']?.toString() ?? '');
+        final fullAddr = [baseAddr, communeName, cityName].where((e) => e.trim().isNotEmpty).join(', ');
+
+        final typeName = pickTypeName(rd['typeProperty']) ??
+            pickTypeName(reservationData['typeProperty']) ??
+            pickTypeName(propertyData?['typeProperty']);
+
+        // Annonceur: name + phone comme avant
+        final postByStr = propertyData?['postBy']?.toString();
+        final publisherName = (postByStr != null && postByStr.trim().isNotEmpty)
+            ? postByStr.trim()
+            : (publisherData?['username']?.toString() ??
+                publisherData?['email']?.toString() ??
+                'Non renseigné');
+        final publisherPhone = rd['postByTel']?.toString() ??
+            reservationData['postByTel']?.toString() ??
+            propertyData?['postByTel']?.toString() ??
+            publisherData?['phone']?.toString();
+
+        final baseProp = parsed.property ??
+            (widget.property is PropertyModel ? widget.property as PropertyModel : null);
+
+        final nextProperty = baseProp?.copyWith(
+              address: fullAddr.isNotEmpty ? fullAddr : null,
+              communeValue: communeName.isNotEmpty ? communeName : null,
+              cityValue: cityName.isNotEmpty ? cityName : null,
+              countryValue: countryName.isNotEmpty ? countryName : null,
+              quartierValue: quartierName.isNotEmpty ? quartierName : null,
+              postBy: publisherName?.toString(),
+              user: publisherData != null ? UserModel.fromJson(publisherData) : null,
+              propertyType: typeName != null ? PropertyTypeModel(name: typeName) : null,
+            );
+
+        final patched = ReservationModel(
+          reservationId: parsed.reservationId,
+          user: parsed.user,
+          proprietaire: parsed.proprietaire,
+          property: nextProperty ?? parsed.property,
+          message: parsed.message,
+          status: parsed.status,
+          type: parsed.type,
+          reservationHeure: parsed.reservationHeure,
+          cancellationReason: parsed.cancellationReason,
+          startDate: parsed.startDate,
+          endDate: parsed.endDate,
+          createdAt: parsed.createdAt,
+          active: parsed.active,
+          terrainId: parsed.terrainId,
+          bureauId: parsed.bureauId,
+          vacanceId: parsed.vacanceId,
+          festiveId: parsed.festiveId,
+          funeraireId: parsed.funeraireId,
+          hotelId: parsed.hotelId,
+          chambreId: parsed.chambreId,
+          userImage: parsed.userImage,
+          postByTel: (publisherPhone != null && publisherPhone.toString().trim().isNotEmpty)
+              ? publisherPhone.toString()
+              : parsed.postByTel,
+        );
+
+        return await buildReservationPdfBytes(patched, null);
+      }
+    } catch (_) {
+      // Fallback sur l'ancien PDF spécifique à BookingVisitPage si parsing impossible.
+    }
+
     final doc = pw.Document();
     
     pw.Font? ttf;
@@ -237,14 +382,27 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     // Extraire les données de la réponse API si disponibles
     final responseData = summary?['responseData'] as Map<String, dynamic>?;
     final reservationData = responseData?['reservation'] as Map<String, dynamic>?;
-    final propertyData = reservationData?['property'] as Map<String, dynamic>?;
-    final publisherData = propertyData?['user'] as Map<String, dynamic>?;
+
+    // Selon l’endpoint: la réponse peut contenir `property`, ou `chambre`, ou `terrain`, etc.
+    // Pour les chambres d’hôtel: `reservation.chambre` + `proprietaire` au top-level.
+    final propertyData = (reservationData?['property'] as Map<String, dynamic>?) ??
+        (reservationData?['chambre'] as Map<String, dynamic>?) ??
+        (reservationData?['terrain'] as Map<String, dynamic>?) ??
+        (reservationData?['vacance'] as Map<String, dynamic>?) ??
+        (reservationData?['bureau'] as Map<String, dynamic>?) ??
+        (reservationData?['festive'] as Map<String, dynamic>?) ??
+        (reservationData?['funeraire'] as Map<String, dynamic>?);
+
+    // Annonceur: priorité à `proprietaire` (nouveau payload API), sinon fallback sur `property.user`.
+    final proprietaireData = responseData?['proprietaire'] as Map<String, dynamic>?;
+    final publisherData =
+        proprietaireData ?? (propertyData?['user'] as Map<String, dynamic>?);
     final typeAccountData = publisherData?['typeAccount'] as Map<String, dynamic>?;
 
     // Infos propriétaire/commissionnaire depuis la réponse API
     // PRIORITÉ au postBy comme demandé par l'utilisateur
     final publisherEmail = publisherData?['email']?.toString();
-    final publisherName = propertyData?['postBy']?.toString() ??
+    final publisherName = (propertyData?['postBy']?.toString()) ??
         publisherData?['username']?.toString() ??
         (publisherEmail != null ? publisherEmail.split('@').first : null) ??
         'Non renseigné';
@@ -268,7 +426,6 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
             : 'Annonceur');
 
     // Localisation enrichie
-    // Localisation enrichie
     final cityObj = propertyData?['city'] as Map<String, dynamic>?;
     final communeObj = propertyData?['commune'] as Map<String, dynamic>?;
     
@@ -291,13 +448,36 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       return str;
     }
 
-    final cleanedAddress = _getCleanAddress(propertyData?['address']);
+    // Selon le type: l’API peut renvoyer une adresse dédiée (`adresseHotel`, `adresseVacance`, ...)
+    final adresseVacance = responseData?['adresseVacance'] ??
+        reservationData?['adresseVacance'] ??
+        propertyData?['adresseVacance'];
+    final adresseHotel = responseData?['adresseHotel'] ??
+        reservationData?['adresseHotel'] ??
+        propertyData?['adresseHotel'];
+
+    final cleanedAddress = _getCleanAddress(
+      adresseVacance ?? adresseHotel ?? propertyData?['address'],
+    );
     final fullAddress = [cleanedAddress, communeName, cityName]
         .where((e) => e.isNotEmpty)
         .join(', ');
 
     // Type de propriété depuis la réponse API
-    final propTypeName = propertyData?['typeProperty']?['name']?.toString() ?? _propertyType;
+    String? _pickTypePropertyName(dynamic raw) {
+      if (raw == null) return null;
+      if (raw is Map) {
+        final m = Map<String, dynamic>.from(raw);
+        final n = m['name']?.toString().trim();
+        if (n != null && n.isNotEmpty) return n;
+      }
+      return raw.toString().trim().isEmpty ? null : raw.toString().trim();
+    }
+
+    final propTypeName = _pickTypePropertyName(responseData?['typeProperty']) ??
+        _pickTypePropertyName(reservationData?['typeProperty']) ??
+        _pickTypePropertyName(propertyData?['typeProperty']) ??
+        _propertyType;
 
     // Helper pour les lignes de détails
     pw.Widget _buildDetailRow(String label, String value) {

@@ -1232,6 +1232,10 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     final isCompleted = status == 'COMPLETED';
     final isCancelling = _cancellingIds.contains(reservation.reservationId!.toString());
     final imageUrl = _getImageUrl(reservation);
+    final cancelReason = reservation.cancellationReason?.toString().trim();
+    final hasCancelReason = cancelReason != null &&
+        cancelReason.isNotEmpty &&
+        cancelReason.toLowerCase() != 'null';
 
     return InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -1412,6 +1416,30 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                         ],
                       ),
                     ),
+                    if (isCancelled && hasCancelReason)
+                      Positioned(
+                        bottom: 15,
+                        right: 15,
+                        child: Container(
+                          constraints: const BoxConstraints(maxWidth: 220),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.92),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: _errorColor.withOpacity(0.25)),
+                          ),
+                          child: Text(
+                            'Motif: $cancelReason',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _errorColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
                 Padding(
@@ -3327,7 +3355,11 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
             success = lastResp.status == true;
          } else if (action == 'CONFIRMED') {
             // Utiliser l'endpoint spécial qui déclenche la notification WebSocket
-            lastResp = await ctrl.validateReservation(reservation.reservationId!, true);
+            lastResp = await ctrl.validateReservation(
+              reservation.reservationId!,
+              true,
+              reservation: reservation,
+            );
             success = lastResp.status == true;
          } else {
             lastResp = await ctrl.updateReservationStatus(reservation.reservationId!, action);
@@ -3410,14 +3442,116 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
   }
 
   void _showHostActionSuccessDialog(ReservationModel reservation) {
-    ModernModal.showSuccess(
+    // Uniformisation UX: utiliser le même modèle que le bottomsheet (Partager / Télécharger).
+    showModalBottomSheet<void>(
       context: context,
-      title: "Réservation validée",
-      message: "Vous avez confirmé cette demande de visite. Le client a été notifié. Vous pouvez partager ou télécharger le bon de visite maintenant.",
-      actionLabel: "PARTAGER LE BON",
-      onAction: () => _shareReservationPdf(reservation),
-      secondaryLabel: "TÉLÉCHARGER (PDF)",
-      onSecondary: () => _downloadReservationPdf(reservation),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return AnimatedPadding(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
+          child: SafeArea(
+            top: false,
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              padding: EdgeInsets.fromLTRB(24, 16, 24, 24 + MediaQuery.of(sheetContext).padding.bottom),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    "Réservation validée",
+                    style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w900, color: _darkColor),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Vous avez confirmé cette demande de visite. Le client a été notifié. Vous pouvez partager ou télécharger le bon de visite maintenant.",
+                    style: TextStyle(color: _mediumGrey, height: 1.35),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async => await _shareReservationPdf(reservation),
+                          icon: Icon(Icons.ios_share_rounded, color: _primaryColor),
+                          label: Text(
+                            "Partager le bon",
+                            style: TextStyle(
+                              color: _darkColor.withOpacity(0.9),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            side: BorderSide(
+                              color: _primaryColor.withOpacity(0.3),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async => await _downloadReservationPdf(reservation),
+                          icon: Icon(Icons.download_rounded, color: _primaryColor),
+                          label: Text(
+                            "Télécharger (PDF)",
+                            style: TextStyle(
+                              color: _darkColor.withOpacity(0.9),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            side: BorderSide(
+                              color: _primaryColor.withOpacity(0.3),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      child: Text(
+                        "Fermer",
+                        style: TextStyle(color: _mediumGrey, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

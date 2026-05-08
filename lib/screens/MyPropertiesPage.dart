@@ -49,6 +49,24 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
   final Map<int, PropertyModel> _imageEnrichCacheById = {};
   final Map<int, Future<PropertyModel>> _imageEnrichInFlightById = {};
 
+  int? _currentUserIdFromStorage() {
+    final raw = _stockage.read(StockageKeys.userKey);
+    if (raw is Map) {
+      final dynamic uid = raw['user']?['userId'] ?? raw['userId'];
+      if (uid is int) return uid;
+      if (uid is String) return int.tryParse(uid);
+      return int.tryParse(uid?.toString() ?? '');
+    }
+    return null;
+  }
+
+  bool _isOwner(PropertyModel p) {
+    final me = _currentUserIdFromStorage();
+    if (me == null) return false;
+    final uid = p.userId ?? p.user?.userId;
+    return uid != null && uid == me;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -82,7 +100,8 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
       
       if (mounted) {
         setState(() {
-          _myProperties = properties;
+          // Les hôtels sont gérés dans l’espace "Mes hôtels & chambres" (gérant).
+          _myProperties = properties.where((p) => (p.propertyTypeId ?? 0) != 5).toList();
           _isLoadingData = false;
           _isRefreshing = false;
         });
@@ -306,6 +325,65 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
     });
   }
 
+  Future<void> _togglePropertyAvailability(PropertyModel property) async {
+    final pid = property.propertyId;
+    final tid = property.propertyTypeId;
+    if (pid == null || tid == null) return;
+    if (!_isOwner(property)) return;
+
+    // Dans l’UI : Disponible = sold != true ; Indisponible = sold == true
+    final nextSold = !(property.sold == true);
+    final label = (property.title ?? 'Annonce').trim().isEmpty ? 'Annonce' : (property.title ?? 'Annonce').trim();
+
+    setState(() {
+      // Optimistic UI: on bascule immédiatement
+      final idx = _myProperties.indexWhere((p) => p.propertyId == pid);
+      if (idx != -1) {
+        _myProperties[idx].sold = nextSold;
+      }
+    });
+
+    try {
+      final ctrl = context.read<PropertyController>();
+      final resp = await ctrl.syncPropertySoldFlag(pid, tid, sold: nextSold);
+      if (resp.status == true) {
+        FancyNotification.show(
+          context,
+          nextSold
+              ? "« $label » est maintenant indisponible."
+              : "« $label » est maintenant disponible.",
+          type: NotificationType.success,
+        );
+        // Recharger la liste pour refléter l'état serveur (et les autres champs éventuels).
+        if (mounted) {
+          await _loadMyProperties();
+        }
+      } else {
+        // rollback
+        setState(() {
+          final idx = _myProperties.indexWhere((p) => p.propertyId == pid);
+          if (idx != -1) _myProperties[idx].sold = !nextSold;
+        });
+        FancyNotification.show(
+          context,
+          "Impossible de changer la disponibilité pour « $label ». Réessayez.",
+          isError: true,
+        );
+      }
+    } catch (e) {
+      // rollback
+      setState(() {
+        final idx = _myProperties.indexWhere((p) => p.propertyId == pid);
+        if (idx != -1) _myProperties[idx].sold = !nextSold;
+      });
+      FancyNotification.show(
+        context,
+        "Connexion instable. Réessayez dans un instant.",
+        isError: true,
+      );
+    }
+  }
+
   void _viewProperty(PropertyModel property) {
     Navigator.push(
       context,
@@ -369,31 +447,36 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
     final isRent = tt.contains('location');
 
     final Color bgColor;
+    final Color fgColor;
     final String text;
 
     if (property.sold == true) {
       if (isRent) {
-        bgColor = _mediumGrey;
+        bgColor = const Color(0xFFFFEBEE);
+        fgColor = const Color(0xFFC62828);
         text = 'Plus disponible';
       } else {
-        bgColor = _darkColor;
+        bgColor = const Color(0xFFFFEBEE);
+        fgColor = const Color(0xFFC62828);
         text = 'Vendu';
       }
     } else {
-      bgColor = _successColor;
+      bgColor = const Color(0xFFE8F5E9);
+      fgColor = const Color(0xFF2E7D32);
       text = 'Disponible';
     }
 
     return Container(
       padding: EdgeInsets.symmetric(horizontal: isGrid ? 8 : 12, vertical: isGrid ? 4 : 6),
       decoration: BoxDecoration(
-        color: bgColor.withOpacity(0.9),
+        color: bgColor,
         borderRadius: BorderRadius.circular(isGrid ? 12 : 20),
+        border: Border.all(color: fgColor.withOpacity(0.22)),
       ),
       child: Text(
         text,
         style: TextStyle(
-          color: Colors.white,
+          color: fgColor,
           fontWeight: FontWeight.bold,
           fontSize: isGrid ? 10 : 12,
         ),
@@ -1179,7 +1262,9 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                         children: [
                           Expanded(
                             child: InkWell(
-                              onTap: () => _editProperty(property),
+                              onTap: _isOwner(property)
+                                  ? () => _togglePropertyAvailability(property)
+                                  : null,
                               borderRadius: BorderRadius.circular(8),
                               child: Container(
                                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1192,65 +1277,23 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      Icons.edit_outlined,
+                                      (property.sold == true)
+                                          ? Icons.toggle_on_rounded
+                                          : Icons.toggle_off_rounded,
                                       size: 16,
                                       color: _primaryColor,
                                     ),
                                     SizedBox(width: 5),
                                     Text(
-                                      'Modifier',
+                                      (property.sold == true)
+                                          ? 'Rendre disponible'
+                                          : 'Rendre indisponible',
                                       style: TextStyle(
                                         color: _primaryColor,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: InkWell(
-                              onTap: () => _deleteProperty(property),
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: _errorColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: _errorColor.withOpacity(0.3)),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    if (isDeleting)
-                                      SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: _errorColor,
-                                        ),
-                                      )
-                                    else
-                                      Icon(
-                                        Icons.delete_outline,
-                                        size: 16,
-                                        color: _errorColor,
-                                      ),
-                                    if (!isDeleting) ...[
-                                      SizedBox(width: 5),
-                                      Text(
-                                        'Supprimer',
-                                        style: TextStyle(
-                                          color: _errorColor,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
                                   ],
                                 ),
                               ),

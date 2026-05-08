@@ -33,7 +33,8 @@ class Endpoints {
   static const String updateProfile = "profile";
   static const String logout = "logout";
   static const String changePassword = "$version/protected/change/password";
-  static const String deleteAccount = "delete/user";
+  // Suppression du compte (API migration). Constantes.BASE_URL ajoute déjà `/api/`.
+  static const String deleteAccount = "$version/protected/users/delete/user";
   static const String accounts = "$version/public/accounts";
   static const String accountTypes = "$version/public/accounts/type";
 
@@ -93,12 +94,21 @@ class Endpoints {
   static const String storeFuneraire = "$version/private/property/funeraires";
   static const String storeVacance = "$version/private/property/vacances";
   static const String soldVacance = "$version/protected/property/vacances/sold/"; // {vacanceId}
+  /// Sold/indisponible pour une vacance (nouvel endpoint direct, sans `property/`).
+  /// URL attendue: `/api/{version}/protected/vacances/sold/{vacanceId}`.
+  static const String soldVacanceDirect = "$version/protected/vacances/sold/"; // {vacanceId}
   static const String updateVacanceOwner = "$version/protected/property/vacances/owner/"; // {vacanceId}
   static const String storeAgence = "$version/private/agences";
 
   // Property Management Endpoints
   static const String enableProperty = "$version/protected/property/enable/"; // {propertyId}
   static const String soldProperty = "$version/protected/property/sold/"; // {propertyId}
+  /// Sold/indisponible pour un hôtel.
+  /// URL attendue: `/api/{version}/protected/property/hotels/sold/{hotelId}`.
+  static const String soldHotel = "$version/protected/property/hotels/sold/"; // {hotelId}
+  /// Sold/indisponible pour une chambre (chambreId).
+  /// URL attendue: `/api/{version}/protected/property/chambres/sold/{chambreId}`.
+  static const String soldHotelRoom = "$version/protected/property/chambres/sold/"; // {chambreId}
   /// PUT propriété standard : `/owner/{userId}/{propertyId}`
   static const String updatePropertyOwner = "$version/protected/property/owner/"; // {userId}/{propertyId}
 

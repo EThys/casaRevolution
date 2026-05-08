@@ -27,7 +27,7 @@ class NetworkUtils {
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
-                  "Vous n'avez pas de connexion internet !",
+                  "Connexion instable ou indisponible. Réessayez dans quelques instants.",
                   style: TextStyle(color: Colors.white),
                 ),
               ),

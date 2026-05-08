@@ -1689,12 +1689,16 @@ class PropertyController with ChangeNotifier {
     }
   }
 
-  /// Synchronise le flag `sold` via l’endpoint protégé adapté au type (standard, terrain, bureau, festive, funéraire).
+  /// API migration: `PUT /api/v1/protected/property/*/sold/{id}` avec payload `{ "status": true/false }`.
+  /// Dans l’app, on garde la convention historique: `sold=true` => indisponible ; `sold=false` => disponible.
   Future<HttpResponse> syncPropertySoldFlag(int propertyId, int propertyTypeId, {required bool sold}) async {
     try {
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
       final String base;
       switch (propertyTypeId) {
+        case 5:
+          base = Endpoints.soldHotel;
+          break;
         case 9:
           base = Endpoints.soldTerrain;
           break;
@@ -1717,8 +1721,64 @@ class PropertyController with ChangeNotifier {
           break;
       }
       final url = '$base$propertyId';
-      print('📌 [PropertyCtrl] syncPropertySoldFlag PUT $url sold=$sold');
-      return await putData(url, {'sold': sold}, token: tkn);
+      print('📌 [PropertyCtrl] syncPropertySoldFlag PUT $url sold=$sold (type=$propertyTypeId)');
+      print('🌐 [PropertyCtrl] BASE: ${Constantes.BASE_URL}');
+      print('🌐 [PropertyCtrl] URL complète: ${Constantes.BASE_URL}$url');
+      // Backend: `status=true` signifie "indisponible" (équivalent de `sold=true` dans l’app)
+      final status = sold;
+      print('📤 [PropertyCtrl] Payload: {"status": $status} (derived from sold=$sold)');
+      final resp = await putData(url, {'status': status}, token: tkn);
+
+      // Certains endpoints migration renvoient un HTTP 400 mais avec un message "… succès".
+      // On le traite comme succès pour ne pas bloquer l'UX.
+      if (resp.status != true && resp.data is Map) {
+        final msg = (resp.data['message'] ?? resp.data['detailMessage'] ?? '')
+            .toString()
+            .toLowerCase();
+        if (msg.contains('succ') || msg.contains('success')) {
+          return HttpResponse(
+            status: true,
+            data: resp.data,
+            httpStatus: resp.httpStatus,
+          );
+        }
+      }
+      return resp;
+    } catch (e) {
+      return HttpResponse(
+        status: false,
+        errorMsg: e.toString(),
+        isException: true,
+      );
+    }
+  }
+
+  /// Chambre d'hôtel: on conserve le champ modèle `available` côté app,
+  /// mais la bascule se fait via le même mécanisme `sold` côté API.
+  /// - `sold=true`  → indisponible
+  /// - `sold=false` → disponible
+  Future<HttpResponse> syncHotelRoomSoldFlag(int chambreId, {required bool sold}) async {
+    try {
+      final tkn = stockage?.read<String>(StockageKeys.tokenKey);
+      final url = '${Endpoints.soldHotelRoom}$chambreId';
+      print('📌 [PropertyCtrl] syncHotelRoomSoldFlag PUT $url sold=$sold');
+      // Backend: `status=true` signifie "indisponible" (équivalent de `sold=true` dans l’app)
+      final status = sold;
+      print('📤 [PropertyCtrl] Payload: {"status": $status} (derived from sold=$sold)');
+      final resp = await putData(url, {'status': status}, token: tkn);
+      if (resp.status != true && resp.data is Map) {
+        final msg = (resp.data['message'] ?? resp.data['detailMessage'] ?? '')
+            .toString()
+            .toLowerCase();
+        if (msg.contains('succ') || msg.contains('success')) {
+          return HttpResponse(
+            status: true,
+            data: resp.data,
+            httpStatus: resp.httpStatus,
+          );
+        }
+      }
+      return resp;
     } catch (e) {
       return HttpResponse(
         status: false,

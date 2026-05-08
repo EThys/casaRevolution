@@ -5,6 +5,7 @@ import 'package:photo_view/photo_view.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -13,6 +14,7 @@ import 'dart:convert';
 
 import '../utils/Routes.dart';
 import '../controllers/AuthentificationCtrl.dart';
+import 'package:casa/controllers/NotificationController.dart';
 import 'camera/SelfieCameraScreen.dart';
 import 'auth/IdentityVerificationPage.dart';
 import '../utils/StockageKeys.dart';
@@ -419,6 +421,23 @@ class _ProfilePageState extends State<ProfilePage> {
 
   bool _isUploadingPhoto = false;
 
+  Future<File> _persistPickedImage(File source, {required String prefix}) async {
+    final supportDir = await getApplicationSupportDirectory();
+    final imgDir = Directory('${supportDir.path}/persisted_images');
+    if (!await imgDir.exists()) {
+      await imgDir.create(recursive: true);
+    }
+    final name = source.path.replaceAll('\\', '/').split('/').last;
+    final dot = name.lastIndexOf('.');
+    final ext = (dot >= 0 && dot < name.length - 1) ? name.substring(dot) : '.jpg';
+    final dst = File('${imgDir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}$ext');
+    try {
+      return await source.copy(dst.path);
+    } catch (_) {
+      return source;
+    }
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     String? path;
 
@@ -442,7 +461,9 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     if (path == null || path.isEmpty) return;
-    final String imagePath = path;
+    // Copier l'image hors cache Android pour éviter PathNotFoundException en prod.
+    final persisted = await _persistPickedImage(File(path), prefix: 'profile');
+    final String imagePath = persisted.path;
 
     setState(() {
       _imageFile = File(imagePath);
@@ -465,7 +486,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
     if (targetId != null) {
       try {
-        final bytes = await File(imagePath).readAsBytes();
+        final f = File(imagePath);
+        if (!await f.exists()) {
+          throw Exception("Image introuvable. Reprenez la photo puis réessayez.");
+        }
+        final bytes = await f.readAsBytes();
         final base64Image = base64Encode(bytes);
 
         final response = await authCtrl.updateProfilePicture(targetId, base64Image);
@@ -1556,7 +1581,20 @@ class _ProfilePageState extends State<ProfilePage> {
       await storage.remove('user_data');
       await storage.remove('user_accounts');
       await storage.remove('published_properties_count');
+      await storage.remove('publication_count_last_update');
       await storage.remove('referrals_count');
+
+      // Sécurité: supprimer toute variante éventuelle (clé suffixée/prefixée) de ces compteurs.
+      try {
+        final keys = storage.getKeys();
+        for (final k in keys) {
+          if (k.contains('published_properties_count') ||
+              k.contains('publication_count_last_update') ||
+              k.contains('referrals_count')) {
+            await storage.remove(k);
+          }
+        }
+      } catch (_) {}
 
       // 🛑 NETTOYAGE RADICAL DES BASES DE DONNÉES SQL (Sécurité totale)
       try {
@@ -1640,10 +1678,24 @@ class _ProfilePageState extends State<ProfilePage> {
     // Note: On ne pop plus la dialog ici, elle reste affichée avec son loader
     // Elle sera détruite automatiquement par pushNamedAndRemoveUntil
     try {
-      // 1. Nettoyer les données
+      // 1. Nettoyer les données (storage + DB + cache écran)
       await _clearLocalAuthData();
 
-      // 2. Naviguer vers la page d'accueil en utilisant le root navigator
+      // 2. Réinitialiser l’état en mémoire des contrôleurs (Provider)
+      // (sinon le UI peut continuer à afficher l'ancien user tant que l'app n'est pas redémarrée).
+      try {
+        context.read<NotificationController>().clearForLogout();
+      } catch (e) {
+        print("⚠️ [ProfilePage] clear notifications on logout failed: $e");
+      }
+      try {
+        // Déconnexion locale: remet token/user à zéro + notifyListeners.
+        await context.read<AuthentificationCtrl>().silentLogout();
+      } catch (e) {
+        print("⚠️ [ProfilePage] silentLogout failed: $e");
+      }
+
+      // 3. Naviguer vers la page d'accueil en utilisant le root navigator
       if (mounted) {
         Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
           Routes.bottomPageRoute,
@@ -1654,7 +1706,15 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       print("❌ Erreur lors de la déconnexion: $e");
 
-      // Même en cas d'erreur, naviguer vers la page d'accueil
+      // Même en cas d'erreur, essayer quand même de réinitialiser l'état en mémoire
+      try {
+        context.read<NotificationController>().clearForLogout();
+      } catch (_) {}
+      try {
+        await context.read<AuthentificationCtrl>().silentLogout();
+      } catch (_) {}
+
+      // Puis naviguer vers la page d'accueil
       if (mounted) {
         Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
           Routes.bottomPageRoute,
@@ -1701,10 +1761,20 @@ class _ProfilePageState extends State<ProfilePage> {
         }
       } else {
         setState(() => _isDeleting = false);
-        FancyNotification.show(context, response.errorMsg ?? "Échec de la suppression");
+        // Afficher un message plus utile si le backend envoie { message: ... }
+        String message = response.errorMsg ?? "Échec de la suppression";
+        try {
+          final data = response.data;
+          if (data is Map && data['message'] != null) {
+            message = data['message'].toString();
+          }
+        } catch (_) {}
+        print("❌ [ProfilePage] deleteAccount failed — httpStatus=${response.httpStatus}, errorMsg=${response.errorMsg}, data=${response.data}");
+        FancyNotification.show(context, message);
       }
     } catch (e) {
       setState(() => _isDeleting = false);
+      print("❌ [ProfilePage] Exception deleteAccount: $e");
       FancyNotification.show(context, "Une erreur est survenue");
     }
   }

@@ -165,6 +165,46 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
     });
   }
 
+  Future<void> _toggleHotelAvailability() async {
+    final hid = _hotelId;
+    if (hid <= 0) return;
+
+    final nextSold = !(_hotel.sold == true); // sold=true => indisponible
+    setState(() {
+      _hotel = _hotel.copyWith(sold: nextSold);
+    });
+
+    try {
+      final ctrl = context.read<PropertyController>();
+      final resp = await ctrl.syncPropertySoldFlag(hid, 5, sold: nextSold);
+      if (!mounted) return;
+      if (resp.status == true) {
+        FancyNotification.show(
+          context,
+          nextSold ? "Hôtel rendu indisponible." : "Hôtel rendu disponible.",
+          type: NotificationType.success,
+        );
+        await _refreshAll();
+      } else {
+        // rollback
+        setState(() => _hotel = _hotel.copyWith(sold: !nextSold));
+        FancyNotification.show(
+          context,
+          "Impossible de changer la disponibilité de l'hôtel. Réessayez.",
+          isError: true,
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _hotel = _hotel.copyWith(sold: !nextSold));
+      FancyNotification.show(
+        context,
+        "Connexion instable. Réessayez dans un instant.",
+        isError: true,
+      );
+    }
+  }
+
   String? _hotelCoverUrl() {
     final firstImage = _hotel.propertyImage?.isNotEmpty == true ? _hotel.propertyImage!.first.path : null;
     return firstImage ??
@@ -225,6 +265,9 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
 
   Widget _buildHeaderCard() {
     final cover = _hotelCoverUrl();
+    final roomsCount = (_hotel.hotelStructure ?? const <HotelRoomStructure>[]).length;
+    final totalResCount = _reservations.length;
+    final hotelAvailable = _hotel.sold != true;
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
@@ -242,8 +285,11 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
         children: [
           SizedBox(
             height: 160,
-            child: cover != null && cover.isNotEmpty
-                ? CachedNetworkImage(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (cover != null && cover.isNotEmpty)
+                  CachedNetworkImage(
                     imageUrl: cover,
                     fit: BoxFit.cover,
                     placeholder: (_, __) => Container(
@@ -255,11 +301,47 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
                       child: Icon(Icons.hotel_rounded, size: 48, color: _mediumGrey),
                     ),
                   )
-                : Container(
+                else
+                  Container(
                     color: _lightGrey,
                     alignment: Alignment.center,
                     child: Icon(Icons.hotel_rounded, size: 48, color: _mediumGrey),
                   ),
+                // Gradient pour lisibilité + look premium
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.05),
+                          Colors.black.withOpacity(0.55),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 14,
+                  right: 14,
+                  bottom: 12,
+                  child: Row(
+                    children: [
+                      _MetricPill(
+                        icon: Icons.bed_rounded,
+                        label: '$roomsCount chambre(s)',
+                      ),
+                      const SizedBox(width: 10),
+                      _MetricPill(
+                        icon: Icons.event_available_rounded,
+                        label: totalResCount == 0 ? '0 réservation' : '$totalResCount réservation(s)',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
           Container(
             padding: const EdgeInsets.all(18),
@@ -270,6 +352,42 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
                 Text(
                   _hotel.title ?? 'Hôtel',
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _darkColor),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: hotelAvailable ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: (hotelAvailable ? const Color(0xFF2E7D32) : const Color(0xFFC62828)).withOpacity(0.22),
+                        ),
+                      ),
+                      child: Text(
+                        hotelAvailable ? 'Hôtel disponible' : 'Hôtel indisponible',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: hotelAvailable ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    FilledButton.tonalIcon(
+                      onPressed: _syncing ? null : _toggleHotelAvailability,
+                      style: FilledButton.styleFrom(
+                        foregroundColor: _primaryColor,
+                        backgroundColor: _primaryColor.withOpacity(0.12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                      ),
+                      icon: Icon(hotelAvailable ? Icons.toggle_off_rounded : Icons.toggle_on_rounded),
+                      label: Text(hotelAvailable ? 'Rendre indispo' : 'Rendre dispo'),
+                    ),
+                  ],
                 ),
                 if ((_hotel.address ?? '').isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -294,8 +412,60 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
                     style: TextStyle(fontSize: 13, color: _mediumGrey.withOpacity(0.9)),
                   ),
                 ],
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _hotelId <= 0 ? null : _openAddRoom,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _primaryColor,
+                          side: BorderSide(color: _primaryColor.withOpacity(0.25)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('Ajouter une chambre'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton.filledTonal(
+                      onPressed: _syncing ? null : _refreshAll,
+                      style: IconButton.styleFrom(
+                        backgroundColor: _primaryColor.withOpacity(0.12),
+                        foregroundColor: _primaryColor,
+                      ),
+                      icon: Icon(_syncing ? Icons.hourglass_top : Icons.refresh_rounded),
+                      tooltip: 'Actualiser',
+                    ),
+                  ],
+                ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Pastille métrique sur cover (header)
+  Widget _MetricPill({required IconData icon, required String label}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: Colors.white),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
           ),
         ],
       ),
@@ -308,6 +478,7 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
     final price = ch?.price;
     final dev = ch?.deviseId == 1 ? 'CDF' : 'USD';
     final roomId = ch?.id;
+    final isAvailable = ch?.available != false;
     final roomRes = roomId == null
         ? const <ReservationModel>[]
         : _reservations.where((r) => r.chambreId == roomId).toList()
@@ -326,32 +497,32 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
             offset: const Offset(0, 4),
           ),
         ],
+        border: Border.all(color: Colors.black.withOpacity(0.045)),
       ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: roomId == null
-            ? null
-            : () {
-                setState(() {
-                  if (isExpanded) {
-                    _expandedRoomIds.remove(roomId);
-                  } else {
-                    _expandedRoomIds.add(roomId);
-                  }
-                });
-              },
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
+      child: Column(
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: roomId == null
+                ? null
+                : () {
+                    setState(() {
+                      if (isExpanded) {
+                        _expandedRoomIds.remove(roomId);
+                      } else {
+                        _expandedRoomIds.add(roomId);
+                      }
+                    });
+                  },
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                     child: SizedBox(
-                      width: 72,
-                      height: 72,
+                      width: 82,
+                      height: 82,
                       child: cover != null && cover.isNotEmpty
                           ? CachedNetworkImage(
                               imageUrl: cover,
@@ -378,12 +549,44 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
                           _roomTitle(row),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: _darkColor),
+                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: _darkColor),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: isAvailable ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: (isAvailable ? const Color(0xFF2E7D32) : const Color(0xFFC62828)).withOpacity(0.22),
+                                ),
+                              ),
+                              child: Text(
+                                isAvailable ? 'Disponible' : 'Indisponible',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                  color: isAvailable ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                '${price != null ? price.toStringAsFixed(0) : '—'} $dev',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 13, color: _darkColor.withOpacity(0.72), fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
                         Text(
-                          '${price != null ? price.toStringAsFixed(0) : '—'} $dev · #${ch?.id ?? ''}',
-                          style: TextStyle(fontSize: 12, color: _mediumGrey, fontWeight: FontWeight.w600),
+                          'ID: ${ch?.id ?? '—'}',
+                          style: TextStyle(fontSize: 12, color: _mediumGrey, fontWeight: FontWeight.w700),
                         ),
                       ],
                     ),
@@ -392,65 +595,191 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      if (roomRes.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: _primaryColor.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            '${roomRes.length} réservation(s)',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: _primaryColor,
-                            ),
-                          ),
-                        )
-                      else
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            '0 réservation',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: _mediumGrey,
-                            ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: roomRes.isNotEmpty ? _primaryColor.withOpacity(0.10) : Colors.grey.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          roomRes.isNotEmpty ? '${roomRes.length} réservation(s)' : '0 réservation',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            color: roomRes.isNotEmpty ? _primaryColor : _mediumGrey,
                           ),
                         ),
-                      const SizedBox(height: 8),
-                      Icon(
-                        isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                        color: _mediumGrey,
+                      ),
+                      const SizedBox(height: 10),
+                      AnimatedRotation(
+                        turns: isExpanded ? 0.5 : 0.0,
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOut,
+                        child: Icon(Icons.keyboard_arrow_down_rounded, color: _mediumGrey),
                       ),
                     ],
                   ),
                 ],
               ),
-              if (isExpanded) ...[
-                const SizedBox(height: 12),
-                Container(
-                  decoration: BoxDecoration(
-                    color: _lightGrey,
-                    borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: roomId == null
+                        ? null
+                        : () async {
+                            final rid = roomId;
+                            final nextAvailable = !(ch?.available != false);
+                            final nextSold = !nextAvailable;
+
+                            setState(() {
+                              final list = List<HotelRoomStructure>.from(
+                                  _hotel.hotelStructure ?? const <HotelRoomStructure>[]);
+                              final idx = list.indexWhere((e) => e.chambre?.id == rid);
+                              if (idx != -1) {
+                                final cur = list[idx];
+                                final r = cur.chambre;
+                                if (r != null) {
+                                  final updatedRoom = HotelRoomModel(
+                                    id: r.id,
+                                    hotelId: r.hotelId,
+                                    deviseId: r.deviseId,
+                                    title: r.title,
+                                    description: r.description,
+                                    numberPiece: r.numberPiece,
+                                    price: r.price,
+                                    priceHeure: r.priceHeure,
+                                    createdAt: r.createdAt,
+                                    updatedAt: r.updatedAt,
+                                    available: nextAvailable,
+                                  );
+                                  list[idx] = HotelRoomStructure(
+                                    chambre: updatedRoom,
+                                    images: cur.images,
+                                  );
+                                  _hotel = _hotel.copyWith(hotelStructure: list);
+                                }
+                              }
+                            });
+
+                            try {
+                              final ctrl = context.read<PropertyController>();
+                              final resp = await ctrl.syncHotelRoomSoldFlag(rid, sold: nextSold);
+                              if (resp.status == true) {
+                                FancyNotification.show(
+                                  context,
+                                  nextAvailable ? 'Chambre rendue disponible.' : 'Chambre rendue indisponible.',
+                                  type: NotificationType.success,
+                                );
+                                await _refreshAll();
+                              } else {
+                                setState(() {
+                                  final list = List<HotelRoomStructure>.from(
+                                      _hotel.hotelStructure ?? const <HotelRoomStructure>[]);
+                                  final idx = list.indexWhere((e) => e.chambre?.id == rid);
+                                  if (idx != -1) {
+                                    final cur = list[idx];
+                                    final r = cur.chambre;
+                                    if (r != null) {
+                                      final rolled = HotelRoomModel(
+                                        id: r.id,
+                                        hotelId: r.hotelId,
+                                        deviseId: r.deviseId,
+                                        title: r.title,
+                                        description: r.description,
+                                        numberPiece: r.numberPiece,
+                                        price: r.price,
+                                        priceHeure: r.priceHeure,
+                                        createdAt: r.createdAt,
+                                        updatedAt: r.updatedAt,
+                                        available: !nextAvailable,
+                                      );
+                                      list[idx] = HotelRoomStructure(
+                                        chambre: rolled,
+                                        images: cur.images,
+                                      );
+                                      _hotel = _hotel.copyWith(hotelStructure: list);
+                                    }
+                                  }
+                                });
+                                FancyNotification.show(
+                                  context,
+                                  'Impossible de changer le statut. Réessayez.',
+                                  isError: true,
+                                );
+                              }
+                            } catch (_) {
+                              FancyNotification.show(
+                                context,
+                                'Connexion instable. Réessayez dans un instant.',
+                                isError: true,
+                              );
+                            }
+                          },
+                    style: FilledButton.styleFrom(
+                      foregroundColor: _primaryColor,
+                      backgroundColor: _primaryColor.withOpacity(0.12),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    icon: Icon(isAvailable ? Icons.toggle_off_rounded : Icons.toggle_on_rounded),
+                    label: Text(isAvailable ? 'Rendre indispo' : 'Rendre dispo'),
                   ),
-                  padding: const EdgeInsets.all(12),
-                  child: roomRes.isEmpty
-                      ? Center(
-                          child: Text(
-                            'Aucune réservation reçue pour cette chambre.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: _mediumGrey, fontSize: 12, fontWeight: FontWeight.w600),
-                          ),
-                        )
-                      : Column(
-                          children: roomRes.take(3).map((r) {
+                ),
+                const SizedBox(width: 10),
+                if (roomRes.isNotEmpty)
+                  OutlinedButton.icon(
+                    onPressed: roomId == null
+                        ? null
+                        : () => _openRoomReservations(
+                              roomId: roomId,
+                              roomTitle: _roomTitle(row),
+                              reservations: roomRes,
+                            ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _primaryColor,
+                      side: BorderSide(color: _primaryColor.withOpacity(0.25)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                    ),
+                    icon: const Icon(Icons.list_alt_rounded),
+                    label: const Text('Réservations'),
+                  ),
+              ],
+            ),
+          ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOut,
+                alignment: Alignment.topCenter,
+                child: !isExpanded
+                    ? const SizedBox.shrink()
+                    : Column(
+                        children: [
+                          const SizedBox(height: 12),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: _lightGrey,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.black.withOpacity(0.04)),
+                            ),
+                            padding: const EdgeInsets.all(12),
+                            child: roomRes.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      'Aucune réservation reçue pour cette chambre.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(color: _mediumGrey, fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                  )
+                                : Column(
+                                    children: roomRes.take(3).map((r) {
                             final st = (r.status ?? '—').toUpperCase();
                             final chipColor = _statusColor(st);
                             return Container(
@@ -488,42 +817,23 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
                                 ],
                               ),
                             );
-                          }).toList(),
-                        ),
-                ),
-                if (roomRes.length > 3) ...[
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      '+ ${roomRes.length - 3} autre(s)…',
-                      style: TextStyle(color: _primaryColor, fontWeight: FontWeight.w800, fontSize: 12),
-                    ),
-                  ),
-                ],
-                if (roomRes.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () => _openRoomReservations(
-                        roomId: roomId,
-                        roomTitle: _roomTitle(row),
-                        reservations: roomRes,
+                                    }).toList(),
+                                  ),
+                          ),
+                          if (roomRes.length > 3) ...[
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                '+ ${roomRes.length - 3} autre(s)…',
+                                style: TextStyle(color: _primaryColor, fontWeight: FontWeight.w800, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                      style: TextButton.styleFrom(
-                        foregroundColor: _primaryColor,
-                        textStyle: const TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                      icon: const Icon(Icons.list_alt_rounded),
-                      label: const Text('Voir toutes'),
-                    ),
-                  ),
-                ],
-              ],
-            ],
-          ),
-        ),
+              ),
+        ],
       ),
     );
   }
@@ -616,17 +926,51 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
                     const SizedBox(height: 14),
                     if ((_hotel.hotelStructure ?? []).isEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+                        padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 16),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: Colors.black.withOpacity(0.05)),
                         ),
-                        child: Center(
-                          child: Text(
-                            'Aucune chambre — utilisez le bouton « Chambre » pour en ajouter.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: _mediumGrey, height: 1.4),
-                          ),
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                color: _primaryColor.withOpacity(0.10),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Icon(Icons.bedroom_parent_rounded, color: _primaryColor),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Aucune chambre pour le moment',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: _darkColor),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Ajoutez votre première chambre pour commencer à recevoir des réservations.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: _mediumGrey, height: 1.35),
+                            ),
+                            const SizedBox(height: 14),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: _hotelId <= 0 ? null : _openAddRoom,
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _primaryColor,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                icon: const Icon(Icons.add_rounded),
+                                label: const Text('Ajouter une chambre'),
+                              ),
+                            ),
+                          ],
                         ),
                       )
                     else

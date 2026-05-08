@@ -16,5 +16,8 @@ class StockageKeys{
   static const String devisesKey="devises";
   static const String wasCertifiedKey = 'was_certified';
   static const String decertificationReasonKey = 'decertification_reason';
+  /// Quand l’utilisateur clique "Plus tard" sur l’écran de décertification.
+  /// On ne ré-affiche pas automatiquement l’info tant qu’il ne retente pas une action sensible.
+  static const String decertificationSnoozeKey = 'decertification_snooze';
 
 }

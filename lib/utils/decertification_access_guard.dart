@@ -25,6 +25,18 @@ class DecertificationAccessGuard {
     _lastPresentUserId = null;
   }
 
+  static bool _isSnoozed(String uid) {
+    if (uid.isEmpty) return false;
+    return GetStorage().read<bool>('${StockageKeys.decertificationSnoozeKey}_$uid') ?? false;
+  }
+
+  static void _clearSnooze(String uid) {
+    if (uid.isEmpty) return;
+    try {
+      GetStorage().remove('${StockageKeys.decertificationSnoozeKey}_$uid');
+    } catch (_) {}
+  }
+
   static bool isInactiveDecertifiedAccount(AuthentificationCtrl auth) {
     if (!auth.isLoggedIn) return false;
     if (auth.user.isCertified == true) return false;
@@ -36,7 +48,10 @@ class DecertificationAccessGuard {
   }
 
   /// Retourne `true` si une redirection a été faite (fermer la page courante + ouvrir [DecertificationInfoPage]).
-  static Future<bool> redirectIfInactiveDecertified(BuildContext context) async {
+  static Future<bool> redirectIfInactiveDecertified(
+    BuildContext context, {
+    bool userAction = false,
+  }) async {
     if (!context.mounted) return false;
     AuthentificationCtrl auth;
     try {
@@ -47,6 +62,7 @@ class DecertificationAccessGuard {
     if (!isInactiveDecertifiedAccount(auth)) return false;
 
     final uid = auth.user.userId?.toString() ?? '';
+    if (!userAction && _isSnoozed(uid)) return false;
     final reason = GetStorage()
         .read<String>('${StockageKeys.decertificationReasonKey}_$uid');
 
@@ -59,6 +75,7 @@ class DecertificationAccessGuard {
 
     final rootNav = MonApplication.navigatorKey.currentState;
     if (rootNav != null && rootNav.mounted) {
+      if (userAction) _clearSnooze(uid);
       await rootNav.push<void>(
         MaterialPageRoute<void>(
           builder: (context) => DecertificationInfoPage(reason: reason),
@@ -79,6 +96,7 @@ class DecertificationAccessGuard {
 
     final uid = auth.user.userId?.toString() ?? '';
     if (uid.isEmpty) return;
+    if (_isSnoozed(uid)) return;
 
     final now = DateTime.now();
     if (_lastPresentAttempt != null &&

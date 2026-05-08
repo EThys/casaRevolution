@@ -7,6 +7,7 @@ import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:casa/controllers/TypeAccountController.dart';
@@ -39,6 +40,23 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
   File? _logoImage;
   final _picker = ImagePicker();
   bool _isLoading = false;
+
+  Future<File> _persistPickedImage(File source, {required String prefix}) async {
+    final supportDir = await getApplicationSupportDirectory();
+    final imgDir = Directory('${supportDir.path}/persisted_images');
+    if (!await imgDir.exists()) {
+      await imgDir.create(recursive: true);
+    }
+    final name = source.path.replaceAll('\\', '/').split('/').last;
+    final dot = name.lastIndexOf('.');
+    final ext = (dot >= 0 && dot < name.length - 1) ? name.substring(dot) : '.jpg';
+    final dst = File('${imgDir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}$ext');
+    try {
+      return await source.copy(dst.path);
+    } catch (_) {
+      return source;
+    }
+  }
   
   // Location variables
   List<CityModel> _availableCities = [];
@@ -229,7 +247,9 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
             imageQuality: 85,
           );
           if (pickedFile != null && mounted) {
-            setState(() => _logoImage = File(pickedFile.path));
+            final persisted = await _persistPickedImage(File(pickedFile.path), prefix: 'agency_logo');
+            if (!mounted) return;
+            setState(() => _logoImage = persisted);
           }
         } catch (e) {
           if (mounted) {
@@ -252,7 +272,9 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
             imageQuality: 85,
           );
           if (pickedFile != null && mounted) {
-            setState(() => _logoImage = File(pickedFile.path));
+            final persisted = await _persistPickedImage(File(pickedFile.path), prefix: 'agency_logo');
+            if (!mounted) return;
+            setState(() => _logoImage = persisted);
           }
         } catch (e) {
           if (mounted) {
@@ -269,6 +291,9 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
 
   Future<String?> _imageToBase64(File image) async {
     try {
+      if (!await image.exists()) {
+        return null;
+      }
       final bytes = await image.readAsBytes();
       return base64Encode(bytes);
     } catch (e) {
@@ -329,7 +354,13 @@ class _CreateAgencePageState extends State<CreateAgencePage> {
       // Convert image to base64
       final logoBase64 = await _imageToBase64(_logoImage!);
       if (logoBase64 == null) {
-        throw Exception("logo_encode_failed");
+        FancyNotification.show(
+          context,
+          "Le logo n'est plus disponible. Reprenez la photo puis réessayez.",
+          isError: true,
+        );
+        setState(() => _isLoading = false);
+        return;
       }
       
       // Retrieve userId from Storage

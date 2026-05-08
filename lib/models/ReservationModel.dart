@@ -9,6 +9,8 @@ String reservationModelToJson(ReservationModel data) => json.encode(data.toJson(
 class ReservationModel {
   int? reservationId;
   UserModel? user;
+  /// Propriétaire / annonceur renvoyé par certaines réponses API (ex: réservation chambre).
+  UserModel? proprietaire;
   PropertyModel? property;
   String? message;
   String? status;
@@ -37,6 +39,7 @@ class ReservationModel {
   ReservationModel({
     this.reservationId,
     this.user,
+    this.proprietaire,
     this.property,
     this.message,
     this.status,
@@ -89,8 +92,17 @@ class ReservationModel {
       print("📋 [ReservationModel] Structure plate détectée - id: ${reservationData["id"] ?? reservationData["reservationId"]}");
     }
     
+    // Certaines réponses ont une double structure: { reservation: { reservation: {...}, ... } }
+    final Map<String, dynamic> reservationCore =
+        (reservationData["reservation"] is Map)
+            ? Map<String, dynamic>.from(reservationData["reservation"] as Map)
+            : reservationData;
+
     // Extraire et convertir l'ID de manière robuste
-    dynamic rawId = reservationData["reservationId"] ?? reservationData["id"];
+    dynamic rawId = reservationCore["reservationId"] ??
+        reservationCore["id"] ??
+        reservationData["reservationId"] ??
+        reservationData["id"];
     int? parsedId;
     if (rawId != null) {
       if (rawId is int) {
@@ -174,27 +186,61 @@ class ReservationModel {
       parsedProperty = PropertyModel.fromJson(json);
     }
 
+    String? _pickUserImage() {
+      // 1) Champs possibles au niveau racine
+      final direct = (json["userImage"] ??
+          json["imageUser"] ??
+          json["clientImage"] ??
+          json["avatar"]);
+      final directStr = direct?.toString().trim();
+      if (directStr != null &&
+          directStr.isNotEmpty &&
+          directStr.toLowerCase() != 'null') {
+        return directStr;
+      }
+
+      // 2) Champs sur l'objet user/client (nouveau: `avatar`)
+      final dynamic rawUser = json["user"] ?? json["client"] ?? reservationData?["user"];
+      if (rawUser is Map) {
+        final m = Map<String, dynamic>.from(rawUser);
+        final v = (m["avatar"] ??
+            m["profilePicture"] ??
+            m["profile_picture"] ??
+            m["image"]);
+        final s = v?.toString().trim();
+        if (s != null && s.isNotEmpty && s.toLowerCase() != 'null') {
+          return s;
+        }
+      }
+      return null;
+    }
+
     return ReservationModel(
       reservationId: parsedId,
-      user: json["user"] == null ? null : UserModel.fromJson(json["user"]),
+      user: (() {
+        final dynamic raw = json["user"] ?? json["client"] ?? reservationData?["user"];
+        if (raw is Map) return UserModel.fromJson(Map<String, dynamic>.from(raw));
+        return null;
+      })(),
+      proprietaire: json["proprietaire"] == null ? null : UserModel.fromJson(json["proprietaire"]),
       property: parsedProperty,
-      message: reservationData["message"]?.toString(),
-      status: reservationData["status"]?.toString(),
-      type: reservationData["type"]?.toString(),
-      reservationHeure: reservationData["reservationHeure"]?.toString(),
-      cancellationReason: reservationData["cancellationReason"]?.toString(),
-      startDate: reservationData["startDate"]?.toString(),
-      endDate: reservationData["endDate"]?.toString(),
-      createdAt: reservationData["createdAt"]?.toString(),
-      active: reservationData["active"] == true,
-      terrainId: reservationData["terrainId"],
-      bureauId: reservationData["bureauId"],
-      vacanceId: reservationData["vacanceId"],
-      festiveId: reservationData["festiveId"],
-      funeraireId: reservationData["funeraireId"],
-      hotelId: reservationData["hotelId"],
-      chambreId: reservationData["chambreId"],
-      userImage: json["userImage"]?.toString(),
+      message: reservationCore["message"]?.toString(),
+      status: reservationCore["status"]?.toString(),
+      type: reservationCore["type"]?.toString(),
+      reservationHeure: reservationCore["reservationHeure"]?.toString(),
+      cancellationReason: reservationCore["cancellationReason"]?.toString(),
+      startDate: reservationCore["startDate"]?.toString(),
+      endDate: reservationCore["endDate"]?.toString(),
+      createdAt: reservationCore["createdAt"]?.toString(),
+      active: reservationCore["active"] == true,
+      terrainId: reservationCore["terrainId"],
+      bureauId: reservationCore["bureauId"],
+      vacanceId: reservationCore["vacanceId"],
+      festiveId: reservationCore["festiveId"],
+      funeraireId: reservationCore["funeraireId"],
+      hotelId: reservationCore["hotelId"],
+      chambreId: reservationCore["chambreId"],
+      userImage: _pickUserImage(),
       postByTel: _parsePostByTel(json, reservationData),
     );
   }
@@ -202,6 +248,7 @@ class ReservationModel {
   Map<String, dynamic> toJson() => {
     "reservationId": reservationId,
     "user": user?.toJson(),
+    "proprietaire": proprietaire?.toJson(),
     "property": property?.toJson(),
     "message": message,
     "status": status,

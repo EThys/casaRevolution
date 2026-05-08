@@ -7,6 +7,9 @@ import 'package:get_storage/get_storage.dart';
 import 'package:shimmer/shimmer.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/decertification_access_guard.dart';
+import '../utils/Endpoints.dart';
+import '../utils/FancyNotification.dart';
+import '../utils/requetes.dart';
 
 import '../controllers/AgenceController.dart';
 import '../controllers/AuthentificationCtrl.dart';
@@ -25,6 +28,7 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
   AgenceModel? _myAgency;
   String? _errorMessage;
   bool _noAgencyYet = false;
+  final Set<int> _togglingVacanceIds = <int>{};
 
   static const Color _primaryColor = Color(0xFF1976D2);
   static const Color _secondaryColor = Color(0xFF64B5F6);
@@ -100,6 +104,64 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
         _isLoading = false;
         _noAgencyYet = false;
       });
+    }
+  }
+
+  Future<void> _toggleVacanceAvailability(AgenceSiteModel site) async {
+    final vid = site.id;
+    if (vid == null || vid <= 0) return;
+    if (_togglingVacanceIds.contains(vid)) return;
+
+    // UI: Disponible = available==true. L'API "sold" attend {status:true} pour rendre indisponible.
+    final nextAvailable = !(site.available == true);
+    final payloadStatus = !nextAvailable; // indisponible => true ; disponible => false
+
+    setState(() {
+      _togglingVacanceIds.add(vid);
+      // Optimistic UI
+      site.available = nextAvailable;
+    });
+
+    try {
+      final tkn = GetStorage().read<String>(StockageKeys.tokenKey) ?? '';
+      final url = "${Endpoints.soldVacanceDirect}$vid";
+      final resp = await putData(url, {'status': payloadStatus}, token: tkn);
+      if (resp.status == true) {
+        FancyNotification.show(
+          context,
+          nextAvailable ? "Offre rendue disponible." : "Offre rendue indisponible.",
+          type: NotificationType.success,
+        );
+        if (mounted) {
+          await _loadAgency(); // refresh immédiat
+        }
+      } else {
+        // rollback
+        setState(() {
+          site.available = !nextAvailable;
+        });
+        FancyNotification.show(
+          context,
+          "Impossible de changer la disponibilité. Réessayez.",
+          isError: true,
+        );
+      }
+    } catch (_) {
+      // rollback
+      setState(() {
+        site.available = !nextAvailable;
+      });
+      FancyNotification.show(
+        context,
+        "Connexion instable. Réessayez dans un instant.",
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _togglingVacanceIds.remove(vid));
+      } else {
+        _togglingVacanceIds.remove(vid);
+      }
     }
   }
 
@@ -467,6 +529,9 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
   Widget _buildSiteCard(AgenceSiteModel site) {
       String? firstImage = (site.images != null && site.images!.isNotEmpty) ? site.images!.first : null;
       final color = Color(0xFF1976D2);
+      final available = site.available == true;
+      final vid = site.id;
+      final isToggling = vid != null && _togglingVacanceIds.contains(vid);
       
       return InkWell(
         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SiteDetailsPage(site: site))),
@@ -514,18 +579,52 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
                                             overflow: TextOverflow.ellipsis,
                                            ),
                                        ),
-                                       if (site.price != null && site.price! > 0)
-                                          Container(
-                                              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                  color: color.withOpacity(0.1),
-                                                  borderRadius: BorderRadius.circular(20)
-                                              ),
-                                              child: Text(
-                                                  "\$${site.price}",
-                                                  style: TextStyle(color: color, fontWeight: FontWeight.bold),
-                                              ),
-                                          ),
+                                       Row(
+                                         mainAxisSize: MainAxisSize.min,
+                                         children: [
+                                           Container(
+                                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                             decoration: BoxDecoration(
+                                               color: available ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
+                                               borderRadius: BorderRadius.circular(20),
+                                               border: Border.all(
+                                                 color: (available ? const Color(0xFF2E7D32) : const Color(0xFFC62828))
+                                                     .withOpacity(0.15),
+                                               ),
+                                             ),
+                                             child: Text(
+                                               available ? 'Disponible' : 'Indisponible',
+                                               style: TextStyle(
+                                                 color: available ? const Color(0xFF2E7D32) : const Color(0xFFC62828),
+                                                 fontWeight: FontWeight.bold,
+                                                 fontSize: 12,
+                                               ),
+                                             ),
+                                           ),
+                                           const SizedBox(width: 10),
+                                           Switch.adaptive(
+                                             value: available,
+                                             onChanged: (vid == null || isToggling)
+                                                 ? null
+                                                 : (_) => _toggleVacanceAvailability(site),
+                                             activeColor: const Color(0xFF1976D2),
+                                           ),
+                                           if (site.price != null && site.price! > 0) ...[
+                                             const SizedBox(width: 6),
+                                             Container(
+                                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                               decoration: BoxDecoration(
+                                                 color: color.withOpacity(0.1),
+                                                 borderRadius: BorderRadius.circular(20),
+                                               ),
+                                               child: Text(
+                                                 "\$${site.price}",
+                                                 style: TextStyle(color: color, fontWeight: FontWeight.bold),
+                                               ),
+                                             ),
+                                           ],
+                                         ],
+                                       ),
                                    ],
                                ),
                                SizedBox(height: 8),
