@@ -13,6 +13,7 @@ import 'package:casa/models/CityModel.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 class ParrainagePage extends StatefulWidget {
@@ -22,6 +23,7 @@ class ParrainagePage extends StatefulWidget {
 
 class _ParrainagePageState extends State<ParrainagePage> {
   final _formKey = GlobalKey<FormState>();
+  final _formKeyAccount = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _contactController = TextEditingController(); // Unified
@@ -46,6 +48,9 @@ class _ParrainagePageState extends State<ParrainagePage> {
   bool _loadingParrainUsers = false;
   bool _acceptConditions = false;
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
+
+  /// 0 = programme, 1 = profil, 2 = type de compte, 3 = parrain + mot de passe + CGU.
+  int _parrainageStep = 0;
 
   // Suivi de la force du mot de passe en temps réel
   int _passwordStrength = 0;
@@ -82,6 +87,19 @@ class _ParrainagePageState extends State<ParrainagePage> {
   final Color secondaryTextColor = Color(0xFF5C6BC0);
   final Color errorColor = Color(0xFFD63031);
   final Color successColor = Color(0xFF38B000);
+
+  /// Palette « feed » (Twitter / produit SV) tout en gardant le bleu CasaNayo.
+  static const Color _twTextPrimary = Color(0xFF0F1419);
+  static const Color _twTextSecondary = Color(0xFF536471);
+  static const Color _twBorder = Color(0xFFEFF3F4);
+  static const Color _pageBg = Color(0xFFF7F9F9);
+
+  static const List<String> _stepTitles = [
+    'Programme',
+    'Profil',
+    'Type de compte',
+    'Parrain & accès',
+  ];
 
   // Liste de villes pour l'autocomplete (identique à RegisterScreen)
   static final List<String> _allCities = List<String>.from(citySuggestions);
@@ -533,7 +551,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: _pageBg,
       body: Stack(
         alignment: Alignment.center,
         children: [
@@ -542,7 +560,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
             absorbing: _isLoading,
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
               child: SafeArea(
                 child: Column(
                   children: [
@@ -698,11 +716,19 @@ class _ParrainagePageState extends State<ParrainagePage> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Inscription avec parrain',
-                style: TextStyle(
-                  color: secondaryTextColor,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
+                _parrainageStep == 0
+                    ? 'Programme parrainage'
+                    : _parrainageStep == 1
+                        ? 'Votre profil'
+                        : _parrainageStep == 2
+                            ? 'Type de compte'
+                            : 'Parrain & accès',
+                style: GoogleFonts.inter(
+                  textStyle: TextStyle(
+                    color: secondaryTextColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -719,85 +745,135 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   Widget _buildParrainageBenefits() {
+    Widget line(String prefix, String text) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 26,
+              child: Text(
+                prefix,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: primaryColor,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                text,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: _twTextSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: lightBlue.withOpacity(0.45),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade100),
-        boxShadow: [
-          BoxShadow(
-            color: primaryColor.withOpacity(0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _twBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Tombola & avantages',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
           Text(
-            'Créez votre compte avec le nom de la personne qui vous invite'
-            'Les inscriptions avec parrain '
-            'participent au jeu CasaNayo ; les gagnants sont annoncés sur nos réseaux sociaux.',
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.45,
-              color: secondaryTextColor,
+            'Pourquoi parrainer sur CasaNayo ?',
+            style: GoogleFonts.inter(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: _twTextPrimary,
+              letterSpacing: -0.25,
             ),
           ),
-          const SizedBox(height: 12),
-          Divider(height: 1, color: Colors.grey.shade300),
+          const SizedBox(height: 16),
+          line(
+            '1.',
+            'Invitez des proches à créer leur compte depuis l’application : à partir de 5 personnes parrainées et inscrites, vous devenez éligible au tirage au sort du concours CasaNayo.',
+          ),
+          line(
+            '2.',
+            'Si, parmi vos filleuls, certains souscrivent à un abonnement annuel, vos chances au tirage augmentent.',
+          ),
+          line(
+            '3.',
+            'Les gagnants peuvent participer à un concours pour remporter des bons d’achat, des forfaits internet, des véhicules et bien plus encore.',
+          ),
+          const SizedBox(height: 8),
+          Divider(height: 1, color: _twBorder),
           const SizedBox(height: 12),
           Text(
-            'Exemples de lots : smartphones, bons d’achat, vehicules ',
-            style: TextStyle(
+            'Créez ensuite votre compte avec le nom de votre parrain pour rejoindre le programme.',
+            style: GoogleFonts.inter(
               fontSize: 13,
-              height: 1.45,
-              color: secondaryTextColor.withOpacity(0.9),
+              height: 1.4,
+              color: _twTextSecondary,
               fontStyle: FontStyle.italic,
             ),
           ),
         ],
       ),
-    ).animate().fadeIn(duration: 400.ms, delay: 80.ms);
+    ).animate().fadeIn(duration: 280.ms);
   }
 
+  Widget _buildStepProgressBar() {
+    final stepIndex = _parrainageStep.clamp(0, 3);
+    final progress = (stepIndex + 1) / 4.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Étape ${stepIndex + 1} sur 4',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: primaryColor,
+                letterSpacing: 0.15,
+              ),
+            ),
+            Text(
+              _stepTitles[stepIndex],
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: _twTextSecondary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 4,
+            backgroundColor: Colors.grey.shade200,
+            color: primaryColor,
+          ),
+        ),
+      ],
+    );
+  }
 
   Widget _buildParrainField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Text(
-              'Votre Parrain',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: 8),
-
         // Champ de recherche avec dropdown
         Container(
           decoration: BoxDecoration(
@@ -830,10 +906,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
             decoration: InputDecoration(
               labelText: 'Rechercher un parrain',
               labelStyle: TextStyle(color: secondaryTextColor),
-              prefixIcon: Container(
-                padding: EdgeInsets.all(12),
-                child: Icon(Icons.person_search_rounded, color: primaryColor),
-              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               suffixIcon: _parrainSearchController.text.isNotEmpty
                   ? IconButton(
                 icon: Icon(Icons.close_rounded, size: 20, color: secondaryTextColor),
@@ -890,14 +963,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
                 itemBuilder: (context, index) {
                   final parrain = _filteredParrains[index];
                   return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: primaryColor.withOpacity(0.2),
-                      child: Icon(
-                        Icons.person_rounded,
-                        color: primaryColor,
-                        size: 20,
-                      ),
-                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                     title: Text(
                       parrain['name'] as String,
                       style: TextStyle(
@@ -912,7 +978,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
                         fontSize: 12,
                       ),
                     ),
-                    trailing: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.grey),
                     onTap: () {
                       setState(() {
                         _selectedParrain = parrain;
@@ -940,14 +1005,12 @@ class _ParrainagePageState extends State<ParrainagePage> {
             ),
             child: Row(
               children: [
-                Icon(Icons.verified_user_rounded, color: primaryColor, size: 16),
-                SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Parrain sélectionné:',
+                        'Parrain sélectionné',
                         style: TextStyle(
                           fontSize: 12,
                           color: primaryColor,
@@ -986,11 +1049,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
             ),
           ),
       ],
-    ).animate().slideY(
-      begin: 0.2,
-      duration: 500.ms,
-      delay: 1650.ms,
-      curve: Curves.easeOut,
     );
   }
 
@@ -1008,20 +1066,10 @@ class _ParrainagePageState extends State<ParrainagePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Type de compte*',
-          style: TextStyle(
-            color: secondaryTextColor,
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        SizedBox(height: 16),
-
         // SECTION 1: LOCATAIRE (CLIENT)
         _buildCategoryHeader(
           title: "Vous êtes Locataire ?",
-          icon: Icons.person_pin_rounded,
+          icon: null,
           isSelected: _isLocataireSelected,
           onTap: () {
             setState(() {
@@ -1046,9 +1094,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
         // SECTION 2: PROPRIÉTAIRE (IMMOBILIER)
         _buildCategoryHeader(
           title: "Vous proposez de l'immobilier ?",
-          icon: Icons.home_work_rounded,
+          icon: null,
           isSelected: _selectedOwnerAccountId != null,
-          showBadge: true,
           onTap: () async {
             if (typeCtrl.ownerTypes.isEmpty) {
                await typeCtrl.fetchTypeAccounts();
@@ -1075,7 +1122,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
         // SECTION 3: PRESTATAIRE DE SERVICE
         _buildCategoryHeader(
           title: "Vous proposez des services ?",
-          icon: Icons.handyman_rounded,
+          icon: null,
           isSelected: _selectedPrestataireAccountId != null,
           onTap: () async {
             if (typeCtrl.serviceTypes.isEmpty) {
@@ -1105,7 +1152,23 @@ class _ParrainagePageState extends State<ParrainagePage> {
             padding: const EdgeInsets.only(top: 12, left: 8),
             child: Row(
               children: [
-                Icon(Icons.error_outline_rounded, color: errorColor, size: 16),
+                Container(
+                  width: 18,
+                  height: 18,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: errorColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '!',
+                    style: TextStyle(
+                      color: errorColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
                 SizedBox(width: 8),
                 Text(
                   'Sélectionnez au moins une catégorie',
@@ -1115,19 +1178,13 @@ class _ParrainagePageState extends State<ParrainagePage> {
             ),
           ),
       ],
-    ).animate().slideY(
-      begin: 0.2,
-      duration: 500.ms,
-      delay: 1600.ms,
-      curve: Curves.easeOut,
     );
   }
 
   Widget _buildCategoryHeader({
     required String title,
-    required IconData icon,
+    IconData? icon,
     required bool isSelected,
-    bool showBadge = false,
     required VoidCallback onTap,
   }) {
     return InkWell(
@@ -1146,8 +1203,20 @@ class _ParrainagePageState extends State<ParrainagePage> {
         ),
         child: Row(
           children: [
-            Icon(icon, color: isSelected ? primaryColor : Colors.grey.shade600, size: 24),
-            SizedBox(width: 16),
+            if (icon != null) ...[
+              Icon(icon, color: isSelected ? primaryColor : Colors.grey.shade600, size: 24),
+              SizedBox(width: 16),
+            ] else ...[
+              Container(
+                width: 4,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: isSelected ? primaryColor : Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              SizedBox(width: 14),
+            ],
             Expanded(
               child: Text(
                 title,
@@ -1158,10 +1227,13 @@ class _ParrainagePageState extends State<ParrainagePage> {
                 ),
               ),
             ),
-            Icon(
-              isSelected ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
-              color: isSelected ? primaryColor : Colors.grey.shade400,
-              size: 20,
+            Text(
+              isSelected ? 'Oui' : ' ',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? primaryColor : Colors.transparent,
+              ),
             ),
           ],
         ),
@@ -1211,7 +1283,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
           );
         }).toList(),
       ),
-    ).animate().fadeIn(duration: 300.ms).slideY(begin: -0.1);
+    );
   }
   Widget _buildPasswordStrengthIndicator() {
     return AnimatedContainer(
@@ -1268,58 +1340,137 @@ class _ParrainagePageState extends State<ParrainagePage> {
             ),
         ],
       ),
-    ).animate().fadeIn(delay: 1800.ms);
+    );
   }
 
-  Widget _buildAuthForm() {
-    return Form(
-      key: _formKey,
-      autovalidateMode: _autoValidateMode,
-      child: Column(
-        children: [
-          _buildNameField(
-            controller: _firstNameController,
-            label: 'Prénom',
-            hint: 'Jean',
-            focusNode: _firstNameFocus,
-            nextFocus: _lastNameFocus,
-            isTouched: _firstNameTouched,
-            onChanged: (val) {
-               if (!_firstNameTouched && val.isNotEmpty) setState(() => _firstNameTouched = true);
-            },
+  bool _validateStep1Fields() {
+    return _validateName(_firstNameController.text, 'prénom') == null &&
+        _validateName(_lastNameController.text, 'nom') == null &&
+        _validateContact(_contactController.text) == null &&
+        _validateCity(_cityController.text) == null;
+  }
+
+  void _goToStep2From1() {
+    setState(() {
+      _autoValidateMode = AutovalidateMode.always;
+      _firstNameTouched = true;
+      _lastNameTouched = true;
+      _contactTouched = true;
+      _cityTouched = true;
+    });
+    if (!_validateStep1Fields()) {
+      FancyNotification.show(
+        context,
+        'Complétez ou corrigez votre profil avant de continuer.',
+      );
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _parrainageStep = 2);
+  }
+
+  void _goToStep3From2() {
+    if (!_isLocataireSelected &&
+        _selectedOwnerAccountId == null &&
+        _selectedPrestataireAccountId == null) {
+      setState(() => _autoValidateMode = AutovalidateMode.always);
+      FancyNotification.show(
+        context,
+        'Sélectionnez au moins un type de compte pour continuer.',
+      );
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _parrainageStep = 3);
+  }
+
+  Widget _sectionHeaderSv(String title, String subtitle) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: GoogleFonts.inter(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: _twTextPrimary,
+            letterSpacing: -0.2,
           ),
-          SizedBox(height: 15),
-          _buildNameField(
-            controller: _lastNameController,
-            label: 'Nom',
-            hint: 'Baka',
-            focusNode: _lastNameFocus,
-            nextFocus: _contactFocus,
-            isTouched: _lastNameTouched,
-            onChanged: (val) {
-               if (!_lastNameTouched && val.isNotEmpty) setState(() => _lastNameTouched = true);
-            },
+        ),
+        const SizedBox(height: 2),
+        Text(
+          subtitle,
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            height: 1.35,
+            color: _twTextSecondary,
           ),
-          SizedBox(height: 15),
-          // Contact Unifié
-          _buildContactField(),
-          SizedBox(height: 15),
-          // Ville
-          _buildCityField(),
-          SizedBox(height: 15),
-          // Type de compte
-          _buildAccountTypeField(),
-          SizedBox(height: 15),
-          // Champ de parrain
-          _buildParrainField(),
-          SizedBox(height: 20),
-          // Mot de passe
-          _buildPasswordField(),
-          SizedBox(height: 8),
-          // Indicateur de force du mot de passe en temps réel
-          _buildPasswordStrengthIndicator(),
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+
+  /// Champs étape 2 — profil (le parent [Form] fournit la clé).
+  Widget _buildStep1FormFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildNameField(
+          controller: _firstNameController,
+          label: 'Prénom',
+          hint: 'Jean',
+          focusNode: _firstNameFocus,
+          nextFocus: _lastNameFocus,
+          isTouched: _firstNameTouched,
+          onChanged: (val) {
+            if (!_firstNameTouched && val.isNotEmpty) {
+              setState(() => _firstNameTouched = true);
+            }
+          },
+        ),
+        const SizedBox(height: 14),
+        _buildNameField(
+          controller: _lastNameController,
+          label: 'Nom',
+          hint: 'Baka',
+          focusNode: _lastNameFocus,
+          nextFocus: _contactFocus,
+          isTouched: _lastNameTouched,
+          onChanged: (val) {
+            if (!_lastNameTouched && val.isNotEmpty) {
+              setState(() => _lastNameTouched = true);
+            }
+          },
+        ),
+        const SizedBox(height: 14),
+        _buildContactField(),
+        const SizedBox(height: 14),
+        _buildCityField(),
+      ],
+    );
+  }
+
+  /// Étape 4 — parrain, mot de passe, indicateur de force.
+  Widget _buildStep3FormFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionHeaderSv(
+          'Votre parrain',
+          'Nom exact tel qu’affiché sur l’application.',
+        ),
+        const SizedBox(height: 8),
+        _buildParrainField(),
+        const SizedBox(height: 18),
+        _sectionHeaderSv(
+          'Mot de passe',
+          'Au moins 6 caractères pour sécuriser votre compte.',
+        ),
+        const SizedBox(height: 8),
+        _buildPasswordField(),
+        const SizedBox(height: 8),
+        _buildPasswordStrengthIndicator(),
+      ],
     );
   }
 
@@ -1432,7 +1583,23 @@ class _ParrainagePageState extends State<ParrainagePage> {
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.error_outline_rounded, color: errorColor, size: 14),
+                            Container(
+                              width: 18,
+                              height: 18,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: errorColor.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '!',
+                                style: TextStyle(
+                                  color: errorColor,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                             SizedBox(width: 6),
                             Expanded(
                               child: Text(
@@ -1454,77 +1621,312 @@ class _ParrainagePageState extends State<ParrainagePage> {
           ),
         ),
       ],
-    ).animate().fadeIn(delay: 2200.ms);
+    );
   }
 
   Widget _buildAuthCard() {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.all(30),
+      padding: const EdgeInsets.fromLTRB(22, 24, 22, 28),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10), // Reduced radius to match RegisterScreen
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 30,
-            spreadRadius: 5,
-            offset: Offset(0, 10),
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
           ),
         ],
-        border: Border.all(color: Colors.grey.shade100, width: 1),
+        border: Border.all(color: _twBorder),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-
-          Text(
-            'Inscription avec Parrain',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: textColor,
+          _buildStepProgressBar(),
+          const SizedBox(height: 20),
+          if (_parrainageStep == 0) ...[
+            Text(
+              'Parrainer, c’est\ngrandir ensemble',
+              textAlign: TextAlign.left,
+              style: GoogleFonts.inter(
+                fontSize: 26,
+                height: 1.15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.6,
+                color: _twTextPrimary,
+              ),
             ),
-          ).animate().fadeIn(delay: 1100.ms),
-
-          SizedBox(height: 10),
-
-          Text(
-            'Créez votre compte et bénéficiez des avantages du parrainage',
-            style: TextStyle(
-              color: secondaryTextColor,
-              fontSize: 14,
+            const SizedBox(height: 10),
+            Text(
+              'Les règles du programme en un clin d’œil, puis quatre étapes pour finaliser votre inscription.',
+              textAlign: TextAlign.left,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.45,
+                color: _twTextSecondary,
+              ),
             ),
-            textAlign: TextAlign.center,
-          ).animate().fadeIn(delay: 1200.ms),
-
-          SizedBox(height: 20),
-
-          // Avantages du parrainage
-          _buildParrainageBenefits(),
-
-          SizedBox(height: 25),
-
-          AbsorbPointer(
-            absorbing: _isLoading,
-            child: Column(
-              children: [
-                _buildAuthForm(),
-                SizedBox(height: 25),
-                _buildPrivacyText(),
-                SizedBox(height: 25),
-                _buildAuthButton(),
-                SizedBox(height: 20),
-                _buildLoginLink(),
-              ],
+            const SizedBox(height: 20),
+            _buildParrainageBenefits(),
+            const SizedBox(height: 26),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => setState(() => _parrainageStep = 1),
+                style: FilledButton.styleFrom(
+                  backgroundColor: primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                child: Text(
+                  'Commencer',
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
             ),
-          ),
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(
+                  'Retour',
+                  style: GoogleFonts.inter(
+                    color: _twTextSecondary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ),
+          ] else if (_parrainageStep == 1) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: _twTextPrimary),
+                onPressed: () => setState(() => _parrainageStep = 0),
+              ),
+            ),
+            Text(
+              'Vos informations',
+              style: GoogleFonts.inter(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+                color: _twTextPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Pour vous joindre et personnaliser votre expérience CasaNayo.',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.4,
+                color: _twTextSecondary,
+              ),
+            ),
+            const SizedBox(height: 22),
+            AbsorbPointer(
+              absorbing: _isLoading,
+              child: Form(
+                key: _formKey,
+                autovalidateMode: _autoValidateMode,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildStep1FormFields(),
+                    const SizedBox(height: 26),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => setState(() => _parrainageStep = 0),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _twTextPrimary,
+                              side: const BorderSide(color: _twBorder),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                            child: Text(
+                              'Retour',
+                              style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: FilledButton(
+                            onPressed: _goToStep2From1,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                            child: Text(
+                              'Continuer',
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ] else if (_parrainageStep == 2) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: _twTextPrimary),
+                onPressed: () => setState(() => _parrainageStep = 1),
+              ),
+            ),
+            Text(
+              'Type de compte',
+              style: GoogleFonts.inter(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+                color: _twTextPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Indiquez comment vous utilisez CasaNayo (vous pourrez ajuster plus tard selon les règles du service).',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.4,
+                color: _twTextSecondary,
+              ),
+            ),
+            const SizedBox(height: 22),
+            AbsorbPointer(
+              absorbing: _isLoading,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildAccountTypeField(),
+                  const SizedBox(height: 26),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => setState(() => _parrainageStep = 1),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _twTextPrimary,
+                            side: const BorderSide(color: _twBorder),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          child: Text(
+                            'Retour',
+                            style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton(
+                          onPressed: _goToStep3From2,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          child: Text(
+                            'Continuer',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: _twTextPrimary),
+                onPressed: () => setState(() => _parrainageStep = 2),
+              ),
+            ),
+            Text(
+              'Parrain et accès',
+              style: GoogleFonts.inter(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+                color: _twTextPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Dernière étape : parrain, mot de passe et acceptation des conditions.',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.4,
+                color: _twTextSecondary,
+              ),
+            ),
+            const SizedBox(height: 22),
+            AbsorbPointer(
+              absorbing: _isLoading,
+              child: Form(
+                key: _formKeyAccount,
+                autovalidateMode: _autoValidateMode,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildStep3FormFields(),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildPrivacyText(),
+            const SizedBox(height: 22),
+            _buildAuthButton(),
+            const SizedBox(height: 16),
+            _buildLoginLink(),
+          ],
         ],
       ),
-    ).animate().slideY(
-      begin: 0.5,
-      duration: 600.ms,
-      delay: 1000.ms,
-      curve: Curves.easeOutCubic,
     );
   }
 
@@ -1562,10 +1964,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: secondaryTextColor),
-          prefixIcon: Container(
-            padding: EdgeInsets.all(12),
-            child: Icon(Icons.person_rounded, color: primaryColor),
-          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           suffixIcon: nextFocus != null ? _buildNextButton(() => _goToNextField(focusNode, nextFocus)) : null,
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
@@ -1590,11 +1989,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
           errorText: shouldValidate ? _validateName(controller.text, label.toLowerCase()) : null,
         ),
       ),
-    ).animate().slideX(
-      begin: -0.3,
-      duration: 500.ms,
-      delay: 1300.ms,
-      curve: Curves.easeOut,
     );
   }
 
@@ -1666,13 +2060,10 @@ class _ParrainagePageState extends State<ParrainagePage> {
         decoration: InputDecoration(
           labelText: 'Email ou Téléphone*',
           labelStyle: TextStyle(color: Colors.black87),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           prefixIcon: _isPhoneInput && _contactController.text.isNotEmpty
               ? _buildCountryCodeDropdown()
-              : Container(
-                  padding: EdgeInsets.all(12),
-                  child: Icon(Icons.email_rounded, color: primaryColor),
-                ),
-
+              : null,
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -1708,11 +2099,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
         },
         validator: null,
       ),
-    ).animate().slideX(
-      begin: 0.3,
-      duration: 500.ms,
-      delay: 1400.ms,
-      curve: Curves.easeOut,
     );
   }
 
@@ -1745,8 +2131,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
           setState(() {
             _cityController.text = city.name ?? '';
             _cityTouched = true;
-            FocusScope.of(context).requestFocus(_parrainFocus);
           });
+          FocusScope.of(context).unfocus();
         },
         fieldViewBuilder: (
           BuildContext context,
@@ -1771,7 +2157,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
             },
             onFieldSubmitted: (String value) {
               onFieldSubmitted();
-              _goToNextField(focusNode, _parrainFocus);
+              FocusScope.of(context).unfocus();
             },
             onChanged: (String value) {
               setState(() {
@@ -1783,10 +2169,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
             decoration: InputDecoration(
               labelText: 'Ville*',
               labelStyle: TextStyle(color: Colors.black87),
-              prefixIcon: Container(
-                padding: EdgeInsets.all(12),
-                child: Icon(Icons.search_rounded, color: primaryColor),
-              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               suffixIcon: _cityController.text.isNotEmpty
                   ? IconButton(
                       icon: Icon(Icons.clear_rounded, color: Colors.grey.shade400),
@@ -1846,7 +2229,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
                   itemBuilder: (BuildContext context, int index) {
                     final CityModel city = options.elementAt(index);
                     return ListTile(
-                      leading: Icon(Icons.location_city_rounded, color: primaryColor, size: 20),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
                       title: Text(city.name ?? '', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                       onTap: () => onSelected(city),
                     );
@@ -1857,8 +2240,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
           );
         },
       ),
-    ).animate().slideX(
-      begin: 0.3, duration: 500.ms, delay: 1550.ms, curve: Curves.easeOut,
     );
   }
 
@@ -1940,10 +2321,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
         decoration: InputDecoration(
           labelText: 'Mot de passe*',
           labelStyle: TextStyle(color: Colors.black87),
-          prefixIcon: Container(
-            padding: EdgeInsets.all(12),
-            child: Icon(Icons.lock_rounded, color: primaryColor),
-          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           suffixIcon: Container(
             padding: EdgeInsets.all(8),
             child: Row(
@@ -1976,11 +2354,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
           errorText: _passwordTouched ? _validatePassword(_passwordController.text) : null,
         ),
       ),
-    ).animate().slideX(
-      begin: 0.3,
-      duration: 500.ms,
-      delay: 1700.ms,
-      curve: Curves.easeOut,
     );
   }
 
@@ -1995,10 +2368,13 @@ class _ParrainagePageState extends State<ParrainagePage> {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            isMet ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-            color: isMet ? successColor : Colors.grey.shade400,
-            size: 12,
+          Text(
+            isMet ? '✓' : '·',
+            style: TextStyle(
+              fontSize: 11,
+              color: isMet ? successColor : Colors.grey.shade500,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           SizedBox(width: 4),
           Text(
@@ -2085,32 +2461,15 @@ class _ParrainagePageState extends State<ParrainagePage> {
             valueColor: AlwaysStoppedAnimation(Colors.white),
           ),
         )
-            : Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Créer mon compte',
-              style: TextStyle(
-                fontSize: 16,
-                color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7),
-                fontWeight: FontWeight.bold,
+            : Text(
+                'Créer mon compte',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7),
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            SizedBox(width: 10),
-            Icon(
-              Icons.person_add_rounded,
-              size: 20,
-              color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7),
-            ),
-          ],
-        ),
       ),
-    ).animate().scale(
-      delay: 2100.ms,
-      duration: 500.ms,
-    ).then().shake(
-      delay: 100.ms,
-      duration: 400.ms,
     );
   }
 
@@ -2160,7 +2519,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
           ),
         ),
       ],
-    ).animate().fadeIn(delay: 2000.ms);
+    );
   }
 
   // Validators
@@ -2226,9 +2585,8 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   void _forceRevalidation() {
-    if (_formKey.currentState != null) {
-      _formKey.currentState!.validate();
-    }
+    _formKey.currentState?.validate();
+    _formKeyAccount.currentState?.validate();
   }
 
   Future<void> _handleRegister() async {
