@@ -540,7 +540,7 @@ class _TermsAndPrivacyPageState extends State<TermsAndPrivacyPage> with SingleTi
           _buildModernContactItem(
             icon: Icons.email_rounded,
             title: "Email",
-            subtitle: "contact@casanayo.cd",
+            subtitle: "contact@casanayo.com",
             description: "Réponse sous 24h",
             gradient: [_primaryColor, _primaryLight],
           ),
@@ -563,7 +563,7 @@ class _TermsAndPrivacyPageState extends State<TermsAndPrivacyPage> with SingleTi
           SizedBox(height: 12),
           Center(
             child: Text(
-              "Délégué à la protection des données : dpd@casanayo.cd",
+              "Délégué à la protection des données : dpd@casanayo.com",
               style: TextStyle(
                 color: _primaryColor,
                 fontSize: 13,
