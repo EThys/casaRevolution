@@ -43,6 +43,7 @@ import '../utils/RoutesManager.dart';
 import '../utils/StockageKeys.dart';
 import 'package:casa/controllers/NotificationController.dart';
 import 'package:casa/controllers/TutorialController.dart';
+import '../widgets/app_update_gate.dart';
 
 
 class MonApplication extends StatelessWidget {
@@ -111,9 +112,9 @@ class MonApplication extends StatelessWidget {
       child: Consumer<ThemeController>(
         builder: (context, themeController, child) {
           return MaterialApp(
-            navigatorKey: navigatorKey,
-            debugShowCheckedModeBanner: false,
-            useInheritedMediaQuery: true,
+              navigatorKey: navigatorKey,
+              debugShowCheckedModeBanner: false,
+              useInheritedMediaQuery: true,
 
             // Forcer le mode clair uniquement
             themeMode: ThemeMode.light,
@@ -475,9 +476,12 @@ class MonApplication extends StatelessWidget {
           Locale('fr', 'FR'),
           Locale('en', 'US'),
         ],
-        onGenerateRoute: RoutesManager.route,
-        initialRoute: Routes.splashRoute,
-          );
+              builder: (context, child) => AppUpdateGate(
+                child: child ?? const SizedBox.shrink(),
+              ),
+              onGenerateRoute: RoutesManager.route,
+              initialRoute: Routes.splashRoute,
+            );
         },
       ),
     );
