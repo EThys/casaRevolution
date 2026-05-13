@@ -6,6 +6,7 @@ import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/casanayo_share_copy.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
@@ -405,28 +406,28 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     final carouselHeight = MediaQuery.of(context).size.height * 0.4;
 
     Future<void> _shareProperty() async {
-      final firstImageUrl = images.isNotEmpty
-          ? '${images.first.path ?? images.first.path}'
-          : null;
-
       bool isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
 
       final priceText = isForRent && !_isFestiveOrFuneraireFor(property)
           ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
           : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
 
-      final surfaceText = _showSurfaceFor(property) ? '📐 ${property.surface?.toInt() ?? 0} m²' : '';
-      
-      final bedroomsText = _shouldHideBedroomsFor(property) ? '' : '🛏️ ${property.bedrooms ?? 0} chambres\n';
-      
-      final shareText = '''
-        🏠 ${property.title ?? 'Belle propriété'}
-        
-        💰 ${priceText}
-        $bedroomsText        🚿 ${property.bathroom ?? 0} salles de bain
-        ${surfaceText.isNotEmpty ? '$surfaceText\n' : ''}
-        Découvrez plus de détails sur CasaNayo!
-''';
+      final lines = <String>[
+        '🏠 ${property.title ?? 'Belle propriété'}',
+        '',
+        '💰 $priceText',
+      ];
+      if (!_shouldHideBedroomsFor(property)) {
+        lines.add('🛏️ ${property.bedrooms ?? 0} chambres');
+      }
+      lines.add('🚿 ${property.bathroom ?? 0} salles de bain');
+      if (_showSurfaceFor(property)) {
+        lines.add('📐 ${property.surface?.toInt() ?? 0} m²');
+      }
+      lines.add('');
+      lines.add('Découvrez plus de détails sur CasaNayo !');
+      final shareText =
+          '${lines.join('\n')}\n\n${CasanayoShareCopy.listingShareFooter(listingId: property.propertyId, kindLabel: 'propriété')}';
 
       try {
         final box = context.findRenderObject() as RenderBox?;

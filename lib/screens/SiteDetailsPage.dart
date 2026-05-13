@@ -11,6 +11,8 @@ import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/casanayo_share_copy.dart';
+import 'package:share_plus/share_plus.dart';
 import 'dart:async';
 
 class SiteDetailsPage extends StatefulWidget {
@@ -192,6 +194,38 @@ class _SiteDetailsPageState extends State<SiteDetailsPage> {
     );
   }
 
+  Future<void> _shareSite() async {
+    final s = widget.site;
+    final title = s.title ?? 'Site CasaNayo';
+    final desc = s.description?.trim();
+    final buf = StringBuffer()
+      ..writeln('Découvrez ce site sur CasaNayo : $title');
+    if (desc != null && desc.isNotEmpty) {
+      buf.writeln('');
+      buf.writeln(desc);
+    }
+    buf.writeln('');
+    buf.writeln('');
+    buf.write(CasanayoShareCopy.listingShareFooter(
+      listingId: s.id,
+      kindLabel: 'site',
+    ));
+    try {
+      await Share.share(
+        buf.toString(),
+        subject: title,
+      );
+    } catch (e) {
+      if (mounted) {
+        FancyNotification.show(
+          context,
+          'Erreur lors du partage : $e',
+          type: NotificationType.error,
+        );
+      }
+    }
+  }
+
   Widget _buildImageCarousel(List<String> images) {
     final carouselHeight = MediaQuery.of(context).size.height * 0.4;
 
@@ -300,12 +334,7 @@ class _SiteDetailsPageState extends State<SiteDetailsPage> {
           right: 20,
           child: _buildActionButton(
             icon: Icons.share,
-            onPressed: () {
-              // Share functionality
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Partage en cours de développement')),
-              );
-            },
+            onPressed: _shareSite,
           ),
         ),
       ],

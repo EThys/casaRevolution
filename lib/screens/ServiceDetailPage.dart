@@ -10,6 +10,7 @@ import '../models/CotationModel.dart';
 import '../models/PrestationModel.dart';
 import 'CotationsListPage.dart';
 import '../utils/FancyNotification.dart';
+import 'package:casa/utils/casanayo_share_copy.dart';
 import '../utils/FavoriteEartIcon.dart';
 import 'ServiceFullScreenImageViewer.dart';
 import 'RequestInterventionPage.dart';
@@ -694,13 +695,20 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   Future<void> _shareService(PrestationModel service) async {
     final priceText = _getPriceRange(service);
 
-    final shareText = '''
-🔧 ${service.title ?? 'Service professionnel'} - ${service.cityValue}, ${service.communeValue}
-
-💰 ${priceText}
-${service.description != null ? '\n${service.description}\n' : ''}
-Découvrez ce service sur CasaNayo!
-''';
+    final lines = <String>[
+      '🔧 ${service.title ?? 'Service professionnel'} — ${service.cityValue}, ${service.communeValue}',
+      '',
+      '💰 $priceText',
+    ];
+    final desc = service.description?.trim();
+    if (desc != null && desc.isNotEmpty) {
+      lines.add('');
+      lines.add(desc);
+    }
+    lines.add('');
+    lines.add('Découvrez ce service sur CasaNayo !');
+    final shareText =
+        '${lines.join('\n')}\n\n${CasanayoShareCopy.listingShareFooter(listingId: service.id, kindLabel: 'service')}';
 
     try {
       final box = context.findRenderObject() as RenderBox?;

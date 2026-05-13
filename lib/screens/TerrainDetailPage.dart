@@ -22,6 +22,7 @@ import '../models/PropertyImageModel.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/property_availability_ui.dart';
 import '../utils/listing_fields_parse.dart';
+import 'package:casa/utils/casanayo_share_copy.dart';
 
 /// Complète [incoming] avec les champs encore présents dans [base] (navigation depuis liste partielle).
 TerrainModel _mergeTerrainSnapshot(TerrainModel base, TerrainModel incoming) {
@@ -357,8 +358,15 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
     final rawCurrency = _displayTerrain.devise?.code ?? 'USD';
     final currency = (rawCurrency == 'USD') ? '\$' : (rawCurrency == 'CDF' ? 'FC' : rawCurrency);
     
+    final intro = <String>[
+      'Découvrez ce terrain : $title',
+      '',
+      'Prix : $price $currency',
+      '',
+      "Sur l'application CasaNayo !",
+    ].join('\n');
     await Share.share(
-      'Découvrez ce terrain : $title\nPrix : $price $currency\nSur l\'application CasaNayo!',
+      '$intro\n\n${CasanayoShareCopy.listingShareFooter(listingId: _displayTerrain.terrain?.id, kindLabel: 'terrain')}',
       subject: 'Terrain à voir',
     );
   }

@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:casa/utils/casanayo_share_copy.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
 import 'dart:convert';
@@ -547,17 +548,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _shareApp() {
-    const String androidLink = "https://play.google.com/store/apps/details?id=com.casa.casa.casa&pcampaignid=web_share";
-    const String iosLink = "https://apps.apple.com/fr/app/casanayo/id6757759953?l=en-GB";
-
-    final String message = "Découvrez CasaNayo ! \n\n"
-        "Votre plateforme de référence pour trouver une propriété, réserver un hôtel ou solliciter des services professionnels de qualité.\n\n"
-        "Téléchargez l'application dès maintenant :\n\n"
-        "Android : $androidLink\n\n"
-        "iOS : $iosLink\n\n"
-        "CasaNayo, l'immobilier en toute simplicité !";
-
-    Share.share(message, subject: "Partagez l'application CasaNayo");
+    Share.share(
+      CasanayoShareCopy.appInvitationMessage(),
+      subject: CasanayoShareCopy.shareAppSubject,
+    );
   }
 
   void _showProfileOptions() {
