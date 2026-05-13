@@ -18,6 +18,11 @@ import 'package:google_fonts/google_fonts.dart';
 import '../controllers/AuthentificationCtrl.dart';
 
 class MyPropertiesPage extends StatefulWidget {
+  /// Gérant → entrée « Mes salles » : uniquement salles festives (8) et funéraires (7).
+  final bool onlyFestiveAndFuneraire;
+
+  const MyPropertiesPage({super.key, this.onlyFestiveAndFuneraire = false});
+
   @override
   _MyPropertiesPageState createState() => _MyPropertiesPageState();
 }
@@ -101,7 +106,19 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
       if (mounted) {
         setState(() {
           // Les hôtels sont gérés dans l’espace "Mes hôtels & chambres" (gérant).
-          _myProperties = properties.where((p) => (p.propertyTypeId ?? 0) != 5).toList();
+          var list =
+              properties.where((p) => (p.propertyTypeId ?? 0) != 5).toList();
+          if (widget.onlyFestiveAndFuneraire) {
+            const festiveId = 8;
+            const funeraireId = 7;
+            list = list
+                .where((p) {
+                  final id = p.propertyTypeId ?? 0;
+                  return id == festiveId || id == funeraireId;
+                })
+                .toList();
+          }
+          _myProperties = list;
           _isLoadingData = false;
           _isRefreshing = false;
         });

@@ -295,9 +295,24 @@ class PropertyModel {
       propertyId: _parseInt(dataNode["propertyId"]) ?? _parseInt(dataNode["id"]),
       title: _parseString(dataNode["title"]),
       description: _parseString(dataNode["description"]),
-      postBy: _parseString(container["postBy"]) ?? _parseString(json["postBy"]),
-      image: _parseString(container["image"]) ?? _parseString(json["image"]) ?? _parseString(dataNode["profile"]),
-      username: _parseString(container["postBy"]) ?? _parseString(dataNode["username"]) ?? _parseString(json["username"]),
+      postBy: _parseString(container["postBy"]) ??
+          _parseString(json["postBy"]) ??
+          (json["proprietaire"] is Map
+              ? _parseString((json["proprietaire"] as Map)["username"])
+              : null),
+      image: _parseString(container["image"]) ??
+          _parseString(json["image"]) ??
+          _parseString(dataNode["profile"]) ??
+          (json["proprietaire"] is Map
+              ? (_parseString((json["proprietaire"] as Map)["avatar"]) ??
+                  _parseString((json["proprietaire"] as Map)["profilePicture"]))
+              : null),
+      username: _parseString(container["postBy"]) ??
+          _parseString(dataNode["username"]) ??
+          _parseString(json["username"]) ??
+          (json["proprietaire"] is Map
+              ? _parseString((json["proprietaire"] as Map)["username"])
+              : null),
       price: _parseDouble(dataNode["price"]) ?? _parseDouble(dataNode["minPrice"]) ?? _parseDouble(dataNode["maxPrice"]) ?? 0.0,
       surface: _parseDouble(dataNode["surface"]) ?? 0.0,
       rooms: _parseInt(dataNode["rooms"]) ?? 0,
@@ -347,9 +362,20 @@ class PropertyModel {
                 ? _parseInt(json["user"]["userId"]) 
                 : 0),
       agenceId: _parseInt(dataNode["agenceId"]) ?? _parseInt(container["agenceId"]) ?? _parseInt(json["agenceId"]),
-      user: json["user"] is Map<String, dynamic>
-          ? UserModel.fromJson(json["user"])
-          : null,
+      // Réservations / détails : `user` à la racine = souvent le client ; `proprietaire` = annonceur.
+      user: json["proprietaire"] is Map
+          ? UserModel.fromJson(
+              Map<String, dynamic>.from(json["proprietaire"] as Map),
+            )
+          : (container["user"] is Map
+              ? UserModel.fromJson(
+                  Map<String, dynamic>.from(container["user"] as Map),
+                )
+              : (json["user"] is Map
+                  ? UserModel.fromJson(
+                      Map<String, dynamic>.from(json["user"] as Map),
+                    )
+                  : null)),
       latitude: _parseDouble(geoNode["lat"]) ?? _parseDouble(dataNode["latitude"]) ?? 0.0,
       longitude: _parseDouble(geoNode["lng"]) ?? _parseDouble(dataNode["longitude"]) ?? 0.0,
       createdStart: _parseString(dataNode["createdStart"]) ?? _parseString(_getVal("createdAt")) ?? _parseString(json["createdAt"]),

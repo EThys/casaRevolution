@@ -208,7 +208,14 @@ class RoutesManager {
       case Routes.favoriteRoute:
         return MaterialPageRoute(builder: (_)=>FavoritesPage());
       case Routes.myPropertiesRoute:
-        return MaterialPageRoute(builder: (_)=>MyPropertiesPage());
+        final mpArgs = r.arguments;
+        final onlySalles = mpArgs is Map &&
+            mpArgs['onlyFestiveAndFuneraire'] == true;
+        return MaterialPageRoute(
+          builder: (_) => MyPropertiesPage(
+            onlyFestiveAndFuneraire: onlySalles,
+          ),
+        );
       case Routes.myHotelsRoute:
         return MaterialPageRoute(builder: (_)=> const MyHotelsPage());
       case Routes.myServicesRoute:
