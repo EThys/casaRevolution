@@ -6,11 +6,13 @@ import 'package:flutter/foundation.dart' show consolidateHttpClientResponseBytes
 import 'package:casa/utils/AppColors.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/decertification_access_guard.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/utils/Endpoints.dart';
 import 'package:casa/utils/requetes.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:flutter/material.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -25,7 +27,21 @@ class IdentityVerificationPage extends StatefulWidget {
 }
 
 class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
-  final _formKey = GlobalKey<FormState>();
+  final _formKeyInfo = GlobalKey<FormState>();
+  final _formKeyDoc = GlobalKey<FormState>();
+  bool _completionPopScheduled = false;
+
+  /// 0 = contexte et règles, 1 = coordonnées + photo de profil, 2 = pièce d’identité et envoi.
+  int _kycStep = 0;
+
+  static const Color _kycBorder = Color(0xFFEFF3F4);
+  static const Color _kycMuted = Color(0xFF536471);
+  static const Color _kycPageBg = Color(0xFFF8FAFC);
+  static const List<String> _kycStepLabels = [
+    'Contexte',
+    'Coordonnées',
+    'Pièce d’identité',
+  ];
 
   // Controllers
   final _addressController = TextEditingController();
@@ -282,6 +298,26 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     super.dispose();
   }
 
+  /// Un seul retour arrière fiable après envoi réussi (navigateur courant, puis racine si besoin).
+  void _safePopWithVerificationResult([Object? result = true]) {
+    if (!mounted || _completionPopScheduled) return;
+    _completionPopScheduled = true;
+    try {
+      final nav = Navigator.of(context);
+      if (nav.canPop()) {
+        nav.pop(result);
+        return;
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    try {
+      final root = Navigator.of(context, rootNavigator: true);
+      if (root.canPop()) {
+        root.pop(result);
+      }
+    } catch (_) {}
+  }
+
   Future<void> _pickImage(bool isProfile, {bool isFront = true}) async {
     try {
       String? imagePath;
@@ -522,8 +558,10 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     if (_isPhoneRequired) _touchedFields['phone'] = true;
     // _touchedFields['cardNumber'] = true; // Numéro facultatif
 
-    if (!_formKey.currentState!.validate()) {
-      setState(() {}); // Forcer la mise à jour pour afficher les erreurs
+    final infoOk = _formKeyInfo.currentState?.validate() ?? false;
+    final docOk = _formKeyDoc.currentState?.validate() ?? false;
+    if (!infoOk || !docOk) {
+      setState(() {});
       return;
     }
 
@@ -692,12 +730,32 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
       final response = await authCtrl.verifyIdentity(targetId, payload);
 
       if (response.status == true) {
+        final uid = authCtrl.user.userId?.toString() ?? '';
+        if (uid.isNotEmpty) {
+          try {
+            (authCtrl.stockage ?? GetStorage()).write(
+              '${StockageKeys.kycDocsSubmittedAtKey}_$uid',
+              DateTime.now().millisecondsSinceEpoch,
+            );
+          } catch (_) {}
+        }
+        // Évite qu’un refresh membre déclenché juste après ré-ouvre tout de suite la décertification
+        // alors que le serveur peut encore indiquer « non certifié » le temps du traitement.
+        DecertificationAccessGuard.resetPresentationDebounce();
+
+        await authCtrl.refreshMemberFromServer(force: true);
+
+        if (!mounted) return;
+
         FancyNotification.show(
           context,
-          "Votre demande de vérification a bien été envoyée.",
+          "Demande envoyée. Vous serez informé après analyse de vos documents.",
           type: NotificationType.success,
         );
-        Navigator.pop(context, true);
+
+        await Future<void>.delayed(const Duration(milliseconds: 140));
+        if (!mounted) return;
+        _safePopWithVerificationResult(true);
       } else {
         reportApiFailureToCrashlytics(
           'IdentityVerificationPage',
@@ -737,101 +795,545 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     final bool isCardTypeSelected = _selectedCardTypeId != null;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: _kycPageBg,
       appBar: AppBar(
         title: Text("Vérification d'identité", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            if (_kycStep == 0) {
+              Navigator.pop(context);
+            } else {
+              setState(() => _kycStep--);
+            }
+          },
         ),
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          autovalidateMode: AutovalidateMode.disabled,
+      body: AbsorbPointer(
+        absorbing: _isLoading,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                "Pour publier une annonce, nous devons valider votre identité. Veuillez compléter les informations suivantes.",
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
-              ),
-              SizedBox(height: 24),
-
-              // Photo de Profil Section
-              Center(
-                child: GestureDetector(
-                  onTap: () => _pickImage(true),
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.grey[200],
-                          image: _imageProfile != null
-                              ? DecorationImage(image: FileImage(_imageProfile!), fit: BoxFit.cover)
-                              : null,
-                          border: Border.all(color: AppColors.primaryBlue.withOpacity(0.5), width: 2),
-                        ),
-                        child: _imageProfile == null
-                            ? Icon(Icons.person, size: 50, color: Colors.grey[400])
-                            : null,
-                      ),
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Container(
-                          padding: EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryBlue,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(Icons.camera_alt, color: Colors.white, size: 16),
-                        ),
-                      ),
-                    ],
+              _buildKycStepProgress(),
+              const SizedBox(height: 20),
+              if (_kycStep == 0) _buildKycIntroStep(),
+              if (_kycStep > 0) ...[
+                Form(
+                  key: _formKeyInfo,
+                  autovalidateMode: AutovalidateMode.disabled,
+                  child: Offstage(
+                    offstage: _kycStep != 1,
+                    child: _buildKycCoordonneesStep(),
                   ),
                 ),
-              ),
-              SizedBox(height: 8),
-              Center(child: Text("Photo de profil", style: TextStyle(fontWeight: FontWeight.w600))),
-
-              SizedBox(height: 30),
-
-              _buildSectionTitle("Informations"),
-              SizedBox(height: 16),
-              _buildTextField(
-                controller: _addressController,
-                label: "Adresse complète",
-                icon: Icons.location_on_outlined,
-                validator: (val) {
-                  if (!_touchedFields.containsKey('address') && _formKey.currentState?.validate() != false) {
-                    return null;
-                  }
-                  return val == null || val.isEmpty ? "Veuillez entrer votre adresse" : null;
-                },
-                onChanged: () {
-                  _touchedFields['address'] = true;
-                },
-              ),
-
-              if (_isPhoneRequired) ...[
-                SizedBox(height: 16),
-                _buildPhoneField(),
+                Form(
+                  key: _formKeyDoc,
+                  autovalidateMode: AutovalidateMode.disabled,
+                  child: Offstage(
+                    offstage: _kycStep != 2,
+                    child: _buildKycDocumentStep(isCardTypeSelected),
+                  ),
+                ),
               ],
+            ],
+          ),
+        ),
+      ),
+      // bottomNavigationBar: ...
+    );
+  }
 
-              SizedBox(height: 24),
-              _buildSectionTitle("Document d'Identité"),
-              SizedBox(height: 16),
+  String _displayNameForVerification() {
+    try {
+      final auth = context.read<AuthentificationCtrl>();
+      final fromUser = (auth.user.fullName ?? '').trim();
+      if (fromUser.isNotEmpty) return fromUser;
+      final un = (auth.user.username ?? '').trim();
+      if (un.isNotEmpty) return un;
 
-              _isLoadingCards
-                  ? Container(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      final raw = auth.stockage?.read(StockageKeys.profileKey);
+      if (raw is! Map) return '';
+
+      final map = Map<String, dynamic>.from(raw);
+      for (final key in ['fullName', 'full_name', 'fullname']) {
+        final v = map[key]?.toString().trim();
+        if (v != null && v.isNotEmpty) return v;
+      }
+      final f = (map['firstName'] ?? map['first_name'])?.toString().trim() ?? '';
+      final l = (map['lastName'] ?? map['last_name'])?.toString().trim() ?? '';
+      final combined = '$f $l'.trim();
+      if (combined.isNotEmpty) return combined;
+      final u = map['username']?.toString().trim();
+      return (u != null && u.isNotEmpty) ? u : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Widget _buildIdentitySummaryCard() {
+    final name = _displayNameForVerification();
+    final hasName = name.isNotEmpty;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[300]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.badge_outlined, size: 20, color: AppColors.primaryBlue),
+              const SizedBox(width: 8),
+              Text(
+                'Nom sur votre compte',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: _kycMuted,
+                  letterSpacing: 0.1,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            hasName ? name : 'Non renseigné pour l’instant',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              height: 1.25,
+              color: hasName ? Colors.black87 : _kycMuted,
+            ),
+          ),
+          if (!hasName) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Le nom sur votre pièce d’identité devra correspondre à celui affiché sur votre profil une fois complété.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w400,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKycStepProgress() {
+    final i = _kycStep.clamp(0, 2);
+    final progress = (i + 1) / 3.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Étape ${i + 1} sur 3',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primaryBlue,
+                letterSpacing: 0.1,
+              ),
+            ),
+            Text(
+              _kycStepLabels[i],
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: _kycMuted,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 4,
+            backgroundColor: Colors.grey.shade200,
+            color: AppColors.primaryBlue,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildKycIntroBodyLine(String prefix, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 28,
+            child: Text(
+              prefix,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primaryBlue,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.45,
+                color: _kycMuted,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildKycIntroStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Vérification d’identité',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'On confirme que c’est bien vous, pour la sécurité de CasaNayo et de tous les membres.',
+          style: TextStyle(fontSize: 14, height: 1.4, color: Colors.grey.shade700),
+        ),
+        const SizedBox(height: 22),
+        Text(
+          'Photo du document, vos infos de contact, puis envoi pour contrôle.',
+          style: TextStyle(fontSize: 14, height: 1.4, color: Colors.grey.shade700),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child: Row(
+            children: [
+              Expanded(child: _buildKycIntroMiniStep('1', 'Photo')),
+              Icon(Icons.chevron_right_rounded, color: Colors.grey[400], size: 22),
+              Expanded(child: _buildKycIntroMiniStep('2', 'Infos')),
+              Icon(Icons.chevron_right_rounded, color: Colors.grey[400], size: 22),
+              Expanded(child: _buildKycIntroMiniStep('3', 'Envoi')),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Vous pouvez continuer tout de suite. Les règles détaillées sont ci‑dessous (facultatif).',
+          style: TextStyle(
+            fontSize: 13,
+            height: 1.4,
+            fontStyle: FontStyle.italic,
+            color: Colors.grey[600],
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 14),
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          clipBehavior: Clip.antiAlias,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                iconColor: AppColors.primaryBlue,
+                collapsedIconColor: AppColors.primaryBlue,
+                tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+                title: Text(
+                  'Pourquoi on demande une pièce ?',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                subtitle: Text(
+                  'Touchez ici pour lire',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                ),
+                children: [
+                  const SizedBox(height: 10),
+                  _buildKycIntroBodyLine(
+                    '1.',
+                    'Vous nous envoyez vos documents pour que nous puissions les vérifier. '
+                    'Si tout est correct, votre compte pourra être certifié (une marque de confiance sur votre profil).',
+                  ),
+                  _buildKycIntroBodyLine(
+                    '2.',
+                    'Nous regardons surtout trois choses : la photo est-elle nette et lisible ? '
+                    'Les infos correspondent-elles à votre compte ? '
+                    'Le document est-il bien au nom de la personne qui utilise l’application ?',
+                  ),
+                  _buildKycIntroBodyLine(
+                    '3.',
+                    'Si nous trouvons un problème grave , par exemple une photo floue, un document qui n’est pas le vôtre, ou des infos qui ne collent pas,  '
+                    'nous pouvons bloquer ou fermer le compte le temps de tout vérifier, pour protéger les autres utilisateurs.',
+                  ),
+                  _buildKycIntroBodyLine(
+                    '4.',
+                    'Vos fichiers servent uniquement à cette vérification. Nous ne les mettons pas sur votre profil public et nous les gardons avec soin.',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton(
+            onPressed: () => setState(() => _kycStep = 1),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryBlue,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text(
+              'Continuer',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildKycIntroMiniStep(String num, String label) {
+    return Column(
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            num,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _goFromCoordToDoc() {
+    _touchedFields['address'] = true;
+    if (_isPhoneRequired) _touchedFields['phone'] = true;
+    setState(() {});
+    if (!(_formKeyInfo.currentState?.validate() ?? false)) {
+      return;
+    }
+    if (_imageProfile == null) {
+      FancyNotification.show(context, "Veuillez ajouter une photo de profil", isError: true);
+      return;
+    }
+    setState(() => _kycStep = 2);
+  }
+
+  Widget _buildKycCoordonneesStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Vos coordonnées',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Le nom ci‑dessous vient de votre profil (lecture seule). Complétez avec une photo nette et votre adresse.',
+          style: TextStyle(fontSize: 14, height: 1.4, color: Colors.grey.shade700),
+        ),
+        const SizedBox(height: 18),
+        _buildIdentitySummaryCard(),
+        const SizedBox(height: 22),
+        Center(
+          child: GestureDetector(
+            onTap: () => _pickImage(true),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 104,
+                  height: 104,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.grey[200],
+                    image: _imageProfile != null
+                        ? DecorationImage(image: FileImage(_imageProfile!), fit: BoxFit.cover)
+                        : null,
+                    border: Border.all(color: Colors.grey[300]!, width: 2),
+                  ),
+                  child: _imageProfile == null
+                      ? Icon(Icons.person_rounded, size: 48, color: Colors.grey[400])
+                      : null,
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryBlue,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 18),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Center(
+          child: Text(
+            'Photo de profil',
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              fontSize: 15,
+              color: Colors.black87,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        _buildSectionTitle('Informations'),
+        const SizedBox(height: 16),
+        _buildTextField(
+          controller: _addressController,
+          label: 'Adresse complète',
+          icon: Icons.location_on_outlined,
+          validator: (val) {
+            if (!_touchedFields.containsKey('address') &&
+                _formKeyInfo.currentState?.validate() != false) {
+              return null;
+            }
+            return val == null || val.isEmpty ? 'Veuillez entrer votre adresse' : null;
+          },
+          onChanged: () {
+            _touchedFields['address'] = true;
+          },
+        ),
+        if (_isPhoneRequired) ...[
+          const SizedBox(height: 16),
+          _buildPhoneField(),
+        ],
+        const SizedBox(height: 28),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => setState(() => _kycStep = 0),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.black87,
+                  side: const BorderSide(color: _kycBorder),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Retour', style: TextStyle(fontWeight: FontWeight.w500)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: ElevatedButton(
+                onPressed: _goFromCoordToDoc,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryBlue,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text(
+                  'Continuer',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildKycDocumentStep(bool isCardTypeSelected) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Pièce d’identité',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Sélectionnez le type de document, complétez les champs puis capturez les photos via la caméra (obligatoire pour la qualité).',
+          style: TextStyle(fontSize: 14, height: 1.4, color: Colors.grey.shade700),
+        ),
+        const SizedBox(height: 22),
+        _isLoadingCards
+            ? Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                 decoration: BoxDecoration(
                   color: Colors.grey[50],
                   borderRadius: BorderRadius.circular(12),
@@ -839,16 +1341,23 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                 ),
                 child: Row(
                   children: [
-                    SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-                    SizedBox(width: 16),
-                    Text("Chargement des types de cartes...", style: TextStyle(color: Colors.grey[600])),
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 16),
+                    Text(
+                      'Chargement des types de cartes…',
+                      style: TextStyle(color: Colors.grey[600]),
+                    ),
                   ],
                 ),
               )
-                  : DropdownButtonFormField<int>(
+            : DropdownButtonFormField<int>(
                 value: _selectedCardTypeId,
-                decoration: _inputDecoration("Type de pièce", Icons.credit_card),
-                style: TextStyle(
+                decoration: _inputDecoration('Type de pièce', Icons.credit_card),
+                style: const TextStyle(
                   color: Colors.black87,
                   fontSize: 16,
                 ),
@@ -860,9 +1369,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                     value: typeCardId,
                     child: Text(
                       displayName,
-                      style: TextStyle(
-                        color: Colors.black87,
-                      ),
+                      style: const TextStyle(color: Colors.black87),
                     ),
                   );
                 }).toList(),
@@ -871,100 +1378,114 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
                     _selectedCardTypeId = val;
                     _selectedCardTypeDisplay = val != null
                         ? _getCardDisplayName(
-                        _cardTypes.firstWhere((c) => c['typeCardId'] == val)['name'],
-                        val
-                    )
+                            _cardTypes.firstWhere((c) => c['typeCardId'] == val)['name'],
+                            val,
+                          )
                         : null;
                     _touchedFields['cardType'] = true;
                   });
                 },
                 validator: (val) {
-                  if (!_touchedFields.containsKey('cardType') && _formKey.currentState?.validate() != false) {
+                  if (!_touchedFields.containsKey('cardType') &&
+                      _formKeyDoc.currentState?.validate() != false) {
                     return null;
                   }
-                  return val == null ? "Veuillez sélectionner le type de pièce" : null;
+                  return val == null ? 'Veuillez sélectionner le type de pièce' : null;
                 },
               ),
-              SizedBox(height: 16),
-
-              // Numéro de la pièce (Désactivé tant que le type n'est pas choisi)
-              Opacity(
-                opacity: isCardTypeSelected ? 1.0 : 0.5,
-                child: AbsorbPointer(
-                  absorbing: !isCardTypeSelected,
-                  child: _buildTextField(
-                    controller: _cardNumberController,
-                    label: "Numéro de la pièce",
-                    icon: Icons.numbers,
-                    validator: (val) {
-                      if (!isCardTypeSelected) return null;
-                      return null;
-                    },
-                    onChanged: () {
-                      _touchedFields['cardNumber'] = true;
-                    },
-                  ),
-                ),
-              ),
-              if (!isCardTypeSelected)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4, left: 12),
-                  child: Text(
-                    "Veuillez d'abord sélectionner un type de pièce",
-                    style: TextStyle(color: Colors.orange, fontSize: 12),
-                  ),
-                ),
-
-              SizedBox(height: 24),
-              Text("Photos du document (Caméra obligatoire)", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-              SizedBox(height: 8),
-
-              Opacity(
-                opacity: isCardTypeSelected ? 1.0 : 0.5,
-                child: AbsorbPointer(
-                  absorbing: !isCardTypeSelected,
-                  child: Row(
-                    children: [
-                      Expanded(child: _buildImagePicker(true)), // Recto
-                      if (_selectedCardTypeId != 2) ...[
-                        SizedBox(width: 16),
-                        Expanded(child: _buildImagePicker(false)), // Verso
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-
-              SizedBox(height: 32),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _submitVerification,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryBlue,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    elevation: 2,
-                  ),
-                  child: _isLoading
-                      ? SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text("Soumettre la vérification", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                ),
-              ),
-              SizedBox(height: 8),
-              Center(
-                child: Text(
-                  "Vos documents sont sécurisés et ne seront jamais partagés.",
-                  style: TextStyle(color: Colors.grey[500], fontSize: 12, fontStyle: FontStyle.italic),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              SizedBox(height: 32),
-            ],
+        const SizedBox(height: 16),
+        Opacity(
+          opacity: isCardTypeSelected ? 1.0 : 0.5,
+          child: AbsorbPointer(
+            absorbing: !isCardTypeSelected,
+            child: _buildTextField(
+              controller: _cardNumberController,
+              label: 'Numéro de la pièce',
+              icon: Icons.numbers,
+              validator: (val) {
+                if (!isCardTypeSelected) return null;
+                return null;
+              },
+              onChanged: () {
+                _touchedFields['cardNumber'] = true;
+              },
+            ),
           ),
         ),
-      ),
-      // bottomNavigationBar: ...
+        if (!isCardTypeSelected)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 12),
+            child: Text(
+              'Veuillez d’abord sélectionner un type de pièce',
+              style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
+            ),
+          ),
+        const SizedBox(height: 24),
+        const Text(
+          'Photos du document (caméra obligatoire)',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+        ),
+        const SizedBox(height: 8),
+        Opacity(
+          opacity: isCardTypeSelected ? 1.0 : 0.5,
+          child: AbsorbPointer(
+            absorbing: !isCardTypeSelected,
+            child: Row(
+              children: [
+                Expanded(child: _buildImagePicker(true)),
+                if (_selectedCardTypeId != 2) ...[
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildImagePicker(false)),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+        OutlinedButton(
+          onPressed: () => setState(() => _kycStep = 1),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.black87,
+            side: const BorderSide(color: _kycBorder),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            minimumSize: const Size(double.infinity, 48),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          child: const Text('Étape précédente', style: TextStyle(fontWeight: FontWeight.w600)),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _submitVerification,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryBlue,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            child: _isLoading
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Text(
+                    'Soumettre la vérification',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: Text(
+            'Vos documents sont traités de manière confidentielle et ne sont pas diffusés publiquement.',
+            style: TextStyle(color: Colors.grey[500], fontSize: 12, fontStyle: FontStyle.italic),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 
@@ -972,8 +1493,8 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     return Text(
       title,
       style: TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.bold,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
         color: AppColors.primaryBlue,
       ),
     );
@@ -988,7 +1509,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
   }) {
     return TextFormField(
       controller: controller,
-      style: TextStyle(
+      style: const TextStyle(
         color: Colors.black87,
         fontSize: 16,
       ),
@@ -1089,7 +1610,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
         ),
         validator: (val) {
           if (!_isPhoneRequired) return null;
-          if (!_touchedFields.containsKey('phone') && _formKey.currentState?.validate() != false) {
+          if (!_touchedFields.containsKey('phone') && _formKeyInfo.currentState?.validate() != false) {
             return null;
           }
           if (val == null || val.isEmpty) return "Veuillez entrer votre numéro";
