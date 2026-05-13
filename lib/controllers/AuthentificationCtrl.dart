@@ -546,6 +546,9 @@ class AuthentificationCtrl with ChangeNotifier {
         if (c == true) {
           await stockage!.write('${StockageKeys.wasCertifiedKey}_$uid', true);
           await UserDatabaseHelper.instance.saveCertificationStatus(uid, true);
+          try {
+            await stockage!.remove('${StockageKeys.kycDocsSubmittedAtKey}_$uid');
+          } catch (_) {}
         } else if (oldCertified || hadWasFlag) {
           await stockage!.write('${StockageKeys.wasCertifiedKey}_$uid', true);
         }

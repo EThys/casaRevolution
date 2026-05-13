@@ -19,6 +19,22 @@ class DecertificationAccessGuard {
   static DateTime? _lastPresentAttempt;
   static String? _lastPresentUserId;
 
+  /// Dépôt KYC récent : l’utilisateur a déjà transmis ses documents ; l’API peut encore indiquer « non certifié »
+  /// le temps de l’analyse — on ne ré-enfile pas l’écran de décertification ni un redirect agressif.
+  static bool hasRecentKycDocsSubmission(String uid) {
+    if (uid.isEmpty) return false;
+    try {
+      final raw = GetStorage().read('${StockageKeys.kycDocsSubmittedAtKey}_$uid');
+      if (raw == null) return false;
+      final ms = raw is int ? raw : int.tryParse(raw.toString());
+      if (ms == null) return false;
+      final submitted = DateTime.fromMillisecondsSinceEpoch(ms);
+      return DateTime.now().difference(submitted) < const Duration(days: 30);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Réinitialise l’anti-doublon (ex. après déconnexion si besoin).
   static void resetPresentationDebounce() {
     _lastPresentAttempt = null;
@@ -42,6 +58,7 @@ class DecertificationAccessGuard {
     if (auth.user.isCertified == true) return false;
     final uid = auth.user.userId?.toString() ?? '';
     if (uid.isEmpty) return false;
+    if (hasRecentKycDocsSubmission(uid)) return false;
     final was =
         GetStorage().read<bool>('${StockageKeys.wasCertifiedKey}_$uid') ?? false;
     return was;

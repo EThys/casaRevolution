@@ -20,4 +20,8 @@ class StockageKeys{
   /// On ne ré-affiche pas automatiquement l’info tant qu’il ne retente pas une action sensible.
   static const String decertificationSnoozeKey = 'decertification_snooze';
 
+  /// Horodatage (ms depuis epoch) du dernier envoi réussi des documents KYC pour l’utilisateur `{uid}`.
+  /// Sert à éviter de ré-empiler l’alerte décertification / un pop intempestif tant que l’analyse est en cours.
+  static const String kycDocsSubmittedAtKey = 'kyc_docs_submitted_at';
+
 }
