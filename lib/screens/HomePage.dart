@@ -15,6 +15,7 @@ import 'package:casa/utils/FancyNotification.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/casanayo_share_copy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -57,6 +58,8 @@ import 'package:casa/controllers/TypeAccountController.dart';
 import 'package:casa/widgets/property_sold_badge.dart';
 import '../utils/PulseBadge.dart';
 import '../widgets/OfflineBanner.dart';
+import '../widgets/app_update_gate.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'ProfilePage.dart'; // Added for background update
 
 class HomePage extends StatefulWidget {
@@ -99,6 +102,12 @@ class _HomePageState extends State<HomePage> {
   // Évite de relancer en boucle l’enrichissement chambres sur la home.
   final Set<int> _requestedHotelRoomEnrich = <int>{};
 
+  bool _homeUpdatePromptScheduled = false;
+
+  /// Version package (pubspec) pour le pied du drawer.
+  bool _packageInfoLoaded = false;
+  String _appVersion = '';
+
   Timer? _categoryTimer;
   Timer? _rentalsTimer;
   Timer? _salesTimer;
@@ -116,6 +125,15 @@ class _HomePageState extends State<HomePage> {
       Future<void>.delayed(const Duration(milliseconds: 900), () {
         requestOneSignalNotificationPermissionAfterLaunch();
       });
+    });
+
+    // Mise à jour : afficher sur l’accueil (pas au splash) pour éviter que la navigation ferme le sheet.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_homeUpdatePromptScheduled) return;
+      _homeUpdatePromptScheduled = true;
+      await Future<void>.delayed(const Duration(milliseconds: 650));
+      if (!mounted) return;
+      await AppUpdatePrompt.maybeShowOnHome(context);
     });
 
     // Démarrer la surveillance du serveur après le build initial
@@ -140,6 +158,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     _startAutoScrolls();
+    _loadPackageInfo();
   }
 
   @override
@@ -160,6 +179,23 @@ class _HomePageState extends State<HomePage> {
 
     ServerHealthService().stopMonitoring();
     super.dispose();
+  }
+
+  Future<void> _loadPackageInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() {
+        _appVersion = info.version;
+        _packageInfoLoaded = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _appVersion = '—';
+        _packageInfoLoaded = true;
+      });
+    }
   }
 
   void _loadInitialData() {
@@ -1312,172 +1348,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _clearLocalAuthData() async {
-    try {
-      print("🔒 Début de la déconnexion...");
-
-      // 1. Liste de toutes les clés à supprimer
-      final List<String> keysToRemove = [
-        StockageKeys.tokenKey,
-        StockageKeys.refreshTokenKey,
-        StockageKeys.userKey,
-        StockageKeys.userPreferenceKey,
-        StockageKeys.profileKey,
-        'user_image_path',
-        'profile_image_path',
-        'card_front_path',
-        'card_back_path',
-        'published_properties_count',
-        'referrals_count',
-        'user_data'
-      ];
-
-      // 2. Supprimer chaque clé individuellement avec gestion d'erreur
-      for (final key in keysToRemove) {
-        try {
-          await storage.remove(key);
-          print(" Clé supprimée: $key");
-        } catch (e) {
-          print(" Impossible de supprimer la clé $key: $e");
-          // Continuer même si une clé échoue
-        }
-      }
-
-      // 3. Vider les bases de données
-      try {
-        await FavoriteDatabaseHelper.instance.clearAllFavorites();
-        print("Favoris supprimés");
-      } catch (e) {
-        print(" Erreur lors de la suppression des favoris: $e");
-      }
-
-      try {
-        await ReservationDatabaseHelper.instance.clearAllReservations();
-        print("Réservations supprimées");
-      } catch (e) {
-        print("Erreur lors de la suppression des réservations: $e");
-      }
-
-      // 4. Supprimer TOUS les brouillons lors de la déconnexion
-      try {
-        await DraftHelper.clearAllDrafts();
-        print(" Tous les brouillons supprimés");
-      } catch (e) {
-        print(" Tous les brouillons supprimés");
-      } catch (e) {
-        print(" Erreur lors de la suppression des brouillons: $e");
-      }
-
-      // 6. Vider le contrôleur de notifications
-      try {
-        final notifCtrl =
-            Provider.of<NotificationController>(context, listen: false);
-        notifCtrl.clearForLogout();
-      } catch (e) {
-        print("⚠️ Erreur lors du nettoyage des notifications: $e");
-      }
-
-      // 5. Forcer l'écriture des changements
-      await storage.write(
-          'logout_timestamp', DateTime.now().millisecondsSinceEpoch);
-
-      print("Déconnexion réussie - Toutes les données ont été nettoyées");
-    } catch (e) {
-      print("Erreur critique lors de la déconnexion: $e");
-
-      try {
-        await storage.remove(StockageKeys.tokenKey);
-        await storage.remove(StockageKeys.userKey);
-        print("Clés essentielles supprimées malgré l'erreur");
-      } catch (criticalError) {
-        print("Échec critique de la déconnexion: $criticalError");
-        throw criticalError; // Relancer seulement l'erreur critique
-      }
-    }
-  }
-
-  void _confirmLogout() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Déconnexion'),
-        content: const Text('Voulez-vous vraiment vous déconnecter ?'),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16.0),
-        ),
-        actionsAlignment: MainAxisAlignment.spaceBetween,
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).primaryColor,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-            ),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () => _performLogout(),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade700,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8.0),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-            ),
-            child: const Text('Déconnexion'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _performLogout() async {
-    // Fermer la dialog d'abord
-    Navigator.pop(context);
-
-    try {
-      // 1. Nettoyer les données
-      await _clearLocalAuthData();
-
-      // 2. Attendre un cycle de frame pour éviter les conflits
-      await Future.delayed(Duration(milliseconds: 100));
-
-      // 3. Recharger la page pour mettre à jour l'interface
-      if (mounted) {
-        setState(() {
-          // Le setState va déclencher un rebuild et faire disparaître les éléments nécessitant une connexion
-        });
-      }
-
-      // 4. Naviguer vers la page d'accueil après un court délai pour voir le changement
-      await Future.delayed(Duration(milliseconds: 300));
-
-      if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          Routes.bottomPageRoute,
-          (route) => false,
-        );
-      }
-    } catch (e) {
-      print("❌ Erreur lors de la déconnexion: $e");
-
-      // Même en cas d'erreur, recharger la page
-      if (mounted) {
-        setState(() {});
-
-        // Naviguer vers la page d'accueil
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          Routes.bottomPageRoute,
-          (route) => false,
-        );
-      }
-    }
-  }
-
   String get safeUsername {
     final userData = storage.read(StockageKeys.userKey);
     final profileData = storage.read(StockageKeys.profileKey);
@@ -1726,7 +1596,7 @@ class _HomePageState extends State<HomePage> {
               // ... le reste du code reste inchangé
               Expanded(
                 child: SingleChildScrollView(
-                  physics: BouncingScrollPhysics(),
+                  physics: const ClampingScrollPhysics(),
                   child: Column(
                     children: [
                       SizedBox(height: 16),
@@ -1872,7 +1742,11 @@ class _HomePageState extends State<HomePage> {
                                       isSelected: selectedRoute ==
                                           Routes.myPropertiesRoute,
                                       onTap: () => _handleNavigation(
-                                          Routes.myPropertiesRoute),
+                                        Routes.myPropertiesRoute,
+                                        arguments: isGerant
+                                            ? {'onlyFestiveAndFuneraire': true}
+                                            : null,
+                                      ),
                                     ),
 
                                   // "Mes hôtels & chambres" - Seulement pour Gérant
@@ -1953,21 +1827,6 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ],
                       ),
-
-                      // SECTION COMPTE (seulement si connecté)
-                      if (isLoggedIn)
-                        _buildDrawerSection(
-                          title: "COMPTE",
-                          items: [
-                            _buildDrawerItem(
-                              icon: Icons.logout_rounded,
-                              title: 'Déconnexion',
-                              isSelected: false,
-                              isDestructive: true,
-                              onTap: _confirmLogout,
-                            ),
-                          ],
-                        ),
 
                       // BOUTONS CONNEXION/INSCRIPTION (seulement si NON connecté)
                       if (!isLoggedIn) ...[
@@ -2056,37 +1915,16 @@ class _HomePageState extends State<HomePage> {
                       ],
 
                       SizedBox(height: 20),
-                      Container(
-                        margin: EdgeInsets.symmetric(horizontal: 24),
-                        padding:
-                            EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[50],
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Colors.grey[200]!,
-                            width: 1,
+                      Center(
+                        child: Text(
+                          _packageInfoLoaded
+                              ? 'Version $_appVersion'
+                              : 'Version …',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
                           ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.verified_user_rounded,
-                              size: 14,
-                              color: primaryColor,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Version 1.0.0',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
                         ),
                       ),
                       SizedBox(height: 24),
@@ -2124,22 +1962,13 @@ class _HomePageState extends State<HomePage> {
 
   void _shareApp() {
     Navigator.pop(context); // Close drawer
-    const String androidLink =
-        "https://play.google.com/store/apps/details?id=com.casa.casa.casa&pcampaignid=web_share";
-    const String iosLink =
-        "https://apps.apple.com/fr/app/casanayo/id6757759953?l=en-GB";
-
-    final String message = "Découvrez CasaNayo !\n\n"
-        "Votre plateforme de référence pour trouver une propriété, réserver un hôtel ou solliciter des services professionnels de qualité.\n\n"
-        "Téléchargez l'application dès maintenant :\n\n"
-        "Android : $androidLink\n\n"
-        "iOS : $iosLink\n\n"
-        "CasaNayo, l'immobilier en toute simplicité !";
-
-    Share.share(message, subject: "Partagez l'application CasaNayo");
+    Share.share(
+      CasanayoShareCopy.appInvitationMessage(),
+      subject: CasanayoShareCopy.shareAppSubject,
+    );
   }
 
-  void _handleNavigation(String routeName) {
+  void _handleNavigation(String routeName, {Object? arguments}) {
     Navigator.pop(context);
 
     if (routeName == Routes.bottomPageRoute) {
@@ -2159,7 +1988,7 @@ class _HomePageState extends State<HomePage> {
         routeName == Routes.helpSupportRoute ||
         routeName == Routes.subscriptionPaymentRoute ||
         routeName == Routes.paymentHistoryRoute) {
-      Navigator.pushNamed(context, routeName);
+      Navigator.pushNamed(context, routeName, arguments: arguments);
     } else if (routeName == '/my-agency') {
       Navigator.push(
           context, MaterialPageRoute(builder: (_) => MyAgencyPage()));
