@@ -38,8 +38,10 @@ import 'dart:typed_data';
 class BookingVisitPage extends StatefulWidget {
   final dynamic property;
   /// Réservation hôtel : id chambre (`POST …/public/property/hotels/chambre/{id}`).
+  /// La validation hôte de ces demandes passe par `ReservationController.validateReservation` (statut API **APPROVED**).
   final int? chambreId;
   /// Site agence : `POST …/private/reservations/vacance` (corps VIP : vacanceId, dates, reservationHeure).
+  /// Idem : acceptation hôte = **APPROVED** sur l’endpoint `…/vacance/update/status/{id}`.
   final bool agenceVacanceBooking;
   final String? initialVacanceDate;
   final String? initialVacanceHeure;
@@ -77,7 +79,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   bool _isLoading = false;
   bool _showFullAddress = false;
 
-  String _userName = '';
+  String _userName = ''; 
   String _userEmail = '';
   String _userPhone = '';
   int? _userId;

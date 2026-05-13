@@ -673,7 +673,10 @@ class ReservationController with ChangeNotifier {
 
     // Compter par statut (normalisé en majuscules)
     final pendingCount = userReservations.where((r) => r.status?.toUpperCase() == 'PENDING').length;
-    final confirmedCount = userReservations.where((r) => r.status?.toUpperCase() == 'CONFIRMED').length;
+    final confirmedCount = userReservations.where((r) {
+      final s = r.status?.toUpperCase();
+      return s == 'CONFIRMED' || s == 'APPROVED';
+    }).length;
     final cancelledCount = userReservations.where((r) => r.status?.toUpperCase() == 'CANCELLED').length;
     final completedCount = userReservations.where((r) => r.status?.toUpperCase() == 'COMPLETED').length;
 
@@ -865,7 +868,8 @@ class ReservationController with ChangeNotifier {
       notifyListeners();
 
       final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-      final status = isValid ? 'CONFIRMED' : 'REJECTED';
+      // Enum serveur `ReservationStatus` : PENDING, APPROVED, CANCELLED (pas CONFIRMED / REJECTED).
+      final status = isValid ? 'APPROVED' : 'CANCELLED';
 
       final base = reservation != null
           ? _protectedReservationStatusBase(reservation)

@@ -1535,7 +1535,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                                       ),
                                     ),
                                     InkWell(
-                                      onTap: () => _handleReservationAction(reservation, 'CONFIRMED', fromBottomSheet: false),
+                                      onTap: () => _handleReservationAction(reservation, 'APPROVED', fromBottomSheet: false),
                                       borderRadius: BorderRadius.circular(8),
                                       child: Container(
                                         padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -2074,7 +2074,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   SizedBox(width: 16),
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: () => _handleReservationAction(reservation, 'CONFIRMED', fromBottomSheet: true),
+                      onPressed: () => _handleReservationAction(reservation, 'APPROVED', fromBottomSheet: true),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _successColor,
                         foregroundColor: Colors.white,
@@ -3353,8 +3353,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
               reservation: reservation,
             );
             success = lastResp.status == true;
-         } else if (action == 'CONFIRMED') {
-            // Utiliser l'endpoint spécial qui déclenche la notification WebSocket
+         } else if (action == 'APPROVED' || action == 'CONFIRMED') {
+            // Validation hôte : statut API = APPROVED (CONFIRMED = ancien libellé UI uniquement).
             lastResp = await ctrl.validateReservation(
               reservation.reservationId!,
               true,
@@ -3368,20 +3368,20 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
            
            if (success) {
              if (mounted) {
-                if (action == 'CONFIRMED') {
+                if (action == 'APPROVED' || action == 'CONFIRMED') {
                   _showHostActionSuccessDialog(reservation);
                 } else {
                   FancyNotification.show(context, "Action effectuée avec succès", type: NotificationType.success);
                 }
              }
-             if (action == 'CONFIRMED') {
+             if (action == 'APPROVED' || action == 'CONFIRMED') {
                // 1) Mise à jour locale immédiate pour faire disparaître l'item de "En attente"
                // (évite double validation avant refresh réseau).
                void updateLocal(List<ReservationModel> list) {
                  final idx = list.indexWhere(
                      (r) => r.reservationId == reservation.reservationId);
                  if (idx != -1) {
-                   list[idx].status = 'CONFIRMED';
+                   list[idx].status = 'APPROVED';
                  }
                }
 

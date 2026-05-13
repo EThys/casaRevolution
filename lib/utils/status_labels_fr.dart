@@ -10,6 +10,7 @@ String frReservationStatus(String? status) {
       return 'Terminée';
     case 'CANCELLED':
     case 'CANCELED':
+    case 'REJECTED':
       return 'Annulée';
     default:
       if (status == null || status.isEmpty) return 'Inconnu';

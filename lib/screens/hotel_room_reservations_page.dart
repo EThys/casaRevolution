@@ -454,7 +454,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
         );
         success = lastResp.status == true;
         if (success) {
-          _patchLocalStatus(reservation.reservationId, 'CONFIRMED');
+          _patchLocalStatus(reservation.reservationId, 'APPROVED');
           if (mounted) {
             _showHostActionSuccessDialog(reservation);
             _tabController.animateTo(1);
@@ -946,7 +946,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                         ? null
                         : () => _handleReservationAction(
                               reservation,
-                              'CONFIRMED',
+                              'APPROVED',
                               fromBottomSheet: true,
                             ),
                     style: ElevatedButton.styleFrom(
@@ -1352,7 +1352,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                                     if (_busy || isCancelling) return;
                                     _handleReservationAction(
                                       reservation,
-                                      'CONFIRMED',
+                                      'APPROVED',
                                     );
                                   },
                                   borderRadius: BorderRadius.circular(8),

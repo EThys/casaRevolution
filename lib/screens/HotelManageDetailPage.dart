@@ -237,6 +237,7 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
       case 'PENDING':
         return const Color(0xFFE67E22);
       case 'CONFIRMED':
+      case 'APPROVED':
         return const Color(0xFF00B894);
       case 'CANCELLED':
         return const Color(0xFFD63031);
