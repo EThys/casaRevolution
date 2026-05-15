@@ -2091,6 +2091,22 @@ class _ParrainagePageState extends State<ParrainagePage> {
           if (!_contactTouched && value.isNotEmpty) {
             setState(() => _contactTouched = true);
           }
+          final isPhone = _looksLikePhoneNumber(value);
+          if (isPhone) {
+            String cleaned = value.replaceAll(RegExp(r'[^\d]'), '');
+            if (cleaned.startsWith('0') && cleaned.length > 1) {
+              cleaned = cleaned.substring(1);
+              _contactController.value = TextEditingValue(
+                text: cleaned,
+                selection: TextSelection.collapsed(offset: cleaned.length),
+              );
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _updateContactType();
+                _forceRevalidation();
+              });
+              return;
+            }
+          }
           _updateContactType();
           _forceRevalidation();
         },

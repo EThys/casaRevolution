@@ -13,9 +13,14 @@ import 'ServiceCategoryPage.dart';
 import 'CategoryPropertiesPage.dart'; // fallback legacy import
 
 class AllServiceCategoriesPage extends StatefulWidget {
-  final Color primaryColor = Color(0xFF1976D2);
-  final Color accentColor = Color(0xFF64B5F6);
-  final Color darkBlue = Color(0xFF0D47A1);
+  /// `true` : section « Autres services » (sans majordome ni déménagement).
+  final bool otherServicesOnly;
+
+  const AllServiceCategoriesPage({super.key, this.otherServicesOnly = false});
+
+  static const Color primaryColor = Color(0xFF1976D2);
+  static const Color accentColor = Color(0xFF64B5F6);
+  static const Color darkBlue = Color(0xFF0D47A1);
 
   // Liste des catégories de services (sera remplie dynamiquement depuis l'API)
   static List<Map<String, dynamic>> serviceCategories = [
@@ -98,9 +103,9 @@ class AllServiceCategoriesPage extends StatefulWidget {
 }
 
 class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
-  Color get primaryColor => widget.primaryColor;
-  Color get accentColor => widget.accentColor;
-  Color get darkBlue => widget.darkBlue;
+  Color get primaryColor => AllServiceCategoriesPage.primaryColor;
+  Color get accentColor => AllServiceCategoriesPage.accentColor;
+  Color get darkBlue => AllServiceCategoriesPage.darkBlue;
   
   final GetStorage storage = GetStorage();
   Map<String, int> accountNameToIdMap = {};
@@ -147,7 +152,9 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
           final iconName = category['iconName']?.toString() ?? 'build_rounded';
           final colorValue = category['colorValue'] as int?;
           
-          if (accountName != null && accountId != null) {
+          if (accountName != null &&
+              accountId != null &&
+              _shouldIncludeCategory(accountName)) {
             accountNameToIdMap[accountName] = accountId;
             
             serviceProviderCategories.add({
@@ -255,7 +262,10 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
             final typeAccountId = typeAccount?['typeAccountId'];
             
             // Filtrer uniquement les prestataires de service (typeAccountId == 3)
-            if (accountName != null && accountId != null && typeAccountId == 3) {
+            if (accountName != null &&
+                accountId != null &&
+                typeAccountId == 3 &&
+                _shouldIncludeCategory(accountName)) {
               accountNameToIdMap[accountName] = accountId;
               
               // Créer la catégorie pour l'affichage
@@ -357,6 +367,19 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
     return 'build_rounded';
   }
 
+  bool _isExcludedOtherServicesCategory(String accountName) {
+    final n = accountName.toLowerCase().trim();
+    return n == 'majordome' ||
+        n == 'majordhomme' ||
+        n == 'demenagement' ||
+        n == 'demenagements';
+  }
+
+  bool _shouldIncludeCategory(String accountName) {
+    if (!widget.otherServicesOnly) return true;
+    return !_isExcludedOtherServicesCategory(accountName);
+  }
+
   // Mapper le nom du compte vers ServiceType
   ServiceType? _mapAccountNameToServiceType(String accountName) {
     final normalizedName = accountName.toLowerCase().trim();
@@ -427,7 +450,10 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [widget.primaryColor, widget.darkBlue],
+              colors: [
+                AllServiceCategoriesPage.primaryColor,
+                AllServiceCategoriesPage.darkBlue,
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -438,7 +464,9 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          'Toutes les catégories',
+          widget.otherServicesOnly
+              ? 'Catégories de services'
+              : 'Toutes les catégories',
           style: GoogleFonts.inter(
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -454,7 +482,9 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
           children: [
             SizedBox(height: 8),
             Text(
-              'Découvrez tous nos services',
+              widget.otherServicesOnly
+                  ? 'Choisissez une catégorie de service'
+                  : 'Découvrez tous nos services',
               style: GoogleFonts.inter(
                 fontSize: 14,
                 color: Colors.grey[600],

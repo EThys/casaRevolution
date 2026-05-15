@@ -16,6 +16,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/casanayo_share_copy.dart';
+import 'package:casa/utils/AppColors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -43,6 +44,8 @@ import '../utils/database/ServiceCategoryDatabaseHelper.dart';
 import '../utils/database/PrestationDatabaseHelper.dart';
 import 'CategoryPropertiesPage.dart';
 import 'AllServiceCategoriesPage.dart';
+import 'AllPropertyCategoriesPage.dart';
+import 'package:casa/utils/property_category_catalog.dart';
 import 'NotificationPage.dart';
 import 'TerrainPropertiesPage.dart';
 import '../utils/DraftHelper.dart';
@@ -675,7 +678,7 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: Colors.grey[50],
+      backgroundColor: AppColors.backgroundColor(context),
       drawer: _buildDrawer(),
       appBar: _buildAppBar(),
       body: Stack(
@@ -683,7 +686,9 @@ class _HomePageState extends State<HomePage> {
           // --- START PREMIUM BACKGROUND ---
           Positioned.fill(
             child: Container(
-              color: const Color(0xFFF8F9FF), // Ultra-clean premium base
+              color: AppColors.isDarkMode(context)
+                  ? Theme.of(context).colorScheme.surface
+                  : const Color(0xFFF8F9FF),
             ),
           ),
 
@@ -1008,7 +1013,9 @@ class _HomePageState extends State<HomePage> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => AllServiceCategoriesPage(),
+                          builder: (context) => const AllServiceCategoriesPage(
+                            otherServicesOnly: true,
+                          ),
                         ),
                       );
                     },
@@ -1394,7 +1401,7 @@ class _HomePageState extends State<HomePage> {
         ),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.horizontal(
               right: Radius.circular(24),
             ),
@@ -1463,11 +1470,23 @@ class _HomePageState extends State<HomePage> {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               gradient: LinearGradient(
-                                colors: [Colors.white, Colors.grey[200]!],
+                                colors: AppColors.isDarkMode(context)
+                                    ? [
+                                        Theme.of(context)
+                                            .colorScheme
+                                            .surfaceContainerHighest,
+                                        Theme.of(context).colorScheme.surface,
+                                      ]
+                                    : [Colors.white, Colors.grey[200]!],
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.white.withOpacity(0.4),
+                                  color: (AppColors.isDarkMode(context)
+                                          ? Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                          : Colors.white)
+                                      .withOpacity(0.15),
                                   blurRadius: 15,
                                   spreadRadius: 2,
                                 ),
@@ -1490,7 +1509,8 @@ class _HomePageState extends State<HomePage> {
 
                                 return CircleAvatar(
                                   radius: 40,
-                                  backgroundColor: Colors.white,
+                                  backgroundColor:
+                                      Theme.of(context).colorScheme.surface,
                                   backgroundImage: () {
                                     // 1. Priorité au fichier local (Garanti Offline & Instantané)
                                     final localPath =
@@ -2034,7 +2054,7 @@ class _HomePageState extends State<HomePage> {
           child: Text(
             title,
             style: TextStyle(
-              color: Colors.grey[500],
+              color: AppColors.tertiaryTextColor(context),
               fontSize: 12,
               fontWeight: FontWeight.w600,
               letterSpacing: 1.2,
@@ -2057,7 +2077,9 @@ class _HomePageState extends State<HomePage> {
   }) {
     final color = isDestructive
         ? Colors.red
-        : (isSelected ? primaryColor : Colors.grey[700]);
+        : (isSelected
+            ? primaryColor
+            : AppColors.secondaryTextColor(context));
 
     final bgColor =
         isSelected ? primaryColor.withOpacity(0.1) : Colors.transparent;
@@ -2098,7 +2120,9 @@ class _HomePageState extends State<HomePage> {
                     decoration: BoxDecoration(
                       color: isSelected
                           ? primaryColor.withOpacity(0.15)
-                          : Colors.grey[100],
+                          : Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -2258,8 +2282,10 @@ class _HomePageState extends State<HomePage> {
                           );
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: primaryColor,
+                          backgroundColor:
+                              Theme.of(context).colorScheme.surface,
+                          foregroundColor:
+                              Theme.of(context).colorScheme.primary,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(28),
                           ),
@@ -2292,58 +2318,7 @@ class _HomePageState extends State<HomePage> {
 
     // Si la liste est vide, on utilise une liste de fallback pour éviter un écran vide au premier démarrage
     // Si la liste est vide, on utilise une liste de fallback complète pour couvrir tous les besoins
-    final List<Map<String, dynamic>> categories =
-        propertyCtrl.propertyTypes.isNotEmpty
-            ? propertyCtrl.propertyTypes
-                .map((type) => {
-                      'propertyTypeId': type['propertyTypeId'],
-                      'label': type['name'],
-                      'image': _getCategoryImage(type['name'] ?? ''),
-                      'value': _getCategoryValue(type['name'] ?? ''),
-                    })
-                .toList()
-            : [
-                {
-                  'label': 'Studios',
-                  'image': 'assets/images/studio.png',
-                  'value': 'Studio'
-                },
-                {
-                  'label': 'Apparts',
-                  'image': 'assets/images/apart.png',
-                  'value': 'Apparts'
-                },
-                {
-                  'label': 'Maisons',
-                  'image': 'assets/images/maison.png',
-                  'value': 'Maisons'
-                },
-                {
-                  'label': 'Bureaux',
-                  'image': 'assets/images/office.png',
-                  'value': 'Bureau'
-                },
-                {
-                  'label': 'Fêtes',
-                  'image': 'assets/images/fete.png',
-                  'value': 'Salle de fête'
-                },
-                {
-                  'label': 'Funéraires',
-                  'image': 'assets/images/funebre.png',
-                  'value': 'Salle funéraires'
-                },
-                {
-                  'label': 'Terrains',
-                  'image': 'assets/images/Terrain.png',
-                  'value': 'Terrain'
-                },
-                {
-                  'label': 'Hôtels',
-                  'image': 'assets/images/hotel.png',
-                  'value': 'Hotels'
-                },
-              ];
+    final categories = PropertyCategoryCatalog.resolve(propertyCtrl);
 
     return Container(
       margin: EdgeInsets.only(bottom: 8),
@@ -2369,7 +2344,7 @@ class _HomePageState extends State<HomePage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => AllServiceCategoriesPage(),
+                        builder: (context) => const AllPropertyCategoriesPage(),
                       ),
                     );
                   },
@@ -2405,9 +2380,8 @@ class _HomePageState extends State<HomePage> {
                       onTap: () {
                         final rawValue = (category['value'] as String?) ?? '';
                         final normalizedValue =
-                            rawValue.toLowerCase().contains('appart')
-                                ? 'Apparts'
-                                : rawValue;
+                            PropertyCategoryCatalog.normalizedCategoryValue(
+                                rawValue);
                         _logCategoryTap(normalizedValue);
 
                         // Navigate to TerrainPropertiesPage for terrains
@@ -4168,34 +4142,9 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  String _getCategoryImage(String name) {
-    String n = name.toLowerCase();
-    if (n.contains('studio')) return 'assets/images/studio.png';
-    if (n.contains('appart')) return 'assets/images/apart.png';
-    if (n.contains('maison') || n.contains('villa'))
-      return 'assets/images/maison.png';
-    if (n.contains('bureau') || n.contains('office'))
-      return 'assets/images/office.png';
-    if (n.contains('hotel')) return 'assets/images/hotel.png';
-    if (n.contains('vacance')) return 'assets/images/plage.png';
-    if (n.contains('fête')) return 'assets/images/fete.png';
-    if (n.contains('funérair')) return 'assets/images/funebre.png';
-    if (n.contains('entrepôt')) return 'assets/images/Entrepot.png';
-    if (n.contains('terrain')) return 'assets/images/Terrain.png';
-    return 'assets/images/apart.png'; // Fallback
-  }
+  String _getCategoryImage(String name) =>
+      PropertyCategoryCatalog.categoryImage(name);
 
-  String _getCategoryValue(String name) {
-    String n = name.toLowerCase();
-    if (n.contains('studio')) return 'Studio';
-    if (n.contains('appart')) return 'Apparts';
-    if (n.contains('maison')) return 'Maisons';
-    if (n.contains('bureau')) return 'Bureau';
-    if (n.contains('hotel') || n.contains('hôtel')) return 'Hotels';
-    if (n.contains('vacance')) return 'Vacances';
-    if (n.contains('funérair')) return 'Salle funéraires';
-    if (n.contains('fête')) return 'Salle de fête';
-    if (n.contains('terrain')) return 'Terrain';
-    return name;
-  }
+  String _getCategoryValue(String name) =>
+      PropertyCategoryCatalog.categoryValue(name);
 }

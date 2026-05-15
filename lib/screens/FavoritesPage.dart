@@ -9,6 +9,7 @@ import 'package:casa/utils/Constantes.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/AppColors.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
@@ -729,7 +730,7 @@ class _FavoritesPageState extends State<FavoritesPage>
   Widget _buildFavoriteListContent(List<PropertyFavoriteModel> favorites) {
     return RefreshIndicator(
       color: _primaryColor,
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surfaceColor(context),
       onRefresh: _loadFavorites,
       child: _isGridView
           ? _buildFavoriteGridContent(favorites)
@@ -1695,7 +1696,7 @@ class _FavoritesPageState extends State<FavoritesPage>
   // Vue quand l'utilisateur n'est pas connecté
   Widget _buildNotConnectedView() {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.backgroundColor(context),
       appBar: AppBar(
         automaticallyImplyLeading: false,
         elevation: 0,

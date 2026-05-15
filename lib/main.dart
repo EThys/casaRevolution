@@ -29,7 +29,7 @@ void main() async {
 
     // Objectif: réduire le délai perçu à l'ouverture.
     // On garde le minimum bloquant avant le 1er frame (Firebase + storage),
-    // puis on décale le reste en arrière-plan.
+    // puis on décale le rest e en arrière-plan.
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );

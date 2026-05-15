@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:get_storage/get_storage.dart';
+ import 'package:get_storage/get_storage.dart';
 import 'package:provider/provider.dart';
 
 import 'package:casa/Apps/MonApllication.dart';
@@ -15,7 +15,7 @@ import 'StockageKeys.dart';
 /// ou retour sur l’app.
 class DecertificationAccessGuard {
   DecertificationAccessGuard._();
-
+ 
   static DateTime? _lastPresentAttempt;
   static String? _lastPresentUserId;
 
