@@ -42,4 +42,6 @@ class Routes {
   static const String helpSupportRoute = "helpSupport";
   static const String subscriptionPaymentRoute = "subscriptionPayment";
   static const String paymentHistoryRoute = "paymentHistory";
+  static const String chatConversationsRoute = "chatConversations";
+  static const String chatRoomRoute = "chatRoom";
 }

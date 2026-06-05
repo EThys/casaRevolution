@@ -7,10 +7,13 @@ class ModernCustomDialog extends StatefulWidget {
   final String message;
   final String confirmText;
   final String cancelText;
-  final Future<void> Function() onConfirm;
+  /// Retourner `true` pour fermer le dialogue après succès.
+  final Future<bool> Function() onConfirm;
   final VoidCallback? onCancel;
   final bool isDanger;
   final IconData? icon;
+  /// `false` si [onConfirm] fait un `pushNamedAndRemoveUntil` (déconnexion, etc.).
+  final bool popDialogOnSuccess;
 
   const ModernCustomDialog({
     Key? key,
@@ -22,6 +25,7 @@ class ModernCustomDialog extends StatefulWidget {
     this.onCancel,
     this.isDanger = false,
     this.icon,
+    this.popDialogOnSuccess = true,
   }) : super(key: key);
 
   static void show(BuildContext context, {
@@ -29,10 +33,11 @@ class ModernCustomDialog extends StatefulWidget {
     required String message,
     required String confirmText,
     String cancelText = "Annuler",
-    required Future<void> Function() onConfirm,
+    required Future<bool> Function() onConfirm,
     VoidCallback? onCancel,
     bool isDanger = false,
     IconData? icon,
+    bool popDialogOnSuccess = true,
   }) {
     showDialog(
       context: context,
@@ -147,7 +152,14 @@ class _ModernCustomDialogState extends State<ModernCustomDialog> {
                         onPressed: _isLoading ? null : () async {
                           setState(() => _isLoading = true);
                           try {
-                            await widget.onConfirm();
+                            final success = await widget.onConfirm();
+                            if (!mounted) return;
+                            if (success &&
+                                widget.popDialogOnSuccess &&
+                                Navigator.of(context).canPop()) {
+                              Navigator.of(context).pop();
+                              return;
+                            }
                           } finally {
                             if (mounted) {
                               setState(() => _isLoading = false);

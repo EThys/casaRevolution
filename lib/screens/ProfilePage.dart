@@ -50,7 +50,7 @@ import '../controllers/PropertyCtrl.dart';
 import '../controllers/ServiceController.dart';
 import '../controllers/AgenceController.dart';
 import '../widgets/ModernCustomDialog.dart';
-// import '../widgets/ModernCustomDialog.dart'; // Already imported if using relative, but just to be sure
+import '../Apps/MonApllication.dart';
 
 
 class ProfilePage extends StatefulWidget {
@@ -1647,6 +1647,13 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  void _navigateToHomeAfterSessionReset() {
+    MonApplication.navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      Routes.bottomPageRoute,
+      (route) => false,
+    );
+  }
+
   void _confirmLogout() {
     ModernCustomDialog.show(
       context,
@@ -1655,6 +1662,7 @@ class _ProfilePageState extends State<ProfilePage> {
       confirmText: "DÉCONNEXION",
       cancelText: "ANNULER",
       isDanger: true,
+      popDialogOnSuccess: false,
       onConfirm: _performLogout,
       icon: Icons.logout_rounded,
     );
@@ -1668,7 +1676,7 @@ class _ProfilePageState extends State<ProfilePage> {
 ...
 */
 
-  Future<void> _performLogout() async {
+  Future<bool> _performLogout() async {
     // Note: On ne pop plus la dialog ici, elle reste affichée avec son loader
     // Elle sera détruite automatiquement par pushNamedAndRemoveUntil
     try {
@@ -1689,13 +1697,8 @@ class _ProfilePageState extends State<ProfilePage> {
         print("⚠️ [ProfilePage] silentLogout failed: $e");
       }
 
-      // 3. Naviguer vers la page d'accueil en utilisant le root navigator
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
-          Routes.bottomPageRoute,
-              (route) => false,
-        );
-      }
+      _navigateToHomeAfterSessionReset();
+      return true;
 
     } catch (e) {
       print("❌ Erreur lors de la déconnexion: $e");
@@ -1708,13 +1711,8 @@ class _ProfilePageState extends State<ProfilePage> {
         await context.read<AuthentificationCtrl>().silentLogout();
       } catch (_) {}
 
-      // Puis naviguer vers la page d'accueil
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil(
-          Routes.bottomPageRoute,
-              (route) => false,
-        );
-      }
+      _navigateToHomeAfterSessionReset();
+      return true;
     }
   }
 
@@ -1726,11 +1724,12 @@ class _ProfilePageState extends State<ProfilePage> {
       confirmText: 'OUI, SUPPRIMER DÉFINITIVEMENT',
       cancelText: 'GARDER MON COMPTE',
       isDanger: true,
+      popDialogOnSuccess: false,
       onConfirm: _handleAccountDeletion,
     );
   }
 
-  Future<void> _handleAccountDeletion() async {
+  Future<bool> _handleAccountDeletion() async {
     setState(() => _isDeleting = true);
 
     try {
@@ -1745,14 +1744,8 @@ class _ProfilePageState extends State<ProfilePage> {
         // On attend la fin de l'animation majestueuse dans l'overlay
         await Future.delayed(Duration(milliseconds: 7000));
 
-        // 3. Navigation vers HomePage (le pushNamedAndRemoveUntil force la re-initialisation donc le refresh)
-        if (mounted) {
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            Routes.bottomPageRoute,
-                (route) => false,
-          );
-        }
+        _navigateToHomeAfterSessionReset();
+        return true;
       } else {
         setState(() => _isDeleting = false);
         // Afficher un message plus utile si le backend envoie { message: ... }
@@ -1765,11 +1758,13 @@ class _ProfilePageState extends State<ProfilePage> {
         } catch (_) {}
         print("❌ [ProfilePage] deleteAccount failed — httpStatus=${response.httpStatus}, errorMsg=${response.errorMsg}, data=${response.data}");
         FancyNotification.show(context, message);
+        return false;
       }
     } catch (e) {
       setState(() => _isDeleting = false);
       print("❌ [ProfilePage] Exception deleteAccount: $e");
       FancyNotification.show(context, "Une erreur est survenue");
+      return false;
     }
   }
 

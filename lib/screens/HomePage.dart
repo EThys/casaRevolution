@@ -1667,6 +1667,15 @@ class _HomePageState extends State<HomePage> {
                               onTap: () => _handleNavigation(
                                   Routes.bookingHistoryPageRoute),
                             ),
+                            _buildDrawerItem(
+                              icon: Icons.work_rounded,
+                              title: 'Mes activités',
+                              routeName: Routes.myServicesRoute,
+                              isSelected:
+                                  selectedRoute == Routes.myServicesRoute,
+                              onTap: () =>
+                                  _handleNavigation(Routes.myServicesRoute),
+                            ),
                             Consumer<AuthentificationCtrl>(
                               builder: (context, auth, _) {
                                 final premium = auth.user.isPremium == true;
@@ -1780,18 +1789,6 @@ class _HomePageState extends State<HomePage> {
                                       onTap: () => _handleNavigation(
                                           Routes.myHotelsRoute),
                                     ),
-
-                                  // "Mes services" - Visible pour TOUS (si loggé)
-                                  // Modification demandée: Tout le monde voit le menu, mais l'intérieur change
-                                  _buildDrawerItem(
-                                    icon: Icons.work_rounded,
-                                    title: 'Mes activités',
-                                    routeName: Routes.myServicesRoute,
-                                    isSelected:
-                                        selectedRoute == Routes.myServicesRoute,
-                                    onTap: () => _handleNavigation(
-                                        Routes.myServicesRoute),
-                                  ),
 
                                   // "Mon Agence" - Seulement pour Gérant
                                   if (showMonAgence)
@@ -1990,6 +1987,9 @@ class _HomePageState extends State<HomePage> {
 
   void _handleNavigation(String routeName, {Object? arguments}) {
     Navigator.pop(context);
+
+    // Évite « Multiple widgets used the same GlobalKey » (overlay Showcase + widget source).
+    context.read<TutorialController>().dismissActiveShowcase(context);
 
     if (routeName == Routes.bottomPageRoute) {
       // Déjà sur la page d'accueil (contenue dans BottomNavBar), on ferme juste le drawer

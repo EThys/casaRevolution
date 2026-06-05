@@ -76,7 +76,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   //final TextEditingController _plageJourController = TextEditingController(); // Remplacé par sélecteur de jours
   Set<String> _selectedDays = {}; // Jours sélectionnés
   final TextEditingController _plageHeureController = TextEditingController();
-  
+
   // Country code for phone
   String _selectedCountryCode = '+243'; // RDC par défaut
   DeviseModel? _selectedDevise; // Devise sélectionnée
@@ -110,11 +110,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     }
   }
   late PageController _pageController;
-  
+
   // Images: Photo principale = visage, Photos de réalisations
   XFile? _profileImage; // Photo du visage (image principale)
   List<XFile> _portfolioImages = []; // Photos de réalisations
-  
+
   // Location variables
   CityModel? _selectedCity;
   DistrictModel? _selectedDistrict;
@@ -122,7 +122,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   QuartierModel? _selectedQuartier;
   bool get _isKinshasaSelected =>
       (_selectedCity?.name?.toLowerCase().trim() ?? '') == 'kinshasa' ||
-      (_cityTextController.text.toLowerCase().trim() == 'kinshasa');
+          (_cityTextController.text.toLowerCase().trim() == 'kinshasa');
 
   List<CityModel> _availableCities = [];
   List<DistrictModel> _availableDistricts = [];
@@ -159,7 +159,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     super.initState();
     _pageController = PageController();
     _loadUserData();
-    
+
     // Décaler le chargement des données de localisation après le build initial
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Check for editing prestation in arguments
@@ -172,7 +172,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           });
         }
       }
-      
+
       _checkUserVerification();
       _loadLocationData();
       context.read<ServiceController>().fetchDevises();
@@ -181,31 +181,31 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
   void _prefillForm() {
     if (_editingPrestation == null) return;
-    
+
     _serviceId = _editingPrestation!.serviceId;
     _titleController.text = _editingPrestation!.title ?? '';
     _descriptionController.text = _editingPrestation!.description ?? '';
-    _priceMinController.text = _editingPrestation!.minPrice != null && _editingPrestation!.minPrice! > 0 
-        ? _editingPrestation!.minPrice!.toInt().toString() 
+    _priceMinController.text = _editingPrestation!.minPrice != null && _editingPrestation!.minPrice! > 0
+        ? _editingPrestation!.minPrice!.toInt().toString()
         : '';
     _experienceController.text = _editingPrestation!.experience ?? '';
     _phoneController.text = _editingPrestation!.phone ?? '';
     _addressController.text = _editingPrestation!.address ?? '';
     _plageHeureController.text = _editingPrestation!.plageHeurePrestation ?? '';
-    
+
     if (_editingPrestation!.plageJourPrestation != null && _editingPrestation!.plageJourPrestation!.isNotEmpty) {
       _selectedDays = _editingPrestation!.plageJourPrestation!.split(', ').toSet();
     }
-    
+
     _cityTextController.text = _editingPrestation!.cityValue ?? '';
     _communeTextController.text = _editingPrestation!.communeValue ?? '';
     _quartierTextController.text = _editingPrestation!.quartierValue ?? '';
-    
+
     // Location objects matching will happen in _loadLocationData or here if already loaded
     if (_editingPrestation!.cityId != null && _availableCities.isNotEmpty) {
       _selectedCity = _availableCities.firstWhere(
-        (c) => c.cityId == _editingPrestation!.cityId, 
-        orElse: () => CityModel(cityId: _editingPrestation!.cityId, name: _editingPrestation!.cityValue)
+              (c) => c.cityId == _editingPrestation!.cityId,
+          orElse: () => CityModel(cityId: _editingPrestation!.cityId, name: _editingPrestation!.cityValue)
       );
     }
 
@@ -214,8 +214,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       final serviceCtrl = context.read<ServiceController>();
       if (serviceCtrl.devisesList.isNotEmpty) {
         _selectedDevise = serviceCtrl.devisesList.firstWhere(
-          (d) => d.id == _editingPrestation!.deviseId,
-          orElse: () => serviceCtrl.devisesList.first
+                (d) => d.id == _editingPrestation!.deviseId,
+            orElse: () => serviceCtrl.devisesList.first
         );
       }
     }
@@ -230,9 +230,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     final authCtrl = context.read<AuthentificationCtrl>();
     // Check local storage if authCtrl user is not fully populated
     if (authCtrl.user.userId == null) {
-       _loadUserData();
+      _loadUserData();
     }
-    
+
     if (authCtrl.user.isCertified != true) {
       // Allow user to proceed if just verifying flow, but ideally should block
       // For now we just load data and let them continue, validation happens at submit
@@ -240,19 +240,19 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
   void _onCityChanged(String selection) {
     if (selection.isEmpty) return;
-    
+
     _markFieldTouched('city');
     setState(() {
       _cityTextController.text = selection;
       final query = selection.toLowerCase().trim();
-      
+
       // Mapping to CityModel if possible
       final kin = _availableCities.firstWhere(
-          (c) => (c.name ?? '').toLowerCase() == query,
-          orElse: () => _availableCities.isNotEmpty 
-              ? _availableCities.first 
+              (c) => (c.name ?? '').toLowerCase() == query,
+          orElse: () => _availableCities.isNotEmpty
+              ? _availableCities.first
               : CityModel(cityId: 1, name: 'Kinshasa'));
-      
+
       if (query == 'kinshasa') {
         _selectedCity = kin;
         _updateDistrictsForCity();
@@ -272,27 +272,27 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     try {
       final userData = _storage.read<Map<String, dynamic>>(StockageKeys.userKey);
       final profileData = _storage.read<Map<String, dynamic>>(StockageKeys.profileKey);
-      
+
       // Robust userId retrieval as requested
       _userId = userData?['user']?['userId'] ;
-      
-      _userFullName = profileData?['fullname'] ?? 
-                     userData?['username'] ?? 
-                     'Prestataire';
-      
+
+      _userFullName = profileData?['fullname'] ??
+          userData?['username'] ??
+          'Prestataire';
+
       // Get serviceId from user accounts
       final userAccounts = _storage.read<List<dynamic>>('user_accounts');
       if (userAccounts != null) {
         for (var acc in userAccounts) {
           var typeAcc = acc['typeAccount'];
-          int typeId = typeAcc is Map 
+          int typeId = typeAcc is Map
               ? (typeAcc['typeAccountId'] ?? typeAcc['TypeAccountId'] ?? 0)
               : (acc['typeAccountId'] ?? acc['TypeAccountId'] ?? 0);
-          
+
           if (typeId == 3) {
             // Récupérer l'ID du compte (pas le typeAccountId)
             _serviceId = acc['id'] ?? acc['Id'];
-            
+
             // Récupérer le nom du compte depuis acc['name'] (ex: "electricien")
             final accountName = acc['name']?.toString().toLowerCase();
             if (accountName != null) {
@@ -334,42 +334,42 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       // Utiliser le LocationController du Provider au lieu d'en créer un nouveau
       final locationCtrl = Provider.of<LocationController>(context, listen: false);
       print("📍 [CreateService] Début chargement des données de localisation...");
-      
+
       // Charger TOUTES les données d'abord
       await locationCtrl.loadAllData();
       print("📍 [CreateService] loadAllData() terminé");
-      
+
       if (mounted) {
         _availableCities = await locationCtrl.getAllCities();
         print("📍 [CreateService] ${_availableCities.length} villes chargées");
-        
+
         if (_availableCities.isNotEmpty) {
           _selectedCity = _availableCities.firstWhere(
-            (c) => c.name?.toLowerCase() == 'kinshasa',
+                (c) => c.name?.toLowerCase() == 'kinshasa',
             orElse: () => _availableCities.first,
           );
           print("📍 [CreateService] Ville sélectionnée: ${_selectedCity?.name}");
-          
+
           if (_selectedCity != null) {
             _availableDistricts = locationCtrl.getDistrictsForCity(_selectedCity!.cityId!);
-            
+
             // Si Kinshasa, précharger les quartiers flat
             if (_selectedCity!.name?.toLowerCase().trim() == 'kinshasa') {
-               _loadKinshasaQuartiers();
+              _loadKinshasaQuartiers();
             }
 
             print("📍 [CreateService] ${_availableDistricts.length} districts pour ${_selectedCity?.name}");
-            
+
             if (_availableDistricts.isNotEmpty) {
               _selectedDistrict = _availableDistricts.first;
               print("📍 [CreateService] District sélectionné: ${_selectedDistrict?.name}");
-              
+
               _availableCommunes = locationCtrl.getCommunesForDistrict(_selectedDistrict!.districtId!);
               print("📍 [CreateService] ${_availableCommunes.length} communes pour ${_selectedDistrict?.name}");
             }
           }
         }
-        
+
         if (mounted) setState(() {});
         print("📍 [CreateService] Chargement de localisation terminé avec succès");
       }
@@ -444,7 +444,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     final localizations = MaterialLocalizations.of(context);
     final formattedStart = localizations.formatTimeOfDay(startTime, alwaysUse24HourFormat: true);
     final formattedEnd = localizations.formatTimeOfDay(endTime, alwaysUse24HourFormat: true);
-    
+
     setState(() {
       _plageHeureController.text = "$formattedStart - $formattedEnd";
       if (_plageHeureController.text.isNotEmpty) {
@@ -452,14 +452,14 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       }
     });
   }
-  
+
   String _getCountryNameFromCode(String countryCode) {
     return _countryNames[countryCode] ?? _countryNames[_selectedCountryCode] ?? 'RDC';
   }
-  
+
   void _updateDistrictsForCity() {
     if (_selectedCity == null) return;
-    
+
     final locationCtrl = LocationController();
     setState(() {
       try {
@@ -476,10 +476,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       }
     });
   }
-  
+
   void _updateCommunesForDistrict() {
     if (_selectedDistrict == null) return;
-    
+
     final locationCtrl = LocationController();
     setState(() {
       try {
@@ -494,10 +494,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       }
     });
   }
-  
+
   void _updateQuartiersForCommune() {
     if (_selectedCommune == null) return;
-    
+
     final locationCtrl = LocationController();
     setState(() {
       try {
@@ -514,7 +514,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       }
     });
   }
-  
+
   List<String> _filterSuggestions(String query, List<String> suggestions) {
     if (query.isEmpty) return suggestions;
     return suggestions.where((suggestion) =>
@@ -560,10 +560,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           // --- START PREMIUM BACKGROUND ---
           Positioned.fill(
             child: Container(
-              color: const Color(0xFFF8F9FF), 
+              color: const Color(0xFFF8F9FF),
             ),
           ),
-          
+
           // Mesh Gradient Blobs
           Positioned(
             top: -100,
@@ -582,7 +582,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               ),
             ),
           ),
-          
+
           Positioned(
             bottom: 100,
             left: -100,
@@ -612,7 +612,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           // Texture Overlay
           Positioned.fill(
             child: Opacity(
-              opacity: 0.03, 
+              opacity: 0.03,
               child: Image.asset(
                 "assets/images/abstract.jpg",
                 fit: BoxFit.cover,
@@ -683,7 +683,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   Widget _buildStepIndicator(int step, String label, IconData icon) {
     final isActive = _currentStep == step;
     final isCompleted = _currentStep > step;
-    
+
     return GestureDetector(
       onTap: () async {
         if (_validateStep(_currentStep)) {
@@ -742,7 +742,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             Icons.camera_alt_rounded,
           ),
           SizedBox(height: _mediumSpace),
-          
+
           // Photo de profil (en premier, obligatoire)
           Padding(
             padding: EdgeInsets.only(bottom: _smallSpace),
@@ -763,9 +763,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           ),
           SizedBox(height: _smallSpace),
           _buildProfileImageSelector(),
-          
+
           SizedBox(height: _largeSpace),
-          
+
           // Images de portfolio
           Padding(
             padding: EdgeInsets.only(bottom: _smallSpace),
@@ -786,7 +786,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           ),
           SizedBox(height: _smallSpace),
           _buildPortfolioImagesGrid(), // Gestion améliorée des images multiples
-          
+
           SizedBox(height: _largeSpace),
           _buildBottomNavigation(),
           SizedBox(height: 20),
@@ -807,10 +807,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             Icons.info_outline_rounded,
           ),
           SizedBox(height: _mediumSpace),
-          
+
           // Affichage du type de service (READ ONLY)
           _buildReadOnlyServiceTypeField(),
-          
+
           SizedBox(height: _mediumSpace),
 
           // Champ Titre (RESTAURÉ)
@@ -821,16 +821,16 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             icon: Icons.title_rounded,
             fieldKey: 'title',
             validator: (v) {
-              // Validation relaxée : le titre n'est plus strictement requis si le type de service est là, 
+              // Validation relaxée : le titre n'est plus strictement requis si le type de service est là,
               // mais on peut le laisser obligatoire sans contrainte de longueur.
               // Le user a dit "enleve les verifications des nombres des caracteres".
               if (v == null || v.trim().isEmpty) return 'Titre requis';
               return null;
             },
           ),
-          
+
           SizedBox(height: _mediumSpace),
-          
+
           _buildModernTextField(
             controller: _descriptionController,
             label: 'Description détaillée',
@@ -843,14 +843,14 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               return null;
             },
           ),
-          
+
           SizedBox(height: _mediumSpace),
-          
+
           // Choix de la devise
           _buildCurrencyDropdown(),
-          
+
           SizedBox(height: _mediumSpace),
-          
+
           // Section Fourchette de prix avec description
           _buildSectionHeader(
             'Fourchette de prix',
@@ -858,26 +858,26 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             Icons.attach_money_rounded,
           ),
           SizedBox(height: _mediumSpace),
-          
-            // Prix Min uniquement (Max Price retiré de l'UI)
-             _buildModernTextField(
-               controller: _priceMinController,
-               label: 'Prix (à partir de)',
-               hint: '0',
-               icon: Icons.attach_money_rounded,
-               keyboardType: TextInputType.number,
-               suffixText: _selectedDevise?.displaySymbol ?? 'FC',
-               fieldKey: 'price_min',
-               helperText: 'Le prix de départ pour votre service',
-               validator: (v) {
-                 if (v == null || v.trim().isEmpty) return 'Prix requis';
-                 if (double.tryParse(v) == null) return 'Nombre invalide';
-                 return null;
-               },
-             ),
-          
+
+          // Prix Min uniquement (Max Price retiré de l'UI)
+          _buildModernTextField(
+            controller: _priceMinController,
+            label: 'Prix (à partir de)',
+            hint: '0',
+            icon: Icons.attach_money_rounded,
+            keyboardType: TextInputType.number,
+            suffixText: _selectedDevise?.displaySymbol ?? 'FC',
+            fieldKey: 'price_min',
+            helperText: 'Le prix de départ pour votre service',
+            validator: (v) {
+              if (v == null || v.trim().isEmpty) return 'Prix requis';
+              if (double.tryParse(v) == null) return 'Nombre invalide';
+              return null;
+            },
+          ),
+
           SizedBox(height: _largeSpace),
-          
+
           // Année d'expérience
           _buildModernTextField(
             controller: _experienceController,
@@ -898,7 +898,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           _buildPhoneField(),
           SizedBox(height: _smallSpace),
           SizedBox(height: _mediumSpace),
-          
+
           // Plage Jours et Heures
           _buildSectionHeader(
             'Disponibilité',
@@ -906,9 +906,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             Icons.access_time_rounded,
           ),
           SizedBox(height: _mediumSpace),
-          
+
           _buildDaySelector(),
-          
+
           // Sélecteur d'heure amélioré (UX)
           GestureDetector(
             onTap: () => _selectTimeRange(context),
@@ -926,9 +926,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               ),
             ),
           ),
-          
+
           SizedBox(height: _mediumSpace),
-          
+
           _buildSectionHeader(
             'Curriculum Vitae (optionnel)',
             'Ajoutez votre CV pour renforcer votre crédibilité (PDF ou DOC)',
@@ -958,12 +958,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             Icons.location_on_rounded,
           ),
           SizedBox(height: _mediumSpace),
-          
+
           // Ville avec suggestions (typeahead)
           _buildCitySuggestionField(),
-          
+
           SizedBox(height: _mediumSpace),
-          
+
           if (_isKinshasaSelected) ...[
             // Mode Kinshasa : District et Commune en dropdowns, Quartier en suggestion
             LayoutBuilder(
@@ -1021,7 +1021,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               controller: _quartierTextController,
               fieldKey: 'quartier',
               // Utiliser les quartiers chargés en local pour Kinshasa (API flat) + ceux liés à la commune si disp
-              suggestions: _kinshasaQuartiers.isNotEmpty 
+              suggestions: _kinshasaQuartiers.isNotEmpty
                   ? _kinshasaQuartiers.map((q) => q.name ?? '').toList()
                   : _availableQuartiers.map((q) => q.name ?? '').where((n) => n.isNotEmpty).toList(),
             ),
@@ -1033,8 +1033,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               controller: _communeTextController,
               fieldKey: 'commune',
               // Filtre spécial : Si Matadi, afficher ses communes, sinon vide (pas de suggestions Kinshasa)
-              suggestions: (_selectedCity?.name?.toLowerCase().trim() == 'matadi' || 
-                            _cityTextController.text.toLowerCase().trim() == 'matadi')
+              suggestions: (_selectedCity?.name?.toLowerCase().trim() == 'matadi' ||
+                  _cityTextController.text.toLowerCase().trim() == 'matadi')
                   ? ['Matadi', 'Mvuzi', 'Nzanza']
                   : [], // Désactiver suggestions pour les autres villes car elles pointent vers Kinshasa
             ),
@@ -1047,7 +1047,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             ),
             SizedBox(height: _mediumSpace),
           ],
-          
+
           _buildModernTextField(
             controller: _addressController,
             label: 'Adresse complète',
@@ -1081,7 +1081,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               image: DecorationImage(
-                image: _profileImage != null 
+                image: _profileImage != null
                     ? FileImage(File(_profileImage!.path)) as ImageProvider
                     : CachedNetworkImageProvider(_editingPrestation!.profile!),
                 fit: BoxFit.cover,
@@ -1160,7 +1160,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
   Widget _buildPortfolioImagesGrid() {
     final hasError = _shouldShowError(0, 'portfolio_images') && _portfolioImages.isEmpty && !(_isEditing && _editingPrestation?.images != null && _editingPrestation!.images!.isNotEmpty);
-    
+
     final allImagesCount = _portfolioImages.length + (_isEditing ? (_editingPrestation?.images?.length ?? 0) : 0);
 
     if (_portfolioImages.isEmpty && !(_isEditing && _editingPrestation?.images != null && _editingPrestation!.images!.isNotEmpty)) {
@@ -1211,12 +1211,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold, color: _greyColor),
             ),
             if (allImagesCount < 10)
-            TextButton.icon(
-              onPressed: () => _pickPortfolioImages(),
-              icon: Icon(Icons.add_a_photo_rounded, size: 16),
-              label: Text("Ajouter"),
-              style: TextButton.styleFrom(foregroundColor: _primaryColor),
-            ),
+              TextButton.icon(
+                onPressed: () => _pickPortfolioImages(),
+                icon: Icon(Icons.add_a_photo_rounded, size: 16),
+                label: Text("Ajouter"),
+                style: TextButton.styleFrom(foregroundColor: _primaryColor),
+              ),
           ],
         ),
         SizedBox(height: 12),
@@ -1232,7 +1232,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           itemBuilder: (context, index) {
             // Logic to display existing images first, then new ones
             final existingCount = _isEditing ? (_editingPrestation?.images?.length ?? 0) : 0;
-            
+
             if (index < existingCount) {
               final imageUrl = _editingPrestation!.images![index];
               return Stack(
@@ -1267,7 +1267,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 ],
               );
             }
-            
+
             final newIndex = index - existingCount;
             return Stack(
               fit: StackFit.expand,
@@ -1532,9 +1532,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     String? helperText,
     String? suffixText,
   }) {
-    final hasError = fieldKey != null && 
-                     _shouldShowError(_currentStep, fieldKey) && 
-                     (_getFieldError(_currentStep, fieldKey) != null);
+    final hasError = fieldKey != null &&
+        _shouldShowError(_currentStep, fieldKey) &&
+        (_getFieldError(_currentStep, fieldKey) != null);
     final errorText = hasError ? _getFieldError(_currentStep, fieldKey) : null;
 
     return Container(
@@ -1658,8 +1658,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               isExpanded: true,
               underline: SizedBox(),
               hint: Text('Sélectionner $label'),
-              items: items.map((item) => 
-                DropdownMenuItem(value: item, child: Text(displayText(item)))
+              items: items.map((item) =>
+                  DropdownMenuItem(value: item, child: Text(displayText(item)))
               ).toList(),
               onChanged: onChanged,
             ),
@@ -1677,7 +1677,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         children: [
           if (_currentStep > 0)
             Expanded(
-            child: OutlinedButton(
+              child: OutlinedButton(
                 onPressed: () {
                   setState(() {
                     _currentStep--;
@@ -1749,21 +1749,21 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               ),
               child: _isLoading
                   ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
                   : Text(
-                      _currentStep == 2 ? 'Publier' : 'Suivant',
-                      style: GoogleFonts.inter(
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        fontSize: _bodySize,
-                      ),
-                    ),
+                _currentStep == 2 ? 'Publier' : 'Suivant',
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  fontSize: _bodySize,
+                ),
+              ),
             ),
           ),
         ],
@@ -1773,16 +1773,16 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
   bool _validateStep(int step) {
     // Note: _hasAttemptedSubmit is now set only during navigation/submission
-    
+
     switch (step) {
       case 0:
         _clearStepFieldErrors(0);
-        
+
         // Validation de la photo de profil (obligatoire)
         if (_profileImage == null) {
           _setFieldError(0, 'profile_image', 'La photo de profil est requise');
         }
-        
+
         // Validation des images de portfolio (optionnelles mais recommandées)
         if (_portfolioImages.isEmpty) {
           _setFieldError(0, 'portfolio_images', 'Au moins une photo de réalisation est recommandée');
@@ -1790,7 +1790,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
         _stepValidations[0] = _profileImage != null; // Photo de profil obligatoire
         return _stepValidations[0]!;
-        
+
       case 1:
         _clearStepFieldErrors(1);
         final title = _titleController.text.trim();
@@ -1798,23 +1798,23 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         final priceMin = _priceMinController.text.trim();
         final priceMax = _priceMaxController.text.trim();
         final phone = _phoneController.text.trim();
-        
+
         if (title.isEmpty) {
           _setFieldError(1, 'title', 'Titre requis');
         }
-        
+
         if (description.isEmpty) {
           _setFieldError(1, 'description', 'Description requise');
         }
-        
+
         if (priceMin.isEmpty) {
           _setFieldError(1, 'price_min', 'Prix requis');
         } else if (double.tryParse(priceMin) == null || double.parse(priceMin) < 1) {
           _setFieldError(1, 'price_min', 'Prix invalide');
         }
-        
+
         // Validation removed for priceMax as it is no longer in UI
-        
+
         if (phone.isEmpty) {
           _setFieldError(1, 'phone', 'Téléphone requis');
         } else {
@@ -1827,14 +1827,14 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         if (_selectedDays.isEmpty) {
           _setFieldError(1, 'plage_jour', 'Veuillez sélectionner au moins un jour');
         }
-        
+
         if (_plageHeureController.text.trim().isEmpty) {
           _setFieldError(1, 'plage_heure', 'Heures de prestation requises');
         }
-        
+
         _stepValidations[1] = !_hasFieldErrors(1);
         return _stepValidations[1]!;
-        
+
       case 2:
         _clearStepFieldErrors(2);
         final address = _addressController.text.trim();
@@ -1843,7 +1843,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           if (t.isNotEmpty) return t;
           return (_selectedQuartier?.name ?? '').trim();
         })();
-        
+
         if (_isKinshasaSelected) {
           if (_selectedCity == null) _setFieldError(2, 'city', 'Ville requise');
           if (_selectedCommune == null) _setFieldError(2, 'commune', 'Commune requise');
@@ -1855,23 +1855,23 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         } else {
           if (_cityTextController.text.trim().isEmpty) _setFieldError(2, 'city', 'Ville requise');
           if (_communeTextController.text.trim().isEmpty) _setFieldError(2, 'commune', 'Commune requise');
-          
+
           if (quartierEffective.isEmpty) {
             _setFieldError(2, 'quartier', 'Quartier requis');
           } else if (quartierEffective.length < 3) {
             _setFieldError(2, 'quartier', 'Quartier trop court (min 3 car.)');
           }
         }
-        
+
         if (address.isEmpty) {
           _setFieldError(2, 'address', 'Adresse requise');
         } else if (address.length < 5) {
           _setFieldError(2, 'address', 'Adresse trop courte');
         }
-        
+
         _stepValidations[2] = !_hasFieldErrors(2);
         return _stepValidations[2]!;
-        
+
       default:
         return false;
     }
@@ -1916,7 +1916,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     setState(() {
       _hasAttemptedSubmit = true;
     });
-    
+
     if (!_validateStep(2)) {
       print("❌ [CreateService] Validation step 2 échouée");
       FancyNotification.show(
@@ -1931,7 +1931,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     print("👤 [CreateService] User ID: ${authCtrl.user.userId}, Certified: ${authCtrl.user.isCertified}");
 
     final subscriptionOk =
-        await SubscriptionHelper.ensurePremiumForSubmit(context: context);
+    await SubscriptionHelper.ensurePremiumForSubmit(context: context);
     if (!subscriptionOk || !mounted) return;
 
     setState(() => _isLoading = true);
@@ -1939,13 +1939,13 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     try {
       // Préparer les images en base64
       List<Map<String, String>> imagesPayload = [];
-      
+
       // Récupération ID depuis local storage pour robustesse
       final storageData = _storage.read<Map<String, dynamic>>(StockageKeys.userKey);
       final storedUserId = storageData?['user']?['userId'] ?? authCtrl.user.userId ?? 0;
-      
+
       print("📸 [CreateService] Préparation des images...");
-      
+
       // Photo de profil (obligatoire, en base64)
       String? profileBase64;
       if (_profileImage != null) {
@@ -1972,7 +1972,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         setState(() => _isLoading = false);
         return;
       }
-      
+
       // Images de portfolio (multiples)
       for (var img in _portfolioImages) {
         final f = File(img.path);
@@ -1986,10 +1986,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           imagesPayload.add({"image": base64Image});
         } catch (_) {}
       }
-      
+
       // Si aucune image de portfolio n'est ajoutée, ajouter une image vide pour éviter erreur backend si requis
       if (imagesPayload.isEmpty) {
-         imagesPayload.add({"image": ""});
+        imagesPayload.add({"image": ""});
       }
 
       print("📸 [CreateService] Photo de profil: ${profileBase64 != null ? 'Oui' : 'Non'}, Images portfolio: ${imagesPayload.length}");
@@ -2013,7 +2013,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           return;
         }
       }
-      
+
       print("📤 [CreateService] Envoi avec serviceId (ID du compte): $_serviceId");
 
       dynamic finalResponse;
@@ -2054,7 +2054,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           "isActive": _editingPrestation!.isActive ?? true,
           "certified": _editingPrestation!.isCertified ?? true,
         };
-        
+
         print("📡 [CreateService] Appel à updatePrestation (id: ${_editingPrestation!.id})...");
         finalResponse = await ctrl.updatePrestation(_editingPrestation!.id!, updateData);
       } else {
@@ -2090,7 +2090,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           },
           "images": imagesPayload
         };
-        
+
         print("📡 [CreateService] Appel à createPrestation...");
         finalResponse = await ctrl.createPrestation(payload);
       }
@@ -2113,7 +2113,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             Navigator.pushNamedAndRemoveUntil(
               context,
               Routes.bottomPageRoute,
-              (route) => false,
+                  (route) => false,
               arguments: {'shouldRefresh': true},
             );
           }
@@ -2150,8 +2150,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       print("🏁 [CreateService] ========== FIN _handleSubmit ==========");
     }
   }
-  
-   Widget _buildCitySuggestionField() {
+
+  Widget _buildCitySuggestionField() {
     final hasError = _shouldShowError(2, 'city') && _getFieldError(2, 'city') != null;
     final errorText = hasError ? _getFieldError(2, 'city') : null;
 
@@ -2239,7 +2239,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       ],
     );
   }
-  
+
   Widget _buildSuggestionTextField({
     required String label,
     required TextEditingController controller,
@@ -2370,7 +2370,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       ],
     );
   }
-  
+
   Widget _buildPremiumDropdown<T>({
     required String label,
     required T? value,
@@ -2472,7 +2472,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                   if (mounted) {
                     setState(() {
                       if (newValue != null) {
-                         _markFieldTouched(fieldKey ?? label.toLowerCase());
+                        _markFieldTouched(fieldKey ?? label.toLowerCase());
                       }
                       onChanged(newValue);
                       _validateStep(_currentStep);
@@ -2505,10 +2505,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       ),
     );
   }
-  
+
   Widget _buildCurrencyDropdown() {
     final devises = context.watch<ServiceController>().devisesList;
-    
+
     return Container(
       margin: EdgeInsets.only(bottom: _mediumSpace),
       child: Column(
@@ -2544,7 +2544,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 items: devises.map((DeviseModel d) {
                   return DropdownMenuItem<DeviseModel>(
                     value: d,
-                     child: Row(
+                    child: Row(
                       children: [
                         Text(
                           d.displaySymbol,
@@ -2554,7 +2554,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                           ),
                         ),
                         SizedBox(width: 8),
-                         Text(
+                        Text(
                           d.name ?? "",
                           style: TextStyle(
                             fontSize: _captionSize,
@@ -2665,7 +2665,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
       if (result != null && result.files.single.path != null) {
         final file = File(result.files.single.path!);
-        
+
         // Vérifier la taille du fichier (max 5 MB)
         final fileSize = await file.length();
         if (fileSize > 5 * 1024 * 1024) {
@@ -2706,7 +2706,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   Widget _buildPhoneField() {
     final errorText = _getFieldError(1, 'phone');
     final hasError = errorText != null && errorText.isNotEmpty && _shouldShowError(1, 'phone');
-    
+
     return Container(
       margin: EdgeInsets.only(bottom: _mediumSpace),
       child: Column(
@@ -2798,7 +2798,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       ),
     );
   }
-  
+
   Widget _buildCountryCodeDropdown() {
     return Container(
       width: 140,
@@ -2849,7 +2849,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   Widget _buildDaySelector() {
     final days = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
     final hasError = _shouldShowError(1, 'plage_jour') && _selectedDays.isEmpty;
-    
+
     return Container(
       margin: EdgeInsets.only(bottom: _mediumSpace),
       child: Column(
@@ -2983,9 +2983,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           ),
           SizedBox(height: 8),
           Text(
-            _userServiceType != null 
-              ? _userServiceType![0].toUpperCase() + _userServiceType!.substring(1) 
-              : 'Non défini',
+            _userServiceType != null
+                ? _userServiceType![0].toUpperCase() + _userServiceType!.substring(1)
+                : 'Non défini',
             style: GoogleFonts.inter( // Utilisation de Inter
               fontSize: 18,
               fontWeight: FontWeight.w700,

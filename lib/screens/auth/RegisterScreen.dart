@@ -31,6 +31,7 @@ import '../../utils/city_suggestions.dart';
 import '../../utils/requetes.dart';
 import '../../utils/api_error_message.dart';
 import '../../utils/crashlytics_api.dart';
+import '../../utils/login_route_args.dart';
 import '../../controllers/TypeAccountController.dart';
 import '../termsAndPrivacy/TermsAndPrivacyPage.dart';
 
@@ -2076,9 +2077,45 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       final response = await authCtrl.register(payload, url: '');
 
       if (response.status == true) {
-         SnackbarForCasa.success(context, "Votre compte est créé. Connectez-vous pour continuer.");
-         await Future.delayed(Duration(milliseconds: 500));
-         Navigator.of(context).pushReplacementNamed(Routes.loginRoute);
+        var sessionReady = authCtrl.isSessionEstablished;
+        if (!sessionReady) {
+          sessionReady = await authCtrl.completeSessionAfterRegistration(
+            contactTrimmed: contactValue,
+            countryCode: _selectedCountryCode,
+            isPhone: isPhone,
+            password: _passwordController.text,
+          );
+        }
+
+        if (!mounted) return;
+
+        if (sessionReady) {
+          SnackbarForCasa.success(
+            context,
+            "Bienvenue ! Votre compte est prêt.",
+          );
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            Routes.bottomPageRoute,
+            (route) => false,
+          );
+        } else {
+          SnackbarForCasa.success(
+            context,
+            "Votre compte est créé. Connectez-vous pour continuer.",
+          );
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) {
+            Navigator.of(context).pushReplacementNamed(
+              Routes.loginRoute,
+              arguments: LoginRouteArgs(
+                contact: contactValue,
+                countryCode: _selectedCountryCode,
+                isPhone: isPhone,
+              ),
+            );
+          }
+        }
       } else {
          reportApiFailureToCrashlytics(
            'RegisterScreen',

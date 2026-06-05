@@ -423,7 +423,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
       return;
     }
 
-    SubscriptionHelper.checkCertifiedThenProceed(
+    SubscriptionHelper.checkLoggedInThenProceed(
       context: context,
       onProceed: () {
         Navigator.pushNamed(context, Routes.createPropertyRoute)

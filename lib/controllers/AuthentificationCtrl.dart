@@ -18,6 +18,7 @@ import '../utils/TerrainDatabaseHelper.dart';
 import '../utils/StompService.dart';
 import 'NotificationController.dart';
 import '../utils/database/UserDatabaseHelper.dart';
+import '../utils/auth_identifiant.dart';
 
 class AuthentificationCtrl with ChangeNotifier {
   AuthentificationCtrl({this.stockage});
@@ -213,6 +214,63 @@ class AuthentificationCtrl with ChangeNotifier {
         status: false,
       );
     }
+  }
+
+  /// Session utilisable (token + utilisateur en mémoire).
+  bool get isSessionEstablished =>
+      token.isNotEmpty && user.userId != null;
+
+  /// Connexion silencieuse juste après l'inscription (mêmes identifiants).
+  Future<bool> completeSessionAfterRegistration({
+    required String contactTrimmed,
+    required String countryCode,
+    required bool isPhone,
+    required String password,
+  }) async {
+    final identifiant = buildLoginIdentifiant(
+      contactTrimmed: contactTrimmed,
+      countryCode: countryCode,
+      isPhone: isPhone,
+    );
+    final res = await login({
+      'identifiant': identifiant,
+      'password': password.trim(),
+    });
+    return isLoginApiSuccess(res.data);
+  }
+
+  Future<bool> _tryPersistSessionFromAuthResponse(dynamic data) async {
+    if (data is! Map) return false;
+    final sessionToken = data['token'];
+    final member = data['member'];
+    if (sessionToken == null || member is! Map) return false;
+
+    if (stockage == null) await initStorage();
+
+    final userJson = member['user'];
+    if (userJson is! Map) return false;
+
+    final profileRaw = member['profile'];
+    final refreshToken = data['refresh_token'];
+
+    await _storeAuthData(
+      sessionToken.toString(),
+      refreshToken?.toString(),
+      Map<String, dynamic>.from(userJson),
+      profileRaw is Map ? Map<String, dynamic>.from(profileRaw) : null,
+    );
+
+    if (member['accounts'] != null) {
+      await stockage?.write('user_accounts', member['accounts']);
+    }
+
+    final userId = user.userId?.toString();
+    if (userId != null) {
+      NotificationController().loadForUser(userId);
+      oneSignalLoginWithAppUserId(userId);
+    }
+
+    return true;
   }
 
 // Méthode pour stocker les données d'authentification
@@ -713,6 +771,7 @@ class AuthentificationCtrl with ChangeNotifier {
 
       // HTTP 201 Created sur `public/members` : compte créé même sans token (réponse métier ambiguë possible).
       if (response.httpStatus == 201) {
+        await _tryPersistSessionFromAuthResponse(response.data);
         final data = response.data;
         final msg = data is Map ? data['message']?.toString() : null;
         return HttpResponse(
@@ -724,25 +783,13 @@ class AuthentificationCtrl with ChangeNotifier {
       }
 
       // Vérification du succès (similaire au login souvent, ou présence de token/member)
-      // La réponse exemple n'est pas explicite sur le succès, mais on suppose un 200 OK avec structure similaire
        String message = response.data['message']?.toString() ?? '';
-       // Parfois inscription retourne direct le token, parfois demande confirmation.
-       // Ici on suppose que ça connecte direct comme avant si token présent.
-       
-       var token = response.data['token'];
-       var member = response.data['member'];
-       
-       if (token != null && member != null) {
-          var userJson = member['user'];
-           await stockage?.write(StockageKeys.tokenKey, token);
-           user = UserModel.fromJson(userJson);
-           this.user = user;
-           notifyListeners();
-           
+
+       if (await _tryPersistSessionFromAuthResponse(response.data)) {
            return HttpResponse(
             status: true,
             data: response.data,
-            errorMsg: message
+            errorMsg: message,
            );
        } else if (response.status == true) {
            // Succès sans login automatique (ex: "Compte créé")

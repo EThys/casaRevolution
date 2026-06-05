@@ -1533,7 +1533,10 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                     items: devises.map((DeviseModel d) {
                       return DropdownMenuItem<DeviseModel>(
                         value: d,
-                        child: Text(d.code ?? d.name ?? "", style: TextStyle(fontSize: 14)),
+                        child: Text(
+                          d.displaySymbol,
+                          style: TextStyle(fontSize: 14),
+                        ),
                       );
                     }).toList(),
                     onChanged: (DeviseModel? newVal) {

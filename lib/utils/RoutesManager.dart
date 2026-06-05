@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import '../screens/BottomNavBar.dart';
 import '../screens/OnboardingPage.dart';
 import '../screens/auth/LoginScreen.dart';
+import 'login_route_args.dart';
 import '../screens/auth/RegisterScreen.dart';
 import '../screens/auth/ForgotPasswordScreen.dart';
 import '../screens/auth/OTPVerificationScreen.dart';
@@ -39,6 +40,9 @@ import '../screens/CreateAgencePage.dart';
 import '../screens/HelpSupportPage.dart';
 import '../screens/PaymentSubscriptionPage.dart';
 import '../screens/PaymentHistoryPage.dart';
+import 'package:casa/features/chat/chat_scope.dart';
+import 'package:casa/features/chat/presentation/pages/conversations_list_page.dart';
+import 'package:casa/features/chat/presentation/pages/chat_room_page.dart';
 import '../models/ServiceModel.dart';
 import '../models/ServiceRequestModel.dart';
 import '../models/PrestationModel.dart';
@@ -51,7 +55,17 @@ class RoutesManager {
       case Routes.onbordingRoute:
         return MaterialPageRoute(builder: (_)=>OnboardingScreen());
       case Routes.loginRoute:
-        return MaterialPageRoute(builder: (_)=>LoginScreen());
+        final loginArgs = r.arguments;
+        if (loginArgs is LoginRouteArgs) {
+          return MaterialPageRoute(
+            builder: (_) => LoginScreen(
+              prefillContact: loginArgs.contact,
+              prefillCountryCode: loginArgs.countryCode,
+              prefillIsPhone: loginArgs.isPhone,
+            ),
+          );
+        }
+        return MaterialPageRoute(builder: (_) => const LoginScreen());
       case Routes.registerRoute:
         return MaterialPageRoute(builder: (_)=>UserRegistrationPage());
       case Routes.detailPageRoute:
@@ -351,6 +365,24 @@ class RoutesManager {
         }
         return MaterialPageRoute(
           builder: (_) => PaymentHistoryPage(highlightPaymentId: highlightId),
+        );
+      case Routes.chatConversationsRoute:
+        return MaterialPageRoute(
+          builder: (_) => const ChatScope(
+            child: ConversationsListPage(),
+          ),
+        );
+      case Routes.chatRoomRoute:
+        final convId = r.arguments as String?;
+        if (convId == null || convId.isEmpty) {
+          return MaterialPageRoute(
+            builder: (_) => const ChatScope(child: ConversationsListPage()),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => ChatScope(
+            child: ChatRoomPage(conversationId: convId),
+          ),
         );
       // case Routes.visitPageRoute:
       //   final PropertyModel property = r.arguments as PropertyModel;

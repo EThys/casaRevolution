@@ -130,7 +130,7 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
       );
       return;
     }
-    SubscriptionHelper.checkCertifiedThenProceed(
+    SubscriptionHelper.checkLoggedInThenProceed(
       context: context,
       onProceed: () {
         Navigator.pushNamed(context, Routes.createPropertyRoute).then((_) => _load());

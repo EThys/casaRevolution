@@ -564,14 +564,15 @@ class _ParrainagePageState extends State<ParrainagePage> {
               child: SafeArea(
                 child: Column(
                   children: [
-                    Align(
-                      alignment: Alignment.topLeft,
-                      child: IconButton(
-                        icon: Icon(Icons.arrow_back_ios, color: textColor),
-                        onPressed: () => Navigator.of(context).pop(),
+                    if (_parrainageStep == 0)
+                      Align(
+                        alignment: Alignment.topLeft,
+                        child: IconButton(
+                          icon: Icon(Icons.arrow_back_ios, color: textColor),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
+                    if (_parrainageStep == 0) const SizedBox(height: 10),
                     _buildLogo(),
                     const SizedBox(height: 30),
                     _buildAuthCard(),
@@ -1886,24 +1887,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
                 onPressed: () => setState(() => _parrainageStep = 2),
               ),
             ),
-            Text(
-              'Parrain et accès',
-              style: GoogleFonts.inter(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.4,
-                color: _twTextPrimary,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Dernière étape : parrain, mot de passe et acceptation des conditions.',
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                height: 1.4,
-                color: _twTextSecondary,
-              ),
-            ),
+
             const SizedBox(height: 22),
             AbsorbPointer(
               absorbing: _isLoading,

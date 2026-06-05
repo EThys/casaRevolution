@@ -81,35 +81,26 @@ class _MyServicesPageState extends State<MyServicesPage>
   pw.MemoryImage? _logoImage;
   StreamSubscription<String>? _realtimeRefreshSub;
 
-  bool _isNonLocataireAccount() {
+  /// Compte prestataire de services (catégorie 3).
+  bool _isPrestataireAccount() {
     final userAccounts = _stockage.read('user_accounts');
     if (userAccounts == null || userAccounts is! List) return false;
-
-    bool hasOwner = false;
-    bool hasService = false;
 
     for (final acc in userAccounts) {
       if (acc is! Map) continue;
       final catId = acc['categoryId'];
-      if (catId != null) {
-        final s = catId.toString();
-        if (s == '2') hasOwner = true;
-        if (s == '3') hasService = true;
-      }
+      if (catId != null && catId.toString() == '3') return true;
       final typeAccount = acc['typeAccount'];
-      if (typeAccount != null && typeAccount is Map) {
+      if (typeAccount is Map) {
         final nestedCat = typeAccount['categoryId'];
-        if (nestedCat != null) {
-          final s = nestedCat.toString();
-          if (s == '2') hasOwner = true;
-          if (s == '3') hasService = true;
-        }
+        if (nestedCat != null && nestedCat.toString() == '3') return true;
       }
     }
-
-    // Si l'utilisateur est bailleur/commissionnaire/gérant (owner) ou prestataire, ce n'est pas un locataire.
-    return hasOwner || hasService;
+    return false;
   }
+
+  /// Onglet initial : prestataire → Mes annonces (0), sinon → Mes demandes (1).
+  int _defaultTabIndex() => _isPrestataireAccount() ? 0 : 1;
 
   @override
   void initState() {
@@ -126,8 +117,7 @@ class _MyServicesPageState extends State<MyServicesPage>
     if (initialTab != null && initialTab >= 0 && initialTab < 3) {
       idx = initialTab;
     } else {
-      // UX: si le compte n'est pas locataire, ouvrir directement "Demandes reçues".
-      idx = _isNonLocataireAccount() ? 2 : 0;
+      idx = _defaultTabIndex();
     }
     _viewMode = idx;
     _tabController = TabController(length: 3, vsync: this, initialIndex: idx);
@@ -239,18 +229,22 @@ class _MyServicesPageState extends State<MyServicesPage>
 
     final commentCtrl = TextEditingController();
     double cote = 4.5;
-    bool submitted = false;
 
-    await showModalBottomSheet<void>(
+    bool? submitted;
+    try {
+      submitted = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        final bottom = MediaQuery.of(ctx).viewInsets.bottom;
+      builder: (sheetContext) {
+        final bottom = MediaQuery.of(sheetContext).viewInsets.bottom;
+        var submitting = false;
         return Padding(
           padding: EdgeInsets.only(bottom: bottom),
-          child: Consumer<CotationController>(
-            builder: (ctx, cotationCtrl, _) {
+          child: StatefulBuilder(
+            builder: (ctx, setSheetState) {
+              final cotationCtrl =
+                  Provider.of<CotationController>(ctx, listen: false);
               return Container(
                 decoration: const BoxDecoration(
                   color: Colors.white,
@@ -258,9 +252,7 @@ class _MyServicesPageState extends State<MyServicesPage>
                 ),
                 child: SafeArea(
                   top: false,
-                  child: StatefulBuilder(
-                    builder: (ctx, setLocal) {
-                      return Padding(
+                  child: Padding(
                         padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -319,7 +311,7 @@ class _MyServicesPageState extends State<MyServicesPage>
                                   ),
                                 ),
                                 IconButton(
-                                  onPressed: cotationCtrl.loading
+                                  onPressed: submitting
                                       ? null
                                       : () => Navigator.pop(ctx),
                                   icon: const Icon(Icons.close_rounded),
@@ -377,14 +369,14 @@ class _MyServicesPageState extends State<MyServicesPage>
                                     divisions: 9,
                                     label: cote.toStringAsFixed(1),
                                     activeColor: _primaryColor,
-                                    onChanged: cotationCtrl.loading
+                                    onChanged: submitting
                                         ? null
-                                        : (v) => setLocal(() => cote = v),
+                                        : (v) => setSheetState(() => cote = v),
                                   ),
                                   TextField(
                                     controller: commentCtrl,
                                     maxLines: 4,
-                                    enabled: !cotationCtrl.loading,
+                                    enabled: !submitting,
                                     decoration: InputDecoration(
                                       hintText:
                                           'Ex: Service rapide, pro, respect du délai…',
@@ -410,7 +402,7 @@ class _MyServicesPageState extends State<MyServicesPage>
                               children: [
                                 Expanded(
                                   child: OutlinedButton(
-                                    onPressed: cotationCtrl.loading
+                                    onPressed: submitting
                                         ? null
                                         : () => Navigator.pop(ctx),
                                     style: OutlinedButton.styleFrom(
@@ -430,7 +422,7 @@ class _MyServicesPageState extends State<MyServicesPage>
                                 const SizedBox(width: 12),
                                 Expanded( 
                                   child: FilledButton(
-                                    onPressed: cotationCtrl.loading
+                                    onPressed: submitting
                                         ? null
                                         : () async {
                                             final text =
@@ -443,6 +435,8 @@ class _MyServicesPageState extends State<MyServicesPage>
                                               );
                                               return;
                                             }
+                                            setSheetState(
+                                                () => submitting = true);
                                             final resp = await cotationCtrl
                                                 .createCotation(
                                               userId: me,
@@ -452,10 +446,11 @@ class _MyServicesPageState extends State<MyServicesPage>
                                             );
                                             if (!ctx.mounted) return;
                                             if (resp.status) {
-                                              submitted = true;
                                               FocusScope.of(ctx).unfocus();
-                                              Navigator.pop(ctx);
+                                              Navigator.pop(ctx, true);
                                             } else {
+                                              setSheetState(
+                                                  () => submitting = false);
                                               final msg = resp.errorMsg ??
                                                   (resp.data is Map
                                                       ? (resp.data['message']
@@ -477,7 +472,7 @@ class _MyServicesPageState extends State<MyServicesPage>
                                       padding: const EdgeInsets.symmetric(
                                           vertical: 14),
                                     ),
-                                    child: cotationCtrl.loading
+                                    child: submitting
                                         ? const SizedBox(
                                             width: 18,
                                             height: 18,
@@ -494,9 +489,7 @@ class _MyServicesPageState extends State<MyServicesPage>
                             ),
                           ],
                         ),
-                      );
-                    },
-                  ),
+                      ),
                 ),
               );
             },
@@ -504,10 +497,13 @@ class _MyServicesPageState extends State<MyServicesPage>
         );
       },
     );
-    commentCtrl.dispose();
+    } finally {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        commentCtrl.dispose();
+      });
+    }
 
-    // Mettre à jour l'UI uniquement après fermeture complète du bottomsheet
-    if (!submitted || !mounted) return;
+    if (submitted != true || !mounted) return;
     setState(() {
       _ratedSolicitationIds.add(item.id!);
     });
@@ -852,7 +848,7 @@ class _MyServicesPageState extends State<MyServicesPage>
   }
 
   void _navigateToCreateService() {
-    SubscriptionHelper.checkCertifiedThenProceed(
+    SubscriptionHelper.checkLoggedInThenProceed(
       context: context,
       onProceed: () {
         Navigator.pushNamed(context, Routes.createServicePostRoute)
@@ -922,7 +918,7 @@ class _MyServicesPageState extends State<MyServicesPage>
         tabs: [
           Tab(text: 'Mes Annonces '),
           Tab(text: 'Mes Demandes '),
-          Tab(text: 'Demandes Reçues)'),
+          Tab(text: 'Demandes Reçues'),
         ],
       ),
       actions: [
@@ -2007,8 +2003,8 @@ class _MyServicesPageState extends State<MyServicesPage>
     );
   }
 
-  Future<void> _processUserSolicitationCancel(SollicitationModel item) async {
-    if (item.id == null) return;
+  Future<bool> _processUserSolicitationCancel(SollicitationModel item) async {
+    if (item.id == null) return false;
     setState(() => _isProcessingAction = true);
     try {
       final serviceCtrl =
@@ -2024,6 +2020,7 @@ class _MyServicesPageState extends State<MyServicesPage>
             type: NotificationType.success,
           );
         }
+        return true;
       } else {
         if (mounted) {
           reportApiFailureToCrashlytics(
@@ -2038,6 +2035,7 @@ class _MyServicesPageState extends State<MyServicesPage>
             isError: true,
           );
         }
+        return false;
       }
     } catch (e, st) {
       reportApiFailureToCrashlytics(
@@ -2053,6 +2051,7 @@ class _MyServicesPageState extends State<MyServicesPage>
           isError: true,
         );
       }
+      return false;
     } finally {
       if (mounted) setState(() => _isProcessingAction = false);
     }
@@ -2075,10 +2074,8 @@ class _MyServicesPageState extends State<MyServicesPage>
         confirmText: "REFUSER",
         cancelText: "ANNULER",
         isDanger: true,
-        onConfirm: () async {
-          // Logique de refus
-          await _processSolicitationStatusUpdate(item, status, isAccept);
-        },
+        onConfirm: () =>
+            _processSolicitationStatusUpdate(item, status, isAccept),
       );
       return;
     }
@@ -2087,7 +2084,7 @@ class _MyServicesPageState extends State<MyServicesPage>
     await _processSolicitationStatusUpdate(item, status, isAccept);
   }
 
-  Future<void> _processSolicitationStatusUpdate(
+  Future<bool> _processSolicitationStatusUpdate(
       SollicitationModel item, String status, bool isAccept) async {
     setState(() => _isProcessingAction = true);
 
@@ -2109,6 +2106,7 @@ class _MyServicesPageState extends State<MyServicesPage>
             type: NotificationType.success,
           );
         }
+        return true;
       } else {
         if (mounted) {
           reportApiFailureToCrashlytics(
@@ -2122,6 +2120,7 @@ class _MyServicesPageState extends State<MyServicesPage>
             isError: true,
           );
         }
+        return false;
       }
     } catch (e, st) {
       reportApiFailureToCrashlytics(
@@ -2137,6 +2136,7 @@ class _MyServicesPageState extends State<MyServicesPage>
           isError: true,
         );
       }
+      return false;
     } finally {
       if (mounted) setState(() => _isProcessingAction = false);
     }

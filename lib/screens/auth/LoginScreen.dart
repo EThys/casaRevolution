@@ -14,6 +14,21 @@ import '../../utils/api_error_message.dart';
 import '../../utils/crashlytics_api.dart';
 
 class LoginScreen extends StatefulWidget {
+  const LoginScreen({
+    super.key,
+    this.prefillContact,
+    this.prefillCountryCode,
+    this.prefillIsPhone,
+  });
+
+  /// Contact saisi à l'inscription (email ou numéro local).
+  final String? prefillContact;
+
+  /// Indicatif pays si [prefillIsPhone] est vrai.
+  final String? prefillCountryCode;
+
+  final bool? prefillIsPhone;
+
   @override
   _LoginScreenState createState() => _LoginScreenState();
 }
@@ -82,6 +97,8 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
 
+    _applyPrefillFromRegistration();
+
     // Ajouter des listeners pour tous les contrôleurs
     _emailController.addListener(_updateButtonState);
     _passwordController.addListener(_updateButtonState);
@@ -89,6 +106,26 @@ class _LoginScreenState extends State<LoginScreen> {
     // Listeners pour les focus nodes
     _emailFocusNode.addListener(_onEmailFocusChange);
     _passwordFocusNode.addListener(_onPasswordFocusChange);
+  }
+
+  void _applyPrefillFromRegistration() {
+    final contact = widget.prefillContact?.trim();
+    if (contact == null || contact.isEmpty) return;
+
+    _emailController.text = contact;
+
+    final countryCode = widget.prefillCountryCode?.trim();
+    if (countryCode != null &&
+        countryCode.isNotEmpty &&
+        _countryFlags.containsKey(countryCode)) {
+      _selectedCountryCode = countryCode;
+    }
+
+    if (widget.prefillIsPhone != null) {
+      _isPhoneInput = widget.prefillIsPhone!;
+    } else {
+      _isPhoneInput = _looksLikePhoneNumber(contact);
+    }
   }
 
   void _onEmailFocusChange() {

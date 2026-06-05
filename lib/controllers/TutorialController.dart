@@ -14,6 +14,17 @@ class TutorialController extends ChangeNotifier {
     }
   }
 
+  /// Ferme l’overlay Showcase pour éviter les GlobalKey dupliquées
+  /// quand une autre route est poussée par-dessus [BottomNavBar].
+  void dismissActiveShowcase(BuildContext context) {
+    setTutorialInProgress(false);
+    try {
+      ShowCaseWidget.of(context).dismiss();
+    } catch (_) {
+      // Pas sous un ShowCaseWidget (route externe, etc.)
+    }
+  }
+
   final GetStorage _storage = GetStorage();
   
   // Storage keys
