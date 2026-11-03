@@ -2,14 +2,16 @@ import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/screens/HotelRoomDetailPage.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
+import 'package:casa/utils/hotel_room_price.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/database/DatabaseHelper.dart';
 import 'package:casa/utils/property_snapshot_merge.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/cache/HotelImageCache.dart';
 import 'package:flutter/material.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
@@ -40,7 +42,7 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
   final GetStorage _storage = GetStorage();
 
   PropertyModel? _model;
-  bool _loading = true;
+  bool _roomsLoading = true;
   final PageController _heroController = PageController();
   int _heroIndex = 0;
   Timer? _heroTimer;
@@ -51,8 +53,8 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
   void initState() {
     super.initState();
     _model = widget.property;
+    _roomsLoading = widget.property.hotelStructure?.isEmpty ?? true;
     // Afficher immédiatement le snapshot (même partiel), puis rafraîchir (SWR) en arrière-plan.
-    _loading = false;
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadDetail());
   }
   
@@ -71,7 +73,7 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
   Future<void> _loadDetail() async {
     final id = widget.property.propertyId;
     if (id == null) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _roomsLoading = false);
       return;
     }
 
@@ -84,14 +86,12 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
             .getCategoryPropertyById(DatabaseHelper.tableHotels, id);
         if (!mounted || cached == null) return;
         final current = _model ?? widget.property;
-        final curRooms = current.hotelStructure?.length ?? 0;
-        final newRooms = cached.hotelStructure?.length ?? 0;
-        // Mettre à jour si on gagne des chambres ou des images.
-        if (newRooms > curRooms ||
-            (cached.hotelStructure?.any((s) => (s.images?.isNotEmpty ?? false)) == true &&
-                current.hotelStructure?.any((s) => (s.images?.isNotEmpty ?? false)) != true)) {
+        final hydrated = await DatabaseHelper.instance.hydrateHotelFromRoomCache(cached);
+        final merged = PropertySnapshotMerge.mergeFillMissing(current, hydrated);
+        if (_roomSignature(current) != _roomSignature(merged)) {
           setState(() {
-            _model = PropertySnapshotMerge.mergeFillMissing(current, cached);
+            _model = merged;
+            if ((merged.hotelStructure?.isNotEmpty ?? false)) _roomsLoading = false;
           });
           _restartHeroAutoScroll();
         }
@@ -105,9 +105,11 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
       final cached = await DatabaseHelper.instance
           .getCategoryPropertyById(DatabaseHelper.tableHotels, id);
       if (mounted && cached != null) {
+        final hydrated = await DatabaseHelper.instance.hydrateHotelFromRoomCache(cached);
+        if (!mounted) return;
         setState(() {
-          _model = PropertySnapshotMerge.mergeFillMissing(widget.property, cached);
-          _loading = false;
+          _model = PropertySnapshotMerge.mergeFillMissing(widget.property, hydrated);
+          if ((_model?.hotelStructure?.isNotEmpty ?? false)) _roomsLoading = false;
         });
         _restartHeroAutoScroll();
       }
@@ -123,7 +125,7 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
     if (!mounted) return;
     setState(() {
       _model = fresh ?? widget.property;
-      _loading = false;
+      _roomsLoading = false;
     });
     _restartHeroAutoScroll();
   }
@@ -156,6 +158,17 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
     });
   }
   
+  String _roomSignature(PropertyModel p) {
+    final rooms = p.hotelStructure ?? const <HotelRoomStructure>[];
+    return rooms.map((s) {
+      final id = s.chambre?.id ?? 0;
+      final imgs = s.images?.length ?? 0;
+      final title = s.chambre?.title ?? '';
+      final price = s.chambre?.price ?? 0;
+      return '$id:$imgs:$title:$price';
+    }).join('|');
+  }
+
   List<String> _galleryImages(PropertyModel p) {
     final urls = <String>[];
     urls.addAll(_heroImages(p));
@@ -182,32 +195,28 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
       context: context,
       builder: (ctx) {
         final c = PageController(initialPage: initialIndex);
+        final top = MediaQuery.viewPaddingOf(ctx).top;
+        final bottom = MediaQuery.viewPaddingOf(ctx).bottom;
         return Dialog(
-          insetPadding: const EdgeInsets.all(12),
+          insetPadding: EdgeInsets.fromLTRB(12, 12 + top, 12, 12 + bottom),
           backgroundColor: Colors.black,
           child: Stack(
             children: [
               PageView.builder(
                 controller: c,
                 itemCount: urls.length,
-                itemBuilder: (_, i) => CachedNetworkImage(
-                  imageUrl: urls[i],
+                itemBuilder: (_, i) => HotelCachedImage(
+                  url: urls[i],
                   fit: BoxFit.contain,
-                  placeholder: (_, __) => const Center(
-                    child: SizedBox(
-                      width: 26,
-                      height: 26,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    ),
-                  ),
-                  errorWidget: (_, __, ___) => const Center(
+                  placeholderColor: Colors.black,
+                  error: const Center(
                     child: Icon(Icons.broken_image_rounded, color: Colors.white70, size: 56),
                   ),
                 ),
               ),
               Positioned(
-                top: 8,
-                right: 8,
+                top: 4,
+                right: 4,
                 child: IconButton(
                   onPressed: () => Navigator.pop(ctx),
                   icon: const Icon(Icons.close_rounded, color: Colors.white),
@@ -268,6 +277,8 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
     final heroImages = _heroImages(p);
     final rooms = p.hotelStructure ?? [];
     final gallery = _galleryImages(p);
+    // Barre système (gestes ou boutons, ex. Samsung A17) : le corps défile dessous.
+    final bottomSafe = MediaQuery.viewPaddingOf(context).bottom;
 
     return Scaffold(
       backgroundColor: _bg,
@@ -310,11 +321,11 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                           controller: _heroController,
                           itemCount: heroImages.length,
                           onPageChanged: (i) => setState(() => _heroIndex = i),
-                          itemBuilder: (context, i) => CachedNetworkImage(
-                            imageUrl: heroImages[i],
+                          itemBuilder: (context, i) => HotelCachedImage(
+                            url: heroImages[i],
                             fit: BoxFit.cover,
-                            placeholder: (_, __) => Container(color: _border),
-                            errorWidget: (_, __, ___) => Container(
+                            placeholderColor: _border,
+                            error: Container(
                               color: _border,
                               child: Icon(Icons.hotel, color: _muted.withValues(alpha: 0.5), size: 64),
                             ),
@@ -339,6 +350,11 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                           ],
                         ),
                       ),
+                    ),
+                    Positioned(
+                      left: 16,
+                      bottom: heroImages.length > 1 ? 36 : 18,
+                      child: _HotelTransactionChip(property: p),
                     ),
                     if (heroImages.length > 1)
                       Positioned(
@@ -368,47 +384,11 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+                padding: EdgeInsets.fromLTRB(20, 8, 20, 28 + bottomSafe),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (_loading)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Center(
-                          child: SizedBox(
-                            width: 28,
-                            height: 28,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: _primary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    Row(
-                      children: [
-                        Icon(Icons.place_rounded, color: _primary, size: 18),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            () {
-                              final parts = <String>[];
-                              if (p.communeValue?.isNotEmpty == true) {
-                                parts.add(p.communeValue!);
-                              }
-                              if (p.cityValue?.isNotEmpty == true) {
-                                parts.add(p.cityValue!);
-                              }
-                              return parts.isEmpty
-                                  ? 'Localisation'
-                                  : parts.join(' · ');
-                            }(),
-                            style: const TextStyle(color: _muted, fontSize: 14),
-                          ),
-                        ),
-                      ],
-                    ),
+                    _HotelAddressBlock(property: p),
                     const SizedBox(height: 16),
                     Text(
                       p.description?.trim().isNotEmpty == true
@@ -461,7 +441,9 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    if (rooms.isEmpty)
+                    if (rooms.isEmpty && _roomsLoading)
+                      const _HotelRoomsShimmer()
+                    else if (rooms.isEmpty)
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(20),
@@ -541,40 +523,16 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                           const Spacer(),
                           TextButton(
                             onPressed: () => _openGalleryViewer(gallery, initialIndex: 0),
-                            child: const Text('Voir toutes les photos'),
+                            child: const Text('Tout voir'),
                           ),
                         ],
                       ),
                       const SizedBox(height: 14),
-                      SizedBox(
-                        height: 86,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: gallery.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 10),
-                          itemBuilder: (_, i) {
-                            final u = gallery[i];
-                            return GestureDetector(
-                              onTap: () => _openGalleryViewer(gallery, initialIndex: i),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(14),
-                                child: CachedNetworkImage(
-                                  imageUrl: u,
-                                  width: 110,
-                                  height: 86,
-                                  fit: BoxFit.cover,
-                                  placeholder: (_, __) => Container(color: _border, width: 110, height: 86),
-                                  errorWidget: (_, __, ___) => Container(
-                                    width: 110,
-                                    height: 86,
-                                    color: _border,
-                                    child: Icon(Icons.image_not_supported_rounded, color: _muted.withValues(alpha: 0.5)),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                      _HotelGalleryGrid(
+                        images: gallery,
+                        border: _border,
+                        muted: _muted,
+                        onOpen: (index) => _openGalleryViewer(gallery, initialIndex: index),
                       ),
                     ],
                   ],
@@ -617,8 +575,11 @@ class _RoomCard extends StatelessWidget {
     final imgs = structure.images ?? [];
     if (room == null) return const SizedBox.shrink();
 
-    final price = room.price?.toStringAsFixed(0) ?? '—';
-    final cur = hotel.currency ?? '';
+    final photos = imgs
+        .map((img) => (img.path ?? '').trim())
+        .where((url) => url.isNotEmpty)
+        .toList();
+    final priceView = hotelRoomPriceView(room, hotel);
 
     return Container(
       decoration: BoxDecoration(
@@ -643,26 +604,45 @@ class _RoomCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (imgs.isNotEmpty)
-                  SizedBox(
-                    height: 168,
-                    child: PageView.builder(
-                      itemCount: imgs.length,
-                      itemBuilder: (context, i) {
-                        final u = imgs[i].path ?? '';
-                        final url = u.startsWith('http') ? u : u;
-                        return CachedNetworkImage(
-                          imageUrl: url,
+                if (photos.isNotEmpty)
+                  Stack(
+                    children: [
+                      SizedBox(
+                        height: 188,
+                        width: double.infinity,
+                        child: HotelCachedImage(
+                          url: photos.first,
                           fit: BoxFit.cover,
-                          placeholder: (_, __) => Container(color: border),
-                          errorWidget: (_, __, ___) => Container(
+                          height: 188,
+                          placeholderColor: border,
+                          error: Container(
                             color: border,
                             child: Icon(Icons.bed,
                                 color: muted.withValues(alpha: 0.4), size: 48),
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      ),
+                      if (photos.length > 1)
+                        Positioned(
+                          right: 10,
+                          bottom: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '${photos.length} photos',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   )
                 else
                   Container(
@@ -670,6 +650,32 @@ class _RoomCard extends StatelessWidget {
                     color: border,
                     child: Icon(Icons.bed_outlined,
                         color: muted.withValues(alpha: 0.45), size: 40),
+                  ),
+                if (photos.length > 1)
+                  SizedBox(
+                    height: 72,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                      itemCount: photos.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (_, i) => ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: HotelCachedImage(
+                          url: photos[i],
+                          width: 72,
+                          height: 62,
+                          fit: BoxFit.cover,
+                          placeholderColor: border,
+                          error: Container(
+                            width: 72,
+                            height: 62,
+                            color: border,
+                            child: Icon(Icons.image_not_supported_rounded, color: muted, size: 18),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -690,13 +696,27 @@ class _RoomCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            '$price $cur',
-                            style: TextStyle(
-                              color: accent,
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                            ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                priceView.amount,
+                                style: TextStyle(
+                                  color: accent,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              if (priceView.period.isNotEmpty)
+                                Text(
+                                  priceView.period,
+                                  style: TextStyle(
+                                    color: muted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                            ],
                           ),
                         ],
                       ),
@@ -788,6 +808,248 @@ class _RoomCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _HotelTransactionChip extends StatelessWidget {
+  final PropertyModel property;
+
+  const _HotelTransactionChip({required this.property});
+
+  @override
+  Widget build(BuildContext context) {
+    final sale = property.isSaleListing;
+    final label = property.publicTransactionLabel.toUpperCase();
+    final color = sale ? const Color(0xFF047857) : const Color(0xFF1565C0);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+}
+
+class _HotelRoomsShimmer extends StatelessWidget {
+  const _HotelRoomsShimmer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: List.generate(3, (index) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: index == 2 ? 0 : 14),
+          child: Shimmer.fromColors(
+            baseColor: const Color(0xFFE5E7EB),
+            highlightColor: const Color(0xFFF9FAFB),
+            child: Container(
+              height: 210,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+class _HotelAddressBlock extends StatelessWidget {
+  final PropertyModel property;
+
+  const _HotelAddressBlock({required this.property});
+
+  static const Color _primary = Color(0xFF1976D2);
+  static const Color _muted = Color(0xFF6B7280);
+  static const Color _text = Color(0xFF111827);
+  static const Color _border = Color(0xFFE5E7EB);
+
+  @override
+  Widget build(BuildContext context) {
+    final street = _clean(property.address);
+    final placeParts = <String>[
+      _clean(property.quartierValue ?? property.quartier),
+      _clean(property.communeValue),
+      _clean(property.cityValue),
+      _clean(property.countryValue),
+    ].where((part) => part.isNotEmpty).toList();
+    final extra = placeParts.where((part) {
+      if (street.isEmpty) return true;
+      return !street.toLowerCase().contains(part.toLowerCase());
+    }).toList();
+    final uniqueExtra = _joinUnique(extra);
+    final headline = street.isNotEmpty ? street : uniqueExtra;
+    final subtitle = street.isNotEmpty ? uniqueExtra : '';
+
+    if (headline.isEmpty) {
+      return const Row(
+        children: [
+          Icon(Icons.place_rounded, color: _primary, size: 18),
+          SizedBox(width: 6),
+          Text('Localisation', style: TextStyle(color: _muted, fontSize: 14)),
+        ],
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.place_rounded, color: _primary, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Adresse',
+                  style: TextStyle(
+                    color: _muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  headline,
+                  style: const TextStyle(
+                    color: _text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    height: 1.3,
+                  ),
+                ),
+                if (subtitle.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: _muted,
+                      fontSize: 14,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _clean(String? value) {
+    final text = (value ?? '').trim();
+    if (text.isEmpty || text.toLowerCase() == 'null') return '';
+    return text;
+  }
+
+  static String _joinUnique(List<String?> values) {
+    final parts = <String>[];
+    for (final raw in values) {
+      final text = _clean(raw);
+      if (text.isEmpty) continue;
+      if (parts.any((part) => part.toLowerCase() == text.toLowerCase())) continue;
+      parts.add(text);
+    }
+    return parts.join(', ');
+  }
+}
+
+class _HotelGalleryGrid extends StatelessWidget {
+  final List<String> images;
+  final Color border;
+  final Color muted;
+  final void Function(int index) onOpen;
+
+  const _HotelGalleryGrid({
+    required this.images,
+    required this.border,
+    required this.muted,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const maxVisible = 6;
+    final visible = images.length > maxVisible ? maxVisible : images.length;
+    final extra = images.length - maxVisible;
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: visible,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        childAspectRatio: 1,
+      ),
+      itemBuilder: (context, index) {
+        final showMore = extra > 0 && index == visible - 1;
+        return GestureDetector(
+          onTap: () => onOpen(index),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                HotelCachedImage(
+                  url: images[index],
+                  fit: BoxFit.cover,
+                  placeholderColor: border,
+                  error: Container(
+                    color: border,
+                    child: Icon(Icons.image_not_supported_rounded, color: muted.withValues(alpha: 0.5)),
+                  ),
+                ),
+                if (showMore)
+                  ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    child: Center(
+                      child: Text(
+                        '+$extra',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

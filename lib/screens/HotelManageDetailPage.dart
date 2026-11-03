@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:shimmer/shimmer.dart';
 
 /// Gestion d’un hôtel : chambres + réservations reçues sur les chambres.
 class HotelManageDetailPage extends StatefulWidget {
@@ -113,6 +114,10 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
         if (uid != null && uid.isNotEmpty) {
           for (final h in hotels) {
             await userDb.insertOrUpdateProperty(h, uid);
+            final hydrated = await db.hydrateHotelFromRoomCache(h);
+            await db.insertOrUpdateInCategory(DatabaseHelper.tableHotels, hydrated);
+            await db.persistHotelRoomRows(hydrated);
+            if (h.propertyId == _hotelId) updated = hydrated;
           }
         }
       }
@@ -899,12 +904,6 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
       ),
       body: Column(
         children: [
-          if (_syncing)
-            LinearProgressIndicator(
-              backgroundColor: _lightGrey,
-              valueColor: const AlwaysStoppedAnimation<Color>(_primaryColor),
-              minHeight: 2,
-            ),
           Expanded(
             child: RefreshIndicator(
               color: _primaryColor,
@@ -925,7 +924,9 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage> {
                       style: TextStyle(fontSize: 13, color: _mediumGrey),
                     ),
                     const SizedBox(height: 14),
-                    if ((_hotel.hotelStructure ?? []).isEmpty)
+                    if ((_hotel.hotelStructure ?? []).isEmpty && _syncing)
+                      const _ManageRoomsShimmer()
+                    else if ((_hotel.hotelStructure ?? []).isEmpty)
                       Container(
                         padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 16),
                         decoration: BoxDecoration(
@@ -1460,6 +1461,32 @@ class _AddHotelRoomPageState extends State<AddHotelRoomPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ManageRoomsShimmer extends StatelessWidget {
+  const _ManageRoomsShimmer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: List.generate(3, (index) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: index == 2 ? 0 : 12),
+          child: Shimmer.fromColors(
+            baseColor: const Color(0xFFE5E7EB),
+            highlightColor: const Color(0xFFF8FAFC),
+            child: Container(
+              height: 92,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        );
+      }),
     );
   }
 }

@@ -1,5 +1,6 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/utils/cache/HotelImageCache.dart';
+import 'package:casa/utils/hotel_room_price.dart';
 import 'package:casa/screens/FullScreenImageViewer.dart';
 import 'package:flutter/material.dart';
 
@@ -38,8 +39,13 @@ class HotelRoomDetailPage extends StatelessWidget {
       );
     }
 
-    final price = room.price?.toStringAsFixed(0) ?? '—';
-    final cur = hotel.currency ?? '';
+    final priceView = hotelRoomPriceView(room, hotel);
+    final media = MediaQuery.of(context);
+    // Le Scaffold remonte déjà la barre si padding.bottom est renseigné.
+    // Sur certains téléphones (Samsung A17, barre gestes ou boutons), seul
+    // viewPadding.bottom est non nul : on ajoute uniquement l'écart manquant.
+    final extraBottom = (media.viewPadding.bottom - media.padding.bottom)
+        .clamp(0.0, 96.0);
 
     return Scaffold(
       backgroundColor: _bg,
@@ -83,16 +89,13 @@ class HotelRoomDetailPage extends StatelessWidget {
                               ),
                             );
                           },
-                          child: CachedNetworkImage(
-                            imageUrl: url,
+                          child: HotelCachedImage(
+                            url: url,
                             fit: BoxFit.cover,
-                            width: double.infinity,
-                            placeholder: (_, __) =>
-                                Container(color: _primary.withValues(alpha: 0.3)),
-                            errorWidget: (_, __, ___) => Container(
+                            placeholderColor: _primary.withValues(alpha: 0.3),
+                            error: const ColoredBox(
                               color: _primary,
-                              child: const Icon(Icons.bed,
-                                  color: Colors.white38, size: 72),
+                              child: Icon(Icons.bed, color: Colors.white38, size: 72),
                             ),
                           ),
                         );
@@ -102,7 +105,7 @@ class HotelRoomDetailPage extends StatelessWidget {
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -119,12 +122,45 @@ class HotelRoomDetailPage extends StatelessWidget {
                           ),
                         ),
                       ),
-                      Text(
-                        '$price $cur',
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: _primary,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            priceView.amount,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: _primary,
+                            ),
+                          ),
+                          if (priceView.period.isNotEmpty)
+                            Text(
+                              priceView.period,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: _muted,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.place_rounded, color: _primary, size: 18),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _hotelAddressLine(hotel),
+                          style: const TextStyle(
+                            color: _text,
+                            fontSize: 14,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
@@ -170,9 +206,10 @@ class HotelRoomDetailPage extends StatelessWidget {
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
+      bottomNavigationBar: ColoredBox(
+        color: _bg,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          padding: EdgeInsets.fromLTRB(20, 8, 20, 12 + extraBottom),
           child: FilledButton(
             onPressed: () => onReserveRoom(room),
             style: FilledButton.styleFrom(
@@ -232,3 +269,21 @@ class HotelRoomDetailPage extends StatelessWidget {
     );
   }
 }
+
+String _hotelAddressLine(PropertyModel hotel) {
+  final parts = <String>[];
+  void add(String? raw) {
+    final text = (raw ?? '').trim();
+    if (text.isEmpty || text.toLowerCase() == 'null') return;
+    if (parts.any((part) => part.toLowerCase() == text.toLowerCase())) return;
+    parts.add(text);
+  }
+
+  add(hotel.address);
+  add(hotel.quartierValue ?? hotel.quartier);
+  add(hotel.communeValue);
+  add(hotel.cityValue);
+  add(hotel.countryValue);
+  return parts.isEmpty ? 'Adresse non renseignée' : parts.join(', ');
+}
+

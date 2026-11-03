@@ -1003,7 +1003,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
       child: _isGridView
           ? _buildReservationGridContent(reservations)
           : ListView.separated(
-              padding: EdgeInsets.all(20),
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + MediaQuery.viewPaddingOf(context).bottom),
               itemCount: reservations.length,
               separatorBuilder: (_, __) => SizedBox(height: 20),
               itemBuilder: (context, index) {
@@ -1019,7 +1020,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
   Widget _buildReservationGridContent(List<ReservationModel> reservations) {
     return GridView.builder(
-      padding: EdgeInsets.all(16),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewPaddingOf(context).bottom),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         crossAxisSpacing: 12,

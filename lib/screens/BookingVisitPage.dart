@@ -15,6 +15,7 @@ import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/utils/export_directory.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/currency_display.dart';
+import 'package:casa/utils/hotel_room_price.dart';
 import 'package:casa/utils/api_error_message.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/property_availability_ui.dart';
@@ -167,7 +168,34 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       return "${t.address?.cityValue ?? ''}, ${t.address?.communeValue ?? ''}";
     }
     final p = _rawProperty as PropertyModel;
-    return "${p.cityValue ?? ''}, ${p.communeValue ?? ''}";
+    return _joinAddress([
+      p.address,
+      p.quartierValue ?? p.quartier,
+      p.communeValue,
+      p.cityValue,
+      p.countryValue,
+    ]);
+  }
+
+  HotelRoomModel? get _bookedRoom {
+    if (!_isHotelStay || _rawProperty is! PropertyModel) return null;
+    final id = _effectiveChambreId;
+    final rooms = (_rawProperty as PropertyModel).hotelStructure ?? <HotelRoomStructure>[];
+    for (final structure in rooms) {
+      if (structure.chambre?.id == id) return structure.chambre;
+    }
+    return null;
+  }
+
+  String _joinAddress(List<String?> values) {
+    final parts = <String>[];
+    for (final raw in values) {
+      final text = (raw ?? '').trim();
+      if (text.isEmpty || text.toLowerCase() == 'null') continue;
+      if (parts.any((part) => part.toLowerCase() == text.toLowerCase())) continue;
+      parts.add(text);
+    }
+    return parts.join(', ');
   }
 
   int? get _propertyOwnerId {
@@ -217,6 +245,12 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   }
 
   String get _propertyPriceText {
+    if (_isHotelStay && _rawProperty is PropertyModel) {
+      final room = _bookedRoom;
+      if (room != null) {
+        return hotelRoomPriceView(room, _rawProperty as PropertyModel).compact;
+      }
+    }
     if (_isTerrain) {
        final t = _rawProperty as TerrainModel;
        return "${t.terrain?.price?.toInt() ?? 0} ${CurrencyDisplay.symbolFromCode(t.devise?.code)}";
@@ -777,20 +811,14 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     return 'Visiteur';
   }
 
-  final List<TimeOfDay> _availableHours = [
-    TimeOfDay(hour: 7, minute: 0),
-    TimeOfDay(hour: 8, minute: 0),
-    TimeOfDay(hour: 9, minute: 0),
-    TimeOfDay(hour: 10, minute: 0),
-    TimeOfDay(hour: 11, minute: 0),
-    TimeOfDay(hour: 12, minute: 0),
-    TimeOfDay(hour: 13, minute: 0),
-    TimeOfDay(hour: 14, minute: 0),
-    TimeOfDay(hour: 15, minute: 0),
-    TimeOfDay(hour: 16, minute: 0),
-    TimeOfDay(hour: 17, minute: 0),
-    TimeOfDay(hour: 18, minute: 0),
-  ];
+  bool get _isHotelStay => _effectiveChambreId != null;
+
+  List<TimeOfDay> get _availableHours {
+    if (_isHotelStay) {
+      return List.generate(24, (hour) => TimeOfDay(hour: hour, minute: 0));
+    }
+    return List.generate(12, (index) => TimeOfDay(hour: index + 7, minute: 0));
+  }
 
   @override
   void initState() {
@@ -1095,6 +1123,30 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     setState(() {
       _selectedTime = time;
     });
+  }
+
+  Future<void> _pickHotelArrival() async {
+    if (_selectedDate == null) return;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedTime ?? TimeOfDay.now(),
+      initialEntryMode: TimePickerEntryMode.dial,
+      helpText: 'Heure d\'arrivée',
+      cancelText: 'Annuler',
+      confirmText: 'Choisir',
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    if (_isPastTime(picked)) {
+      FancyNotification.show(context, 'Cette heure est déjà passée');
+      return;
+    }
+    _selectTime(picked);
   }
 
   Future<void> _handleBooking() async {
@@ -1618,6 +1670,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
       backgroundColor: _surfaceColor,
       appBar: _buildAppBar(),
       body: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1662,7 +1715,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Planifier votre visite',
+                    _isHotelStay ? 'Réserver cette chambre' : 'Planifier votre visite',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
@@ -1671,7 +1724,9 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Choisissez la date et l\'heure de votre visite',
+                    _isHotelStay
+                        ? 'Choisissez la date et l\'heure d\'arrivée'
+                        : 'Choisissez la date et l\'heure de votre visite',
                     style: TextStyle(
                       color: _textSecondary,
                       fontSize: 15,
@@ -1808,7 +1863,28 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                 ),
                 const SizedBox(height: 8),
 
-                InkWell(
+                _isHotelStay
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.location_on_rounded, size: 18, color: _primaryColor),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _propertyAddress.isEmpty
+                                  ? 'Adresse non renseignée'
+                                  : _propertyAddress,
+                              style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 14,
+                                height: 1.35,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : InkWell(
                   borderRadius: BorderRadius.circular(10),
                   onTap: _showAddressVerification,
                   child: Container(
@@ -1854,6 +1930,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                       fontWeight: FontWeight.w700,
                       color: _primaryColor,
                       fontSize: 15,
+                      height: 1.3,
                     ),
                   ),
                 ),
@@ -2252,6 +2329,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   }
 
   Widget _buildTimeGrid() {
+    if (_isHotelStay) return _buildHotelClock();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2260,7 +2338,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
             Icon(Icons.access_time_rounded, size: 18, color: _primaryColor),
             const SizedBox(width: 8),
             Text(
-              'Heure de visite (7h - 18h)',
+              _isHotelStay ? 'Heure d’arrivée (24h/24)' : 'Heure de visite (7h - 18h)',
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 color: _textPrimary,
@@ -2381,6 +2459,86 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                 ),
               );
             },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildHotelClock() {
+    final hasTime = _selectedTime != null;
+    final label = hasTime
+        ? '${_selectedTime!.hour.toString().padLeft(2, '0')}h${_selectedTime!.minute.toString().padLeft(2, '0')}'
+        : 'Ouvrir l\'horloge';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.access_time_rounded, size: 18, color: _primaryColor),
+            const SizedBox(width: 8),
+            Text(
+              'Choisissez l\'heure d\'arrivée',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: _textPrimary,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (_selectedDate == null)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: _cardColor,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _borderColor),
+            ),
+            child: Center(
+              child: Text(
+                'Sélectionnez d\'abord une date',
+                style: TextStyle(
+                  color: _textSecondary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          )
+        else
+          InkWell(
+            onTap: _pickHotelArrival,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              decoration: BoxDecoration(
+                color: _cardColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: hasTime ? _primaryColor : _borderColor,
+                  width: hasTime ? 2 : 1.5,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.schedule_rounded, color: _primaryColor, size: 28),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: hasTime ? _textPrimary : _textLight,
+                        fontSize: 18,
+                        fontWeight: hasTime ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: _textLight),
+                ],
+              ),
+            ),
           ),
       ],
     );
