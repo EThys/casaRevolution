@@ -369,10 +369,13 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
 
   bool _isExcludedOtherServicesCategory(String accountName) {
     final n = accountName.toLowerCase().trim();
-    return n == 'majordome' ||
-        n == 'majordhomme' ||
-        n == 'demenagement' ||
-        n == 'demenagements';
+    return n == 'majordome' || n == 'majordhomme';
+  }
+
+  int? _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse('$value');
   }
 
   bool _shouldIncludeCategory(String accountName) {
@@ -475,8 +478,12 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
         ),
         centerTitle: false,
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(16),
+      body: RefreshIndicator(
+        color: primaryColor,
+        onRefresh: _loadAccountMappingFromAPI,
+        child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(16, 16, 16, 28 + MediaQuery.viewPaddingOf(context).bottom),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -511,42 +518,65 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
                       ),
                     ),
                   )
-                : GridView.builder(
-                    shrinkWrap: true,
-                    physics: NeverScrollableScrollPhysics(),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 1.1,
-                    ),
-                    itemCount: serviceProviderCategories.length,
-                    itemBuilder: (context, index) {
-                      final category = serviceProviderCategories[index];
-                      return _buildCategoryCard(context, category);
-                    },
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _groupedCategorySections(context),
                   ),
           ],
         ),
       ),
+      ),
     );
   }
 
+  List<Widget> _groupedCategorySections(BuildContext context) {
+    final sorted = List<Map<String, dynamic>>.from(serviceProviderCategories)
+      ..sort((a, b) => (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase()));
+    final sections = <Widget>[];
+    String? currentLetter;
+    for (final category in sorted) {
+      final name = (category['name'] as String?)?.trim() ?? '';
+      final letter = name.isEmpty ? '#' : name[0].toUpperCase();
+      if (letter != currentLetter) {
+        currentLetter = letter;
+        sections.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 6),
+            child: Text(
+              letter,
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: primaryColor,
+              ),
+            ),
+          ),
+        );
+      }
+      sections.add(_buildCategoryCard(context, category));
+    }
+    return sections;
+  }
+
   Widget _buildCategoryCard(BuildContext context, Map<String, dynamic> category) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () async {
-          final serviceType = ServiceTypeExtension.fromString(category['value'] as String);
-          final accountName = category['accountName'] as String;
-          final accountId = category['accountId'] as int;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () async {
+          final accountId = _asInt(category['accountId']);
+          if (accountId == null || !mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Cette catégorie est indisponible pour le moment.')),
+            );
+            return;
+          }
+          final serviceType = ServiceTypeExtension.fromString(category['value']?.toString());
           
           setState(() => isLoading = true);
           
           // Charger les prestations depuis l'API avec filtrage par serviceId
           final services = await _loadServicesForCategory(accountId);
           
+          if (!mounted) return;
           setState(() => isLoading = false);
           
           if (mounted) {
@@ -562,65 +592,47 @@ class _AllServiceCategoriesPageState extends State<AllServiceCategoriesPage> {
           }
         },
         child: Container(
-          decoration: BoxDecoration(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: const BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                spreadRadius: 2,
-                offset: Offset(0, 4),
-              ),
-            ],
-            border: Border.all(
-              color: primaryColor.withOpacity(0.2),
-              width: 1.5,
+            borderRadius: BorderRadius.all(Radius.circular(16)),
+            border: Border.fromBorderSide(
+              BorderSide(color: Color(0xFFE5E7EB)),
             ),
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Row(
             children: [
               Container(
-                width: 64,
-                height: 64,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [primaryColor, accentColor],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: primaryColor.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: Offset(0, 4),
-                    ),
-                  ],
+                  color: primaryColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  category['icon'] as IconData,
-                  color: Colors.white,
-                  size: 32,
+                  category['icon'] as IconData? ?? Icons.build_rounded,
+                  color: primaryColor,
+                  size: 22,
                 ),
               ),
-              SizedBox(height: 12),
-              Text(
-                category['name'] as String,
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: darkBlue,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  category['name'] as String,
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: darkBlue,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
+              Icon(Icons.chevron_right_rounded, color: Colors.grey[400]),
             ],
           ),
         ),
-      ),
     );
   }
 }

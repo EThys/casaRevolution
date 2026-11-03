@@ -759,7 +759,10 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
             expandedHeight: 300,
             pinned: true,
             flexibleSpace: FlexibleSpaceBar(
-              background: hasImages && images.length > 1
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  hasImages && images.length > 1
                   ? _buildImageCarousel(images)
                   : firstImage != null
                       ? GestureDetector(
@@ -812,6 +815,13 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
                             ),
                           ),
                         ),
+                  Positioned(
+                    left: 16,
+                    bottom: 18,
+                    child: _serviceTypeOverlay(service),
+                  ),
+                ],
+              ),
             ),
             leading: IconButton(
               icon: Container(
@@ -900,43 +910,6 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
                                 color: darkBlue,
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: primaryColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.build,
-                                    size: 16,
-                                    color: primaryColor,
-                                  ),
-                                  SizedBox(width: 6),
-                                  Consumer<ServiceController>(
-                                    builder:
-                                        (context, serviceController, child) {
-                                      final resolvedName =
-                                          widget.serviceTypeName ??
-                                              serviceController.getServiceName(
-                                                  service.serviceId);
-                                      return Text(
-                                        resolvedName,
-                                        style: GoogleFonts.inter(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: primaryColor,
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
                               ),
                             ),
                           ],
@@ -1514,6 +1487,37 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _serviceTypeOverlay(PrestationModel service) {
+    return Consumer<ServiceController>(
+      builder: (context, serviceController, _) {
+        final resolvedName = (widget.serviceTypeName ??
+                serviceController.getServiceName(service.serviceId))
+            .trim();
+        if (resolvedName.isEmpty) return const SizedBox.shrink();
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 220),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.62),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              resolvedName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

@@ -34,6 +34,26 @@ class ServiceCategoryPage extends StatefulWidget {
 class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
   bool _isGrid = true;
   String _sort = 'Aucun';
+  late List<PrestationModel> _services;
+
+  @override
+  void initState() {
+    super.initState();
+    _services = List<PrestationModel>.from(widget.services);
+  }
+
+  Future<void> _refreshServices() async {
+    final ctrl = context.read<ServiceController>();
+    final ids = widget.services.map((s) => s.serviceId).whereType<int>().toSet();
+    if (ids.isEmpty) return;
+    final batches = await Future.wait(ids.map(ctrl.fetchPrestationsByServiceId));
+    final next = batches
+        .expand((items) => items)
+        .where((p) => ids.contains(p.serviceId))
+        .toList();
+    if (!mounted) return;
+    setState(() => _services = next);
+  }
 
   Color get primaryColor => ServiceCategoryPage.primaryColor;
   Color get accentColor => ServiceCategoryPage.accentColor;
@@ -42,7 +62,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
 
 
   List<PrestationModel> get _sortedServices {
-    final list = List<PrestationModel>.from(widget.services);
+    final list = List<PrestationModel>.from(_services);
     switch (_sort) {
       case 'Prix ↑':
         list.sort((a, b) => (a.minPrice ?? 0).compareTo(b.minPrice ?? 0));
@@ -102,28 +122,40 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
         ),
         centerTitle: false,
       ),
-      body: services.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    widget.serviceType.icon,
-                    size: 64,
-                    color: Colors.grey[400],
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'Aucun service disponible',
-                    style: GoogleFonts.inter(
-                      fontSize: 16,
-                      color: Colors.grey[600],
+      body: RefreshIndicator(
+        color: primaryColor,
+        onRefresh: _refreshServices,
+        child: services.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.55,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          widget.serviceType.icon,
+                          size: 64,
+                          color: Colors.grey[400],
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Aucun service disponible',
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             )
           : ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.all(16),
               children: [
                 Row(
@@ -197,6 +229,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                   ...services.map((service) => _buildServiceCard(context, service)).toList(),
               ],
             ),
+        ),
     );
   }
 
