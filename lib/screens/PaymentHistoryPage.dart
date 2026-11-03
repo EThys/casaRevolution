@@ -15,6 +15,7 @@ import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/export_directory.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
+import 'package:shimmer/shimmer.dart';
 
 class PaymentHistoryPage extends StatefulWidget {
   /// Si présent (ex. depuis une notif de paiement), la ligne correspondante est dépliée et scrollée.
@@ -422,12 +423,6 @@ class _PaymentHistoryPageState extends State<PaymentHistoryPage> {
       final filePath = '${dir.path}/Facture_Paiement_Ref_${payment['id']}_du_$generationDate.pdf';
       final file = File(filePath);
       await file.writeAsBytes(bytes);
-      if (mounted) {
-        SnackbarForCasa.success(
-          context,
-          'Reçu PDF enregistré — même présentation que sur le site.',
-        );
-      }
     } catch (e) {
       if (mounted) {
         SnackbarForCasa.error(
@@ -466,7 +461,7 @@ class _PaymentHistoryPageState extends State<PaymentHistoryPage> {
         ShareParams(
           files: [xfile],
           text:
-              'Reçu de paiement CasaNayo — Réf. ${payment['reference'] ?? payment['id']}\nMême reçu officiel que sur casanayo.com.',
+              'Reçu de paiement CasaNayo — Réf. ${payment['reference'] ?? payment['id']}',
         ),
       );
     } catch (e) {
@@ -581,25 +576,26 @@ class _PaymentHistoryPageState extends State<PaymentHistoryPage> {
           ),
         ],
       ),
-      body: _isLoading
-          ? Center(
-              child: SizedBox(
-                width: 48,
-                height: 48,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: const Color(0xFF1976D2),
-                ),
-              ),
-            )
+      body: RefreshIndicator(
+        color: const Color(0xFF1976D2),
+        onRefresh: _loadPayments,
+        child: _isLoading && _payments.isEmpty
+          ? _buildShimmer()
           : _payments.isEmpty
               ? _buildEmpty()
               : CustomScrollView(
-                  physics: const BouncingScrollPhysics(),
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: BouncingScrollPhysics(),
+                  ),
                   slivers: [
                     SliverToBoxAdapter(child: _buildSummaryHeader()),
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        8,
+                        16,
+                        24 + MediaQuery.viewPaddingOf(context).bottom,
+                      ),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
                           (context, index) => _buildPaymentCard(_payments[index]),
@@ -609,6 +605,7 @@ class _PaymentHistoryPageState extends State<PaymentHistoryPage> {
                     ),
                   ],
                 ),
+        ),
     );
   }
 
@@ -751,23 +748,96 @@ class _PaymentHistoryPageState extends State<PaymentHistoryPage> {
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          Text(
-            'Téléchargez ou partagez le reçu PDF pour chaque paiement réussi — même présentation officielle que sur casanayo.com (en-tête bleu, détails, tableau, pied de page).',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              height: 1.45,
-              color: Colors.white.withOpacity(0.92),
-            ),
-          ),
         ],
       ),
     );
   }
 
+  Widget _shimmerBox({
+    double? width,
+    required double height,
+    double radius = 8,
+  }) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: const Color(0xFFE2E8F0),
+        borderRadius: BorderRadius.circular(radius),
+      ),
+    );
+  }
+
+  Widget _buildShimmer() {
+    final bottom = MediaQuery.viewPaddingOf(context).bottom;
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 24 + bottom),
+      children: [
+        Shimmer.fromColors(
+          baseColor: const Color(0xFFE2E8F0),
+          highlightColor: const Color(0xFFF8FAFC),
+          child: Container(
+            height: 156,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2E8F0),
+              borderRadius: BorderRadius.circular(24),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        for (var i = 0; i < 4; i++) ...[
+          Shimmer.fromColors(
+            baseColor: const Color(0xFFE2E8F0),
+            highlightColor: const Color(0xFFF8FAFC),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: _shimmerBox(height: 16)),
+                      const SizedBox(width: 12),
+                      _shimmerBox(width: 72, height: 24, radius: 20),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _shimmerBox(width: 150, height: 12),
+                  const SizedBox(height: 12),
+                  _shimmerBox(width: 96, height: 22, radius: 6),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(child: _shimmerBox(height: 42, radius: 12)),
+                      const SizedBox(width: 10),
+                      Expanded(child: _shimmerBox(height: 42, radius: 12)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (i < 3) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
   Widget _buildEmpty() {
-    return Center(
-      child: SingleChildScrollView(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+      child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -826,6 +896,10 @@ class _PaymentHistoryPageState extends State<PaymentHistoryPage> {
           ],
         ),
       ),
+          ),
+        ),
+        );
+      },
     );
   }
 
