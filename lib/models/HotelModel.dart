@@ -45,6 +45,24 @@ class HotelModel {
   String? quartierValue;
   String? cityValue;
   String? countryValue;
+
+  /// Rue, quartier, commune, ville et pays pour les cartes.
+  String get listingPlace {
+    final parts = <String>[];
+    void add(String? value) {
+      final text = value?.trim() ?? '';
+      if (text.isEmpty || text.toLowerCase() == 'null') return;
+      if (parts.any((part) => part.toLowerCase() == text.toLowerCase())) return;
+      parts.add(text);
+    }
+
+    add(address);
+    add(quartierValue);
+    add(communeValue);
+    add(cityValue);
+    add(countryValue);
+    return parts.isEmpty ? 'Localisation' : parts.join(', ');
+  }
   int? cityId;
   String? postalCode;
   int? communeId;

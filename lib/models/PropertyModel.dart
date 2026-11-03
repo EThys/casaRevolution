@@ -535,12 +535,135 @@ class PropertyModel {
   }
 
   String get fullAddress {
-    List<String> parts = [];
-    if (address != null && address!.isNotEmpty) parts.add(address!);
-    if (quartier != null && quartier!.isNotEmpty) parts.add(quartier!);
-    if (communeValue != null && communeValue!.isNotEmpty) parts.add(communeValue!);
-    if (cityValue != null && cityValue!.isNotEmpty) parts.add(cityValue!);
-    return parts.join(", ");
+    final parts = <String>[];
+    void add(String? value) {
+      final text = value?.trim() ?? '';
+      if (text.isEmpty) return;
+      if (parts.any((part) => part.toLowerCase() == text.toLowerCase())) return;
+      parts.add(text);
+    }
+
+    add(address);
+    add(quartierValue);
+    add(quartier);
+    add(communeValue);
+    add(cityValue);
+    add(countryValue);
+    return parts.join(', ');
+  }
+
+  bool get isHotelListing {
+    final name = (propertyType?.name ?? '').toLowerCase();
+    return propertyTypeId == 5 || name.contains('hotel') || name.contains('hôtel');
+  }
+
+  /// Vente explicite. Un hôtel sans ce mot est un hébergement, pas une location.
+  bool get isSaleListing {
+    return (transactionType ?? '').toLowerCase().contains('vente');
+  }
+
+  /// Badge public : hôtel → Hébergement ou Vente. Les autres biens gardent Location ou Vente.
+  String get publicTransactionLabel {
+    if (isHotelListing) return isSaleListing ? 'Vente' : 'Hébergement';
+    final t = (transactionType ?? '').toLowerCase();
+    if (t.contains('location') ||
+        t.contains('louer') ||
+        t.contains('loyer') ||
+        t.contains('rent')) {
+      return 'Location';
+    }
+    return 'Vente';
+  }
+
+  /// Lieu affiché sur les cartes. Les hôtels incluent la rue, le quartier et la commune.
+  String get listingPlace {
+    if (isHotelListing) {
+      final full = fullAddress.trim();
+      if (full.isNotEmpty) return full;
+    }
+
+    final parts = <String>[];
+    void add(String? value) {
+      final text = value?.trim() ?? '';
+      if (text.isEmpty || text.toLowerCase() == 'null') return;
+      if (parts.any((part) => part.toLowerCase() == text.toLowerCase())) return;
+      parts.add(text);
+    }
+
+    add(communeValue);
+    add(cityValue);
+    if (parts.isNotEmpty) return parts.join(', ');
+    add(address);
+    return parts.isEmpty ? 'Localisation' : parts.join(', ');
+  }
+
+  static String foldPlace(String? value) {
+    var text = (value ?? '').trim().toLowerCase();
+    if (text == 'null') return '';
+    const from = 'àáâãäåèéêëìíîïòóôõöùúûüýÿçñ';
+    const to = 'aaaaaaeeeeiiiiooooouuuuyycn';
+    for (var i = 0; i < from.length; i++) {
+      text = text.replaceAll(from[i], to[i]);
+    }
+    return text;
+  }
+
+  String get _searchBlob {
+    return PropertyModel.foldPlace([
+      title,
+      description,
+      address,
+      quartier,
+      quartierValue,
+      communeValue,
+      cityValue,
+      countryValue,
+      propertyType?.name,
+      listingPlace,
+    ].whereType<String>().join(' '));
+  }
+
+  /// Chaque mot de la recherche doit se trouver dans le titre, l’adresse ou le lieu.
+  bool matchesListingQuery(String raw) {
+    final query = PropertyModel.foldPlace(raw);
+    if (query.isEmpty) return true;
+    final blob = _searchBlob;
+    final tokens = query.split(RegExp(r'\s+')).where((token) => token.isNotEmpty);
+    return tokens.every(blob.contains);
+  }
+
+  bool matchesCity(String selected, Iterable<String> communesInCity) {
+    final sel = PropertyModel.foldPlace(selected);
+    if (sel.isEmpty) return true;
+    if (PropertyModel.foldPlace(cityValue).contains(sel)) return true;
+    if (PropertyModel.foldPlace(address).contains(sel)) return true;
+    if (PropertyModel.foldPlace(listingPlace).contains(sel)) return true;
+    final commune = PropertyModel.foldPlace(communeValue);
+    if (commune.isEmpty) return false;
+    for (final name in communesInCity) {
+      final folded = PropertyModel.foldPlace(name);
+      if (folded.isNotEmpty && (commune == folded || commune.contains(folded))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool matchesCommune(String selected) {
+    final sel = PropertyModel.foldPlace(selected);
+    if (sel.isEmpty) return true;
+    return PropertyModel.foldPlace(communeValue).contains(sel) ||
+        PropertyModel.foldPlace(address).contains(sel) ||
+        PropertyModel.foldPlace(quartierValue).contains(sel) ||
+        PropertyModel.foldPlace(listingPlace).contains(sel);
+  }
+
+  bool matchesQuartier(String selected) {
+    final sel = PropertyModel.foldPlace(selected);
+    if (sel.isEmpty) return true;
+    return PropertyModel.foldPlace(quartierValue).contains(sel) ||
+        PropertyModel.foldPlace(quartier).contains(sel) ||
+        PropertyModel.foldPlace(address).contains(sel);
   }
 
   String get electricStatus {
