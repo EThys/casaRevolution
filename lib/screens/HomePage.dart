@@ -17,6 +17,7 @@ import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/casanayo_share_copy.dart';
 import 'package:casa/utils/AppColors.dart';
+import 'package:casa/utils/hotel_room_price.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -26,7 +27,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
 import 'package:shimmer/shimmer.dart';
-import 'package:showcaseview/showcaseview.dart';
 import 'package:casa/controllers/TutorialController.dart';
 
 import '../models/PropertyModel.dart';
@@ -76,7 +76,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final RefreshController _refreshController = RefreshController();
+  final RefreshController _homeRefreshController =
+      RefreshController(initialRefresh: false);
   bool _isManualRefresh = false;
 
   final Color primaryColor = Color(0xFF1976D2);
@@ -156,7 +157,10 @@ class _HomePageState extends State<HomePage> {
 
     if (widget.shouldRefresh) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _refreshController.requestRefresh();
+        if (!mounted) return;
+        final propertyCtrl =
+            Provider.of<PropertyController>(context, listen: false);
+        _handlePullToRefresh(propertyCtrl);
       });
     }
 
@@ -179,6 +183,7 @@ class _HomePageState extends State<HomePage> {
     _hotelsScrollController.dispose();
     _majordhommeScrollController.dispose();
     _demenagementScrollController.dispose();
+    _homeRefreshController.dispose();
 
     ServerHealthService().stopMonitoring();
     super.dispose();
@@ -408,7 +413,7 @@ class _HomePageState extends State<HomePage> {
 
       // 3. RÉCUPÉRATION API (Optimisé)
       // Note: On utilise uniquement /api/prestations car /api/prestations/service/{id} n'existe pas
-      final allList = await serviceCtrl.fetchAllPrestations();
+      final allList = await serviceCtrl.fetchAllPrestations(size: 200);
 
       if (mounted) {
         setState(() {
@@ -653,6 +658,7 @@ class _HomePageState extends State<HomePage> {
     final rentalProperties = properties.where((p) {
       final tt = p.transactionType?.toLowerCase() ?? '';
       return tt.contains('location') &&
+          !p.isHotelListing &&
           allowedTypeIds.contains(p.propertyTypeId);
     }).toList()
       ..sort((a, b) => (b.propertyId ?? 0).compareTo(a.propertyId ?? 0));
@@ -675,6 +681,38 @@ class _HomePageState extends State<HomePage> {
     final currentMajordhommeServices = majordhommeServices;
     final currentDemenagementServices = demenagementServices;
     final currentOtherServicesByType = otherServicesByType;
+    const featuredPriority = <ServiceType>[
+      ServiceType.plomberie,
+      ServiceType.electricite,
+      ServiceType.peinture,
+      ServiceType.coiffure,
+      ServiceType.climatisation,
+      ServiceType.reparation,
+      ServiceType.nettoyage,
+      ServiceType.transport,
+      ServiceType.renovation,
+      ServiceType.installation,
+      ServiceType.serrurerie,
+      ServiceType.vitrerie,
+    ];
+    final featuredOtherTypes = <ServiceType>[
+      for (final type in featuredPriority)
+        if (type != ServiceType.demenagement &&
+            (currentOtherServicesByType[type]?.length ?? 0) > 3)
+          type,
+      for (final entry in currentOtherServicesByType.entries)
+        if (entry.key != ServiceType.demenagement &&
+            entry.value.length > 3 &&
+            !featuredPriority.contains(entry.key))
+          entry.key,
+    ];
+    final compactOtherServices = Map<ServiceType, List<PrestationModel>>.from(
+      currentOtherServicesByType,
+    )..removeWhere((type, list) =>
+        type != ServiceType.demenagement && list.length > 3);
+    if (currentDemenagementServices.isNotEmpty) {
+      compactOtherServices[ServiceType.demenagement] = currentDemenagementServices;
+    }
 
     return Scaffold(
       key: _scaffoldKey,
@@ -771,14 +809,17 @@ class _HomePageState extends State<HomePage> {
 
           // GLASS EFFECT: Backdrop Blur to blend all blobs into a mesh
           Positioned.fill(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
-              child: Container(color: Colors.transparent),
+            child: IgnorePointer(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 90, sigmaY: 90),
+                child: Container(color: Colors.transparent),
+              ),
             ),
           ),
 
           // Texture Overlay (Grain/Abstract) on top of the mesh
           Positioned.fill(
+            child: IgnorePointer(
             child: Opacity(
               opacity: 0.04,
               child: Image.asset(
@@ -788,24 +829,24 @@ class _HomePageState extends State<HomePage> {
                     .overlay, // "Overlay" makes it blend with the colors
               ),
             ),
+            ),
           ),
           // --- END PREMIUM BACKGROUND ---
-          SmartRefresher(
-            controller: _refreshController,
+          Positioned.fill(
+            child: RefreshConfiguration(
+            enableScrollWhenRefreshCompleted: true,
+            child: SmartRefresher(
+            controller: _homeRefreshController,
             enablePullDown: true,
             enablePullUp: false,
             header: WaterDropMaterialHeader(
               backgroundColor: primaryColor,
               color: Colors.white,
             ),
-            onRefresh: () async {
-              await _handlePullToRefresh(propertyCtrl);
-            },
-            child: SingleChildScrollView(
-              physics: NeverScrollableScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            onRefresh: () => _handlePullToRefresh(propertyCtrl),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
                   // ============================================
                   // ZONE 1 : HERO & NAVIGATION RAPIDE
                   // ============================================
@@ -968,64 +1009,43 @@ class _HomePageState extends State<HomePage> {
                   ),
                   SizedBox(height: 32),
 
-                  // Section Services de Déménagement
-                  _buildSectionHeader(
-                    title: "Déménagement",
-                    subtitle: "Déménagez en toute sérénité",
-                    showcaseKey:
-                        Provider.of<TutorialController>(context, listen: false)
-                            .seeAllMovingKey,
-                    showcaseDescription:
-                        "Touchez ici pour voir toutes les équipes de déménagement.",
-                    onSeeAll: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ServiceCategoryPage(
-                            serviceType: ServiceType.demenagement,
-                            services: currentDemenagementServices,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  SizedBox(height: 16),
-                  _buildServiceCarousel(
-                    services: currentDemenagementServices,
+                  ..._buildFeaturedOtherServiceSections(
+                    types: featuredOtherTypes,
+                    grouped: currentOtherServicesByType,
                     isLoading: isLoadingPrestations,
-                    serviceType: ServiceType.demenagement,
-                    scrollController: _demenagementScrollController,
                   ),
-                  SizedBox(height: 32),
 
                   // ============================================
-                  // ZONE 4 : AUTRES SERVICES (Complémentaire)
+                  // ZONE 4 : AUTRES SERVICES (3 professionnels ou moins)
                   // ============================================
-                  _buildSectionHeader(
-                    title: "Autres Services",
-                    subtitle: "Découvrez tous nos professionnels",
-                    showcaseKey:
-                        Provider.of<TutorialController>(context, listen: false)
-                            .seeAllOtherServicesKey,
-                    showcaseDescription:
-                        "Touchez ici pour explorer toutes les catégories de services.",
-                    onSeeAll: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AllServiceCategoriesPage(
-                            otherServicesOnly: true,
+                  if ((isLoadingPrestations || serviceCtrl.loading) ||
+                      compactOtherServices.isNotEmpty) ...[
+                    _buildSectionHeader(
+                      title: "Autres Services",
+                      subtitle: "Classés par métier",
+                      showcaseKey:
+                          Provider.of<TutorialController>(context, listen: false)
+                              .seeAllOtherServicesKey,
+                      showcaseDescription:
+                          "Touchez ici pour explorer toutes les catégories de services.",
+                      onSeeAll: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const AllServiceCategoriesPage(
+                              otherServicesOnly: true,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                  SizedBox(height: 16),
-                  _buildOtherServicesGrid(
-                    servicesByType: currentOtherServicesByType,
-                    isLoading: isLoadingPrestations || serviceCtrl.loading,
-                  ),
-                  SizedBox(height: 32),
+                        );
+                      },
+                    ),
+                    SizedBox(height: 16),
+                    _buildOtherServicesGrid(
+                      servicesByType: compactOtherServices,
+                      isLoading: isLoadingPrestations || serviceCtrl.loading,
+                    ),
+                    SizedBox(height: 32),
+                  ],
 
                   // ============================================
                   // ZONE 5 : CALL-TO-ACTION FINAL
@@ -1034,7 +1054,8 @@ class _HomePageState extends State<HomePage> {
                   PromoBanner(),
                   SizedBox(height: 32),
                 ],
-              ),
+            ),
+            ),
             ),
           ),
           OfflineBanner(),
@@ -1086,6 +1107,19 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _endHomeRefresh({required bool success}) {
+    if (!mounted) return;
+    final status = _homeRefreshController.headerStatus;
+    final pulling = status == RefreshStatus.refreshing ||
+        status == RefreshStatus.canRefresh;
+    if (!pulling) return;
+    if (success) {
+      _homeRefreshController.refreshCompleted();
+    } else {
+      _homeRefreshController.refreshFailed();
+    }
+  }
+
   Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
     setState(() {
       _isManualRefresh = true;
@@ -1094,22 +1128,23 @@ class _HomePageState extends State<HomePage> {
     try {
       // Refresh properties and special categories SEQUENTIALLY to avoid race conditions
       // syncAllSpecialCategories will merge its results into propertyCtrl.properties
-      await propertyCtrl.refreshProperties();
-      await propertyCtrl
-          .syncAllSpecialCategories(); // Charger bureaux, festives, funeraires
+      await propertyCtrl.refreshProperties(forceSync: true);
+      await propertyCtrl.syncAllSpecialCategories();
 
-      // Refresh prestations (services)
       await _loadPrestationsFromAPI();
-
-      _refreshController.refreshCompleted();
-      //SnackbarForCasa.success(context, "Liste actualisée");
+      if (mounted) {
+        await Provider.of<AgenceController>(context, listen: false).fetchAgences();
+      }
+      _endHomeRefresh(success: true);
     } catch (e) {
       print("❌ Erreur refresh: $e");
-      _refreshController.refreshFailed();
-      SnackbarForCasa.error(
-        context,
-        "Actualisation impossible pour le moment. Vérifiez la connexion et tirez à nouveau pour réessayer.",
-      );
+      _endHomeRefresh(success: false);
+      if (mounted) {
+        SnackbarForCasa.error(
+          context,
+          "Actualisation impossible pour le moment. Vérifiez la connexion et tirez à nouveau pour réessayer.",
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -1193,8 +1228,8 @@ class _HomePageState extends State<HomePage> {
             ),
           ],
         ),
-        child: Showcase(
-          key:
+        child: _withHomeTip(
+          showcaseKey:
               Provider.of<TutorialController>(context, listen: false).drawerKey,
           title: 'Menu principal',
           description:
@@ -1256,8 +1291,8 @@ class _HomePageState extends State<HomePage> {
       ),
       centerTitle: true,
       actions: [
-        Showcase(
-          key: Provider.of<TutorialController>(context, listen: false)
+        _withHomeTip(
+          showcaseKey: Provider.of<TutorialController>(context, listen: false)
               .notificationKey,
           title: 'Notifications',
           description:
@@ -2313,6 +2348,28 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _openPropertyCategory(Map<String, dynamic> category) {
+    final rawValue = (category['value']?.toString() ?? '').trim();
+    final label = (category['label']?.toString() ?? '').trim();
+    final source = rawValue.isNotEmpty ? rawValue : label;
+    final normalizedValue = PropertyCategoryCatalog.normalizedCategoryValue(source);
+    _logCategoryTap(normalizedValue);
+
+    if (normalizedValue.toLowerCase().contains('terrain')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => TerrainPropertiesPage()),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CategoryPropertiesPage(category: normalizedValue),
+      ),
+    );
+  }
+
   Widget _buildCategorySection() {
     final propertyCtrl = Provider.of<PropertyController>(context);
 
@@ -2361,54 +2418,29 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           SizedBox(height: 5),
-          Container(
+          SizedBox(
             height: 100,
             child: ListView.builder(
               controller: _categoryScrollController,
               scrollDirection: Axis.horizontal,
-              padding: EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               itemCount: categories.length,
               itemBuilder: (context, index) {
                 final category = categories[index];
-                return Container(
+                final label = category['label']?.toString() ?? '';
+                final image = category['image']?.toString() ?? '';
+                return SizedBox(
                   width: 80,
-                  margin: EdgeInsets.symmetric(horizontal: 4),
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(12),
-                      onTap: () {
-                        final rawValue = (category['value'] as String?) ?? '';
-                        final normalizedValue =
-                            PropertyCategoryCatalog.normalizedCategoryValue(
-                                rawValue);
-                        _logCategoryTap(normalizedValue);
-
-                        // Navigate to TerrainPropertiesPage for terrains
-                        if (normalizedValue == 'Terrain') {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => TerrainPropertiesPage(),
-                            ),
-                          );
-                        } else {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => CategoryPropertiesPage(
-                                category: normalizedValue,
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                      child: Container(
-                        padding: EdgeInsets.all(8),
+                      onTap: () => _openPropertyCategory(category),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            // Container simple et épuré pour l'image
                             Container(
                               width: 48,
                               height: 48,
@@ -2421,18 +2453,17 @@ class _HomePageState extends State<HomePage> {
                                 ),
                               ),
                               child: Padding(
-                                padding: EdgeInsets.all(10),
+                                padding: const EdgeInsets.all(10),
                                 child: Image.asset(
-                                  category['image'] as String,
+                                  image.isEmpty ? 'assets/images/apart.png' : image,
                                   fit: BoxFit.contain,
                                   filterQuality: FilterQuality.high,
                                 ),
                               ),
                             ),
-                            SizedBox(height: 8),
-                            // Label sobre
+                            const SizedBox(height: 8),
                             Text(
-                              category['label'] as String,
+                              label,
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
@@ -2498,6 +2529,15 @@ class _HomePageState extends State<HomePage> {
     // Logic moved to _startAutoScrolls and _createAutoScrollTimer
   }
 
+  Widget _withHomeTip({
+    required GlobalKey showcaseKey,
+    required String title,
+    required String description,
+    required Widget child,
+  }) {
+    return child;
+  }
+
   Widget _buildSectionHeader({
     required String title,
     required String subtitle,
@@ -2521,45 +2561,7 @@ class _HomePageState extends State<HomePage> {
                   color: darkBlue,
                 ),
               ),
-              showcaseKey != null
-                  ? Showcase(
-                      key: showcaseKey,
-                      title: 'Explorer',
-                      description: showcaseDescription ??
-                          "Ouvrez la liste complète pour voir tous les éléments de cette section.",
-                      child: InkWell(
-                        onTap: onSeeAll,
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding:
-                              EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: primaryColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Explorer',
-                                style: TextStyle(
-                                  color: primaryColor,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              SizedBox(width: 4),
-                              Icon(
-                                Icons.arrow_forward_ios_rounded,
-                                size: 14,
-                                color: primaryColor,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    )
-                  : InkWell(
+              InkWell(
                       onTap: onSeeAll,
                       borderRadius: BorderRadius.circular(20),
                       child: Container(
@@ -2686,6 +2688,39 @@ class _HomePageState extends State<HomePage> {
         },
       ),
     );
+  }
+
+  List<Widget> _buildFeaturedOtherServiceSections({
+    required List<ServiceType> types,
+    required Map<ServiceType, List<PrestationModel>> grouped,
+    required bool isLoading,
+  }) {
+    return [
+      for (final type in types) ...[
+        _buildSectionHeader(
+          title: type.displayName,
+          subtitle: type.description,
+          onSeeAll: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ServiceCategoryPage(
+                  serviceType: type,
+                  services: grouped[type] ?? const <PrestationModel>[],
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 16),
+        _buildServiceCarousel(
+          services: grouped[type] ?? const <PrestationModel>[],
+          isLoading: isLoading,
+          serviceType: type,
+        ),
+        const SizedBox(height: 32),
+      ],
+    ];
   }
 
   Widget _buildServiceCarousel({
@@ -3079,6 +3114,7 @@ class _HomePageState extends State<HomePage> {
 
     // Liste des types de services à afficher (priorité)
     final List<ServiceType> priorityServiceTypes = [
+      ServiceType.demenagement,
       ServiceType.plomberie,
       ServiceType.electricite,
       ServiceType.peinture,
@@ -3102,286 +3138,112 @@ class _HomePageState extends State<HomePage> {
         .toList();
 
     if (isLoading || availableServiceTypes.isEmpty) {
-      return Container(
-        height: 570, // Augmenté pour 3 rangées de 2 colonnes
-        margin: EdgeInsets.symmetric(horizontal: 24),
-        child: GridView.builder(
-          shrinkWrap: true,
-          physics: NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2, // 2 colonnes
-            crossAxisSpacing: 16, // Espacement un peu plus large
-            mainAxisSpacing: 16,
-            childAspectRatio: 0.85,
-          ),
-          itemCount: 6,
-          itemBuilder: (context, index) {
-            return Shimmer.fromColors(
-              baseColor: Colors.grey[300]!,
-              highlightColor: Colors.grey[100]!,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            );
-          },
-        ),
-      );
-    }
-
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: 24),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: NeverScrollableScrollPhysics(),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2, // 2 colonnes au lieu de 3
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio:
-              1.1, // Ratio plus large pour laisser de la place au titre
-        ),
-        itemCount: availableServiceTypes.length,
-        itemBuilder: (context, index) {
-          final serviceType = availableServiceTypes[index];
-          final serviceList = groupedServices[serviceType]!;
-          final serviceCount = serviceList.length;
-          final firstService = serviceList.first;
-
-          // Récupérer l'image de fond depuis le premier service
-          // Chercher dans tous les services de la liste si le premier n'a pas d'image
-          String? backgroundImageUrl;
-
-          // Fonction locale pour extraire l'image d'une prestation
-          String? getPrestationImage(PrestationModel p) {
-            if (p.profile != null && p.profile!.isNotEmpty) return p.profile;
-            if (p.images != null && p.images!.isNotEmpty)
-              return p.images!.first;
-            return null;
-          }
-
-          backgroundImageUrl = getPrestationImage(firstService);
-
-          if (backgroundImageUrl == null) {
-            // Parcourir les autres services pour trouver une image
-            for (var service in serviceList) {
-              final img = getPrestationImage(service);
-              if (img != null) {
-                backgroundImageUrl = img;
-                break;
-              }
-            }
-          }
-
-          // Debug: afficher les informations sur les images
-          if (backgroundImageUrl == null) {
-            print(
-                "⚠️ [HomePage] Aucune image trouvée pour le type de service: $serviceType (${serviceList.length} services)");
-            for (var i = 0; i < serviceList.length && i < 3; i++) {
-              final s = serviceList[i];
-              print(
-                  "  Service ${i + 1}: images = ${s.images?.length ?? 0} (${s.images?.join(', ') ?? 'null'})");
-            }
-          } else {
-            print(
-                " [HomePage] Image trouvée pour $serviceType: $backgroundImageUrl");
-          }
-
-          return Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ServiceCategoryPage(
-                      serviceType: serviceType,
-                      services: serviceList,
-                    ),
-                  ),
-                );
-              },
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          children: List.generate(
+            4,
+            (_) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Shimmer.fromColors(
+                baseColor: Colors.grey[300]!,
+                highlightColor: Colors.grey[100]!,
                 child: Container(
-                  height: double.infinity,
+                  height: 68,
                   decoration: BoxDecoration(
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.15),
-                        blurRadius: 12,
-                        spreadRadius: 0,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      // Image de fond
-                      backgroundImageUrl != null
-                          ? CachedNetworkImage(
-                              imageUrl: backgroundImageUrl,
-                              fit: BoxFit.cover,
-                              placeholder: (context, url) => Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      primaryColor.withOpacity(0.3),
-                                      primaryColor.withOpacity(0.1),
-                                    ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                ),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white.withOpacity(0.7),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              errorWidget: (context, url, error) => Container(
-                                  decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    primaryColor.withOpacity(0.3),
-                                    primaryColor.withOpacity(0.1),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                              )),
-                            )
-                          : Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    primaryColor.withOpacity(0.3),
-                                    primaryColor.withOpacity(0.1),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                              ),
-                            ),
-
-                      // Overlay sombre pour améliorer la lisibilité
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withOpacity(0.3),
-                              Colors.black.withOpacity(0.7),
-                            ],
-                            stops: [0.0, 0.5, 1.0],
-                          ),
-                        ),
-                      ),
-
-                      // Contenu avec design moderne et épuré
-                      Container(
-                        padding: EdgeInsets.all(12),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Badge nombre en haut à gauche - Design simple et moderne
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.3),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.5),
-                                  width: 1.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
-                                    blurRadius: 8,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Text(
-                                "$serviceCount",
-                                style: GoogleFonts.inter(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-
-                            // Titre du service en bas
-                            Container(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 10),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Colors.transparent,
-                                    Colors.black.withOpacity(0.7),
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    serviceType.displayName,
-                                    style: GoogleFonts.inter(
-                                      color: Colors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.3,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  SizedBox(height: 4),
-                                  Text(
-                                    serviceType.description,
-                                    style: GoogleFonts.inter(
-                                      color: Colors.white.withOpacity(0.85),
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w500,
-                                      height: 1.2,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
               ),
             ),
-          );
-        },
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        children: [
+          for (final serviceType in availableServiceTypes)
+            _otherServiceRow(serviceType, groupedServices[serviceType]!),
+        ],
       ),
     );
   }
+
+  Widget _otherServiceRow(ServiceType serviceType, List<PrestationModel> services) {
+    final count = services.length;
+    final countLabel = count == 1 ? '1 professionnel' : '$count professionnels';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ServiceCategoryPage(
+                serviceType: serviceType,
+                services: services,
+              ),
+            ),
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(serviceType.icon, color: primaryColor, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        serviceType.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        countLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: Colors.grey[400]),
+              ],
+            ),
+          ),
+        ),
+    );
+  }
+
 
   Widget _buildEmptyState() {
     return Container(
@@ -3634,9 +3496,8 @@ class _HomePageState extends State<HomePage> {
               typeName.contains('hotel') ||
               typeName.contains('hôtel');
 
-          // Hôtels: ne pas afficher le prix sur la home.
           final String? priceText = isHotel
-              ? null
+              ? hotelStartingPriceLabel(property)
               : ((isForRent && !isHotel)
                   ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
                   : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
@@ -3810,13 +3671,13 @@ class _HomePageState extends State<HomePage> {
                                     SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
-                                        "${property.cityValue}, ${property.communeValue}",
+                                        property.listingPlace,
                                         style: GoogleFonts.inter(
                                           color: Colors.white.withOpacity(0.8),
                                           fontSize: 14,
                                           fontWeight: FontWeight.w500,
                                         ),
-                                        maxLines: 1,
+                                        maxLines: isHotel ? 2 : 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
@@ -3883,12 +3744,8 @@ class _HomePageState extends State<HomePage> {
                                           const SizedBox(width: 10),
                                           Expanded(
                                             child: Text(
-                                              (property.address ?? '')
-                                                      .trim()
-                                                      .isNotEmpty
-                                                  ? property.address!.trim()
-                                                  : "${property.cityValue ?? ''}${(property.communeValue ?? '').toString().trim().isNotEmpty ? ', ${property.communeValue}' : ''}",
-                                              maxLines: 1,
+                                              property.listingPlace,
+                                              maxLines: 2,
                                               overflow: TextOverflow.ellipsis,
                                               style: GoogleFonts.inter(
                                                 color: Colors.white
@@ -4058,7 +3915,7 @@ class _HomePageState extends State<HomePage> {
         duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isForRent
+          color: (property.isHotelListing ? !property.isSaleListing : isForRent)
               ? Colors.blueAccent.withOpacity(0.92)
               : Colors.greenAccent.withOpacity(0.92),
           borderRadius: BorderRadius.circular(18),
@@ -4072,7 +3929,9 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         child: Text(
-          isForRent ? 'À LOUER' : 'À VENDRE',
+          property.isHotelListing
+              ? property.publicTransactionLabel.toUpperCase()
+              : (isForRent ? 'À LOUER' : 'À VENDRE'),
           style: GoogleFonts.inter(
             color: Colors.white,
             fontSize: 11,

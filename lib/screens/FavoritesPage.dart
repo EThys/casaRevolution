@@ -10,12 +10,14 @@ import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/AppColors.dart';
+import 'package:casa/utils/hotel_room_price.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:pull_to_refresh/pull_to_refresh.dart';
 import 'package:shimmer/shimmer.dart';
 import '../controllers/TutorialController.dart';
 
@@ -40,6 +42,8 @@ class FavoritesPage extends StatefulWidget {
 class _FavoritesPageState extends State<FavoritesPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final List<RefreshController> _favRefreshControllers =
+      List.generate(3, (_) => RefreshController());
   bool _isLoadingData = true;
   bool _isRefreshing = false;
   final DateFormat _dateFormat = DateFormat('dd MMM yyyy', 'fr_FR');
@@ -92,6 +96,7 @@ class _FavoritesPageState extends State<FavoritesPage>
   // Shimmer effect
   Widget _buildShimmerEffect() {
     return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.all(20),
       itemCount: 4,
       separatorBuilder: (_, __) => SizedBox(height: 20),
@@ -148,7 +153,21 @@ class _FavoritesPageState extends State<FavoritesPage>
     );
   }
 
-  Future<void> _loadFavorites() async {
+  void _endFavoritesRefresh({required bool success}) {
+    if (!mounted) return;
+    for (final controller in _favRefreshControllers) {
+      final status = controller.headerStatus;
+      final pulling = status == RefreshStatus.refreshing || status == RefreshStatus.canRefresh;
+      if (!pulling) continue;
+      if (success) {
+        controller.refreshCompleted();
+      } else {
+        controller.refreshFailed();
+      }
+    }
+  }
+
+  Future<void> _loadFavorites({bool fromPull = false}) async {
     try {
       if (!mounted) return;
 
@@ -160,11 +179,12 @@ class _FavoritesPageState extends State<FavoritesPage>
           _isLoadingData = false;
           _isRefreshing = false;
         });
+        if (fromPull) _endFavoritesRefresh(success: true);
         return;
       }
 
       setState(() {
-        _isLoadingData = true;
+        if (!fromPull) _isLoadingData = true;
         _isRefreshing = true;
       });
 
@@ -185,6 +205,7 @@ class _FavoritesPageState extends State<FavoritesPage>
         _enrichFavoritePropertiesFromCache(propertyCtrl);
       }
 
+      if (fromPull) _endFavoritesRefresh(success: true);
     } catch (e, st) {
       reportApiFailureToCrashlytics(
         'FavoritesPage',
@@ -193,7 +214,7 @@ class _FavoritesPageState extends State<FavoritesPage>
         reason: 'load_favorites',
       );
       print("❌ Erreur lors du chargement des favoris: $e");
-      // FancyNotification.show(context, "Erreur lors du chargement des favoris"); // Silent error
+      if (fromPull) _endFavoritesRefresh(success: false);
     } finally {
       if (mounted) {
         setState(() {
@@ -428,6 +449,9 @@ class _FavoritesPageState extends State<FavoritesPage>
 
   @override
   void dispose() {
+    for (final controller in _favRefreshControllers) {
+      controller.dispose();
+    }
     _tabController.dispose();
     super.dispose();
   }
@@ -452,9 +476,9 @@ class _FavoritesPageState extends State<FavoritesPage>
             child: TabBarView(
               controller: _tabController,
               children: [
-                _buildFavoriteList(_filterFavorites(propertyCtrl.propertyFavorites, 'all')),
-                _buildFavoriteList(_filterFavorites(propertyCtrl.propertyFavorites, 'available')),
-                _buildFavoriteList(_filterFavorites(propertyCtrl.propertyFavorites, 'rent')),
+                _buildFavoriteList(_filterFavorites(propertyCtrl.propertyFavorites, 'all'), 0),
+                _buildFavoriteList(_filterFavorites(propertyCtrl.propertyFavorites, 'available'), 1),
+                _buildFavoriteList(_filterFavorites(propertyCtrl.propertyFavorites, 'rent'), 2),
               ],
             ),
           ),
@@ -639,32 +663,36 @@ class _FavoritesPageState extends State<FavoritesPage>
           );
         }).toList();
       case 'rent':
-        return visible
-            .where((fav) => fav.property?.transactionType == 'location')
-            .toList();
+        return visible.where((fav) {
+          final p = fav.property;
+          if (p == null || p.isHotelListing) return false;
+          return p.transactionType == 'location';
+        }).toList();
       case 'all':
       default:
         return visible;
     }
   }
 
-  Widget _buildFavoriteList(List<PropertyFavoriteModel> favorites) {
-    return AnimatedSwitcher(
-      duration: Duration(milliseconds: 300),
-      transitionBuilder: (Widget child, Animation<double> animation) {
-        return ScaleTransition(
-          scale: animation,
-          child: FadeTransition(
-            opacity: animation,
-            child: child,
-          ),
-        );
-      },
-      child: _isLoadingData
-          ? _buildShimmerEffect()
-          : favorites.isEmpty
-          ? _buildEmptyState()
-          : _buildFavoriteListContent(favorites),
+  Widget _buildFavoriteList(List<PropertyFavoriteModel> favorites, int tabIndex) {
+    final scrollChild = _isLoadingData
+        ? _buildShimmerEffect()
+        : favorites.isEmpty
+            ? _buildEmptyState()
+            : _buildFavoriteListContent(favorites);
+    return RefreshConfiguration(
+      enableScrollWhenRefreshCompleted: true,
+      child: SmartRefresher(
+        controller: _favRefreshControllers[tabIndex],
+        enablePullDown: true,
+        enablePullUp: false,
+        header: WaterDropMaterialHeader(
+          backgroundColor: _primaryColor,
+          color: Colors.white,
+        ),
+        onRefresh: () => _loadFavorites(fromPull: true),
+        child: scrollChild,
+      ),
     );
   }
 
@@ -681,9 +709,12 @@ class _FavoritesPageState extends State<FavoritesPage>
       Icons.home_work_outlined
     ];
 
-    return Center(
-      child: SingleChildScrollView(
-        child: Column(
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.55,
+          child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
@@ -722,19 +753,17 @@ class _FavoritesPageState extends State<FavoritesPage>
             ),
 
           ],
+          ),
         ),
-      ),
+      ],
     );
   }
 
   Widget _buildFavoriteListContent(List<PropertyFavoriteModel> favorites) {
-    return RefreshIndicator(
-      color: _primaryColor,
-      backgroundColor: AppColors.surfaceColor(context),
-      onRefresh: _loadFavorites,
-      child: _isGridView
-          ? _buildFavoriteGridContent(favorites)
-          : ListView.builder(
+    return _isGridView
+        ? _buildFavoriteGridContent(favorites)
+        : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: EdgeInsets.only(top: 20, left: 20, right: 20),
               itemCount: favorites.length,
               itemBuilder: (context, index) {
@@ -746,12 +775,12 @@ class _FavoritesPageState extends State<FavoritesPage>
                     : _buildFavoriteCard(favorite),
                 );
               },
-            ),
-    );
+            );
   }
 
   Widget _buildFavoriteGridContent(List<PropertyFavoriteModel> favorites) {
     return GridView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.all(16),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
@@ -788,11 +817,14 @@ class _FavoritesPageState extends State<FavoritesPage>
     final isFuneraire = tid == 7 || typeName.contains('funéra') || typeName.contains('funera');
     final showMonthly = isForRent && !isHotel && !isTerrain && !isFestive && !isFuneraire;
 
-    final priceText = showMonthly
-        ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}/mois'
-        : '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}';
+    final hotelFrom = isHotel && propertyData != null ? hotelStartingPriceLabel(propertyData) : null;
+    final priceText = isHotel
+        ? (hotelFrom ?? '')
+        : (showMonthly
+            ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}/mois'
+            : '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}');
 
-    final showPriceOnCard = !isHotel;
+    final showPriceOnCard = !isHotel || hotelFrom != null;
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -946,7 +978,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                             SizedBox(width: 4),
                             Expanded(
                               child: Text(
-                                "${propertyData?.cityValue}, ${propertyData?.communeValue}",
+                                propertyData?.listingPlace ?? 'Localisation',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: _mediumGrey,
@@ -1044,11 +1076,14 @@ class _FavoritesPageState extends State<FavoritesPage>
     final isFuneraire = tid == 7 || typeName.contains('funéra') || typeName.contains('funera');
     final showMonthly = isForRent && !isHotel && !isTerrain && !isFestive && !isFuneraire;
 
-    final priceText = showMonthly
-        ? '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}/mois'
-        : '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}';
+    final hotelFrom = isHotel ? hotelStartingPriceLabel(propertyData) : null;
+    final priceText = isHotel
+        ? (hotelFrom ?? '')
+        : (showMonthly
+            ? '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}/mois'
+            : '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}');
 
-    final showPriceOnCard = !isHotel;
+    final showPriceOnCard = !isHotel || hotelFrom != null;
 
     final cardContent = InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -1186,7 +1221,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                           const SizedBox(width: 5),
                           Expanded(
                             child: Text(
-                              "${propertyData.cityValue}, ${propertyData.communeValue}",
+                              propertyData.listingPlace,
                               style: TextStyle(color: _mediumGrey, fontSize: 14),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
