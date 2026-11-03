@@ -1,4 +1,5 @@
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/utils/property_snapshot_merge.dart';
 import 'package:casa/models/SollicitationModel.dart';
 import 'package:casa/models/ReservationModel.dart';
 import 'package:casa/models/ServiceRequestModel.dart';
@@ -387,6 +388,49 @@ class DatabaseHelper {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// Enregistre chaque chambre de l’hôtel pour la retrouver même si le JSON hôtel est incomplet.
+  Future<void> persistHotelRoomRows(PropertyModel hotel) async {
+    final rooms = hotel.hotelStructure;
+    if (rooms == null || rooms.isEmpty) return;
+    for (final room in rooms) {
+      final id = room.chambre?.id;
+      if (id == null) continue;
+      final cached = await getHotelRoomById(id);
+      final toSave = cached == null
+          ? room
+          : PropertySnapshotMerge.richerRoom(room, cached);
+      await insertOrUpdateHotelRoom(toSave);
+    }
+  }
+
+  /// Complète les chambres de l’hôtel avec le cache `hotel_rooms` (photos, texte, prix).
+  Future<PropertyModel> hydrateHotelFromRoomCache(PropertyModel hotel) async {
+    final rooms = hotel.hotelStructure;
+    if (rooms == null || rooms.isEmpty) return hotel;
+    final merged = <HotelRoomStructure>[];
+    var changed = false;
+    for (final room in rooms) {
+      final id = room.chambre?.id;
+      if (id == null) {
+        merged.add(room);
+        continue;
+      }
+      final cached = await getHotelRoomById(id);
+      if (cached == null) {
+        merged.add(room);
+        continue;
+      }
+      final better = PropertySnapshotMerge.richerRoom(room, cached);
+      final sameImages = (better.images?.length ?? 0) == (room.images?.length ?? 0);
+      final sameTitle = better.chambre?.title == room.chambre?.title;
+      final sameDesc = better.chambre?.description == room.chambre?.description;
+      if (!sameImages || !sameTitle || !sameDesc) changed = true;
+      merged.add(better);
+    }
+    if (!changed) return hotel;
+    return hotel.copyWith(hotelStructure: merged);
   }
 
   /// Renvoie une chambre depuis le cache (par chambreId), sinon `null`.

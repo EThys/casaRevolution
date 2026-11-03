@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:casa/utils/database/DatabaseHelper.dart';
 import 'package:casa/utils/database/PropertyDatabaseHelper.dart';
@@ -16,6 +17,7 @@ import '../utils/requetes.dart' show getData, postData, patchData, deleteData, p
 import '../models/DeviseModel.dart';
 import '../models/PropertyImageModel.dart';
 import '../models/PropertyFeatureModel.dart';
+import '../utils/cache/HotelImageCache.dart';
 import '../utils/property_snapshot_merge.dart';
 import '../utils/listing_fields_parse.dart';
 
@@ -327,26 +329,20 @@ class PropertyController with ChangeNotifier {
     }
 
     try {
-      // 2. Synchronisation en arrière-plan (sans bloquer l'UI)
-      // On lance les appels en parallèle pour aller plus vite, ou séquentiel si on veut limiter la charge
-      Future.wait([
+      await Future.wait([
         _syncSpecialCategory(Endpoints.propertyBureaux, DatabaseHelper.tableBureaux, (list) => bureaux = list),
         _syncSpecialCategory(Endpoints.propertyFestives, DatabaseHelper.tableFestives, (list) => festives = list),
         _syncSpecialCategory(Endpoints.propertyFuneraires, DatabaseHelper.tableFuneraires, (list) => funeraires = list),
         _syncSpecialCategory(Endpoints.propertyVacances, DatabaseHelper.tableVacances, (list) => vacances = list),
         _syncSpecialCategory(Endpoints.propertyHotelsPublic, DatabaseHelper.tableHotels, (list) => hotels = list),
         _syncTerrainCategory(),
-      ]).then((_) {
-        print("🎯 Synchronisation des catégories spéciales terminée");
-        loadingSpecial = false;
-        notifyListeners();
-      }).catchError((e) {
-        print("⚠️ Erreur lors de la sync globale des catégories spéciales: $e");
-        loadingSpecial = false;
-        notifyListeners();
-      });
+      ]);
+      print("🎯 Synchronisation des catégories spéciales terminée");
     } catch (e) {
-      print("⚠️ Erreur : $e");
+      print("⚠️ Erreur lors de la sync globale des catégories spéciales: $e");
+    } finally {
+      loadingSpecial = false;
+      notifyListeners();
     }
   }
 
@@ -890,6 +886,16 @@ class PropertyController with ChangeNotifier {
     return PropertySnapshotMerge.mergeFillMissing(partial, snap);
   }
 
+  Future<PropertyModel> _persistHotelSnapshot(PropertyModel property) async {
+    final db = DatabaseHelper.instance;
+    final hydrated = await db.hydrateHotelFromRoomCache(property);
+    await db.insertOrUpdateProperty(hydrated);
+    await db.insertOrUpdateInCategory(DatabaseHelper.tableHotels, hydrated);
+    await db.persistHotelRoomRows(hydrated);
+    unawaited(HotelImageCache.instance.prefetchUrls(HotelImageCache.urlsOf(hydrated)));
+    return hydrated;
+  }
+
   /// Hôtels : pas de `GET /property/{id}` — catalogue [Endpoints.propertyHotelsPublic] puis détail chambre optionnel.
   Future<PropertyModel?> _fetchHotelFromPublicCatalog(int hotelId,
       {PropertyModel? mergeWith}) async {
@@ -1036,7 +1042,7 @@ class PropertyController with ChangeNotifier {
                 }
               }
               final enrichedHotel = property.copyWith(hotelStructure: mergedRooms);
-              await DatabaseHelper.instance.insertOrUpdateInCategory(DatabaseHelper.tableHotels, enrichedHotel);
+              await _persistHotelSnapshot(enrichedHotel);
               // notifier les listeners pour refresh UI si l’écran écoute le controller
               hotels = hotels.map((h) => h.propertyId == enrichedHotel.propertyId ? enrichedHotel : h).toList();
               notifyListeners();
@@ -1045,11 +1051,9 @@ class PropertyController with ChangeNotifier {
         }
       }
 
-      currentProperty = property;
-      final db = DatabaseHelper.instance;
-      await db.insertOrUpdateProperty(property);
-      await db.insertOrUpdateInCategory(DatabaseHelper.tableHotels, property);
-      return property;
+      final saved = await _persistHotelSnapshot(property);
+      currentProperty = saved;
+      return saved;
     } catch (e) {
       print('❌ _fetchHotelFromPublicCatalog: $e');
       return null;

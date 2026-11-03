@@ -21,6 +21,74 @@ class PropertySnapshotMerge {
     return rich;
   }
 
+  /// Fusionne les chambres par id : garde le texte et les photos les plus complets.
+  static List<HotelRoomStructure>? mergeHotelRooms(
+    List<HotelRoomStructure>? nav,
+    List<HotelRoomStructure>? rich,
+  ) {
+    if ((nav == null || nav.isEmpty) && (rich == null || rich.isEmpty)) {
+      return nav ?? rich;
+    }
+    final byId = <int, HotelRoomStructure>{};
+    final withoutId = <HotelRoomStructure>[];
+
+    void take(List<HotelRoomStructure>? list) {
+      if (list == null) return;
+      for (final room in list) {
+        final id = room.chambre?.id;
+        if (id == null) {
+          withoutId.add(room);
+          continue;
+        }
+        final prev = byId[id];
+        byId[id] = prev == null ? room : richerRoom(prev, room);
+      }
+    }
+
+    take(rich);
+    take(nav);
+    if (byId.isEmpty && withoutId.isEmpty) return nav ?? rich;
+    return [...byId.values, ...withoutId];
+  }
+
+  static HotelRoomStructure richerRoom(HotelRoomStructure a, HotelRoomStructure b) {
+    final aCount = a.images?.length ?? 0;
+    final bCount = b.images?.length ?? 0;
+    final images = bCount > aCount
+        ? b.images
+        : (aCount > 0 ? a.images : b.images);
+    return HotelRoomStructure(
+      chambre: _richerChambre(a.chambre, b.chambre),
+      images: images,
+    );
+  }
+
+  static String? _longerText(String? a, String? b) {
+    final as = (a ?? '').trim();
+    final bs = (b ?? '').trim();
+    if (bs.length > as.length) return b;
+    return as.isNotEmpty ? a : b;
+  }
+
+  static HotelRoomModel? _richerChambre(HotelRoomModel? a, HotelRoomModel? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    final price = (a.price != null && a.price! > 0) ? a.price : b.price;
+    return HotelRoomModel(
+      id: a.id ?? b.id,
+      hotelId: a.hotelId ?? b.hotelId,
+      deviseId: a.deviseId ?? b.deviseId,
+      title: _longerText(a.title, b.title),
+      description: _longerText(a.description, b.description),
+      numberPiece: a.numberPiece ?? b.numberPiece,
+      price: price,
+      priceHeure: _longerText(a.priceHeure, b.priceHeure),
+      createdAt: a.createdAt ?? b.createdAt,
+      updatedAt: a.updatedAt ?? b.updatedAt,
+      available: a.available ?? b.available,
+    );
+  }
+
   static List<T>? _preferLongerList<T>(List<T>? nav, List<T>? rich) {
     final ln = nav?.length ?? 0;
     final lr = rich?.length ?? 0;
@@ -131,7 +199,7 @@ class PropertySnapshotMerge {
       propertyImageKitchen:
           _preferLongerList<PropertyImageKitchenModel>(nav.propertyImageKitchen, rich.propertyImageKitchen),
       deviseId: nav.deviseId ?? rich.deviseId,
-      hotelStructure: _preferLongerList<HotelRoomStructure>(nav.hotelStructure, rich.hotelStructure),
+      hotelStructure: mergeHotelRooms(nav.hotelStructure, rich.hotelStructure),
     );
   }
 }
