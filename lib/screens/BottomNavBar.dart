@@ -48,7 +48,9 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
   void initState() {
     super.initState();
     // Utiliser l'instance partagée (Provider) pour éviter un décalage de clés Showcase.
-    context.read<TutorialController>().initializeKeys();
+    final tutorialCtrl = context.read<TutorialController>();
+    tutorialCtrl.initializeKeys();
+    _tutorialDone = !tutorialCtrl.shouldShowHomeTutorial();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
       if (mounted) {
@@ -134,12 +136,7 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
           elevation: 0,
           highlightElevation: 0,
           splashColor: Colors.transparent,
-          child: Showcase(
-            key: Provider.of<TutorialController>(context, listen: false).fabAddButtonKey,
-            title: 'Publier une annonce',
-            description: 'Ajoutez un bien immobilier ou proposez un service en quelques étapes.',
-            child: _addButtonContent(),
-          ),
+          child: _addButtonContent(),
           onPressed: _handleFabPress,
         ),
       )
@@ -188,44 +185,39 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
     );
   }
 
+  void _scheduleHomeTutorial(BuildContext showcaseContext, TutorialController tutorialCtrl) {
+    if (_didTriggerTutorial || _tutorialDone || !tutorialCtrl.shouldShowHomeTutorial()) return;
+    _didTriggerTutorial = true;
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (!mounted || _tutorialDone || _currentIndex != 0) return;
+      final keys = <GlobalKey>[
+        tutorialCtrl.drawerKey,
+        tutorialCtrl.notificationKey,
+        tutorialCtrl.seeAllLocationsKey,
+        tutorialCtrl.seeAllSalesKey,
+        tutorialCtrl.seeAllCleaningKey,
+        tutorialCtrl.seeAllMovingKey,
+        tutorialCtrl.seeAllOtherServicesKey,
+        tutorialCtrl.addButtonKeyForCurrentPlatform(),
+      ].where((key) => key.currentContext != null).toList();
+      if (keys.isEmpty) return;
+      ShowCaseWidget.of(showcaseContext).startShowCase(keys);
+    });
+  }
+
+  void _finishHomeTutorial(TutorialController tutorialCtrl) {
+    tutorialCtrl.setTutorialInProgress(false);
+    tutorialCtrl.completeHomeTutorial();
+    // Nouvelle clé : détruit le ShowCaseWidget et ses overlays, qui sinon
+    // restent au-dessus de l'accueil et empêchent le défilement.
+    if (mounted) setState(() => _tutorialDone = true);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final tutorialCtrl = Provider.of<TutorialController>(context, listen: false);
-    return ShowCaseWidget(
-      enableAutoScroll: true,
-      onStart: (index, key) {
-        print('Tutorial démarré: $index, $key');
-        tutorialCtrl.setTutorialInProgress(true);
-      },
-      onFinish: () {
-        tutorialCtrl.setTutorialInProgress(false);
-        tutorialCtrl.completeHomeTutorial();
-        // Le rebuild avec la nouvelle ValueKey va détruire l'ancien ShowCaseWidget
-        // effaçant ses états internes et overlays
-        if (mounted) setState(() => _tutorialDone = true);
-      },
-      builder: (showcaseContext) {
-        if (!_didTriggerTutorial && !_tutorialDone && tutorialCtrl.shouldShowHomeTutorial()) {
-          _didTriggerTutorial = true;
-          // IMPORTANT: Ne déclencher que le Add Button Showcase pour tester si ça scroll
-          Future.delayed(Duration(milliseconds: 800), () {
-            if (mounted && _currentIndex == 0) {
-              ShowCaseWidget.of(showcaseContext).startShowCase([
-                tutorialCtrl.drawerKey,
-                tutorialCtrl.notificationKey,
-                tutorialCtrl.seeAllLocationsKey,
-                tutorialCtrl.seeAllSalesKey,
-                tutorialCtrl.seeAllCleaningKey,
-                tutorialCtrl.seeAllMovingKey,
-                tutorialCtrl.seeAllOtherServicesKey,
-                tutorialCtrl.addButtonKeyForCurrentPlatform(),
-              ]);
-            }
-          });
-        }
-        return _buildScaffold(showcaseContext);
-      },
-    );
+    // Pas de ShowCaseWidget : son overlay plein écran reste au-dessus des routes
+    // (accueil, réservations) et avale le défilement.
+    return _buildScaffold(context);
   }
 
   // Contenu graphique du bouton Publier (sans Showcase)
@@ -254,20 +246,16 @@ class _BottomNavBarState extends State<BottomNavBar> with WidgetsBindingObserver
   }
 
   Widget _buildAddButton() {
-    return Showcase(
-      key: Provider.of<TutorialController>(context, listen: false).navAddButtonKey,
-      title: 'Publier une annonce',
-      description: 'Ajoutez un bien immobilier ou proposez un service en quelques étapes.',
-      child: GestureDetector(
-        onTap: _handleFabPress,
-        child: Container(
-          width: 50,
-          height: 50,
-          margin: EdgeInsets.symmetric(horizontal: 8),
-          child: _addButtonContent(size: 50),
-        ),
+    final button = GestureDetector(
+      onTap: _handleFabPress,
+      child: Container(
+        width: 50,
+        height: 50,
+        margin: EdgeInsets.symmetric(horizontal: 8),
+        child: _addButtonContent(size: 50),
       ),
     );
+    return button;
   }
 
   bool _shouldShowFab() {
