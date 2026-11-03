@@ -167,6 +167,7 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
 
   Widget _buildShimmer() {
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
       children: [
         Shimmer.fromColors(
@@ -367,13 +368,33 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: _isLoading 
+      body: RefreshIndicator(
+        color: _primaryColor,
+        onRefresh: _loadAgency,
+        child: _isLoading 
           ? _buildShimmer()
           : _errorMessage != null
-              ? _buildErrorState()
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    SizedBox(
+                      height: MediaQuery.sizeOf(context).height * 0.7,
+                      child: _buildErrorState(),
+                    ),
+                  ],
+                )
               : _myAgency == null 
-                  ? _buildEmptyState()
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: MediaQuery.sizeOf(context).height * 0.7,
+                          child: _buildEmptyState(),
+                        ),
+                      ],
+                    )
                   : SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       child: Column(
                         children: [
                           _buildHeader(_myAgency!),
@@ -383,6 +404,7 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
                         ],
                       ),
                     ),
+        ),
     );
   }
 
