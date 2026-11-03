@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 
 import '../config/onesignal_config.dart';
+import '../utils/StockageKeys.dart';
 import 'onesignal_member_refresh.dart';
 
 /// Initializes OneSignal push (Android / iOS only). No-op if [kOneSignalAppId] is empty.
@@ -57,6 +59,11 @@ Future<void> requestOneSignalNotificationPermissionAfterLaunch() async {
   }
   if (kOneSignalAppId.isEmpty) return;
   try {
+    final stored = GetStorage().read(StockageKeys.notificationsEnabledKey);
+    if (stored == false) {
+      OneSignal.User.pushSubscription.optOut();
+      return;
+    }
     await OneSignal.Notifications.requestPermission(true);
   } catch (_) {}
 }

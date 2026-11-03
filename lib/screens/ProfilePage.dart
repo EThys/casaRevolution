@@ -7,6 +7,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:pull_to_refresh/pull_to_refresh.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:casa/utils/casanayo_share_copy.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -46,6 +47,7 @@ import '../utils/FancyNotification.dart';
 import '../utils/requetes.dart';
 import 'package:provider/provider.dart';
 import 'HomePage.dart';
+import 'AppSettingsPage.dart';
 import '../controllers/PropertyCtrl.dart';
 import '../controllers/ServiceController.dart';
 import '../controllers/AgenceController.dart';
@@ -148,6 +150,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isDeleting = false; // Pour l'effet de suppression impactant
   bool _isLoading = false;
   double _profileCompletion = 0.0;
+  final RefreshController _profileRefreshController = RefreshController();
   String _publicationsCount = '0'; // Local state for dynamic count
 
   @override
@@ -403,6 +406,39 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
 
+
+  @override
+  void dispose() {
+    _profileRefreshController.dispose();
+    super.dispose();
+  }
+
+  void _endProfileRefresh({required bool success}) {
+    if (!mounted) return;
+    final status = _profileRefreshController.headerStatus;
+    final pulling = status == RefreshStatus.refreshing || status == RefreshStatus.canRefresh;
+    if (!pulling) return;
+    if (success) {
+      _profileRefreshController.refreshCompleted();
+    } else {
+      _profileRefreshController.refreshFailed();
+    }
+  }
+
+  Future<void> _handleProfileRefresh() async {
+    try {
+      final auth = context.read<AuthentificationCtrl>();
+      if (auth.token.isNotEmpty) {
+        await auth.refreshMemberFromServer(force: true);
+      }
+      _loadSavedData();
+      _calculateProfileCompletion();
+      await _fetchPublicationsCount();
+      _endProfileRefresh(success: true);
+    } catch (_) {
+      _endProfileRefresh(success: false);
+    }
+  }
 
   Future<void> _fetchPublicationsCount() async {
     final count = await ProfilePage.updatePublicationCount(context);
@@ -1397,6 +1433,20 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           child: Column(
             children: [
+              _buildSettingMenuItem(
+                icon: Icons.settings_rounded,
+                iconColor: _primaryColor,
+                bgColor: _primaryColor.withOpacity(0.10),
+                title: 'Paramètres',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AppSettingsPage()),
+                  );
+                },
+                isDarkMode: isDarkMode,
+              ),
+              Divider(height: 1, indent: 60, endIndent: 20, color: _borderColor),
               /*
               // Mode sombre (désactivé temporairement)
               Consumer<ThemeController>(
@@ -1918,27 +1968,40 @@ class _ProfilePageState extends State<ProfilePage> {
           children: [
             _isLoading
                 ? Center(child: CircularProgressIndicator(color: _primaryColor))
-                : SingleChildScrollView(
-              physics: ClampingScrollPhysics(),
-              padding: EdgeInsets.only(bottom: 80),
-              child: Column(
-                children: [
-                  _buildProfileHeader(),
-                  Transform.translate(
-                    offset: Offset(0, -30),
-                    child: Column(
-                      children: [
-                        _buildProfileCompletionCard(),
-                        _buildStatsCard(),
-                        SizedBox(height: 16),
-                        _buildProfileInfoCard(),
-                        _buildAuthOptions(),
-                        _buildSettingsMenu(),
-                        SizedBox(height: 20),
-                      ],
-                    ),
+                : Positioned.fill(
+              child: RefreshConfiguration(
+                enableScrollWhenRefreshCompleted: true,
+                child: SmartRefresher(
+                  controller: _profileRefreshController,
+                  enablePullDown: true,
+                  enablePullUp: false,
+                  header: WaterDropMaterialHeader(
+                    backgroundColor: _primaryColor,
+                    color: Colors.white,
                   ),
-                ],
+                  onRefresh: _handleProfileRefresh,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(bottom: 80),
+                    children: [
+                      _buildProfileHeader(),
+                      Transform.translate(
+                        offset: const Offset(0, -30),
+                        child: Column(
+                          children: [
+                            _buildProfileCompletionCard(),
+                            _buildStatsCard(),
+                            const SizedBox(height: 16),
+                            _buildProfileInfoCard(),
+                            _buildAuthOptions(),
+                            _buildSettingsMenu(),
+                            const SizedBox(height: 20),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
             if (_isDeleting) _buildDeletionOverlay(),

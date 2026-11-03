@@ -13,6 +13,8 @@ class StockageKeys{
   static const String userVisits="userVisits";
   static const String firstLaunchKey="FIRSTLAUNCH";
   static const String themeModeKey="themeMode";
+  /// Préférence locale des notifications push. `false` = l’utilisateur les a coupées dans Paramètres.
+  static const String notificationsEnabledKey = 'notifications_enabled';
   static const String devisesKey="devises";
   static const String wasCertifiedKey = 'was_certified';
   static const String decertificationReasonKey = 'decertification_reason';
