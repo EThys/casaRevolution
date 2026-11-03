@@ -91,6 +91,14 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
 
   // State variables
   bool _isForRent = true;
+
+  bool get _isHotelEdit {
+    final name = (_selectedCategory ?? widget.property.propertyType?.name ?? '').toLowerCase();
+    return widget.property.isHotelListing ||
+        widget.property.propertyTypeId == 5 ||
+        name.contains('hotel') ||
+        name.contains('hôtel');
+  }
   bool _isLoading = false;
   Set<String> _selectedAmenities = {};
   LatLng? _selectedLocation;
@@ -307,8 +315,11 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
       _vacDateController.text = cs.substring(0, 10);
     }
 
-    // Type de transaction
-    _isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
+    // Type de transaction. Un hôtel est un hébergement ou une vente, jamais une location.
+    final hotelEdit = property.isHotelListing || property.propertyTypeId == 5;
+    _isForRent = hotelEdit
+        ? !(property.transactionType?.toLowerCase().contains('vente') ?? false)
+        : (property.transactionType?.toLowerCase().contains('location') ?? false);
 
     // Type de propriété - convertir l'ID en nom
     if (property.propertyType != null && property.propertyType?.name != null) {
@@ -335,8 +346,9 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
     // Statut initial : **uniquement `sold`**, pas `isActive`.
     // Location : sold==true → plus disponible (2), sinon disponible (0).
     // Vente : sold==true → vendu (1), sinon disponible (0). « Loué » / « plus dispo » ne sont pas déduits de l’API sans sold.
-    final isRent =
-        property.transactionType?.toLowerCase().contains('location') ?? false;
+    final isRent = hotelEdit
+        ? !(property.transactionType?.toLowerCase().contains('vente') ?? false)
+        : (property.transactionType?.toLowerCase().contains('location') ?? false);
     if (isRent) {
       _listingStatusIndex = property.sold == true ? 2 : 0;
     } else {
@@ -987,8 +999,8 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
           children: [
             Expanded(
               child: _buildAudaciousTypeCard(
-                title: "À louer",
-                subtitle: "Location",
+                title: _isHotelEdit ? "Hébergement" : "À louer",
+                subtitle: _isHotelEdit ? "Séjour" : "Location",
                 isSelected: _isForRent,
                 iconPath: Icons.key_rounded,
                 onTap: () => _onTransactionTypeChanged(true),
@@ -1187,7 +1199,9 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
             ),
             ChoiceChip(
               label: Text(
-                _isForRent ? 'Loué' : 'Vendu',
+                _isHotelEdit
+                    ? (_isForRent ? 'Indisponible' : 'Vendu')
+                    : (_isForRent ? 'Loué' : 'Vendu'),
                 style: GoogleFonts.outfit(
                   fontWeight: FontWeight.w600,
                   color: _listingStatusIndex == 1 ? _primaryColor : _darkColor,
@@ -2369,7 +2383,9 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
       "isActive": _listingStatusIndex != 2,
       "isAvailable": _listingStatusIndex != 2,
       "available": _listingStatusIndex != 2,
-      "transactionType": _isForRent ? "location" : "vente",
+      "transactionType": _isHotelEdit
+          ? (_isForRent ? "hébergement" : "vente")
+          : (_isForRent ? "location" : "vente"),
       "propertyTypeId": _getPropertyTypeId(_selectedCategory) ?? 2,
       "userId": userId,
       "latitude": _selectedLocation?.latitude ?? widget.property.latitude ?? 0.1,

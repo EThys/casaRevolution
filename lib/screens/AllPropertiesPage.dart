@@ -12,6 +12,7 @@ import '../models/AgenceModel.dart';
 import '../utils/Constantes.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/property_detail_navigation.dart';
+import '../utils/hotel_room_price.dart';
 import '../utils/FavoriteEartIcon.dart';
 import 'package:casa/widgets/property_sold_badge.dart';
 import 'AgenceDetailsPage.dart';
@@ -110,15 +111,6 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
       if (imgs != null && imgs.isNotEmpty) return imgs.first;
     }
     return a.logo;
-  }
-
-  String _locationText(String? commune, String? city) {
-    final parts = <String>[];
-    final c1 = (commune ?? '').trim();
-    final c2 = (city ?? '').trim();
-    if (c1.isNotEmpty) parts.add(c1);
-    if (c2.isNotEmpty) parts.add(c2);
-    return parts.isEmpty ? 'Localisation' : parts.join(', ');
   }
 
   @override
@@ -576,9 +568,8 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            _locationText(
-                                property.communeValue, property.cityValue),
-                            maxLines: 1,
+                            property.listingPlace,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                                 color: Colors.white.withOpacity(0.85),
@@ -970,7 +961,11 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         "🔄 [AllPropertiesPage] Début du refresh - Filtre actuel: $currentFilter");
 
     try {
-      await propertyCtrl.refreshProperties();
+      await propertyCtrl.refreshProperties(forceSync: true);
+      await propertyCtrl.syncAllSpecialCategories();
+      if (mounted) {
+        await Provider.of<AgenceController>(context, listen: false).fetchAgences();
+      }
 
       // Si le filtre est "Tous", récupérer toutes les propriétés du type de transaction
       if (currentFilter == 'Tous') {
@@ -1032,6 +1027,15 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
       ),
       actions: [
         IconButton(
+          tooltip: 'Actualiser',
+          icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+          onPressed: () {
+            final propertyCtrl =
+                Provider.of<PropertyController>(context, listen: false);
+            _handlePullToRefresh(propertyCtrl);
+          },
+        ),
+        IconButton(
           icon: Icon(
             _isGridView ? Icons.list_rounded : Icons.grid_view_rounded,
             color: Colors.white,
@@ -1056,7 +1060,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         child: TextField(
           controller: _searchController,
           decoration: InputDecoration(
-            hintText: 'Rechercher une propriété...',
+            hintText: 'Ville, commune, quartier, adresse...',
             hintStyle: TextStyle(color: _greyColor),
             prefixIcon: Icon(Icons.search, color: _primaryColor),
             suffixIcon: _searchController.text.isNotEmpty
@@ -1174,9 +1178,8 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         property.propertyTypeId == 5;
 
     final isForRent = widget.isForRent;
-    // Hôtels: ne pas afficher le prix ici (demande UX).
     final priceText = isHotel
-        ? null
+        ? hotelStartingPriceLabel(property)
         : (isForRent
             ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
             : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
@@ -1374,21 +1377,26 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                                     const Spacer(),
                                     ConstrainedBox(
                                       constraints:
-                                          const BoxConstraints(maxWidth: 92),
+                                          const BoxConstraints(maxWidth: 118),
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 8, vertical: 4),
                                         decoration: BoxDecoration(
-                                          color: widget.isForRent
+                                          color: (property.isHotelListing
+                                                  ? !property.isSaleListing
+                                                  : widget.isForRent)
                                               ? Colors.blue[500]
                                               : Colors.green[500],
                                           borderRadius:
                                               BorderRadius.circular(999),
                                         ),
                                         child: Text(
-                                          widget.isForRent
-                                              ? 'LOCATION'
-                                              : 'VENTE',
+                                          property.isHotelListing
+                                              ? property.publicTransactionLabel
+                                                  .toUpperCase()
+                                              : (widget.isForRent
+                                                  ? 'LOCATION'
+                                                  : 'VENTE'),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
@@ -1453,8 +1461,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            _locationText(
-                                property.communeValue, property.cityValue),
+                            property.listingPlace,
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 13,
@@ -1604,9 +1611,8 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         !isFestive &&
         !isFuneraire;
 
-    // Hôtels: pas de prix sur la carte (demande UX).
     final priceText = isHotel
-        ? null
+        ? hotelStartingPriceLabel(property)
         : (isMonthly
             ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
             : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
@@ -1817,21 +1823,26 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                                       const SizedBox(width: 6),
                                       ConstrainedBox(
                                         constraints:
-                                            const BoxConstraints(maxWidth: 92),
+                                            const BoxConstraints(maxWidth: 118),
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 7, vertical: 4),
                                           decoration: BoxDecoration(
-                                            color: widget.isForRent
+                                            color: (property.isHotelListing
+                                                    ? !property.isSaleListing
+                                                    : widget.isForRent)
                                                 ? Colors.blue[500]
                                                 : Colors.green[500],
                                             borderRadius:
                                                 BorderRadius.circular(999),
                                           ),
                                           child: Text(
-                                            widget.isForRent
-                                                ? 'LOCATION'
-                                                : 'VENTE',
+                                            property.isHotelListing
+                                                ? property.publicTransactionLabel
+                                                    .toUpperCase()
+                                                : (widget.isForRent
+                                                    ? 'LOCATION'
+                                                    : 'VENTE'),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
@@ -1899,8 +1910,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                             SizedBox(width: 2),
                             Expanded(
                               child: Text(
-                                _locationText(
-                                    property.communeValue, property.cityValue),
+                                property.listingPlace,
                                 style: TextStyle(
                                   color: _greyColor,
                                   fontSize: 10,
@@ -2148,13 +2158,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
 
     setState(() {
       _filteredProperties = baseProperties.where((property) {
-        final searchText = _searchController.text.toLowerCase();
-        final matchesSearch = searchText.isEmpty ||
-            (property.title?.toLowerCase().contains(searchText) ?? false) ||
-            (property.description?.toLowerCase().contains(searchText) ??
-                false) ||
-            (property.address?.toLowerCase().contains(searchText) ?? false) ||
-            (property.quartier?.toLowerCase().contains(searchText) ?? false);
+        final matchesSearch = property.matchesListingQuery(_searchController.text);
 
         final matchesCategory = _selectedFilter == 'Tous' ||
             _matchesCategory(property, _selectedFilter);

@@ -906,7 +906,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             Chip(
               backgroundColor: _primaryColor.withOpacity(0.1),
               label: Text(
-                isForRent ? 'À LOUER' : 'À VENDRE',
+                property.isHotelListing
+                    ? property.publicTransactionLabel.toUpperCase()
+                    : (isForRent ? 'À LOUER' : 'À VENDRE'),
                 style: TextStyle(
                   color: _primaryColor,
                   fontSize: 12,

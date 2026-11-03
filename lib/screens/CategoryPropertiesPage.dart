@@ -12,6 +12,7 @@ import '../models/PropertyModel.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/property_detail_navigation.dart';
+import '../utils/hotel_room_price.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../controllers/provider/FavoriteProvider.dart';
 import '../controllers/AgenceController.dart';
@@ -37,14 +38,6 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
   bool _isGridView = true;
 
-  String _locationText(String? commune, String? city) {
-    final parts = <String>[];
-    final c1 = (commune ?? '').trim();
-    final c2 = (city ?? '').trim();
-    if (c1.isNotEmpty) parts.add(c1);
-    if (c2.isNotEmpty) parts.add(c2);
-    return parts.isEmpty ? 'Localisation' : parts.join(', ');
-  }
   String _selectedFilter = 'Tous';
   final List<String> _filters = ['Tous', 'Location', 'Vente', 'Populaires', 'Nouveautés'];
   final RefreshController _refreshController = RefreshController();
@@ -285,7 +278,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         }
       }
 
-      await propertyCtrl.refreshProperties();
+      await propertyCtrl.refreshProperties(forceSync: true);
       await propertyCtrl.syncAllSpecialCategories();
       
       if (widget.category == 'Vacances' && mounted) {
@@ -391,8 +384,16 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
   List<PropertyModel> _applyFilter(List<PropertyModel> properties, String filter) {
     switch (filter) {
       case 'Location':
-        return properties.where((p) => p.transactionType?.toLowerCase().contains('location') ?? false).toList();
+        return properties.where((p) {
+          if (p.isHotelListing) return false;
+          return p.transactionType?.toLowerCase().contains('location') ?? false;
+        }).toList();
+      case 'Hébergement':
+        return properties.where((p) => p.isHotelListing && !p.isSaleListing).toList();
       case 'Vente':
+        if (widget.category == 'Hotels') {
+          return properties.where((p) => p.isSaleListing).toList();
+        }
         return properties.where((p) => p.transactionType?.toLowerCase().contains('vente') ?? false).toList();
       case 'Nouveautés':
         return properties..sort((a, b) => (b.propertyId ?? 0).compareTo(a.propertyId ?? 0));
@@ -445,6 +446,15 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
       ),
       actions: [
         IconButton(
+          tooltip: 'Actualiser',
+          icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+          onPressed: () {
+            final propertyCtrl =
+                Provider.of<PropertyController>(context, listen: false);
+            _handlePullToRefresh(propertyCtrl);
+          },
+        ),
+        IconButton(
           icon: Icon(
             _isGridView ? Icons.list_rounded : Icons.grid_view_rounded,
             color: Colors.white,
@@ -470,6 +480,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     final filterIcons = {
       'Tous': Icons.all_inclusive_rounded,
       'Location': Icons.apartment_rounded,
+      'Hébergement': Icons.hotel_rounded,
       'Vente': Icons.sell_rounded,
       'Populaires': Icons.trending_up_rounded,
       'Nouveautés': Icons.fiber_new_rounded,
@@ -478,7 +489,9 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     // Filter logic specific for 'Vacances' (UI peut afficher "Tourisme" mais la logique reste basée sur widget.category).
     final activeFilters = widget.category == 'Vacances'
         ? _filters.where((f) => !['Location', 'Vente'].contains(f)).toList()
-        : _filters;
+        : widget.category == 'Hotels'
+            ? _filters.map((f) => f == 'Location' ? 'Hébergement' : f).toList()
+            : _filters;
 
     return Container(
       height: 66,
@@ -1049,11 +1062,15 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: isForRent ? Colors.blue[500] : Colors.green[500],
+                                  color: (property.isHotelListing ? !property.isSaleListing : isForRent)
+                                      ? Colors.blue[500]
+                                      : Colors.green[500],
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
-                                  isForRent ? 'LOCATION' : 'VENTE',
+                                  property.isHotelListing
+                                      ? property.publicTransactionLabel.toUpperCase()
+                                      : (isForRent ? 'LOCATION' : 'VENTE'),
                                   style: const TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w800,
@@ -1113,7 +1130,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            _locationText(property.communeValue, property.cityValue),
+                            property.listingPlace,
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 13,
@@ -1330,7 +1347,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         !isFuneraire;
 
     final priceText = isHotel
-        ? null
+        ? hotelStartingPriceLabel(property)
         : (isMonthly
             ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
             : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
@@ -1528,21 +1545,26 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                                       const SizedBox(width: 6),
                                       ConstrainedBox(
                                         constraints:
-                                            const BoxConstraints(maxWidth: 92),
+                                            const BoxConstraints(maxWidth: 118),
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 7, vertical: 4),
                                           decoration: BoxDecoration(
-                                            color: isForRent
+                                            color: (property.isHotelListing
+                                                    ? !property.isSaleListing
+                                                    : isForRent)
                                                 ? Colors.blue[500]
                                                 : Colors.green[500],
                                             borderRadius:
                                                 BorderRadius.circular(999),
                                           ),
                                           child: Text(
-                                            isForRent
-                                                ? 'LOCATION'
-                                                : 'VENTE',
+                                            property.isHotelListing
+                                                ? property.publicTransactionLabel
+                                                    .toUpperCase()
+                                                : (isForRent
+                                                    ? 'LOCATION'
+                                                    : 'VENTE'),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
@@ -1606,8 +1628,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                             SizedBox(width: 2),
                             Expanded(
                               child: Text(
-                                _locationText(
-                                    property.communeValue, property.cityValue),
+                                property.listingPlace,
                                 style: TextStyle(
                                   color: _greyColor,
                                   fontSize: 10,

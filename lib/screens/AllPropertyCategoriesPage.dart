@@ -14,10 +14,12 @@ class AllPropertyCategoriesPage extends StatelessWidget {
   static const Color _darkBlue = Color(0xFF0D47A1);
 
   void _openCategory(BuildContext context, Map<String, dynamic> category) {
-    final rawValue = (category['value'] as String?) ?? '';
-    final normalized = PropertyCategoryCatalog.normalizedCategoryValue(rawValue);
+    final rawValue = (category['value']?.toString() ?? '').trim();
+    final label = (category['label']?.toString() ?? '').trim();
+    final source = rawValue.isNotEmpty ? rawValue : label;
+    final normalized = PropertyCategoryCatalog.normalizedCategoryValue(source);
 
-    if (normalized == 'Terrain') {
+    if (normalized.toLowerCase().contains('terrain')) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => TerrainPropertiesPage()),
@@ -36,7 +38,11 @@ class AllPropertyCategoriesPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final categories =
-        PropertyCategoryCatalog.resolve(context.watch<PropertyController>());
+        PropertyCategoryCatalog.resolve(context.watch<PropertyController>())
+            .toList()
+          ..sort((a, b) => ((a['label'] as String?) ?? '')
+              .toLowerCase()
+              .compareTo(((b['label'] as String?) ?? '').toLowerCase()));
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F9F9),
@@ -64,56 +70,66 @@ class AllPropertyCategoriesPage extends StatelessWidget {
           ),
         ),
       ),
-      body: GridView.builder(
-        padding: const EdgeInsets.all(20),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 20,
-          childAspectRatio: 0.78,
-        ),
+      body: RefreshIndicator(
+        color: _primaryColor,
+        onRefresh: () async {
+          final propertyCtrl = context.read<PropertyController>();
+          await propertyCtrl.refreshProperties(forceSync: true);
+          await propertyCtrl.syncAllSpecialCategories();
+        },
+        child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(16, 16, 16, 28 + MediaQuery.viewPaddingOf(context).bottom),
         itemCount: categories.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           final category = categories[index];
           final label = category['label'] as String? ?? '';
           final image = category['image'] as String? ?? '';
 
-          return Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => _openCategory(context, category),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    padding: const EdgeInsets.all(12),
-                    child: Image.asset(image, fit: BoxFit.contain),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    label,
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade800,
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openCategory(context, category),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
               ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      padding: const EdgeInsets.all(8),
+                      child: Image.asset(image, fit: BoxFit.contain),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF111827),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: Colors.grey[400]),
+                  ],
+                ),
             ),
           );
         },
+      ),
       ),
     );
   }

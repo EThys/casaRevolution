@@ -307,7 +307,7 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        '${h.cityValue ?? ''}${(h.communeValue ?? '').isNotEmpty ? ', ${h.communeValue}' : ''}',
+                        h.listingPlace,
                         style: TextStyle(color: _mediumGrey, fontSize: 14),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -318,6 +318,24 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
                 const SizedBox(height: 8),
                 Row(
                   children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: h.isSaleListing
+                            ? const Color(0xFFECFDF5)
+                            : _primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        h.publicTransactionLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: h.isSaleListing ? const Color(0xFF047857) : _primaryColor,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Icon(Icons.bed_rounded, size: 16, color: _primaryColor),
                     const SizedBox(width: 6),
                     Text(

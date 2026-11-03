@@ -102,6 +102,7 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
 
   Future<void> _handlePullToRefresh(PropertyController propertyCtrl) async {
     try {
+      await propertyCtrl.refreshProperties(forceSync: true);
       await propertyCtrl.syncAllSpecialCategories();
       _refreshController.refreshCompleted();
     } catch (e) {
@@ -195,6 +196,15 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
         ],
       ),
       actions: [
+        IconButton(
+          tooltip: 'Actualiser',
+          icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+          onPressed: () {
+            final propertyCtrl =
+                Provider.of<PropertyController>(context, listen: false);
+            _handlePullToRefresh(propertyCtrl);
+          },
+        ),
         IconButton(
           icon: Icon(
             _isGridView ? Icons.list_rounded : Icons.grid_view_rounded,

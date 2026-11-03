@@ -987,7 +987,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                             SizedBox(width: 4),
                             Expanded(
                               child: Text(
-                                "${property.cityValue}, ${property.communeValue}",
+                                property.listingPlace,
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: _mediumGrey,
@@ -1223,7 +1223,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                           SizedBox(width: 5),
                           Expanded(
                             child: Text(
-                              "${property.cityValue}, ${property.communeValue}",
+                              property.listingPlace,
                               style: TextStyle(
                                 color: _mediumGrey,
                                 fontSize: 14,
