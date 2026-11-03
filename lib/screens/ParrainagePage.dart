@@ -12,9 +12,9 @@ import 'package:casa/controllers/TypeAccountController.dart';
 import 'package:casa/models/CityModel.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:casa/widgets/step_appear.dart';
 
 class ParrainagePage extends StatefulWidget {
   @override
@@ -49,8 +49,12 @@ class _ParrainagePageState extends State<ParrainagePage> {
   bool _acceptConditions = false;
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
 
-  /// 0 = programme, 1 = profil, 2 = type de compte, 3 = parrain + mot de passe + CGU.
+  /// 0 programme, 1 nom, 2 contact, 3 ville, 4 type de compte, 5 parrain, 6 mot de passe.
   int _parrainageStep = 0;
+  static const int _stepCount = 7;
+  bool _isImmobilierDropdownOpen = false;
+  bool _isServicesDropdownOpen = false;
+  bool _showConditionsError = false;
 
   // Suivi de la force du mot de passe en temps réel
   int _passwordStrength = 0;
@@ -548,38 +552,161 @@ class _ParrainagePageState extends State<ParrainagePage> {
     }
   }
 
+  void _previousStep() {
+    FocusScope.of(context).unfocus();
+    if (_parrainageStep == 0) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() => _parrainageStep -= 1);
+  }
+
+  void _continueStep() {
+    FocusScope.of(context).unfocus();
+    if (_parrainageStep == 0 || _parrainageStep == 5) {
+      setState(() => _parrainageStep += 1);
+      return;
+    }
+    if (_parrainageStep == 1) {
+      setState(() {
+        _firstNameTouched = true;
+        _lastNameTouched = true;
+      });
+      if (_validateName(_firstNameController.text, 'prénom') != null ||
+          _validateName(_lastNameController.text, 'nom') != null) {
+        return;
+      }
+    } else if (_parrainageStep == 2) {
+      setState(() => _contactTouched = true);
+      if (_validateContact(_contactController.text) != null) return;
+    } else if (_parrainageStep == 3) {
+      setState(() => _cityTouched = true);
+      if (_validateCity(_cityController.text) != null) return;
+    } else if (_parrainageStep == 4) {
+      final hasAccount = _isLocataireSelected ||
+          _selectedOwnerAccountId != null ||
+          _selectedPrestataireAccountId != null;
+      if (!hasAccount) {
+        setState(() => _autoValidateMode = AutovalidateMode.always);
+        return;
+      }
+    } else {
+      setState(() => _passwordTouched = true);
+      if (_validatePassword(_passwordController.text) != null) return;
+      if (!_acceptConditions) {
+        setState(() => _showConditionsError = true);
+        return;
+      }
+      _handleRegister();
+      return;
+    }
+    setState(() => _parrainageStep += 1);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Scaffold(
-      backgroundColor: _pageBg,
-      body: Stack(
-        alignment: Alignment.center,
-        children: [
-          _buildBackground(),
-          AbsorbPointer(
+      backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: true,
+      body: PopScope(
+        canPop: _parrainageStep == 0 && !_isLoading,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop || _isLoading) return;
+          _previousStep();
+        },
+        child: SafeArea(
+          child: AbsorbPointer(
             absorbing: _isLoading,
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-              child: SafeArea(
-                child: Column(
-                  children: [
-                    if (_parrainageStep == 0)
-                      Align(
-                        alignment: Alignment.topLeft,
-                        child: IconButton(
-                          icon: Icon(Icons.arrow_back_ios, color: textColor),
-                          onPressed: () => Navigator.of(context).pop(),
-                        ),
-                      ),
-                    if (_parrainageStep == 0) const SizedBox(height: 10),
-                    _buildLogo(),
-                    const SizedBox(height: 30),
-                    _buildAuthCard(),
-                    const SizedBox(height: 10),
-                  ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildStepHeader(),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: SingleChildScrollView(
+                      key: ValueKey<int>(_parrainageStep),
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+                      child: _buildStepBody(),
+                    ),
+                  ),
                 ),
-              ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildStepButton(),
+                      if (!keyboardOpen) ...[
+                        const SizedBox(height: 4),
+                        _buildLoginLink(),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 16, 0),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                IconButton(
+                  icon: Icon(Icons.arrow_back_ios_new, color: textColor, size: 20),
+                  onPressed: _isLoading ? null : _previousStep,
+                ),
+                Expanded(
+                  child: Text(
+                    'CasaNayo',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${_parrainageStep + 1}/$_stepCount',
+                  style: TextStyle(
+                    color: secondaryTextColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: List.generate(_stepCount, (index) {
+                final filled = index <= _parrainageStep;
+                return Expanded(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    height: 4,
+                    margin: EdgeInsets.only(right: index == _stepCount - 1 ? 0 : 6),
+                    decoration: BoxDecoration(
+                      color: filled ? primaryColor : const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                );
+              }),
             ),
           ),
         ],
@@ -587,317 +714,430 @@ class _ParrainagePageState extends State<ParrainagePage> {
     );
   }
 
-  Widget _buildBackground() {
-    return Stack(
+  Widget _buildStepBody() {
+    late final String title;
+    late final String subtitle;
+    late final Widget fields;
+    switch (_parrainageStep) {
+      case 0:
+        title = 'Parrainer, c’est grandir ensemble';
+        subtitle = 'Invitez vos proches et participez au tirage CasaNayo.';
+        fields = _buildParrainageBenefits();
+        break;
+      case 1:
+        title = 'Comment vous appelez-vous ?';
+        subtitle = 'Ces informations apparaîtront sur votre profil.';
+        fields = _buildStep1FormFields();
+        break;
+      case 2:
+        title = 'Comment peut-on vous joindre ?';
+        subtitle = 'Un email ou un numéro de téléphone suffit.';
+        fields = _buildContactField();
+        break;
+      case 3:
+        title = 'Dans quelle ville êtes-vous ?';
+        subtitle = 'Pour vous proposer des biens près de chez vous.';
+        fields = _buildCityField();
+        break;
+      case 4:
+        title = 'Que venez-vous faire ?';
+        subtitle = 'Choisissez le type de compte qui vous correspond.';
+        fields = _buildAccountTypeField();
+        break;
+      case 5:
+        title = 'Qui vous a parrainé ?';
+        subtitle = 'Recherchez son nom. Vous pouvez aussi passer cette étape.';
+        fields = _buildParrainField();
+        break;
+      default:
+        title = 'Choisissez un mot de passe';
+        subtitle = '6 caractères suffisent. Pas besoin d’un mot de passe compliqué.';
+        fields = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildPasswordField(),
+            _buildPasswordStrengthIndicator(),
+            const SizedBox(height: 20),
+            _buildPrivacyText(),
+          ],
+        );
+    }
+
+    return StepAppear(
+      key: ValueKey<int>(_parrainageStep),
+      child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Positioned(
-          top: -100,
-          right: -100,
-          child: Container(
-            width: 300,
-            height: 300,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  primaryColor.withOpacity(0.08),
-                  primaryColor.withOpacity(0.02),
-                ],
-              ),
-            ),
-          ).animate().fadeIn(delay: 100.ms),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 28,
+            height: 1.15,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF111827),
+            letterSpacing: -0.4,
+          ),
         ),
-        Positioned(
-          top: 50,
-          left: -50,
-          child: Container(
-            width: 150,
-            height: 150,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  accentColor.withOpacity(0.06),
-                  accentColor.withOpacity(0.02),
-                ],
-              ),
-            ),
-          ).animate().fadeIn(delay: 200.ms),
+        const SizedBox(height: 8),
+        Text(
+          subtitle,
+          style: TextStyle(color: Colors.grey[600], fontSize: 15, height: 1.35),
         ),
-        Positioned(
-          bottom: -150,
-          left: MediaQuery.of(context).size.width / 2 - 150,
-          child: Container(
-            width: 300,
-            height: 300,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  darkBlue.withOpacity(0.05),
-                  darkBlue.withOpacity(0.01),
-                ],
-              ),
-            ),
-          ).animate().fadeIn(delay: 300.ms),
+        const SizedBox(height: 28),
+        fields,
+      ],
+    ),
+    );
+  }
+
+  Widget _buildStepButton() {
+    final isLast = _parrainageStep == _stepCount - 1;
+    final label = _parrainageStep == 0
+        ? 'Commencer'
+        : (isLast ? 'Créer mon compte' : 'Suivant');
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : _continueStep,
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          backgroundColor: primaryColor,
+          disabledBackgroundColor: primaryColor.withOpacity(0.45),
+          foregroundColor: Colors.white,
+          disabledForegroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         ),
+        child: _isLoading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                ),
+              )
+            : Text(
+                label,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
+              ),
+      ),
+    );
+  }
+
+  Widget _stepNavRow({required VoidCallback onBack, required VoidCallback onNext}) {
+    return Row(
+      children: [
+        Expanded(child: _pillOutline('Retour', onBack)),
+        const SizedBox(width: 10),
+        Expanded(flex: 2, child: _pillPrimary('Continuer', onNext)),
       ],
     );
   }
 
-  Widget _buildLogo() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Stack(
+  Widget _pillPrimary(String label, VoidCallback onPressed) {
+    return FilledButton(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: primaryColor,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        minimumSize: const Size.fromHeight(48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+
+  Widget _pillOutline(String label, VoidCallback onPressed) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _twTextPrimary,
+        side: const BorderSide(color: _twBorder),
+        minimumSize: const Size.fromHeight(48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+
+  Widget _benefitRow({
+    required IconData icon,
+    required String title,
+    required String body,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              padding: const EdgeInsets.all(16),
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [accentColor, primaryColor],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: primaryColor.withOpacity(0.3),
-                    blurRadius: 25,
-                    spreadRadius: 2,
-                    offset: const Offset(0, 8),
+                color: primaryColor.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: primaryColor, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    body,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      height: 1.4,
+                      color: Color(0xFF64748B),
+                    ),
                   ),
                 ],
               ),
-              child: Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  image: DecorationImage(
-                    image: AssetImage('assets/images/icon.png'),
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
             ),
           ],
-        ).animate().scale(
-              delay: 500.ms,
-              duration: 800.ms,
-              curve: Curves.elasticOut,
-            ),
-        const SizedBox(width: 8),
-        Container(
-          height: 40,
-          width: 1,
-          margin: const EdgeInsets.symmetric(horizontal: 8),
-          color: Colors.grey.withOpacity(0.3),
-        ).animate().fadeIn(delay: 650.ms),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ShaderMask(
-                shaderCallback: (bounds) => LinearGradient(
-                  colors: [primaryColor, darkBlue],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                ).createShader(bounds),
-                child: const Text(
-                  'CasaNayo',
-                  style: TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 1.0,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _parrainageStep == 0
-                    ? 'Programme parrainage'
-                    : _parrainageStep == 1
-                        ? 'Votre profil'
-                        : _parrainageStep == 2
-                            ? 'Type de compte'
-                            : 'Parrain & accès',
-                style: GoogleFonts.inter(
-                  textStyle: TextStyle(
-                    color: secondaryTextColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ).animate().slideX(
-                begin: 0.3,
-                duration: 600.ms,
-                delay: 700.ms,
-                curve: Curves.easeOutCubic,
-              ),
         ),
-      ],
+      ),
+    );
+  }
+
+  Widget _prizeChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: primaryColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: primaryColor,
+          fontSize: 12.5,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 
   Widget _buildParrainageBenefits() {
-    Widget line(String prefix, String text) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 26,
-              child: Text(
-                prefix,
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: primaryColor,
-                ),
-              ),
-            ),
-            Expanded(
-              child: Text(
-                text,
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  height: 1.45,
-                  color: _twTextSecondary,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _twBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Pourquoi parrainer sur CasaNayo ?',
-            style: GoogleFonts.inter(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: _twTextPrimary,
-              letterSpacing: -0.25,
-            ),
-          ),
-          const SizedBox(height: 16),
-          line(
-            '1.',
-            'Invitez des proches à créer leur compte depuis l’application : à partir de 5 personnes parrainées et inscrites, vous devenez éligible au tirage au sort du concours CasaNayo.',
-          ),
-          line(
-            '2.',
-            'Si, parmi vos filleuls, certains souscrivent à un abonnement annuel, vos chances au tirage augmentent.',
-          ),
-          line(
-            '3.',
-            'Les gagnants peuvent participer à un concours pour remporter des bons d’achat, des forfaits internet, des véhicules et bien plus encore.',
-          ),
-          const SizedBox(height: 8),
-          Divider(height: 1, color: _twBorder),
-          const SizedBox(height: 12),
-          Text(
-            'Créez ensuite votre compte avec le nom de votre parrain pour rejoindre le programme.',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              height: 1.4,
-              color: _twTextSecondary,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 280.ms);
-  }
-
-  Widget _buildStepProgressBar() {
-    final stepIndex = _parrainageStep.clamp(0, 3);
-    final progress = (stepIndex + 1) / 4.0;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Étape ${stepIndex + 1} sur 4',
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: primaryColor,
-                letterSpacing: 0.15,
-              ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1565C0), Color(0xFF42A5F5)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            Text(
-              _stepTitles[stepIndex],
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: _twTextSecondary,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 4,
-            backgroundColor: Colors.grey.shade200,
-            color: primaryColor,
           ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      '5 filleuls',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 26,
+                        height: 1.05,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      'pour entrer dans le tirage CasaNayo.',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        height: 1.35,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 28),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _benefitRow(
+          icon: Icons.group_add_rounded,
+          title: 'Invitez vos proches',
+          body: 'Dès 5 inscriptions grâce à vous, vous devenez éligible au tirage.',
+        ),
+        _benefitRow(
+          icon: Icons.workspace_premium_rounded,
+          title: 'Les abonnements comptent',
+          body: 'Si un filleul prend un abonnement annuel, vos chances augmentent.',
+        ),
+        _benefitRow(
+          icon: Icons.emoji_events_rounded,
+          title: 'Des lots à gagner',
+          body: 'Les gagnants reçoivent une récompense tirée au sort.',
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _prizeChip('Bons d’achat'),
+            _prizeChip('Forfaits internet'),
+            _prizeChip('Véhicules'),
+          ],
         ),
       ],
     );
   }
 
+  Widget _buildStepProgressBar() {
+    final stepIndex = _parrainageStep.clamp(0, 3);
+    return Row(
+      children: List.generate(4, (i) {
+        final done = i < stepIndex;
+        final current = i == stepIndex;
+        final active = done || current;
+        return Expanded(
+          child: Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: active ? primaryColor : Colors.white,
+                  border: Border.all(color: active ? primaryColor : _twBorder, width: 1.5),
+                ),
+                child: done
+                    ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                    : Text(
+                        '${i + 1}',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: current ? Colors.white : _twTextSecondary,
+                        ),
+                      ),
+              ),
+              if (i < 3)
+                Expanded(
+                  child: Container(
+                    height: 2,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    color: i < stepIndex ? primaryColor : _twBorder,
+                  ),
+                ),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+
+  String _parrainInitials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
+  }
+
+  Widget _parrainAvatar(String name, {double size = 42}) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: primaryColor.withOpacity(0.12),
+        shape: BoxShape.circle,
+      ),
+      child: Text(
+        _parrainInitials(name),
+        style: TextStyle(
+          color: primaryColor,
+          fontWeight: FontWeight.w800,
+          fontSize: size * 0.34,
+        ),
+      ),
+    );
+  }
+
+  void _selectParrain(Map<String, dynamic> parrain) {
+    setState(() {
+      _selectedParrain = parrain;
+      _parrainSearchController.text = (parrain['name'] as String?) ?? '';
+      _isSearchingParrains = false;
+      _filteredParrains = [];
+    });
+    _parrainFocus.unfocus();
+  }
+
+  void _clearParrain() {
+    setState(() {
+      _selectedParrain = null;
+      _parrainSearchController.clear();
+      _isSearchingParrains = false;
+      _filteredParrains = [];
+    });
+  }
+
   Widget _buildParrainField() {
+    final query = _parrainSearchController.text.trim();
+    final showResults = _selectedParrain == null && _isSearchingParrains && query.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Champ de recherche avec dropdown
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: primaryColor.withOpacity(0.05),
-                blurRadius: 10,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: TextFormField(
+        if (_selectedParrain != null)
+          _buildSelectedParrainCard()
+        else ...[
+          TextField(
             controller: _parrainSearchController,
             focusNode: _parrainFocus,
             style: TextStyle(color: textColor, fontSize: 16),
-            onTapOutside: (event) {
-              _parrainFocus.unfocus();
-            },
+            onTapOutside: (_) => _parrainFocus.unfocus(),
             onChanged: (value) {
               if (_selectedParrain != null) {
-                final selName =
-                    (_selectedParrain!['name'] as String?)?.trim() ?? '';
+                final selName = (_selectedParrain!['name'] as String?)?.trim() ?? '';
                 if (value.trim() != selName) {
                   setState(() => _selectedParrain = null);
                 }
@@ -905,336 +1145,304 @@ class _ParrainagePageState extends State<ParrainagePage> {
               _searchParrains(value);
             },
             decoration: InputDecoration(
-              labelText: 'Rechercher un parrain',
-              labelStyle: TextStyle(color: secondaryTextColor),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              suffixIcon: _parrainSearchController.text.isNotEmpty
+              hintText: _loadingParrainUsers ? 'Chargement des membres…' : 'Rechercher un nom',
+              hintStyle: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 15),
+              prefixIcon: Icon(Icons.search_rounded, color: primaryColor),
+              suffixIcon: query.isNotEmpty
                   ? IconButton(
-                icon: Icon(Icons.close_rounded, size: 20, color: secondaryTextColor),
-                onPressed: () {
-                  setState(() {
-                    _parrainSearchController.clear();
-                    _selectedParrain = null;
-                    _isSearchingParrains = false;
-                    _filteredParrains = [];
-                  });
-                },
-              )
-                  : null,
+                      icon: Icon(Icons.close_rounded, color: secondaryTextColor),
+                      onPressed: _clearParrain,
+                    )
+                  : (_loadingParrainUsers
+                      ? const Padding(
+                          padding: EdgeInsets.all(14),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : null),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(showResults ? 18 : 16),
+                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: primaryColor, width: 2),
+                borderRadius: BorderRadius.circular(showResults ? 18 : 16),
+                borderSide: BorderSide(color: primaryColor, width: 1.5),
               ),
-              filled: true,
-              fillColor: lightBlue.withOpacity(0.3),
-              hintText: _loadingParrainUsers
-                  ? 'Chargement des parrains…'
-                  : 'Tapez le nom du parrain…',
-              hintStyle: TextStyle(color: Colors.grey.shade500),
             ),
           ),
-        ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: showResults ? _buildParrainResults() : const SizedBox(width: double.infinity),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Cette étape est facultative. Vous pouvez continuer sans parrain.',
+            style: TextStyle(color: Color(0xFF64748B), fontSize: 13, height: 1.35),
+          ),
+        ],
+      ],
+    );
+  }
 
-        // Dropdown des résultats de recherche
-        if (_isSearchingParrains && _filteredParrains.isNotEmpty)
-          Container(
-            margin: EdgeInsets.only(top: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: Offset(0, 5),
+  Widget _buildSelectedParrainCard() {
+    final name = (_selectedParrain!['name'] as String?) ?? '';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 14, 8, 14),
+      decoration: BoxDecoration(
+        color: primaryColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: primaryColor, width: 1.5),
+      ),
+      child: Row(
+        children: [
+          _parrainAvatar(name),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Parrain choisi',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1976D2)),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  name,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Color(0xFF111827)),
+                ),
+                Text(
+                  _parrainPublicSubtitle(_selectedParrain!),
+                  style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
                 ),
               ],
-              border: Border.all(color: Colors.grey.shade200),
             ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: 200),
-              child: ListView.builder(
+          ),
+          TextButton(
+            onPressed: _clearParrain,
+            child: Text('Changer', style: TextStyle(color: primaryColor, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildParrainResults() {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: _filteredParrains.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              child: Text(
+                'Aucun membre ne correspond à cette recherche.',
+                style: TextStyle(color: Color(0xFF64748B), fontSize: 14),
+              ),
+            )
+          : ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 280),
+              child: ListView.separated(
                 shrinkWrap: true,
-                physics: BouncingScrollPhysics(),
+                physics: const BouncingScrollPhysics(),
                 itemCount: _filteredParrains.length,
+                separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
                 itemBuilder: (context, index) {
                   final parrain = _filteredParrains[index];
-                  return ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                    title: Text(
-                      parrain['name'] as String,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: textColor,
+                  final name = (parrain['name'] as String?) ?? '';
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _selectParrain(parrain),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      child: Row(
+                        children: [
+                          _parrainAvatar(name, size: 40),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF111827),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _parrainPublicSubtitle(parrain),
+                                  style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right_rounded, color: Colors.grey[400]),
+                        ],
                       ),
                     ),
-                    subtitle: Text(
-                      _parrainPublicSubtitle(parrain),
-                      style: TextStyle(
-                        color: secondaryTextColor,
-                        fontSize: 12,
-                      ),
-                    ),
-                    onTap: () {
-                      setState(() {
-                        _selectedParrain = parrain;
-                        _parrainSearchController.text = parrain['name'];
-                        _isSearchingParrains = false;
-                        _filteredParrains = [];
-                      });
-                      _parrainFocus.unfocus();
-                    },
                   );
                 },
               ),
             ),
-          ),
-
-        // Affichage du parrain sélectionné
-        if (_selectedParrain != null)
-          Container(
-            margin: EdgeInsets.only(top: 8),
-            padding: EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: primaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: primaryColor.withOpacity(0.3)),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Parrain sélectionné',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: primaryColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        (_selectedParrain!['name'] as String?) ?? '',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: textColor,
-                        ),
-                      ),
-                      Text(
-                        _parrainPublicSubtitle(_selectedParrain!),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: secondaryTextColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.close_rounded, size: 16, color: primaryColor),
-                  onPressed: () {
-                    setState(() {
-                      _selectedParrain = null;
-                      _parrainSearchController.clear();
-                    });
-                  },
-                  padding: EdgeInsets.zero,
-                ),
-              ],
-            ),
-          ),
-      ],
     );
+  }
+
+  int? _optionId(dynamic opt) {
+    if (opt is! Map) return null;
+    final raw = opt['id'] ?? opt['typeAccountId'] ?? opt['TypeAccountId'];
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return int.tryParse(raw?.toString() ?? '');
+  }
+
+  String _optionName(dynamic opt) {
+    if (opt is! Map) return '';
+    return (opt['name'] ?? opt['Name'] ?? opt['libelle'] ?? '').toString().trim();
+  }
+
+  String? _labelFor(List<dynamic> options, int? id) {
+    if (id == null) return null;
+    for (final opt in options) {
+      if (_optionId(opt) == id) {
+        final name = _optionName(opt);
+        if (name.isNotEmpty) return name;
+      }
+    }
+    return null;
   }
 
   Widget _buildAccountTypeField() {
     final typeCtrl = context.watch<TypeAccountController>();
     if (typeCtrl.loading && typeCtrl.allAccounts.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(primaryColor)),
-        ),
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // SECTION 1: LOCATAIRE (CLIENT)
-        _buildCategoryHeader(
-          title: "Vous êtes Locataire ?",
-          icon: null,
-          isSelected: _isLocataireSelected,
-          onTap: () {
+        _buildLocataireChoice(),
+        const SizedBox(height: 12),
+        _buildExpandingDropdown(
+          title: 'Immobilier',
+          hint: 'Choisir un type',
+          icon: Icons.home_work_rounded,
+          open: _isImmobilierDropdownOpen,
+          selectedLabel: _labelFor(typeCtrl.ownerTypes, _selectedOwnerAccountId),
+          onToggle: () => _toggleTypeMenu(immobilier: true, typeCtrl: typeCtrl),
+          options: typeCtrl.ownerTypes,
+          selectedId: _selectedOwnerAccountId,
+          onSelected: (id) {
             setState(() {
-              _isLocataireSelected = !_isLocataireSelected;
-              if (_isLocataireSelected) {
-                _selectedOwnerAccountId = null; // Exclusivité
-              }
+              _selectedOwnerAccountId = id;
+              _isLocataireSelected = false;
+              _isImmobilierDropdownOpen = false;
             });
           },
         ),
-        if (_isLocataireSelected)
-          Padding(
-            padding: const EdgeInsets.only(left: 12, top: 4, bottom: 8),
-            child: Text(
-              "Compte client activé (Locataire)",
-              style: TextStyle(color: primaryColor, fontSize: 13, fontWeight: FontWeight.w500),
-            ),
-          ),
-        
-        SizedBox(height: 12),
-
-        // SECTION 2: PROPRIÉTAIRE (IMMOBILIER)
-        _buildCategoryHeader(
-          title: "Vous proposez de l'immobilier ?",
-          icon: null,
-          isSelected: _selectedOwnerAccountId != null,
-          onTap: () async {
-            if (typeCtrl.ownerTypes.isEmpty) {
-               await typeCtrl.fetchTypeAccounts();
-            }
+        const SizedBox(height: 12),
+        _buildExpandingDropdown(
+          title: 'Services',
+          hint: 'Choisir un métier',
+          icon: Icons.handyman_rounded,
+          expandDuration: const Duration(milliseconds: 780),
+          open: _isServicesDropdownOpen,
+          selectedLabel: _labelFor(typeCtrl.serviceTypes, _selectedPrestataireAccountId),
+          onToggle: () => _toggleTypeMenu(immobilier: false, typeCtrl: typeCtrl),
+          options: typeCtrl.serviceTypes,
+          selectedId: _selectedPrestataireAccountId,
+          onSelected: (id) {
             setState(() {
-              if (_selectedOwnerAccountId != null) {
-                _selectedOwnerAccountId = null;
-              } else {
-                _isLocataireSelected = false; // Exclusivité
-                _selectedOwnerAccountId = typeCtrl.ownerTypes.isNotEmpty ? typeCtrl.ownerTypes[0]['id'] : null;
-              }
+              _selectedPrestataireAccountId = _selectedPrestataireAccountId == id ? null : id;
+              _isServicesDropdownOpen = false;
             });
           },
         ),
-        if (_selectedOwnerAccountId != null)
-          _buildSubOptionsGrid(
-            options: typeCtrl.ownerTypes,
-            selectedId: _selectedOwnerAccountId,
-            onSelected: (id) => setState(() => _selectedOwnerAccountId = id),
-          ),
-
-        SizedBox(height: 12),
-
-        // SECTION 3: PRESTATAIRE DE SERVICE
-        _buildCategoryHeader(
-          title: "Vous proposez des services ?",
-          icon: null,
-          isSelected: _selectedPrestataireAccountId != null,
-          onTap: () async {
-            if (typeCtrl.serviceTypes.isEmpty) {
-               await typeCtrl.fetchTypeAccounts();
-            }
-            setState(() {
-              if (_selectedPrestataireAccountId != null) {
-                _selectedPrestataireAccountId = null;
-              } else {
-                _selectedPrestataireAccountId = typeCtrl.serviceTypes.isNotEmpty ? typeCtrl.serviceTypes[0]['id'] : null;
-              }
-            });
-          },
-        ),
-        if (_selectedPrestataireAccountId != null)
-          _buildSubOptionsGrid(
-            options: typeCtrl.serviceTypes,
-            selectedId: _selectedPrestataireAccountId,
-            onSelected: (id) => setState(() => _selectedPrestataireAccountId = id),
-          ),
-
         if (_autoValidateMode == AutovalidateMode.always &&
             !_isLocataireSelected &&
             _selectedOwnerAccountId == null &&
             _selectedPrestataireAccountId == null)
           Padding(
-            padding: const EdgeInsets.only(top: 12, left: 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 18,
-                  height: 18,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: errorColor.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    '!',
-                    style: TextStyle(
-                      color: errorColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                SizedBox(width: 8),
-                Text(
-                  'Sélectionnez au moins une catégorie',
-                  style: TextStyle(color: errorColor, fontSize: 13, fontWeight: FontWeight.w500),
-                ),
-              ],
+            padding: const EdgeInsets.only(top: 12, left: 4),
+            child: Text(
+              'Sélectionnez au moins une catégorie',
+              style: TextStyle(color: errorColor, fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
       ],
     );
   }
 
-  Widget _buildCategoryHeader({
-    required String title,
-    IconData? icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+  Widget _buildLocataireChoice() {
+    final selected = _isLocataireSelected;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() {
+          _isLocataireSelected = !_isLocataireSelected;
+          if (_isLocataireSelected) {
+            _selectedOwnerAccountId = null;
+            _isImmobilierDropdownOpen = false;
+          }
+        });
+      },
       child: AnimatedContainer(
-        duration: 300.ms,
-        padding: EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? primaryColor.withOpacity(0.08) : Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(12),
+          color: selected ? primaryColor.withOpacity(0.08) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? primaryColor : Colors.grey.shade300,
-            width: 1.5,
+            color: selected ? primaryColor : const Color(0xFFE5E7EB),
+            width: selected ? 1.5 : 1,
           ),
         ),
         child: Row(
           children: [
-            if (icon != null) ...[
-              Icon(icon, color: isSelected ? primaryColor : Colors.grey.shade600, size: 24),
-              SizedBox(width: 16),
-            ] else ...[
-              Container(
-                width: 4,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: isSelected ? primaryColor : Colors.grey.shade400,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
               ),
-              SizedBox(width: 14),
-            ],
+              child: Icon(Icons.person_pin_rounded, color: primaryColor, size: 22),
+            ),
+            const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  color: isSelected ? primaryColor : Colors.black87,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  fontSize: 15,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Locataire',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF111827)),
+                  ),
+                  const SizedBox(height: 2),
+                  Text('Je cherche un logement', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                ],
               ),
             ),
-            Text(
-              isSelected ? 'Oui' : ' ',
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isSelected ? primaryColor : Colors.transparent,
-              ),
+            Icon(
+              selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+              color: selected ? primaryColor : const Color(0xFFD1D5DB),
+              size: 22,
             ),
           ],
         ),
@@ -1242,105 +1450,202 @@ class _ParrainagePageState extends State<ParrainagePage> {
     );
   }
 
-  Widget _buildSubOptionsGrid({
+  Future<void> _toggleTypeMenu({
+    required bool immobilier,
+    required TypeAccountController typeCtrl,
+  }) async {
+    final options = immobilier ? typeCtrl.ownerTypes : typeCtrl.serviceTypes;
+    if (options.isEmpty) {
+      await typeCtrl.fetchTypeAccounts();
+      if (!mounted) return;
+      final refreshed = immobilier ? typeCtrl.ownerTypes : typeCtrl.serviceTypes;
+      if (refreshed.isEmpty) {
+        FancyNotification.show(
+          context,
+          immobilier
+              ? "Les types de compte immobilier ne sont pas disponibles pour le moment."
+              : "Les types de service ne sont pas disponibles pour le moment.",
+        );
+        return;
+      }
+    }
+    setState(() {
+      if (immobilier) {
+        _isImmobilierDropdownOpen = !_isImmobilierDropdownOpen;
+        if (_isImmobilierDropdownOpen) _isServicesDropdownOpen = false;
+      } else {
+        _isServicesDropdownOpen = !_isServicesDropdownOpen;
+        if (_isServicesDropdownOpen) _isImmobilierDropdownOpen = false;
+      }
+    });
+  }
+
+  Widget _buildExpandingDropdown({
+    required String title,
+    required String hint,
+    required IconData icon,
+    Duration expandDuration = const Duration(milliseconds: 480),
+    required bool open,
+    required String? selectedLabel,
+    required VoidCallback onToggle,
     required List<dynamic> options,
     required int? selectedId,
-    required Function(int) onSelected,
+    required ValueChanged<int> onSelected,
   }) {
-    return Container(
-      margin: EdgeInsets.only(top: 8, left: 16),
-      padding: EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: options.map((type) {
-          final id = type['id'] as int;
-          final name = type['name'] as String;
-          final isItemSelected = selectedId == id;
-          
-          return InkWell(
-            onTap: () => onSelected(id),
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: isItemSelected ? primaryColor : Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: isItemSelected ? primaryColor : Colors.grey.shade300),
-              ),
-              child: Text(
-                name,
-                style: TextStyle(
-                  color: isItemSelected ? Colors.white : Colors.black87,
-                  fontSize: 13,
-                  fontWeight: isItemSelected ? FontWeight.bold : FontWeight.normal,
+    final hasSelection = selectedLabel != null && selectedLabel.isNotEmpty;
+    final highlighted = open || hasSelection;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: highlighted ? primaryColor.withOpacity(0.08) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: highlighted ? primaryColor : const Color(0xFFE5E7EB),
+            width: highlighted ? 1.5 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onToggle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(icon, color: primaryColor, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])),
+                          const SizedBox(height: 2),
+                          Text(
+                            hasSelection ? selectedLabel : hint,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: hasSelection ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    AnimatedRotation(
+                      turns: open ? 0.5 : 0,
+                      duration: expandDuration,
+                      child: Icon(Icons.keyboard_arrow_down_rounded, color: open ? primaryColor : Colors.grey[500]),
+                    ),
+                  ],
                 ),
               ),
             ),
-          );
-        }).toList(),
+            AnimatedSize(
+              duration: expandDuration,
+              curve: Curves.easeInOutCubic,
+              alignment: Alignment.topCenter,
+              child: open
+                  ? Column(
+                      children: [
+                        const Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
+                        for (var i = 0; i < options.length; i++)
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              final id = _optionId(options[i]);
+                              if (id != null) onSelected(id);
+                            },
+                            child: Container(
+                              color: _optionId(options[i]) == selectedId
+                                  ? primaryColor.withOpacity(0.14)
+                                  : Colors.transparent,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _optionId(options[i]) == selectedId
+                                        ? Icons.radio_button_checked_rounded
+                                        : Icons.radio_button_off_rounded,
+                                    color: _optionId(options[i]) == selectedId
+                                        ? primaryColor
+                                        : const Color(0xFFD1D5DB),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      _optionName(options[i]).isEmpty ? 'Type' : _optionName(options[i]),
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF111827),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+          ],
+        ),
       ),
     );
   }
   Widget _buildPasswordStrengthIndicator() {
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 300),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(height: 8),
-          Row(
-            children: List.generate(6, (index) {
-              Color color;
-              if (index < _passwordStrength) {
-                if (_passwordStrength <= 2) color = errorColor;
-                else if (_passwordStrength <= 4) color = Colors.orange;
-                else color = successColor;
-              } else {
-                color = Colors.grey.shade300;
-              }
-
-              return Expanded(
-                child: AnimatedContainer(
-                  duration: Duration(milliseconds: 300),
-                  height: 4,
-                  margin: EdgeInsets.only(right: index < 5 ? 4 : 0),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+    final length = _passwordController.text.length;
+    final filled = length.clamp(0, 6);
+    final ready = length >= 6;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Row(
+          children: List.generate(6, (index) {
+            return Expanded(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                height: 4,
+                margin: EdgeInsets.only(right: index < 5 ? 4 : 0),
+                decoration: BoxDecoration(
+                  color: index < filled
+                      ? (ready ? successColor : primaryColor)
+                      : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-              );
-            }),
-          ),
-          SizedBox(height: 8),
-          AnimatedSwitcher(
-            duration: Duration(milliseconds: 300),
-            child: Text(
-              _getPasswordStrengthText(_passwordStrength),
-              key: ValueKey(_passwordStrength),
-              style: TextStyle(
-                fontSize: 12,
-                color: _getPasswordStrengthColor(_passwordStrength),
-                fontWeight: FontWeight.w500,
               ),
-            ),
+            );
+          }),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          length == 0
+              ? '6 caractères suffisent'
+              : (ready ? 'Mot de passe valide' : 'Encore ${6 - length} caractère${length == 5 ? '' : 's'}'),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: ready ? successColor : secondaryTextColor,
           ),
-          if (_passwordController.text.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: _buildPasswordCriteria(),
-              ),
-            ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -1435,7 +1740,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
           label: 'Nom',
           hint: 'Baka',
           focusNode: _lastNameFocus,
-          nextFocus: _contactFocus,
           isTouched: _lastNameTouched,
           onChanged: (val) {
             if (!_lastNameTouched && val.isNotEmpty) {
@@ -1443,10 +1747,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
             }
           },
         ),
-        const SizedBox(height: 14),
-        _buildContactField(),
-        const SizedBox(height: 14),
-        _buildCityField(),
       ],
     );
   }
@@ -1476,177 +1776,130 @@ class _ParrainagePageState extends State<ParrainagePage> {
   }
 
   Widget _buildPrivacyText() {
-    return Column(
-      children: [
-        // Case à cocher pour les conditions
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
+    final showError = _showConditionsError && !_acceptConditions;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(4, 8, 12, 12),
+      decoration: BoxDecoration(
+        color: showError ? errorColor.withOpacity(0.06) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: showError ? errorColor : const Color(0xFFE5E7EB),
+          width: showError ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Case à cocher
-              Transform.scale(
-                scale: 1.2,
-                child: Checkbox(
-                  value: _acceptConditions,
-                  onChanged: (bool? value) {
-                    setState(() {
-                      _acceptConditions = value ?? false;
-                    });
-                  },
-                  activeColor: primaryColor,
-                  checkColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              Checkbox(
+                value: _acceptConditions,
+                onChanged: (bool? value) {
+                  setState(() {
+                    _acceptConditions = value ?? false;
+                    if (_acceptConditions) _showConditionsError = false;
+                  });
+                },
+                activeColor: primaryColor,
+                checkColor: Colors.white,
+                side: BorderSide(
+                  color: showError ? errorColor : const Color(0xFF94A3B8),
+                  width: showError ? 1.8 : 1.4,
                 ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              SizedBox(width: 8),
-              // Texte des conditions
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    RichText(
-                      text: TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'J\'accepte les ',
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                            ),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: RichText(
+                    text: TextSpan(
+                      children: [
+                        const TextSpan(
+                          text: 'J\'accepte les ',
+                          style: TextStyle(color: Color(0xFF334155), fontSize: 14, height: 1.35),
+                        ),
+                        TextSpan(
+                          text: 'conditions d\'utilisation',
+                          style: TextStyle(
+                            color: primaryColor,
+                            fontSize: 14,
+                            height: 1.35,
+                            fontWeight: FontWeight.w700,
+                            decoration: TextDecoration.underline,
                           ),
-                          TextSpan(
-                            text: 'conditions d\'utilisation',
-                            style: TextStyle(
-                              color: primaryColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.underline,
-                            ),
-                            recognizer: TapGestureRecognizer()
-                              ..onTap = () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
-                                  ),
-                                );
-                              },
+                          recognizer: TapGestureRecognizer()
+                            ..onTap = () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
+                                ),
+                              );
+                            },
+                        ),
+                        const TextSpan(
+                          text: ' et la ',
+                          style: TextStyle(color: Color(0xFF334155), fontSize: 14, height: 1.35),
+                        ),
+                        TextSpan(
+                          text: 'politique de confidentialité',
+                          style: TextStyle(
+                            color: primaryColor,
+                            fontSize: 14,
+                            height: 1.35,
+                            fontWeight: FontWeight.w700,
+                            decoration: TextDecoration.underline,
                           ),
-                          TextSpan(
-                            text: ' et la ',
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                            ),
-                          ),
-                          TextSpan(
-                            text: 'politique de confidentialité',
-                            style: TextStyle(
-                              color: primaryColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.underline,
-                            ),
-                            recognizer: TapGestureRecognizer()
-                              ..onTap = () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
-                                  ),
-                                );
-                              },
-                          ),
-                          TextSpan(
-                            text: ' de CasaNayo',
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
+                          recognizer: TapGestureRecognizer()
+                            ..onTap = () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
+                                ),
+                              );
+                            },
+                        ),
+                        const TextSpan(
+                          text: ' de CasaNayo',
+                          style: TextStyle(color: Color(0xFF334155), fontSize: 14, height: 1.35),
+                        ),
+                      ],
                     ),
-                    // Message d'erreur amélioré
-                    if (_autoValidateMode == AutovalidateMode.always && !_acceptConditions)
-                      Container(
-                        margin: EdgeInsets.only(top: 6),
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: errorColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: errorColor.withOpacity(0.3)),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 18,
-                              height: 18,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: errorColor.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                '!',
-                                style: TextStyle(
-                                  color: errorColor,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                            SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Vous devez accepter les conditions pour continuer',
-                                style: TextStyle(
-                                  color: errorColor,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-      ],
+          if (showError)
+            const Padding(
+              padding: EdgeInsets.only(left: 12, right: 4, top: 4),
+              child: Text(
+                'Cochez la case pour créer votre compte.',
+                style: TextStyle(
+                  color: Color(0xFFD63031),
+                  fontSize: 13,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _buildAuthCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(22, 24, 22, 28),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
-        border: Border.all(color: _twBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildStepProgressBar(),
-          const SizedBox(height: 20),
-          if (_parrainageStep == 0) ...[
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildStepProgressBar(),
+        const SizedBox(height: 18),
+        if (_parrainageStep == 0) ...[
             Text(
               'Parrainer, c’est\ngrandir ensemble',
               textAlign: TextAlign.left,
@@ -1660,7 +1913,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
             ),
             const SizedBox(height: 10),
             Text(
-              'Les règles du programme en un clin d’œil, puis quatre étapes pour finaliser votre inscription.',
+              'Quatre étapes, comme un fil. Ensuite vous créez le compte avec le nom de votre parrain.',
               textAlign: TextAlign.left,
               style: GoogleFonts.inter(
                 fontSize: 14,
@@ -1670,53 +1923,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
             ),
             const SizedBox(height: 20),
             _buildParrainageBenefits(),
-            const SizedBox(height: 26),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => setState(() => _parrainageStep = 1),
-                style: FilledButton.styleFrom(
-                  backgroundColor: primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-                child: Text(
-                  'Commencer',
-                  style: GoogleFonts.inter(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Center(
-              child: TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(
-                  'Retour',
-                  style: GoogleFonts.inter(
-                    color: _twTextSecondary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ),
           ] else if (_parrainageStep == 1) ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: IconButton(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: _twTextPrimary),
-                onPressed: () => setState(() => _parrainageStep = 0),
-              ),
-            ),
             Text(
               'Vos informations',
               style: GoogleFonts.inter(
@@ -1745,65 +1952,11 @@ class _ParrainagePageState extends State<ParrainagePage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _buildStep1FormFields(),
-                    const SizedBox(height: 26),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => setState(() => _parrainageStep = 0),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: _twTextPrimary,
-                              side: const BorderSide(color: _twBorder),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                            child: Text(
-                              'Retour',
-                              style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: FilledButton(
-                            onPressed: _goToStep2From1,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: primaryColor,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                            child: Text(
-                              'Continuer',
-                              style: GoogleFonts.inter(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),
             ),
           ] else if (_parrainageStep == 2) ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: IconButton(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: _twTextPrimary),
-                onPressed: () => setState(() => _parrainageStep = 1),
-              ),
-            ),
             Text(
               'Type de compte',
               style: GoogleFonts.inter(
@@ -1829,66 +1982,29 @@ class _ParrainagePageState extends State<ParrainagePage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildAccountTypeField(),
-                  const SizedBox(height: 26),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => setState(() => _parrainageStep = 1),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: _twTextPrimary,
-                            side: const BorderSide(color: _twBorder),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                          ),
-                          child: Text(
-                            'Retour',
-                            style: GoogleFonts.inter(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 2,
-                        child: FilledButton(
-                          onPressed: _goToStep3From2,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                          ),
-                          child: Text(
-                            'Continuer',
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
           ] else ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: IconButton(
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                icon: Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: _twTextPrimary),
-                onPressed: () => setState(() => _parrainageStep = 2),
+            Text(
+              'Parrain et accès',
+              style: GoogleFonts.inter(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+                color: _twTextPrimary,
               ),
             ),
-
-            const SizedBox(height: 22),
+            const SizedBox(height: 6),
+            Text(
+              'Choisissez votre parrain, puis le mot de passe du compte.',
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.4,
+                color: _twTextSecondary,
+              ),
+            ),
+            const SizedBox(height: 18),
             AbsorbPointer(
               absorbing: _isLoading,
               child: Form(
@@ -1904,13 +2020,10 @@ class _ParrainagePageState extends State<ParrainagePage> {
             ),
             const SizedBox(height: 8),
             _buildPrivacyText(),
-            const SizedBox(height: 22),
-            _buildAuthButton(),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             _buildLoginLink(),
           ],
-        ],
-      ),
+      ],
     );
   }
 
@@ -2040,7 +2153,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
         autovalidateMode: AutovalidateMode.disabled,
         style: TextStyle(color: Colors.black87, fontSize: 16),
         textInputAction: TextInputAction.next,
-        onFieldSubmitted: (_) => _goToNextField(_contactFocus, _cityFocus),
+        onFieldSubmitted: (_) => _continueStep(),
         decoration: InputDecoration(
           labelText: 'Email ou Téléphone*',
           labelStyle: TextStyle(color: Colors.black87),
@@ -2357,52 +2470,6 @@ class _ParrainagePageState extends State<ParrainagePage> {
     );
   }
 
-  List<Widget> _buildPasswordCriteria() {
-    final password = _passwordController.text;
-    final criteria = [
-      {'text': 'Au moins 6 caractères', 'met': password.length >= 6},
-    ];
-
-    return criteria.map((criterion) {
-      final isMet = criterion['met'] as bool;
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            isMet ? '✓' : '·',
-            style: TextStyle(
-              fontSize: 11,
-              color: isMet ? successColor : Colors.grey.shade500,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          SizedBox(width: 4),
-          Text(
-            criterion['text'] as String,
-            style: TextStyle(
-              fontSize: 10,
-              color: isMet ? successColor : Colors.grey.shade600,
-              fontWeight: isMet ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-        ],
-      );
-    }).toList();
-  }
-
-  String _getPasswordStrengthText(int strength) {
-    if (strength == 0) return 'Entrez votre mot de passe';
-    if (strength < 6) return 'Mot de passe trop court (min. 6)';
-    return 'Mot de passe valide';
-  }
-
-  Color _getPasswordStrengthColor(int strength) {
-    if (strength == 0) return secondaryTextColor;
-    if (strength < 3) return errorColor;
-    if (strength < 6) return Colors.orange;
-    return successColor;
-  }
-
   Widget _buildAuthButton() {
     final hasRequiredFields = _firstNameController.text.isNotEmpty &&
         _lastNameController.text.isNotEmpty &&
@@ -2413,63 +2480,27 @@ class _ParrainagePageState extends State<ParrainagePage> {
     final isFormValid = _isFormValid();
     final isButtonEnabled = hasRequiredFields && isFormValid && _acceptConditions && !_isLoading;
 
-    return Container(
-      width: double.infinity,
-      height: 56,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: LinearGradient(
-          colors: isButtonEnabled
-              ? [primaryColor, darkBlue]
-              : [primaryColor.withOpacity(0.4), darkBlue.withOpacity(0.4)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        boxShadow: isButtonEnabled
-            ? [
-          BoxShadow(
-            color: primaryColor.withOpacity(0.4),
-            blurRadius: 15,
-            spreadRadius: 2,
-            offset: Offset(0, 5),
-          ),
-        ]
-            : [
-          BoxShadow(
-            color: primaryColor.withOpacity(0.2),
-            blurRadius: 8,
-            spreadRadius: 1,
-            offset: Offset(0, 3),
-          ),
-        ],
+    return FilledButton(
+      onPressed: isButtonEnabled ? _handleRegister : null,
+      style: FilledButton.styleFrom(
+        backgroundColor: primaryColor,
+        disabledBackgroundColor: primaryColor.withOpacity(0.35),
+        foregroundColor: Colors.white,
+        disabledForegroundColor: Colors.white70,
+        elevation: 0,
+        minimumSize: const Size.fromHeight(48),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
       ),
-      child: ElevatedButton(
-        onPressed: isButtonEnabled ? _handleRegister : null,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: _isLoading
-            ? SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation(Colors.white),
-          ),
-        )
-            : Text(
-                'Créer mon compte',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: isButtonEnabled ? Colors.white : Colors.white.withOpacity(0.7),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-      ),
+      child: _isLoading
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            )
+          : Text(
+              'Créer mon compte',
+              style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700),
+            ),
     );
   }
 
@@ -2626,10 +2657,7 @@ class _ParrainagePageState extends State<ParrainagePage> {
     }
 
     if (!_acceptConditions) {
-      FancyNotification.show(
-        context,
-        "Merci d’accepter les conditions d’utilisation pour poursuivre.",
-      );
+      setState(() => _showConditionsError = true);
       return;
     }
 

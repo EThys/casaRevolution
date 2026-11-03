@@ -34,6 +34,7 @@ import '../../utils/crashlytics_api.dart';
 import '../../utils/login_route_args.dart';
 import '../../controllers/TypeAccountController.dart';
 import '../termsAndPrivacy/TermsAndPrivacyPage.dart';
+import '../../widgets/step_appear.dart';
 
 class UserRegistrationPage extends StatefulWidget {
   @override
@@ -102,6 +103,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   final Color successColor = Color(0xFF38B000);
 
   bool _acceptConditions = false;
+  bool _showConditionsError = false;
+  static const int _stepCount = 5;
+  int _step = 0;
 
   Future<void> _loadCities() async {
     // Utilisation uniquement des données locales pour les suggestions.
@@ -205,20 +209,9 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   }
 
   void _updatePasswordStrength() {
-    final password = _passwordController.text;
-    int strength = 0;
-
-    if (password.length >= 6) strength++;
-    if (password.length >= 8) strength++;
-    if (RegExp(r'[A-Z]').hasMatch(password)) strength++;
-    if (RegExp(r'[a-z]').hasMatch(password)) strength++;
-    if (RegExp(r'[0-9]').hasMatch(password)) strength++;
-    if (RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)) strength++;
-
+    final strength = _passwordController.text.length;
     if (mounted && _passwordStrength != strength) {
-      setState(() {
-        _passwordStrength = strength;
-      });
+      setState(() => _passwordStrength = strength);
     }
   }
 
@@ -227,41 +220,303 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     FocusScope.of(context).requestFocus(nextFocus);
   }
 
+  void _previousStep() {
+    FocusScope.of(context).unfocus();
+    if (_step == 0) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() => _step -= 1);
+  }
+
+  void _continueStep() {
+    FocusScope.of(context).unfocus();
+    if (_step == 0) {
+      setState(() {
+        _firstNameTouched = true;
+        _lastNameTouched = true;
+      });
+      if (_validateName(_firstNameController.text, 'prénom') != null ||
+          _validateName(_lastNameController.text, 'nom') != null) {
+        return;
+      }
+    } else if (_step == 1) {
+      setState(() => _contactTouched = true);
+      if (_validateContact(_contactController.text) != null) return;
+    } else if (_step == 2) {
+      setState(() => _cityTouched = true);
+      if (_validateCity(_cityController.text) != null) return;
+    } else if (_step == 3) {
+      final hasAccount = _isLocataireSelected ||
+          _selectedOwnerAccountId != null ||
+          _selectedPrestataireAccountId != null;
+      if (!hasAccount) {
+        setState(() => _autoValidateMode = AutovalidateMode.always);
+        return;
+      }
+    } else {
+      setState(() {
+        _passwordTouched = true;
+        _autoValidateMode = AutovalidateMode.always;
+      });
+      if (_validatePassword(_passwordController.text) != null) return;
+      if (!_acceptConditions) {
+        setState(() => _showConditionsError = true);
+        return;
+      }
+      _handleRegister();
+      return;
+    }
+    setState(() => _step += 1);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Scaffold(
       backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: true,
       body: Stack(
         children: [
-          // Arrière-plan identique au login
           _buildBackground(),
-
-          // Contenu principal
-          SafeArea(
-            child: AbsorbPointer(
-              absorbing: _isLoading,
-              child: SingleChildScrollView(
-                physics: BouncingScrollPhysics(),
-                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 24),
+          PopScope(
+            canPop: _step == 0 && !_isLoading,
+            onPopInvokedWithResult: (didPop, result) {
+              if (didPop || _isLoading) return;
+              _previousStep();
+            },
+            child: SafeArea(
+              child: AbsorbPointer(
+                absorbing: _isLoading,
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Align(
-                      alignment: Alignment.topLeft,
-                      child: IconButton(
-                        icon: Icon(Icons.arrow_back_ios, color: textColor),
-                        onPressed: () => Navigator.of(context).pop(),
+                    _buildStepHeader(),
+                    Expanded(
+                      child: Form(
+                        key: _formKey,
+                        autovalidateMode: _autoValidateMode,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 280),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          child: SingleChildScrollView(
+                            key: ValueKey<int>(_step),
+                            physics: const BouncingScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+                            child: _buildStepContent(),
+                          ),
+                        ),
                       ),
                     ),
-                    SizedBox(height: 10),
-                    _buildLogo(),
-                    SizedBox(height: 30),
-                    _buildAuthCard(),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildStepButton(),
+                          if (!keyboardOpen) ...[
+                            const SizedBox(height: 4),
+                            _buildLoginLink(),
+                          ],
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStepHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 16, 0),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                IconButton(
+                  icon: Icon(Icons.arrow_back_ios_new, color: textColor, size: 20),
+                  onPressed: _isLoading ? null : _previousStep,
+                ),
+                Expanded(
+                  child: Text(
+                    'CasaNayo',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: textColor,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${_step + 1}/$_stepCount',
+                  style: TextStyle(
+                    color: secondaryTextColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: List.generate(_stepCount, (index) {
+                final filled = index <= _step;
+                return Expanded(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    height: 4,
+                    margin: EdgeInsets.only(right: index == _stepCount - 1 ? 0 : 6),
+                    decoration: BoxDecoration(
+                      color: filled ? primaryColor : const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepContent() {
+    late final String title;
+    late final String subtitle;
+    late final Widget fields;
+    switch (_step) {
+      case 0:
+        title = 'Comment vous appelez-vous ?';
+        subtitle = 'Ces informations apparaîtront sur votre profil.';
+        fields = Column(
+          children: [
+            _buildNameField(
+              controller: _firstNameController,
+              label: 'Prénom',
+              hint: 'Jean',
+              focusNode: _firstNameFocus,
+              nextFocus: _lastNameFocus,
+              isFirstField: true,
+              isTouched: _firstNameTouched,
+            ),
+            const SizedBox(height: 16),
+            _buildNameField(
+              controller: _lastNameController,
+              label: 'Nom',
+              hint: 'Baka',
+              focusNode: _lastNameFocus,
+              isTouched: _lastNameTouched,
+            ),
+          ],
+        );
+        break;
+      case 1:
+        title = 'Comment peut-on vous joindre ?';
+        subtitle = 'Un email ou un numéro de téléphone suffit.';
+        fields = _buildContactField();
+        break;
+      case 2:
+        title = 'Dans quelle ville êtes-vous ?';
+        subtitle = 'Pour vous proposer des biens près de chez vous.';
+        fields = _buildCityField();
+        break;
+      case 3:
+        title = 'Que venez-vous faire ?';
+        subtitle = 'Choisissez le type de compte qui vous correspond.';
+        fields = _buildAccountTypeField();
+        break;
+      default:
+        title = 'Choisissez un mot de passe';
+        subtitle = '6 caractères suffisent. Pas besoin d’un mot de passe compliqué.';
+        fields = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildPasswordField(),
+            _buildPasswordStrengthIndicator(),
+            const SizedBox(height: 20),
+            _buildPrivacyText(),
+          ],
+        );
+    }
+
+    return StepAppear(
+      key: ValueKey<int>(_step),
+      child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 28,
+            height: 1.15,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF111827),
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          subtitle,
+          style: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 15,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 28),
+        fields,
+      ],
+    ),
+    );
+  }
+
+  Widget _buildStepButton() {
+    final isLast = _step == _stepCount - 1;
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : _continueStep,
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          backgroundColor: primaryColor,
+          disabledBackgroundColor: primaryColor.withOpacity(0.45),
+          foregroundColor: Colors.white,
+          disabledForegroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+        ),
+        child: _isLoading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                ),
+              )
+            : Text(
+                isLast ? 'Créer mon compte' : 'Suivant',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
       ),
     );
   }
@@ -661,11 +916,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         ),
         validator: null, // Désactivé car on utilise errorText
       ),
-    ).animate().slideX(
-      begin: -0.3,
-      duration: 500.ms,
-      delay: 1300.ms,
-      curve: Curves.easeOut,
     );
   }
 
@@ -688,7 +938,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         autovalidateMode: AutovalidateMode.disabled,
         style: TextStyle(color: Colors.black87, fontSize: 16),
         textInputAction: TextInputAction.next,
-        onFieldSubmitted: (_) => _goToNextField(_contactFocus, _cityFocus),
+        onFieldSubmitted: (_) => _continueStep(),
         decoration: InputDecoration(
           labelText: 'Email ou Téléphone*',
           labelStyle: TextStyle(color: Colors.black87),
@@ -750,11 +1000,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         },
         validator: null,
       ),
-    ).animate().slideX(
-      begin: 0.3,
-      duration: 500.ms,
-      delay: 1400.ms,
-      curve: Curves.easeOut,
     );
   }
 
@@ -850,7 +1095,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
             ),
             onFieldSubmitted: (String value) {
               onFieldSubmitted();
-              _goToNextField(focusNode, _passwordFocus);
+              _continueStep();
             },
             onTapOutside: (event) {
               focusNode.unfocus();
@@ -921,7 +1166,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
               shadowColor: Colors.black.withOpacity(0.2),
               child: Container(
                 constraints: BoxConstraints(maxHeight: 250),
-                width: MediaQuery.of(context).size.width - 80, // Adapt to screen width
+                width: MediaQuery.of(context).size.width - 48,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   color: Colors.white,
@@ -981,11 +1226,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
           );
         },
       ),
-    ).animate().slideX(
-      begin: 0.3,
-      duration: 500.ms,
-      delay: 1550.ms,
-      curve: Curves.easeOut,
     );
   }
 
@@ -1005,140 +1245,98 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     );
   }
 
+  int? _optionId(dynamic opt) {
+    if (opt is! Map) return null;
+    final raw = opt['id'] ?? opt['typeAccountId'] ?? opt['TypeAccountId'];
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return int.tryParse(raw?.toString() ?? '');
+  }
+
+  String _optionName(dynamic opt) {
+    if (opt is! Map) return '';
+    return (opt['name'] ?? opt['Name'] ?? opt['libelle'] ?? '').toString().trim();
+  }
+
+  String? _labelFor(List<dynamic> options, int? id) {
+    if (id == null) return null;
+    for (final opt in options) {
+      if (_optionId(opt) == id) {
+        final name = _optionName(opt);
+        if (name.isNotEmpty) return name;
+      }
+    }
+    return null;
+  }
+
   Widget _buildAccountTypeField() {
     final typeCtrl = context.watch<TypeAccountController>();
     if (typeCtrl.loading && typeCtrl.allAccounts.isEmpty) {
-      return Center(
+      return const Center(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(primaryColor)),
+          padding: EdgeInsets.all(16),
+          child: CircularProgressIndicator(strokeWidth: 2),
         ),
       );
     }
 
+    final ownerLabel = _labelFor(typeCtrl.ownerTypes, _selectedOwnerAccountId);
+    final serviceLabel = _labelFor(typeCtrl.serviceTypes, _selectedPrestataireAccountId);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Type de compte*',
-          style: TextStyle(
-            color: secondaryTextColor,
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        SizedBox(height: 16),
-
-        // SECTION 1: LOCATAIRE (CLIENT)
-        _buildCategoryHeader(
-          title: "Vous êtes Locataire ?",
-          icon: Icons.person_pin_rounded,
-          isSelected: _isLocataireSelected,
-          onTap: () {
-            setState(() {
-              _isLocataireSelected = !_isLocataireSelected;
-              if (_isLocataireSelected) {
-                _selectedOwnerAccountId = null; // Exclusivité
-              }
-            });
-          },
-        ),
-        if (_isLocataireSelected)
-          Padding(
-            padding: const EdgeInsets.only(left: 12, top: 4, bottom: 8),
-            child: Text(
-              "Compte client activé (Locataire)",
-              style: TextStyle(color: primaryColor, fontSize: 13, fontWeight: FontWeight.w500),
-            ),
-          ),
-        
-        SizedBox(height: 12),
-
-        // SECTION 2: PROPRIÉTAIRE (IMMOBILIER)
-        _buildCategoryHeader(
-          title: "Vous proposez de l'immobilier ?",
+        _buildLocataireChoice(),
+        const SizedBox(height: 12),
+        _buildExpandingDropdown(
+          title: 'Immobilier',
+          hint: 'Choisir un type',
           icon: Icons.home_work_rounded,
-          isSelected: _selectedOwnerAccountId != null,
-          showBadge: true,
-          onTap: () async {
-            if (typeCtrl.ownerTypes.isEmpty) {
-               await typeCtrl.fetchTypeAccounts();
-               if (typeCtrl.ownerTypes.isEmpty) {
-                  if (mounted) {
-                    SnackbarForCasa.error(
-                      context,
-                      "Les types de compte immobilier ne sont pas disponibles pour le moment. Réessayez plus tard.",
-                    );
-                  }
-                  return;
-               }
-            }
+          open: _isImmobilierDropdownOpen,
+          selectedLabel: ownerLabel,
+          onToggle: () => _toggleTypeMenu(immobilier: true, typeCtrl: typeCtrl),
+          options: typeCtrl.ownerTypes,
+          selectedId: _selectedOwnerAccountId,
+          onSelected: (id) {
             setState(() {
-              if (_selectedOwnerAccountId != null) {
-                _selectedOwnerAccountId = null;
-              } else {
-                _isLocataireSelected = false; // Exclusivité
-                _selectedOwnerAccountId = typeCtrl.ownerTypes.isNotEmpty ? typeCtrl.ownerTypes[0]['id'] : null;
-              }
+              _selectedOwnerAccountId = id;
+              _isLocataireSelected = false;
+              _isImmobilierDropdownOpen = false;
             });
           },
         ),
-        if (_selectedOwnerAccountId != null)
-          _buildSubOptionsGrid(
-            options: typeCtrl.ownerTypes,
-            selectedId: _selectedOwnerAccountId,
-            onSelected: (id) => setState(() => _selectedOwnerAccountId = id),
-          ),
-
-        SizedBox(height: 12),
-
-        // SECTION 3: PRESTATAIRE DE SERVICE
-        _buildCategoryHeader(
-          title: "Vous proposez des services ?",
+        const SizedBox(height: 12),
+        _buildExpandingDropdown(
+          title: 'Services',
+          hint: 'Choisir un métier',
           icon: Icons.handyman_rounded,
-          isSelected: _selectedPrestataireAccountId != null,
-          onTap: () async {
-            if (typeCtrl.serviceTypes.isEmpty) {
-               await typeCtrl.fetchTypeAccounts();
-               if (typeCtrl.serviceTypes.isEmpty) {
-                  if (mounted) {
-                    SnackbarForCasa.error(
-                      context,
-                      "Les types de service ne sont pas disponibles pour le moment. Réessayez plus tard.",
-                    );
-                  }
-                  return;
-               }
-            }
+          expandDuration: const Duration(milliseconds: 780),
+          open: _isServicesDropdownOpen,
+          selectedLabel: serviceLabel,
+          onToggle: () => _toggleTypeMenu(immobilier: false, typeCtrl: typeCtrl),
+          options: typeCtrl.serviceTypes,
+          selectedId: _selectedPrestataireAccountId,
+          onSelected: (id) {
             setState(() {
-              if (_selectedPrestataireAccountId != null) {
-                _selectedPrestataireAccountId = null;
-              } else {
-                _selectedPrestataireAccountId = typeCtrl.serviceTypes.isNotEmpty ? typeCtrl.serviceTypes[0]['id'] : null;
-              }
+              _selectedPrestataireAccountId =
+                  _selectedPrestataireAccountId == id ? null : id;
+              _isServicesDropdownOpen = false;
             });
           },
         ),
-        if (_selectedPrestataireAccountId != null)
-          _buildSubOptionsGrid(
-            options: typeCtrl.serviceTypes,
-            selectedId: _selectedPrestataireAccountId,
-            onSelected: (id) => setState(() => _selectedPrestataireAccountId = id),
-          ),
-
         if (_autoValidateMode == AutovalidateMode.always &&
             !_isLocataireSelected &&
             _selectedOwnerAccountId == null &&
             _selectedPrestataireAccountId == null)
           Padding(
-            padding: const EdgeInsets.only(top: 12, left: 8),
+            padding: const EdgeInsets.only(top: 12, left: 4),
             child: Row(
               children: [
                 Icon(Icons.error_outline_rounded, color: errorColor, size: 16),
-                SizedBox(width: 8),
-                Text(
+                const SizedBox(width: 8),
+                const Text(
                   'Sélectionnez au moins une catégorie',
-                  style: TextStyle(color: errorColor, fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(color: Color(0xFFD63031), fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ],
             ),
@@ -1147,45 +1345,66 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     );
   }
 
-  Widget _buildCategoryHeader({
-    required String title,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-    bool showBadge = false,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+  Widget _buildLocataireChoice() {
+    final selected = _isLocataireSelected;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() {
+          _isLocataireSelected = !_isLocataireSelected;
+          if (_isLocataireSelected) {
+            _selectedOwnerAccountId = null;
+            _isImmobilierDropdownOpen = false;
+          }
+        });
+      },
       child: AnimatedContainer(
-        duration: Duration(milliseconds: 300),
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? primaryColor.withOpacity(0.08) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          color: selected ? primaryColor.withOpacity(0.06) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? primaryColor : Colors.grey.shade300,
-            width: isSelected ? 2 : 1,
+            color: selected ? primaryColor : const Color(0xFFE5E7EB),
+            width: selected ? 1.5 : 1,
           ),
         ),
         child: Row(
           children: [
-            Icon(icon, color: isSelected ? primaryColor : secondaryTextColor, size: 24),
-            SizedBox(width: 12),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.person_pin_rounded, color: primaryColor, size: 22),
+            ),
+            const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  color: isSelected ? primaryColor : textColor,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Locataire',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF111827),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Je cherche un logement',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  ),
+                ],
               ),
             ),
             Icon(
-              isSelected ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
-              color: isSelected ? primaryColor : Colors.grey.shade400,
-              size: 20,
+              selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+              color: selected ? primaryColor : const Color(0xFFD1D5DB),
+              size: 22,
             ),
           ],
         ),
@@ -1193,53 +1412,189 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     );
   }
 
-  Widget _buildSubOptionsGrid({
+  Future<void> _toggleTypeMenu({
+    required bool immobilier,
+    required TypeAccountController typeCtrl,
+  }) async {
+    final options = immobilier ? typeCtrl.ownerTypes : typeCtrl.serviceTypes;
+    if (options.isEmpty) {
+      await typeCtrl.fetchTypeAccounts();
+      if (!mounted) return;
+      final refreshed = immobilier ? typeCtrl.ownerTypes : typeCtrl.serviceTypes;
+      if (refreshed.isEmpty) {
+        SnackbarForCasa.error(
+          context,
+          immobilier
+              ? "Les types de compte immobilier ne sont pas disponibles pour le moment. Réessayez plus tard."
+              : "Les types de service ne sont pas disponibles pour le moment. Réessayez plus tard.",
+        );
+        return;
+      }
+    }
+    setState(() {
+      if (immobilier) {
+        _isImmobilierDropdownOpen = !_isImmobilierDropdownOpen;
+        if (_isImmobilierDropdownOpen) _isServicesDropdownOpen = false;
+      } else {
+        _isServicesDropdownOpen = !_isServicesDropdownOpen;
+        if (_isServicesDropdownOpen) _isImmobilierDropdownOpen = false;
+      }
+    });
+  }
+
+  Widget _buildExpandingDropdown({
+    required String title,
+    required String hint,
+    required IconData icon,
+    Duration expandDuration = const Duration(milliseconds: 480),
+    required bool open,
+    required String? selectedLabel,
+    required VoidCallback onToggle,
     required List<dynamic> options,
     required int? selectedId,
-    required Function(int) onSelected,
+    required ValueChanged<int> onSelected,
   }) {
-    return Container(
-      margin: EdgeInsets.only(top: 8, left: 8, right: 8),
-      padding: EdgeInsets.all(12),
+    final hasSelection = selectedLabel != null && selectedLabel.isNotEmpty;
+    final highlighted = open || hasSelection;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       decoration: BoxDecoration(
-        color: lightBlue.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(12),
+        color: highlighted ? primaryColor.withOpacity(0.08) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: highlighted ? primaryColor : const Color(0xFFE5E7EB),
+          width: highlighted ? 1.5 : 1,
+        ),
       ),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: options.map((opt) {
-          final id = opt['id'] as int;
-          final name = opt['name'] as String;
-          final isSelected = selectedId == id;
-          
-          return InkWell(
-            onTap: () => onSelected(id),
-            borderRadius: BorderRadius.circular(20),
-            child: AnimatedContainer(
-              duration: Duration(milliseconds: 200),
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: isSelected ? primaryColor : Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isSelected ? primaryColor : Colors.grey.shade300,
-                ),
-                boxShadow: isSelected ? [
-                  BoxShadow(color: primaryColor.withOpacity(0.3), blurRadius: 4, offset: Offset(0, 2))
-                ] : [],
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(icon, color: primaryColor, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          hasSelection ? selectedLabel : hint,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: hasSelection
+                                ? const Color(0xFF111827)
+                                : const Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: open ? 0.5 : 0,
+                    duration: expandDuration,
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: open ? primaryColor : Colors.grey[500],
+                    ),
+                  ),
+                ],
               ),
+            ),
+          ),
+          AnimatedSize(
+            duration: expandDuration,
+            curve: Curves.easeInOutCubic,
+            alignment: Alignment.topCenter,
+            child: open
+                ? Column(
+                    children: [
+                      const Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
+                      if (options.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            'Aucun choix disponible',
+                            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                          ),
+                        )
+                      else
+                        for (var i = 0; i < options.length; i++)
+                          _dropdownOption(
+                            label: _optionName(options[i]),
+                            selected: _optionId(options[i]) == selectedId,
+                            onTap: () {
+                              final id = _optionId(options[i]);
+                              if (id != null) onSelected(id);
+                            },
+                          ),
+                    ],
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      ),
+    ),
+    );
+  }
+
+  Widget _dropdownOption({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        color: selected ? primaryColor.withOpacity(0.14) : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        child: Row(
+          children: [
+            Icon(
+              selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+              color: selected ? primaryColor : const Color(0xFFD1D5DB),
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
               child: Text(
-                name.toUpperCase(),
+                label.isEmpty ? 'Type' : label,
                 style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: isSelected ? Colors.white : secondaryTextColor,
+                  fontSize: 15,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: const Color(0xFF111827),
                 ),
               ),
             ),
-          );
-        }).toList(),
+          ],
+        ),
       ),
     );
   }
@@ -1315,11 +1670,6 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         ),
         validator: null,
       ),
-    ).animate().slideX(
-      begin: 0.3,
-      duration: 500.ms,
-      delay: 1700.ms,
-      curve: Curves.easeOut,
     );
   }
 
@@ -1383,10 +1733,12 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       _handleRegister();
     } else {
       // Afficher un message d'erreur si le formulaire n'est pas valide
+      if (!_acceptConditions && hasRequiredFields && isFormValid) {
+        setState(() => _showConditionsError = true);
+        return;
+      }
       String message = "Veuillez remplir tous les champs obligatoires";
       if (!hasSelectedAccount) message = "Veuillez sélectionner au moins un type de compte";
-      else if (!_acceptConditions) message = "Veuillez accepter les conditions d'utilisation";
-      
       SnackbarForCasa.error(context, message);
     }
   }
@@ -1421,307 +1773,184 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
   // }
 
   Widget _buildPasswordStrengthIndicator() {
-    return AnimatedContainer(
-      duration: Duration(milliseconds: 300),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(height: 8),
-          Row(
-            children: List.generate(6, (index) {
-              Color color;
-              if (index < _passwordStrength) {
-                if (_passwordStrength <= 2) color = errorColor;
-                else if (_passwordStrength <= 4) color = accentColor;
-                else color = darkBlue;
-              } else {
-                color = Colors.grey.shade300;
-              }
-
-              return Expanded(
-                child: AnimatedContainer(
-                  duration: Duration(milliseconds: 300),
-                  height: 4,
-                  margin: EdgeInsets.only(right: index < 5 ? 4 : 0),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+    final length = _passwordController.text.length;
+    final filled = length.clamp(0, 6);
+    final ready = length >= 6;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Row(
+          children: List.generate(6, (index) {
+            return Expanded(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                height: 4,
+                margin: EdgeInsets.only(right: index < 5 ? 4 : 0),
+                decoration: BoxDecoration(
+                  color: index < filled
+                      ? (ready ? const Color(0xFF16A34A) : primaryColor)
+                      : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-              );
-            }),
-          ),
-          SizedBox(height: 8),
-          AnimatedSwitcher(
-            duration: Duration(milliseconds: 300),
-            child: Text(
-              _getPasswordStrengthText(_passwordStrength),
-              key: ValueKey(_passwordStrength),
-              style: TextStyle(
-                fontSize: 12,
-                color: _getPasswordStrengthColor(_passwordStrength),
-                fontWeight: FontWeight.w500,
               ),
-            ),
+            );
+          }),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          length == 0
+              ? '6 caractères suffisent'
+              : (ready ? 'Mot de passe valide' : 'Encore ${6 - length} caractère${length == 5 ? '' : 's'}'),
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: ready ? const Color(0xFF16A34A) : secondaryTextColor,
           ),
-          if (_passwordController.text.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: _buildPasswordCriteria(),
-              ),
-            ),
-        ],
-      ),
-    ).animate().fadeIn(delay: 1800.ms);
-  }
-
-  List<Widget> _buildPasswordCriteria() {
-    final password = _passwordController.text;
-    final criteria = [
-      {'text': '6+ caractères', 'met': password.length >= 6},
-      {'text': '8+ caractères', 'met': password.length >= 8},
-      {'text': 'Majuscule', 'met': RegExp(r'[A-Z]').hasMatch(password)},
-      {'text': 'Minuscule', 'met': RegExp(r'[a-z]').hasMatch(password)},
-      {'text': 'Chiffre', 'met': RegExp(r'[0-9]').hasMatch(password)},
-      {'text': 'Spécial', 'met': RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(password)},
-    ];
-
-    return criteria.map((criterion) {
-      final isMet = criterion['met'] as bool;
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isMet ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-            color: isMet ? darkBlue : Colors.grey.shade400,
-            size: 12,
-          ),
-          SizedBox(width: 4),
-          Text(
-            criterion['text'] as String,
-            style: TextStyle(
-              fontSize: 10,
-              color: isMet ? darkBlue : Colors.grey.shade600,
-              fontWeight: isMet ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-        ],
-      );
-    }).toList();
-  }
-
-  String _getPasswordStrengthText(int strength) {
-    if (strength == 0) return 'Commencez à taper votre mot de passe';
-    if (strength <= 2) return 'Faible - Ajoutez des chiffres et caractères spéciaux';
-    if (strength <= 4) return 'Moyen - Presque là !';
-    return 'Fort - Excellent mot de passe !';
-  }
-
-  Color _getPasswordStrengthColor(int strength) {
-    if (strength == 0) return secondaryTextColor;
-    if (strength <= 2) return errorColor;
-    if (strength <= 4) return accentColor;
-    return darkBlue;
+        ),
+      ],
+    );
   }
 
   Widget _buildPrivacyText() {
-    return Column(
-      children: [
-        // Case à cocher pour les conditions
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
+    final showError = _showConditionsError && !_acceptConditions;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(4, 8, 12, 12),
+      decoration: BoxDecoration(
+        color: showError ? errorColor.withOpacity(0.06) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: showError ? errorColor : const Color(0xFFE5E7EB),
+          width: showError ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Case à cocher
-              Transform.scale(
-                scale: 1.2,
-                child: Checkbox(
-                  value: _acceptConditions,
-                  onChanged: (bool? value) {
-                    setState(() {
-                      _acceptConditions = value ?? false;
-                    });
-                  },
-                  activeColor: primaryColor,
-                  checkColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              Checkbox(
+                value: _acceptConditions,
+                onChanged: (bool? value) {
+                  setState(() {
+                    _acceptConditions = value ?? false;
+                    if (_acceptConditions) _showConditionsError = false;
+                  });
+                },
+                activeColor: primaryColor,
+                checkColor: Colors.white,
+                side: BorderSide(
+                  color: showError ? errorColor : const Color(0xFF94A3B8),
+                  width: showError ? 1.8 : 1.4,
                 ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              SizedBox(width: 8),
-              // Texte des conditions
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    RichText(
-                      text: TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'J\'accepte les ',
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                            ),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'J\'accepte les ',
+                          style: TextStyle(
+                            color: const Color(0xFF334155),
+                            fontSize: 14,
+                            height: 1.35,
                           ),
-                          TextSpan(
-                            text: 'conditions d\'utilisation',
-                            style: TextStyle(
-                              color: primaryColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.underline,
-                            ),
-                            recognizer: TapGestureRecognizer()
-                              ..onTap = () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
-                                  ),
-                                );
-                              },
-                          ),
-                          TextSpan(
-                            text: ' et la ',
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                            ),
-                          ),
-                          TextSpan(
-                            text: 'politique de confidentialité',
-                            style: TextStyle(
-                              color: primaryColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.underline,
-                            ),
-                            recognizer: TapGestureRecognizer()
-                              ..onTap = () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
-                                  ),
-                                );
-                              },
-                          ),
-                          TextSpan(
-                            text: ' de CasaNayo',
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Message d'erreur amélioré
-                    if (_autoValidateMode == AutovalidateMode.always && !_acceptConditions)
-                      Container(
-                        margin: EdgeInsets.only(top: 6),
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: errorColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: errorColor.withOpacity(0.3)),
                         ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.error_outline_rounded, color: errorColor, size: 14),
-                            SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Vous devez accepter les conditions pour créer votre compte',
-                                style: TextStyle(
-                                  color: errorColor,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
+                        TextSpan(
+                          text: 'conditions d\'utilisation',
+                          style: TextStyle(
+                            color: primaryColor,
+                            fontSize: 14,
+                            height: 1.35,
+                            fontWeight: FontWeight.w700,
+                            decoration: TextDecoration.underline,
+                          ),
+                          recognizer: TapGestureRecognizer()
+                            ..onTap = () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
                                 ),
-                              ),
-                            ),
-                          ],
+                              );
+                            },
                         ),
-                      ),
-                  ],
+                        const TextSpan(
+                          text: ' et la ',
+                          style: TextStyle(
+                            color: Color(0xFF334155),
+                            fontSize: 14,
+                            height: 1.35,
+                          ),
+                        ),
+                        TextSpan(
+                          text: 'politique de confidentialité',
+                          style: TextStyle(
+                            color: primaryColor,
+                            fontSize: 14,
+                            height: 1.35,
+                            fontWeight: FontWeight.w700,
+                            decoration: TextDecoration.underline,
+                          ),
+                          recognizer: TapGestureRecognizer()
+                            ..onTap = () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
+                                ),
+                              );
+                            },
+                        ),
+                        const TextSpan(
+                          text: ' de CasaNayo',
+                          style: TextStyle(
+                            color: Color(0xFF334155),
+                            fontSize: 14,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-        SizedBox(height: 15),
-        // Texte informatif supplémentaire
-        Wrap(
-          spacing: 4,
-          children: [
-            Text(
-              'En continuant, vous acceptez nos',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 12,
-              ),
-            ),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 0),
+          if (showError)
+            Padding(
+              padding: const EdgeInsets.only(left: 12, right: 4, top: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.error_outline_rounded, color: errorColor, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Cochez la case pour créer votre compte.',
+                      style: TextStyle(
+                        color: Color(0xFFD63031),
+                        fontSize: 13,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  );
-                },
-                child: Text(
-                  'Conditions',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
                   ),
-                ),
+                ],
               ),
             ),
-            Text(
-              'et',
-              style: TextStyle(
-                color: secondaryTextColor,
-                fontSize: 12,
-              ),
-            ),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TermsAndPrivacyPage(initialTabIndex: 1),
-                    ),
-                  );
-                },
-                child: Text(
-                  'Politique de confidentialité',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ).animate().fadeIn(delay: 1900.ms);
+        ],
+      ),
+    );
   }
 
   Widget _buildAuthButton() {
@@ -1960,7 +2189,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     }
 
     if (!_acceptConditions) {
-      SnackbarForCasa.error(context, "Merci d’accepter les conditions d’utilisation pour poursuivre.");
+      setState(() => _showConditionsError = true);
       return;
     }
 
@@ -2145,4 +2374,5 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
       }
     }
   }
+}
 }
