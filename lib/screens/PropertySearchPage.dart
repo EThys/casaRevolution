@@ -12,6 +12,7 @@ import '../controllers/LocationController.dart';
 import '../models/CityModel.dart';
 import '../models/CommuneModel.dart';
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/utils/hotel_room_price.dart';
 import 'package:casa/models/PrestationModel.dart'; // Added
 import 'package:casa/utils/property_detail_navigation.dart';
 import '../utils/city_suggestions.dart';
@@ -82,16 +83,47 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   }
 
   bool _propertyMatchesSearchQuery(PropertyModel p, String qNorm) {
-    if (qNorm.isEmpty) return true;
-    bool has(String? s) => (s ?? '').toLowerCase().contains(qNorm);
-    return has(p.title) ||
-        has(p.description) ||
-        has(p.address) ||
-        has(p.cityValue) ||
-        has(p.communeValue) ||
-        has(p.quartierValue) ||
-        has(p.postBy) ||
-        has(p.propertyType?.name);
+    return p.matchesListingQuery(qNorm);
+  }
+
+  static const List<String> _kinshasaCommunes = [
+    'Bandalungwa', 'Barumbu', 'Bumbu', 'Gombe', 'Kalamu', 'Kasa-Vubu',
+    'Kimbanseke', 'Kinshasa', 'Kintambo', 'Kisenso', 'Lemba', 'Limete',
+    'Lingwala', 'Makala', 'Maluku', 'Masina', 'Matete', 'Mont-Ngafula',
+    'Ndjili', 'Ngaba', 'Ngaliema', 'Ngiri-Ngiri', 'Nsele', 'Selembao',
+  ];
+
+  List<String> _communesForSelectedCity(LocationController locationController) {
+    final folded = PropertyModel.foldPlace(_selectedCity);
+    if (folded.isEmpty) return const [];
+    CityModel? city;
+    for (final candidate in locationController.cities) {
+      if (PropertyModel.foldPlace(candidate.name) == folded) {
+        city = candidate;
+        break;
+      }
+    }
+    final names = <String>[];
+    final id = city?.cityId;
+    if (id != null) {
+      for (final commune in locationController.getCommunesForCity(id)) {
+        final name = commune.name?.trim() ?? '';
+        if (name.isNotEmpty) names.add(name);
+      }
+    }
+    if (names.isEmpty && folded == 'kinshasa') names.addAll(_kinshasaCommunes);
+    return names;
+  }
+
+  List<String> _quartierSuggestions() {
+    final names = <String>{};
+    final controller = Provider.of<PropertyController>(context, listen: false);
+    for (final property in controller.allProperties) {
+      final quartier = (property.quartierValue ?? property.quartier ?? '').trim();
+      if (quartier.isNotEmpty) names.add(quartier);
+    }
+    final list = names.toList()..sort();
+    return list;
   }
 
   bool _propertyMatchesModalFilters(
@@ -105,7 +137,15 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       sold = true;
     }
 
-    if (sold != null) {
+    if (p.isHotelListing) {
+      if (_selectedTransaction == 'Vente' || _selectedTransaction == 'Achat') {
+        if (!p.isSaleListing) return false;
+      } else if (_selectedTransaction == 'Hébergement') {
+        if (p.isSaleListing) return false;
+      } else if (_selectedTransaction == 'Location') {
+        return false;
+      }
+    } else if (sold != null) {
       final tx = p.transactionType?.toLowerCase() ?? '';
       final isLocation = tx.contains('location');
       if (sold == false && !isLocation) return false;
@@ -113,7 +153,11 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     }
 
     final price = p.price;
-    if (price != null &&
+    final priceWasNarrowed = _priceRange.start > 10 || _priceRange.end < 400;
+    if (priceWasNarrowed &&
+        !p.isHotelListing &&
+        price != null &&
+        price > 0 &&
         (price < _priceRange.start || price > _priceRange.end)) {
       return false;
     }
@@ -125,31 +169,16 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     }
 
     if (_selectedCity != null && _selectedCity!.trim().isNotEmpty) {
-      final sel = _selectedCity!.trim().toLowerCase();
-      final city = locationController.cities.firstWhere(
-        (c) => (c.name ?? '').toLowerCase() == sel,
-        orElse: () => CityModel(cityId: null),
-      );
-      final cid = city.cityId;
-      final matchId = cid != null && p.cityId != null && p.cityId == cid;
-      final cv = (p.cityValue ?? '').trim().toLowerCase();
-      final matchName = cv.contains(sel) || cv == sel;
-      final addr = (p.address ?? '').toLowerCase();
-      final matchAddr = addr.contains(sel);
-      if (!matchId && !matchName && !matchAddr) return false;
+      final communesInCity = _communesForSelectedCity(locationController);
+      if (!p.matchesCity(_selectedCity!, communesInCity)) return false;
     }
 
     if (_selectedCommune != null && _selectedCommune!.trim().isNotEmpty) {
-      final sel = _selectedCommune!.trim().toLowerCase();
-      final commune = locationController.communes.firstWhere(
-        (c) => (c.name ?? '').toLowerCase() == sel,
-        orElse: () => CommuneModel(communeId: null),
-      );
-      final mid = commune.communeId;
-      final matchId = mid != null && p.communeId != null && p.communeId == mid;
-      final cv = (p.communeValue ?? '').trim().toLowerCase();
-      final matchName = cv.contains(sel) || cv == sel;
-      if (!matchId && !matchName) return false;
+      if (!p.matchesCommune(_selectedCommune!)) return false;
+    }
+
+    if (_selectedQuartier != null && _selectedQuartier!.trim().isNotEmpty) {
+      if (!p.matchesQuartier(_selectedQuartier!)) return false;
     }
 
     if (_selectedBedrooms != null && _selectedBedrooms!.isNotEmpty) {
@@ -227,6 +256,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   // Contrôles de localisation
   String? _selectedCity;
   String? _selectedCommune;
+  String? _selectedQuartier;
   TextEditingController _minPriceController = TextEditingController();
   TextEditingController _maxPriceController = TextEditingController();
   TextEditingController _bedroomsController = TextEditingController();
@@ -268,15 +298,6 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   Timer? _searchDebounce;
   final RefreshController _propertyRefreshController = RefreshController(initialRefresh: false);
   final RefreshController _serviceRefreshController = RefreshController(initialRefresh: false);
-
-  String _locationText(String? commune, String? city) {
-    final parts = <String>[];
-    final c1 = (commune ?? '').trim();
-    final c2 = (city ?? '').trim();
-    if (c1.isNotEmpty) parts.add(c1);
-    if (c2.isNotEmpty) parts.add(c2);
-    return parts.isEmpty ? 'Localisation' : parts.join(', ');
-  }
 
   // Remplacement des listes statiques par des données dynamiques
   List<String> _cities = [];
@@ -553,7 +574,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
     final fn = () {
       _selectedCity = selectedCity;
-      _selectedCommune = null; 
+      _selectedCommune = null;
+      _selectedQuartier = null;
       _communes = newCommunes;
     };
 
@@ -660,6 +682,16 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     });
   }
 
+  void _alignTransactionWithPropertyType(String type) {
+    if (type == 'Hotels') {
+      if (_selectedTransaction == 'Location') _selectedTransaction = 'Hébergement';
+      if (_selectedTransaction == 'Achat') _selectedTransaction = 'Vente';
+    } else {
+      if (_selectedTransaction == 'Hébergement') _selectedTransaction = 'Location';
+      if (_selectedTransaction == 'Vente') _selectedTransaction = 'Achat';
+    }
+  }
+
   void _resetFilters() {
     final locationController = Provider.of<LocationController>(context, listen: false);
 
@@ -669,6 +701,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       _selectedBedrooms = null;
       _selectedCity = null;
       _selectedCommune = null;
+      _selectedQuartier = null;
       _selectedTransaction = 'Location';
       _selectedServiceCategory = null; 
       _minPriceController.text = '10';
@@ -736,7 +769,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         // Services Refresh
         if (mounted) {
           final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
-          await serviceCtrl.fetchAllPrestations();
+          await serviceCtrl.fetchAllPrestations(size: 200);
           setState(() {
              _allPrestations = List.from(serviceCtrl.prestations);
              // Re-apply local service search if needed
@@ -788,8 +821,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       if (propertyTypeId == 0) propertyTypeId = null;
 
       bool? sold;
-      if (_selectedTransaction == 'Location') sold = false;
-      else if (_selectedTransaction == 'Achat') sold = true;
+      final hotelsMode = _selectedPropertyType == 'Hotels';
+      if (!hotelsMode && _selectedTransaction == 'Location') sold = false;
+      else if (!hotelsMode && _selectedTransaction == 'Achat') sold = true;
 
       int? cityId;
       int? communeId;
@@ -937,7 +971,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                             _buildDropdownField(
                               'Je cherche à',
                               _selectedTransaction,
-                              ['Location', 'Achat'],
+                              _selectedPropertyType == 'Hotels'
+                                  ? ['Hébergement', 'Vente']
+                                  : ['Location', 'Achat'],
                               Icons.swap_horiz_rounded,
                               (value) {
                                 setModalState(() {
@@ -970,6 +1006,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                               (value) {
                                 setModalState(() {
                                   _selectedPropertyType = value ?? 'Tous';
+                                  _alignTransactionWithPropertyType(_selectedPropertyType);
                                 });
                               },
                             ),
@@ -1075,8 +1112,16 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       ),
       child: Row(
         children: [
-          Expanded(child: _buildModernTransactionOption('Location')),
-          Expanded(child: _buildModernTransactionOption('Achat')),
+          Expanded(
+            child: _buildModernTransactionOption(
+              _selectedPropertyType == 'Hotels' ? 'Hébergement' : 'Location',
+            ),
+          ),
+          Expanded(
+            child: _buildModernTransactionOption(
+              _selectedPropertyType == 'Hotels' ? 'Vente' : 'Achat',
+            ),
+          ),
         ],
       ),
     );
@@ -1144,6 +1189,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                onTap: () {
                  setState(() {
                    _selectedPropertyType = type;
+                   _alignTransactionWithPropertyType(type);
                  });
                  Navigator.pop(context);
                  _showFilterModal();
@@ -1285,16 +1331,31 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             ),
             SizedBox(height: 14),
             LocationAutocompleteWidget(
-              key: const ValueKey('commune_filter_field'), // Stable key to keep focus
-              hint: _selectedCity?.trim().toLowerCase() == 'matadi' 
-                  ? 'Commune (Matadi)' 
+              key: const ValueKey('commune_filter_field'),
+              hint: _selectedCity?.trim().toLowerCase() == 'matadi'
+                  ? 'Commune (Matadi)'
                   : (_selectedCity?.trim().toLowerCase() == 'kinshasa' ? 'Commune (Kinshasa)' : 'Commune'),
               icon: Icons.map_rounded,
-              suggestions: _communes, // Use the updated _communes list
+              suggestions: _communes,
               initialValue: _selectedCommune,
               onChanged: (value) {
                 final fn = () {
                   _selectedCommune = value;
+                };
+                setState(fn);
+                if (setModalState != null) setModalState(fn);
+              },
+            ),
+            SizedBox(height: 14),
+            LocationAutocompleteWidget(
+              key: const ValueKey('quartier_filter_field'),
+              hint: 'Quartier',
+              icon: Icons.place_outlined,
+              suggestions: _quartierSuggestions(),
+              initialValue: _selectedQuartier,
+              onChanged: (value) {
+                final fn = () {
+                  _selectedQuartier = value;
                 };
                 setState(fn);
                 if (setModalState != null) setModalState(fn);
@@ -1468,6 +1529,15 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       automaticallyImplyLeading: false,
       toolbarHeight: 70,
       actions: [
+        IconButton(
+          tooltip: 'Actualiser',
+          icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+          onPressed: () {
+            final propertyCtrl =
+                Provider.of<PropertyController>(context, listen: false);
+            _handlePullToRefresh(propertyCtrl);
+          },
+        ),
         _buildFilterBadge(),
         SizedBox(width: 16),
       ],
@@ -1546,9 +1616,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         controller: _searchController,
         style: GoogleFonts.inter(fontSize: 14, color: Colors.white),
         decoration: InputDecoration(
-          hintText: _searchType == 'Propriétés' 
-              ? 'Rechercher une propriété...' 
-              : 'Rechercher un service...',
+          hintText: _searchType == 'Propriétés'
+              ? 'Ville, commune, quartier, adresse...'
+              : 'Service, ville ou commune...',
           hintStyle: GoogleFonts.inter(color: Colors.white.withOpacity(0.6), fontSize: 13),
           prefixIcon: Icon(Icons.search_rounded, color: Colors.white.withOpacity(0.8), size: 20),
           suffixIcon: _searchController.text.isNotEmpty 
@@ -1627,6 +1697,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     // Filtres communs (Vérifier non-null et non-vide)
     if (_selectedCity != null && _selectedCity!.trim().isNotEmpty) count++;
     if (_selectedCommune != null && _selectedCommune!.trim().isNotEmpty) count++;
+    if (_selectedQuartier != null && _selectedQuartier!.trim().isNotEmpty) count++;
 
     if (_searchType == 'Propriétés') {
       if (_selectedPropertyType != 'Tous') count++;
@@ -1637,7 +1708,11 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       final currentMax = double.tryParse(_maxPriceController.text) ?? 400.0;
       
       if (currentMin > 10.0 || currentMax < 400.0) count++;
-      if (_selectedTransaction != 'Location') count++;
+      if (_selectedPropertyType == 'Hotels') {
+        if (_selectedTransaction != 'Hébergement') count++;
+      } else if (_selectedTransaction != 'Location') {
+        count++;
+      }
     } else {
       // Filtres Services
       if (_selectedServiceCategory != null && _selectedServiceCategory!.isNotEmpty) count++;
@@ -1665,9 +1740,10 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
       // Gérer le type de transaction (sold parameter)
       bool? sold;
-      if (_selectedTransaction == 'Location') {
+      final hotelsMode = _selectedPropertyType == 'Hotels';
+      if (!hotelsMode && _selectedTransaction == 'Location') {
         sold = false; // Properties disponibles pour location
-      } else if (_selectedTransaction == 'Achat') {
+      } else if (!hotelsMode && _selectedTransaction == 'Achat') {
         sold = true; // Properties vendues (ou à vendre)
       }
 
@@ -1724,27 +1800,32 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
           // Filtre Ville (Normalisation pour plus de robustesse)
           if (_selectedCity != null) {
-            final pCity = (prestation.cityValue ?? '').trim().toLowerCase();
-            final sCity = _selectedCity!.trim().toLowerCase();
-            if (pCity.isNotEmpty && pCity != sCity) return false;
-            // Si pCity est vide mais qu'une ville est sélectionnée, on pourrait choisir de l'exclure ou de l'inclure.
-            // Généralement on exclut.
-            if (pCity.isEmpty) return false; 
+            final sCity = PropertyModel.foldPlace(_selectedCity);
+            final pCity = PropertyModel.foldPlace(prestation.cityValue);
+            final pCommune = PropertyModel.foldPlace(prestation.communeValue);
+            final kinshasa = sCity == 'kinshasa' &&
+                _kinshasaCommunes.any((name) => PropertyModel.foldPlace(name) == pCommune);
+            if (!pCity.contains(sCity) && !pCommune.contains(sCity) && !kinshasa) return false;
           }
 
-          // Filtre Commune
           if (_selectedCommune != null) {
-            final pCommune = (prestation.communeValue ?? '').trim().toLowerCase();
-            final sCommune = _selectedCommune!.trim().toLowerCase();
-            if (pCommune.isNotEmpty && pCommune != sCommune) return false;
-            if (pCommune.isEmpty) return false;
+            final sCommune = PropertyModel.foldPlace(_selectedCommune);
+            final pCommune = PropertyModel.foldPlace(prestation.communeValue);
+            final pAddress = PropertyModel.foldPlace(prestation.address);
+            if (!pCommune.contains(sCommune) && !pAddress.contains(sCommune)) return false;
           }
 
-          final sq = _searchController.text.trim().toLowerCase();
+          final sq = _searchController.text.trim();
           if (sq.isNotEmpty) {
-            final title = prestation.title?.toLowerCase() ?? '';
-            final desc = prestation.description?.toLowerCase() ?? '';
-            if (!title.contains(sq) && !desc.contains(sq)) return false;
+            final blob = PropertyModel.foldPlace([
+              prestation.title,
+              prestation.description,
+              prestation.cityValue,
+              prestation.communeValue,
+              prestation.address,
+            ].whereType<String>().join(' '));
+            final tokens = PropertyModel.foldPlace(sq).split(RegExp(r'\s+'));
+            if (!tokens.every(blob.contains)) return false;
           }
           
           return true;
@@ -2131,150 +2212,155 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   }
 
   Widget _buildServiceListItem(PrestationModel service) {
-    return GestureDetector(
-      onTap: () {
-         Navigator.pushNamed(
-           context,
-           Routes.serviceDetail,
-           arguments: service,
-         );
-      },
-      child: Container(
-        margin: EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
+    final photos = service.images ?? const <String>[];
+    final cover = photos.isNotEmpty ? photos.first : null;
+    final typeName = (_getServiceName(service.serviceId) ?? 'Service').trim();
+    final place = [
+      service.communeValue,
+      service.cityValue,
+    ].where((part) => part != null && part.trim().isNotEmpty).join(', ');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: Offset(0, 2),
+          onTap: () {
+            Navigator.pushNamed(
+              context,
+              Routes.serviceDetail,
+              arguments: service,
+            );
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
             ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Stack(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(16),
-                      bottomLeft: Radius.circular(16),
-                    ),
-                    image: DecorationImage(
-                      image: (service.images != null && service.images!.isNotEmpty)
-                          ? CachedNetworkImageProvider(service.images!.first)
-                          : AssetImage('assets/images/placeholder.png') as ImageProvider,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 8,
-                  left: 8,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _primaryColor.withOpacity(0.9),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      _getServiceName(service.serviceId) ?? "Service",
-                      style: GoogleFonts.inter(
-                        fontSize: 10,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                // Bouton favoris en haut à droite
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.9),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 4,
-                          offset: Offset(0, 1),
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                  child: SizedBox(
+                    height: 168,
+                    width: double.infinity,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (cover != null)
+                          CachedNetworkImage(
+                            imageUrl: cover,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => Container(color: const Color(0xFFF3F4F6)),
+                            errorWidget: (_, __, ___) => Container(
+                              color: const Color(0xFFF3F4F6),
+                              child: Icon(Icons.home_repair_service_rounded, color: Colors.grey[400], size: 40),
+                            ),
+                          )
+                        else
+                          Container(
+                            color: const Color(0xFFF3F4F6),
+                            child: Icon(Icons.home_repair_service_rounded, color: Colors.grey[400], size: 40),
+                          ),
+                        Positioned(
+                          left: 12,
+                          bottom: 12,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 180),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.62),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                typeName.isEmpty ? 'Service' : typeName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.92),
+                              shape: BoxShape.circle,
+                            ),
+                            child: FavoriteHeartIcon(
+                              propertyId: '${service.id}',
+                              isPrestation: true,
+                              size: 20,
+                              splashRadius: 18,
+                              activeColor: Colors.red,
+                              inactiveColor: _greyColor,
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                    child: FavoriteHeartIcon(
-                      propertyId: '${service.id}',
-                      isPrestation: true,
-                      size: 20,
-                      splashRadius: 18,
-                      activeColor: Colors.red,
-                      inactiveColor: _greyColor,
-                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        service.title ?? 'Service sans nom',
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: _darkColor,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'À partir de ${service.minPrice?.toInt() ?? 0} ${service.currency}',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: _primaryColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (place.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(Icons.location_on_rounded, size: 14, color: _greyColor),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                place,
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: _greyColor,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
             ),
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                             service.title ?? 'Service sans nom',
-                            style: GoogleFonts.inter(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: _darkColor,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey[400]),
-                      ],
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      "À partir de ${service.minPrice?.toInt() ?? 0} ${service.currency}",
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: _primaryColor,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(Icons.location_on_rounded, size: 14, color: _greyColor),
-                        SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            "${service.communeValue ?? ''}, ${service.cityValue ?? ''}",
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              color: _greyColor,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -2680,9 +2766,11 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     // Prix: pas de “/mois” pour les hôtels (et autres catégories non-locatives).
     final isMonthly =
         _selectedTransaction == 'Location' && !isHotel && !isTourisme && !isTerrain && !isFestive && !isFuneraire;
-    final priceText = isMonthly
-        ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
-        : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
+    final priceText = isHotel
+        ? (hotelStartingPriceLabel(property) ?? 'Tarifs par chambre')
+        : (isMonthly
+            ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+            : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
 
     // Hôtels: enrichir les chambres en cache-first (local + refresh async) pour éviter "0 chambre".
     if (isHotel && property.propertyId != null) {
@@ -2819,7 +2907,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
-                            _locationText(property.communeValue, property.cityValue),
+                            property.listingPlace,
                             style: TextStyle(
                               color: _greyColor,
                               fontSize: 11,
@@ -2902,6 +2990,14 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         ],
                       ),
                     if (isHotel) ...[
+                      Text(
+                        priceText,
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: _primaryColor,
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       Align(
                         alignment: Alignment.centerLeft,
@@ -3129,6 +3225,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             setState(() {
               _selectedCity = null;
               _selectedCommune = null;
+              _selectedQuartier = null;
             });
             break;
           case 'Augmenter le budget':
