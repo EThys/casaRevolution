@@ -85,6 +85,48 @@ class _SplashScreenState extends State<SplashScreen>
     super.dispose();
   }
 
+  Widget _sloganWord(String word, double start, double end) {
+    final span = (end - start).clamp(0.01, 1.0);
+    final raw = ((_controller.value - start) / span).clamp(0.0, 1.0);
+    final curved = Curves.easeOutBack.transform(raw);
+    return Opacity(
+      opacity: raw,
+      child: Transform.translate(
+        offset: Offset(0, 16 * (1 - curved.clamp(0.0, 1.2))),
+        child: Transform.scale(
+          scale: 0.86 + (0.14 * curved.clamp(0.0, 1.0)),
+          child: Text(
+            word,
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              color: Colors.white.withOpacity(0.95),
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sloganDot(double at) {
+    final raw = ((_controller.value - at) / 0.12).clamp(0.0, 1.0);
+    return Opacity(
+      opacity: raw,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Text(
+          '·',
+          style: GoogleFonts.poppins(
+            fontSize: 18,
+            color: Colors.white.withOpacity(0.85),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFloatingParticles() {
     return AnimatedBuilder(
       animation: _particlesAnimation,
@@ -329,22 +371,18 @@ class _SplashScreenState extends State<SplashScreen>
 
                       SizedBox(height: 20),
 
-                      // Slogan avec typographie améliorée
-                      FadeTransition(
-                        opacity: _opacityAnimation,
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 40),
-                          child: Text(
-                            'Simple. Utile. Fiable.',
-                            style: GoogleFonts.poppins(
-                              fontSize: 16,
-                              height: 1.5,
-                              color: Colors.white.withOpacity(0.9),
-                              fontWeight: FontWeight.w500, // Légèrement plus épais pour l'impact
-                              letterSpacing: 2.0, // Espacement augmenté pour le style épuré
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
+                      // Simple, Utile, Fiable : chacun arrive à son tour
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _sloganWord('Simple', 0.12, 0.38),
+                            _sloganDot(0.28),
+                            _sloganWord('Utile', 0.32, 0.58),
+                            _sloganDot(0.48),
+                            _sloganWord('Fiable', 0.52, 0.78),
+                          ],
                         ),
                       ),
 
