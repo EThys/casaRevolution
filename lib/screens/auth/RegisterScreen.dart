@@ -2375,4 +2375,3 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
     }
   }
 }
-}
