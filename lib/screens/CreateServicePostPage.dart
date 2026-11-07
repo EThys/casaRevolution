@@ -16,7 +16,7 @@ import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/utils/city_suggestions.dart';
 import 'package:casa/utils/country_codes.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -1083,7 +1083,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               image: DecorationImage(
                 image: _profileImage != null
                     ? FileImage(File(_profileImage!.path)) as ImageProvider
-                    : CachedNetworkImageProvider(_editingPrestation!.profile!),
+                    : OfflineImageProvider(_editingPrestation!.profile!),
                 fit: BoxFit.cover,
               ),
               boxShadow: [
@@ -1240,7 +1240,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: CachedNetworkImage(
+                    child: OfflineNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(color: Colors.grey[200]),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -357,7 +357,7 @@ class _ServiceRequestDetailPageState extends State<ServiceRequestDetailPage> {
                 radius: 24,
                 backgroundColor: _primaryColor.withOpacity(0.1),
                 backgroundImage: _currentRequest?.userAvatar != null
-                    ? CachedNetworkImageProvider(_currentRequest!.userAvatar!)
+                    ? OfflineImageProvider(_currentRequest!.userAvatar!)
                     : null,
                 child: _currentRequest?.userAvatar == null
                     ? Text(
@@ -489,7 +489,7 @@ class _ServiceRequestDetailPageState extends State<ServiceRequestDetailPage> {
                 radius: 20,
                 backgroundColor: _primaryColor.withOpacity(0.1),
                 backgroundImage: response.providerAvatar != null
-                    ? CachedNetworkImageProvider(response.providerAvatar!)
+                    ? OfflineImageProvider(response.providerAvatar!)
                     : null,
                 child: response.providerAvatar == null
                     ? Text(

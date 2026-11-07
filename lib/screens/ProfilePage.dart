@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:get_storage/get_storage.dart';
@@ -759,7 +759,7 @@ class _ProfilePageState extends State<ProfilePage> {
           body: Center(
             child: PhotoView(
               imageProvider: pathOrUrl.startsWith('http')
-                  ? CachedNetworkImageProvider(pathOrUrl)
+                  ? OfflineImageProvider(pathOrUrl)
                   : FileImage(File(pathOrUrl)) as ImageProvider,
               minScale: PhotoViewComputedScale.contained,
               maxScale: PhotoViewComputedScale.covered * 2.0,
@@ -913,7 +913,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                 }
 
                                 if (_profileImageUrl != null && _profileImageUrl!.isNotEmpty) {
-                                  return CachedNetworkImage(
+                                  return OfflineNetworkImage(
                                     imageUrl: _profileImageUrl!,
                                     fit: BoxFit.cover,
                                     width: 100, height: 100,

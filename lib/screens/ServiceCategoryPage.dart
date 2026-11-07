@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import '../models/PrestationModel.dart';
 import '../models/ServiceModel.dart';
 import '../utils/FavoriteEartIcon.dart';
@@ -292,7 +292,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                       fit: StackFit.expand,
                       children: [
                         firstImage != null
-                            ? CachedNetworkImage(
+                            ? OfflineNetworkImage(
                                 imageUrl: firstImage,
                                 fit: BoxFit.cover,
                                 placeholder: (context, url) => Container(
@@ -597,7 +597,7 @@ class _ServiceCategoryPageState extends State<ServiceCategoryPage> {
                   borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                   child: Stack(
                     children: [
-                      CachedNetworkImage(
+                      OfflineNetworkImage(
                         imageUrl: firstImage,
                         width: double.infinity,
                         height: 200,

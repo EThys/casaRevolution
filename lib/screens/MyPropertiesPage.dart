@@ -8,7 +8,7 @@ import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/decertification_access_guard.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
@@ -868,9 +868,11 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
         : null;
     final imageUrl = firstImage?.path;
 
-    final priceText = isForRent && _showMonthlyPriceSuffix(property)
-        ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
-        : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
+    final priceText = property.isStartingPriceListing
+        ? property.startingPriceLabel
+        : (isForRent && _showMonthlyPriceSuffix(property)
+            ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
+            : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}');
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -907,7 +909,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                         child: imageUrl != null
                             ? ClipRRect(
                                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                                child: CachedNetworkImage(
+                                child: OfflineNetworkImage(
                                   imageUrl: imageUrl,
                                   fit: BoxFit.cover,
                                   width: double.infinity,
@@ -1052,9 +1054,11 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
         : null;
     final imageUrl = firstImage?.path;
 
-    final priceText = isForRent && _showMonthlyPriceSuffix(property)
-        ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
-        : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}';
+    final priceText = property.isStartingPriceListing
+        ? property.startingPriceLabel
+        : (isForRent && _showMonthlyPriceSuffix(property)
+            ? '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}/mois'
+            : '${NumberFormat('#,###').format(property.price?.toInt() ?? 0)} ${property.currency}');
 
     return InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -1088,7 +1092,7 @@ class _MyPropertiesPageState extends State<MyPropertiesPage> with SingleTickerPr
                       child: imageUrl != null
                           ? ClipRRect(
                         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                        child: CachedNetworkImage(
+                        child: OfflineNetworkImage(
                           imageUrl: imageUrl,
                           fit: BoxFit.cover,
                           width: double.infinity,

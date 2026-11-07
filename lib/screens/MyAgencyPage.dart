@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -412,7 +412,7 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
     Widget logoWidget;
     if (agency.logo != null && agency.logo!.isNotEmpty) {
       if (agency.logo!.startsWith('http')) {
-        logoWidget = CachedNetworkImage(
+        logoWidget = OfflineNetworkImage(
           imageUrl: agency.logo!,
           fit: BoxFit.cover,
           placeholder: (context, url) => Center(child: CircularProgressIndicator(strokeWidth: 2)),
@@ -577,7 +577,7 @@ class _MyAgencyPageState extends State<MyAgencyPage> {
                            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                            color: Colors.grey[100],
                            image: firstImage != null ? DecorationImage(
-                               image: CachedNetworkImageProvider(firstImage),
+                               image: OfflineImageProvider(firstImage),
                                fit: BoxFit.cover
                            ) : null
                        ),

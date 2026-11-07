@@ -1,5 +1,6 @@
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/screens/HotelImageZoomPage.dart';
 import 'package:casa/screens/HotelRoomDetailPage.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:casa/utils/hotel_room_price.dart';
@@ -46,6 +47,9 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
   final PageController _heroController = PageController();
   int _heroIndex = 0;
   Timer? _heroTimer;
+  Timer? _photoWaitTimer;
+  bool _heroHeld = false;
+  bool _awaitingRoomPhotos = false;
   PropertyController? _propertyCtrl;
   VoidCallback? _propertyCtrlListener;
 
@@ -66,6 +70,7 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
       c.removeListener(l);
     }
     _heroTimer?.cancel();
+    _photoWaitTimer?.cancel();
     _heroController.dispose();
     super.dispose();
   }
@@ -126,10 +131,16 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
     setState(() {
       _model = fresh ?? widget.property;
       _roomsLoading = false;
+      _awaitingRoomPhotos = _roomsLackPhotos(_model);
     });
+    if (_awaitingRoomPhotos) {
+      _armPhotoWait();
+    } else {
+      _photoWaitTimer?.cancel();
+    }
     _restartHeroAutoScroll();
   }
-  
+
   List<String> _heroImages(PropertyModel p) {
     final urls = <String>[];
     final fromList = p.propertyImage ?? [];
@@ -141,15 +152,34 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
     if (fallback.isNotEmpty && !urls.contains(fallback)) urls.insert(0, fallback);
     return urls;
   }
-  
+
+  bool _roomsLackPhotos(PropertyModel? model) {
+    final rooms = model?.hotelStructure ?? const <HotelRoomStructure>[];
+    if (rooms.isEmpty) return false;
+    return !rooms.any((room) =>
+        room.images?.any((image) => (image.path ?? '').trim().isNotEmpty) ?? false);
+  }
+
+  void _armPhotoWait() {
+    _photoWaitTimer?.cancel();
+    _photoWaitTimer = Timer(const Duration(seconds: 8), () {
+      if (!mounted) return;
+      setState(() => _awaitingRoomPhotos = false);
+    });
+  }
+
   void _restartHeroAutoScroll() {
     _heroTimer?.cancel();
+    if (_heroHeld) return;
     final p = _model ?? widget.property;
     final imgs = _heroImages(p);
     if (!mounted || imgs.length < 2) return;
     _heroTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (!mounted) return;
-      final next = (_heroIndex + 1) % imgs.length;
+      if (!mounted || _heroHeld || !_heroController.hasClients) return;
+      if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+      final count = _heroImages(_model ?? widget.property).length;
+      if (count < 2) return;
+      final next = (_heroIndex + 1) % count;
       _heroController.animateToPage(
         next,
         duration: const Duration(milliseconds: 450),
@@ -157,7 +187,16 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
       );
     });
   }
-  
+
+  void _holdHero(bool held) {
+    _heroHeld = held;
+    if (held) {
+      _heroTimer?.cancel();
+    } else {
+      _restartHeroAutoScroll();
+    }
+  }
+
   String _roomSignature(PropertyModel p) {
     final rooms = p.hotelStructure ?? const <HotelRoomStructure>[];
     return rooms.map((s) {
@@ -180,7 +219,6 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
         if (u.isNotEmpty) urls.add(u);
       }
     }
-    // de-dup en gardant l'ordre
     final seen = <String>{};
     final out = <String>[];
     for (final u in urls) {
@@ -188,45 +226,18 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
     }
     return out;
   }
-  
-  void _openGalleryViewer(List<String> urls, {int initialIndex = 0}) {
+
+  void _openGalleryViewer(List<String> urls, {int initialIndex = 0, String? title}) {
     if (urls.isEmpty) return;
-    showDialog<void>(
-      context: context,
-      builder: (ctx) {
-        final c = PageController(initialPage: initialIndex);
-        final top = MediaQuery.viewPaddingOf(ctx).top;
-        final bottom = MediaQuery.viewPaddingOf(ctx).bottom;
-        return Dialog(
-          insetPadding: EdgeInsets.fromLTRB(12, 12 + top, 12, 12 + bottom),
-          backgroundColor: Colors.black,
-          child: Stack(
-            children: [
-              PageView.builder(
-                controller: c,
-                itemCount: urls.length,
-                itemBuilder: (_, i) => HotelCachedImage(
-                  url: urls[i],
-                  fit: BoxFit.contain,
-                  placeholderColor: Colors.black,
-                  error: const Center(
-                    child: Icon(Icons.broken_image_rounded, color: Colors.white70, size: 56),
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 4,
-                right: 4,
-                child: IconButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  icon: const Icon(Icons.close_rounded, color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    _holdHero(true);
+    HotelImageZoomPage.open(
+      context,
+      urls,
+      initialIndex: initialIndex,
+      title: title,
+    ).then((_) {
+      if (mounted) _holdHero(false);
+    });
   }
 
   String _imgUrl(String? path) {
@@ -277,7 +288,6 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
     final heroImages = _heroImages(p);
     final rooms = p.hotelStructure ?? [];
     final gallery = _galleryImages(p);
-    // Barre système (gestes ou boutons, ex. Samsung A17) : le corps défile dessous.
     final bottomSafe = MediaQuery.viewPaddingOf(context).bottom;
 
     return Scaffold(
@@ -317,17 +327,31 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                     if (heroImages.isNotEmpty)
                       Hero(
                         tag: widget.heroTag ?? 'hotel_hero_${p.propertyId ?? 0}',
-                        child: PageView.builder(
-                          controller: _heroController,
-                          itemCount: heroImages.length,
-                          onPageChanged: (i) => setState(() => _heroIndex = i),
-                          itemBuilder: (context, i) => HotelCachedImage(
-                            url: heroImages[i],
-                            fit: BoxFit.cover,
-                            placeholderColor: _border,
-                            error: Container(
-                              color: _border,
-                              child: Icon(Icons.hotel, color: _muted.withValues(alpha: 0.5), size: 64),
+                        child: Listener(
+                          behavior: HitTestBehavior.opaque,
+                          onPointerDown: (_) => _holdHero(true),
+                          onPointerUp: (_) => _holdHero(false),
+                          onPointerCancel: (_) => _holdHero(false),
+                          child: PageView.builder(
+                            controller: _heroController,
+                            itemCount: heroImages.length,
+                            physics: const PageScrollPhysics(),
+                            onPageChanged: (i) => setState(() => _heroIndex = i),
+                            itemBuilder: (context, i) => GestureDetector(
+                              onTap: () => _openGalleryViewer(
+                                heroImages,
+                                initialIndex: i,
+                                title: p.title,
+                              ),
+                              child: HotelCachedImage(
+                                url: heroImages[i],
+                                fit: BoxFit.cover,
+                                placeholderColor: _border,
+                                error: Container(
+                                  color: _border,
+                                  child: Icon(Icons.hotel, color: _muted.withValues(alpha: 0.5), size: 64),
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -339,15 +363,17 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                           child: Icon(Icons.hotel_rounded, color: _primary.withValues(alpha: 0.6), size: 72),
                         ),
                       ),
-                    Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.black.withValues(alpha: 0.05),
-                            Colors.black.withValues(alpha: 0.55),
-                          ],
+                    IgnorePointer(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withValues(alpha: 0.05),
+                              Colors.black.withValues(alpha: 0.55),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -356,26 +382,49 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                       bottom: heroImages.length > 1 ? 36 : 18,
                       child: _HotelTransactionChip(property: p),
                     ),
+                    if (heroImages.isNotEmpty)
+                      Positioned(
+                        right: 16,
+                        bottom: heroImages.length > 1 ? 36 : 18,
+                        child: Material(
+                          color: Colors.black45,
+                          borderRadius: BorderRadius.circular(20),
+                          child: InkWell(
+                            onTap: () => _openGalleryViewer(
+                              heroImages,
+                              initialIndex: _heroIndex,
+                              title: p.title,
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            child: const Padding(
+                              padding: EdgeInsets.all(8),
+                              child: Icon(Icons.zoom_out_map_rounded, color: Colors.white, size: 20),
+                            ),
+                          ),
+                        ),
+                      ),
                     if (heroImages.length > 1)
                       Positioned(
                         left: 0,
                         right: 0,
                         bottom: 18,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(heroImages.length, (i) {
-                            final active = i == _heroIndex;
-                            return AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              margin: const EdgeInsets.symmetric(horizontal: 3),
-                              width: active ? 14 : 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: active ? Colors.white : Colors.white70,
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            );
-                          }),
+                        child: IgnorePointer(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(heroImages.length, (i) {
+                              final active = i == _heroIndex;
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                margin: const EdgeInsets.symmetric(horizontal: 3),
+                                width: active ? 14 : 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: active ? Colors.white : Colors.white70,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                              );
+                            }),
+                          ),
                         ),
                       ),
                   ],
@@ -441,7 +490,8 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    if (rooms.isEmpty && _roomsLoading)
+                    if ((rooms.isEmpty && _roomsLoading) ||
+                        (_awaitingRoomPhotos && _roomsLackPhotos(p)))
                       const _HotelRoomsShimmer()
                     else if (rooms.isEmpty)
                       Container(
@@ -522,7 +572,11 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                           ),
                           const Spacer(),
                           TextButton(
-                            onPressed: () => _openGalleryViewer(gallery, initialIndex: 0),
+                            onPressed: () => _openGalleryViewer(
+                              gallery,
+                              initialIndex: 0,
+                              title: p.title,
+                            ),
                             child: const Text('Tout voir'),
                           ),
                         ],
@@ -532,7 +586,11 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                         images: gallery,
                         border: _border,
                         muted: _muted,
-                        onOpen: (index) => _openGalleryViewer(gallery, initialIndex: index),
+                        onOpen: (index) => _openGalleryViewer(
+                          gallery,
+                          initialIndex: index,
+                          title: p.title,
+                        ),
                       ),
                     ],
                   ],

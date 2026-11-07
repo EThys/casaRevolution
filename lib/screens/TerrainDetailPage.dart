@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/models/TerrainModel.dart';
 import 'package:casa/screens/FullScreenImageViewer.dart'; // Ensure this exists or use placeholder
 import 'package:casa/screens/auth/LoginScreen.dart';
@@ -245,7 +245,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
                         tag: index == 0 && widget.heroTag != null
                             ? widget.heroTag!
                             : 'terrain_image_${_displayTerrain.terrain?.id}_$index',
-                        child: CachedNetworkImage(
+                        child: OfflineNetworkImage(
                           imageUrl: img.path ?? '',
                           fit: BoxFit.cover,
                           placeholder: (context, url) => Center(
@@ -668,7 +668,7 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
                      ),
                      child: ClipOval(
                        child: publisherImage != null && publisherImage.isNotEmpty
-                          ? CachedNetworkImage(
+                          ? OfflineNetworkImage(
                               imageUrl: publisherImage,
                               fit: BoxFit.cover,
                               errorWidget: (_,__,___) => Icon(Icons.person, color: _greyColor),

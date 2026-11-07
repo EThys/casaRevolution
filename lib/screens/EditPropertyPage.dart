@@ -22,7 +22,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:casa/utils/city_suggestions.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../utils/StockageKeys.dart';
@@ -1750,7 +1750,7 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
           ClipRRect(
             borderRadius: BorderRadius.circular(18),
             child: isFile ? Image.file(source as File, fit: BoxFit.cover, width: 100, height: 100)
-                : CachedNetworkImage(imageUrl: source as String, fit: BoxFit.cover, width: 100, height: 100),
+                : OfflineNetworkImage(imageUrl: source as String, fit: BoxFit.cover, width: 100, height: 100),
           ),
           if (onDelete != null)
             Positioned(

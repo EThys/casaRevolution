@@ -1,7 +1,9 @@
 import 'dart:io';
 
 import 'package:casa/models/PropertyModel.dart';
+import 'package:casa/utils/Constantes.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
@@ -17,11 +19,25 @@ class HotelImageCache {
 
   Map<String, String>? _index;
   Directory? _dir;
+  final Map<String, Future<File?>> _pending = {};
+
+  /// Une adresse relative devient une URL absolue affichable.
+  static String resolve(String raw) {
+    final url = raw.trim();
+    if (url.isEmpty || url.toLowerCase() == 'null') return '';
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (url.startsWith('//')) return 'https:$url';
+    final origin = Constantes.URL_BASE.endsWith('/')
+        ? Constantes.URL_BASE.substring(0, Constantes.URL_BASE.length - 1)
+        : Constantes.URL_BASE;
+    if (url.startsWith('/')) return '$origin$url';
+    return '${Constantes.URL_IMAGES}$url';
+  }
 
   static List<String> urlsOf(PropertyModel hotel) {
     final urls = <String>[];
     void add(String? raw) {
-      final url = (raw ?? '').trim();
+      final url = resolve(raw ?? '');
       if (url.startsWith('http')) urls.add(url);
     }
 
@@ -47,7 +63,7 @@ class HotelImageCache {
 
   /// Chemin local déjà connu. Lecture synchrone pour afficher la photo tout de suite.
   String? syncPath(String url) {
-    final stored = _indexMap()[_key(url)];
+    final stored = _indexMap()[_key(resolve(url))];
     if (stored == null || stored.isEmpty) return null;
     if (File(stored).existsSync()) return stored;
     return null;
@@ -61,29 +77,101 @@ class HotelImageCache {
     }
   }
 
-  Future<File?> fileFor(String url) async {
-    final trimmed = url.trim();
-    if (!trimmed.startsWith('http')) return null;
+  Future<File?> fileFor(String url) => ensure(url);
+
+  /// Fichier local, puis copie du cache déjà téléchargé, puis réseau.
+  Future<File?> ensure(String raw) {
+    final trimmed = resolve(raw);
+    if (!trimmed.startsWith('http')) return Future.value(null);
     final existing = syncPath(trimmed);
-    if (existing != null) return File(existing);
+    if (existing != null) return Future.value(File(existing));
+    final pending = _pending[trimmed];
+    if (pending != null) return pending;
+    final future = _ensure(trimmed, raw.trim());
+    _pending[trimmed] = future;
+    return future.whenComplete(() => _pending.remove(trimmed));
+  }
 
+  Future<File?> _ensure(String url, String raw) async {
+    final adopted = await _adopt(url, url) ??
+        (raw == url ? null : await _adopt(url, raw));
+    if (adopted != null) return adopted;
+    return _download(url);
+  }
+
+  Future<File?> _adopt(String url, String cacheKey) async {
+    if (cacheKey.isEmpty) return null;
     try {
-      final dir = await _directory();
-      final file = File(p.join(dir.path, _fileName(trimmed)));
-      if (await file.exists() && await file.length() > 32) {
-        _remember(trimmed, file.path);
-        return file;
-      }
-
-      final response = await http
-          .get(Uri.parse(trimmed))
-          .timeout(const Duration(seconds: 25));
-      if (response.statusCode != 200 || response.bodyBytes.isEmpty) return null;
-      await file.writeAsBytes(response.bodyBytes, flush: true);
-      _remember(trimmed, file.path);
-      return file;
+      final info = await DefaultCacheManager().getFileFromCache(cacheKey);
+      if (info == null || !await info.file.exists()) return null;
+      return _writeBytes(url, await info.file.readAsBytes());
     } catch (_) {
       return null;
+    }
+  }
+
+  Future<File?> _writeBytes(String url, List<int> bytes) async {
+    if (!_looksLikeImage(bytes)) return null;
+    final dir = await _directory();
+    final file = File(p.join(dir.path, _fileName(url)));
+    await file.writeAsBytes(bytes, flush: true);
+    _remember(url, file.path);
+    return file;
+  }
+
+  Future<File?> _download(String url) async {
+    try {
+      final dir = await _directory();
+      final file = File(p.join(dir.path, _fileName(url)));
+      if (await file.exists() && await _isImageFile(file)) {
+        _remember(url, file.path);
+        return file;
+      }
+      if (await file.exists()) {
+        await file.delete();
+      }
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: const {'Accept': 'image/*,*/*'},
+      ).timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) return null;
+      return _writeBytes(url, response.bodyBytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void forget(String url) {
+    final key = _key(resolve(url));
+    final path = _indexMap().remove(key);
+    GetStorage().write(_indexKey, _indexMap());
+    if (path == null || path.isEmpty) return;
+    final file = File(path);
+    if (file.existsSync()) {
+      file.deleteSync();
+    }
+  }
+
+  bool _looksLikeImage(List<int> bytes) {
+    if (bytes.length < 12) return false;
+    if (bytes[0] == 0xFF && bytes[1] == 0xD8) return true;
+    if (bytes[0] == 0x89 && bytes[1] == 0x50) return true;
+    if (bytes[0] == 0x47 && bytes[1] == 0x49) return true;
+    if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes.length > 12) return true;
+    return false;
+  }
+
+  Future<bool> _isImageFile(File file) async {
+    try {
+      if (await file.length() < 32) return false;
+      final head = await file.openRead(0, 16).fold<List<int>>(
+            <int>[],
+            (previous, chunk) => previous..addAll(chunk),
+          );
+      return _looksLikeImage(head);
+    } catch (_) {
+      return false;
     }
   }
 
@@ -143,6 +231,7 @@ class HotelCachedImage extends StatefulWidget {
   final double? width;
   final double? height;
   final Color placeholderColor;
+  final Widget? loading;
   final Widget? error;
 
   const HotelCachedImage({
@@ -152,6 +241,7 @@ class HotelCachedImage extends StatefulWidget {
     this.width,
     this.height,
     this.placeholderColor = const Color(0xFFE5E7EB),
+    this.loading,
     this.error,
   });
 
@@ -161,67 +251,126 @@ class HotelCachedImage extends StatefulWidget {
 
 class _HotelCachedImageState extends State<HotelCachedImage> {
   File? _file;
-  bool _failed = false;
+  late String _url;
+  bool _preferNetwork = false;
+  bool _ready = false;
 
   @override
   void initState() {
     super.initState();
-    final local = HotelImageCache.instance.syncPath(widget.url);
-    if (local != null) {
-      _file = File(local);
-    } else {
-      _load();
-    }
+    _bind(widget.url);
   }
 
   @override
   void didUpdateWidget(HotelCachedImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url == widget.url) return;
-    final local = HotelImageCache.instance.syncPath(widget.url);
-    _failed = false;
-    if (local != null) {
-      _file = File(local);
-    } else {
-      _file = null;
-      _load();
-    }
+    _bind(widget.url);
   }
 
-  Future<void> _load() async {
-    final file = await HotelImageCache.instance.fileFor(widget.url);
+  void _bind(String raw) {
+    _url = HotelImageCache.resolve(raw);
+    _preferNetwork = false;
+    final local = HotelImageCache.instance.syncPath(_url);
+    _file = local == null ? null : File(local);
+    _ready = _file != null || !_url.startsWith('http');
+    if (!_ready) _warm(_url);
+  }
+
+  Future<void> _warm(String url) async {
+    final file = await HotelImageCache.instance.ensure(url);
+    if (!mounted || _url != url) return;
+    setState(() {
+      if (file != null) {
+        _file = file;
+        _preferNetwork = false;
+      }
+      _ready = true;
+    });
+  }
+
+  Widget _loadingBox() {
+    return widget.loading ??
+        ColoredBox(
+          color: widget.placeholderColor,
+          child: const Center(
+            child: SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        );
+  }
+
+  Widget _missingBox() {
+    return widget.error ??
+        ColoredBox(
+          color: widget.placeholderColor,
+          child: const Icon(Icons.image_not_supported_rounded),
+        );
+  }
+
+  void _dropBrokenFile() {
+    HotelImageCache.instance.forget(_url);
     if (!mounted) return;
     setState(() {
-      _file = file;
-      _failed = file == null;
+      _file = null;
+      _preferNetwork = true;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final Widget child;
-    if (_file != null) {
+    if (_file != null && !_preferNetwork) {
       child = Image.file(
         _file!,
         fit: widget.fit,
         width: widget.width ?? double.infinity,
         height: widget.height ?? double.infinity,
         gaplessPlayback: true,
+        errorBuilder: (_, __, ___) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _dropBrokenFile());
+          return _networkOrError();
+        },
       );
-    } else if (_failed) {
-      child = widget.error ??
-          ColoredBox(
-            color: widget.placeholderColor,
-            child: const Icon(Icons.image_not_supported_rounded),
-          );
     } else {
-      child = ColoredBox(color: widget.placeholderColor);
+      child = _networkOrError();
     }
 
     return SizedBox(
       width: widget.width ?? double.infinity,
       height: widget.height ?? double.infinity,
       child: child,
+    );
+  }
+
+  Widget _networkOrError() {
+    if (!_url.startsWith('http')) return _missingBox();
+    return Image.network(
+      _url,
+      fit: widget.fit,
+      width: widget.width ?? double.infinity,
+      height: widget.height ?? double.infinity,
+      gaplessPlayback: true,
+      loadingBuilder: (context, image, progress) {
+        if (progress == null) return image;
+        return _loadingBox();
+      },
+      errorBuilder: (_, __, ___) {
+        final local = HotelImageCache.instance.syncPath(_url);
+        if (local != null) {
+          return Image.file(
+            File(local),
+            fit: widget.fit,
+            width: widget.width ?? double.infinity,
+            height: widget.height ?? double.infinity,
+            gaplessPlayback: true,
+          );
+        }
+        return _ready ? _missingBox() : _loadingBox();
+      },
     );
   }
 }

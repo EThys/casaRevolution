@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/models/PropertyImageModel.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:flutter/material.dart';
@@ -69,7 +69,7 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
                 child: Center(
                   child: Hero(
                     tag: 'property_image_${widget.images![index].propertyImageId}_$index',
-                    child: CachedNetworkImage(
+                    child: OfflineNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.contain,
                       placeholder: (context, url) => Center(
@@ -170,7 +170,7 @@ class _FullScreenImageViewerState extends State<FullScreenImageViewer> {
           GestureDetector(
             onTap: () => Navigator.pop(context),
             child: Center(
-              child: CachedNetworkImage(
+              child: OfflineNetworkImage(
                 imageUrl: widget.imagePath!,
                 fit: BoxFit.contain,
                 placeholder: (context, url) => Center(

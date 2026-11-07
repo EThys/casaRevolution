@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 
 class ServiceFullScreenImageViewer extends StatefulWidget {
@@ -52,7 +52,7 @@ class _ServiceFullScreenImageViewerState extends State<ServiceFullScreenImageVie
                 child: Center(
                   child: Hero(
                     tag: 'service_image_$index',
-                    child: CachedNetworkImage(
+                    child: OfflineNetworkImage(
                       imageUrl: widget.imageUrls[index],
                       fit: BoxFit.contain,
                       placeholder: (context, url) => Center(

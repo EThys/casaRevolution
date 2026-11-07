@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/models/TerrainModel.dart';
 import 'package:casa/screens/TerrainDetailPage.dart';
@@ -386,7 +386,7 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: firstImage != null
-                    ? CachedNetworkImage(
+                    ? OfflineNetworkImage(
                         imageUrl: firstImage,
                         fit: BoxFit.cover,
                         placeholder: (context, url) => Container(
@@ -591,7 +591,7 @@ class _TerrainPropertiesPageState extends State<TerrainPropertiesPage> {
                   ClipRRect(
                     borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                     child: firstImage != null
-                        ? CachedNetworkImage(
+                        ? OfflineNetworkImage(
                             imageUrl: firstImage,
                             fit: BoxFit.cover,
                             width: double.infinity,
