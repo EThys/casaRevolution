@@ -264,11 +264,17 @@ class PropertyModel {
       }
     }
     
-    // Support pour la structure d'hôtel (chambres)
+    // Catalogue API : `structure`. Cache local : `hotelStructure`.
     List<HotelRoomStructure>? parsedStructure;
-    if (json["structure"] is List) {
-      parsedStructure = (json["structure"] as List)
-          .map((s) => HotelRoomStructure.fromJson(s))
+    final rawStructure = json["structure"] ??
+        json["hotelStructure"] ??
+        json["chambres"] ??
+        container["structure"] ??
+        container["chambres"];
+    if (rawStructure is List) {
+      parsedStructure = rawStructure
+          .whereType<Map>()
+          .map((s) => HotelRoomStructure.fromJson(Map<String, dynamic>.from(s)))
           .toList();
     }
 
@@ -401,7 +407,13 @@ class PropertyModel {
       reviewCount: _parseInt(json["reviewCount"]) ?? _parseInt(container["reviewCount"]) ?? 0,
 
       // NOUVELLES PROPRIÉTES MÉTADONNÉES
-      isActive: _parseBool(dataNode["isActive"]) ?? _parseBool(container["isActive"]) ?? true,
+      isActive: ListingFieldsParse.optionalBool(dataNode["isActive"]) ??
+          ListingFieldsParse.optionalBool(dataNode["active"]) ??
+          ListingFieldsParse.optionalBool(container["isActive"]) ??
+          ListingFieldsParse.optionalBool(container["active"]) ??
+          ListingFieldsParse.optionalBool(json["isActive"]) ??
+          ListingFieldsParse.optionalBool(json["active"]) ??
+          true,
       isVerified: _parseBool(dataNode["isVerified"]) ?? _parseBool(container["isVerified"]) ?? false,
       isFeatured: _parseBool(dataNode["isFeatured"]) ?? _parseBool(container["isFeatured"]) ?? false,
       available:
@@ -522,6 +534,9 @@ class PropertyModel {
   String get formattedPrice {
     if (price == null) return "0";
     String symbol = (deviseId == 1) ? "FC" : "\$";
+    if (isStartingPriceListing) {
+      return "À partir de ${price!.toStringAsFixed(0)} $symbol";
+    }
     if (transactionType == "vente") {
       return "${price!.toStringAsFixed(0)} $symbol";
     } else {
@@ -555,6 +570,49 @@ class PropertyModel {
   bool get isHotelListing {
     final name = (propertyType?.name ?? '').toLowerCase();
     return propertyTypeId == 5 || name.contains('hotel') || name.contains('hôtel');
+  }
+
+  /// Retiré du site par l’administration.
+  /// Le gérant qui rend l’hôtel indisponible met `sold` à true : ce n’est pas ce cas.
+  bool get isAdminHidden {
+    if (sold == true) return false;
+    if (!listingAllowed) return true;
+    if (available == false) return true;
+    if (isActive == false) return true;
+    final st = (status ?? '').toLowerCase().trim();
+    return st == 'true' ||
+        st == 'inactive' ||
+        st == 'disabled' ||
+        st == 'rejected' ||
+        st == 'suspended';
+  }
+
+  /// Séjour, tourisme ou fiche vacance. Ces annonces ne vont pas dans les biens à vendre.
+  bool get isVacationListing {
+    final tid = propertyTypeId ?? propertyType?.propertyTypeId ?? 0;
+    if (tid == 6 || tid == 10 || tid == 11) return true;
+    final name = (propertyType?.name ?? '').toLowerCase();
+    return name.contains('vacance') || name.contains('tourisme');
+  }
+
+  /// Salle de fête, salle funéraire, vacance : prix affiché « À partir de », sans « /mois ».
+  bool get isStartingPriceListing {
+    final tid = propertyTypeId ?? propertyType?.propertyTypeId ?? 0;
+    if (tid == 6 || tid == 7 || tid == 8 || tid == 10 || tid == 11) return true;
+    final name = (propertyType?.name ?? '').toLowerCase();
+    return name.contains('vacance') ||
+        name.contains('tourisme') ||
+        name.contains('fête') ||
+        name.contains('fete') ||
+        name.contains('festive') ||
+        name.contains('funéra') ||
+        name.contains('funera') ||
+        name.contains('deuil');
+  }
+
+  String get startingPriceLabel {
+    final amount = price?.toStringAsFixed(0) ?? '0';
+    return 'À partir de $amount $currency';
   }
 
   /// Vente explicite. Un hôtel sans ce mot est un hébergement, pas une location.

@@ -1,5 +1,5 @@
 import 'dart:ui';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/controllers/PropertyFavoriteCtrl.dart';
 import 'package:casa/controllers/provider/FavoriteProvider.dart';
 import 'package:casa/models/PropertyFavoriteModel.dart';
@@ -10,7 +10,6 @@ import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/AppColors.dart';
-import 'package:casa/utils/hotel_room_price.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
@@ -817,14 +816,15 @@ class _FavoritesPageState extends State<FavoritesPage>
     final isFuneraire = tid == 7 || typeName.contains('funéra') || typeName.contains('funera');
     final showMonthly = isForRent && !isHotel && !isTerrain && !isFestive && !isFuneraire;
 
-    final hotelFrom = isHotel && propertyData != null ? hotelStartingPriceLabel(propertyData) : null;
-    final priceText = isHotel
-        ? (hotelFrom ?? '')
-        : (showMonthly
-            ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}/mois'
-            : '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}');
+    final priceText = propertyData?.isStartingPriceListing == true
+        ? propertyData!.startingPriceLabel
+        : (isHotel
+            ? ''
+            : (showMonthly
+                ? '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}/mois'
+                : '${propertyData?.price?.toStringAsFixed(0) ?? '0'} ${propertyData?.currency ?? '\$'}'));
 
-    final showPriceOnCard = !isHotel || hotelFrom != null;
+    final showPriceOnCard = !isHotel;
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
@@ -861,7 +861,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                         child: imageUrl != null
                             ? ClipRRect(
                                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                                child: CachedNetworkImage(
+                                child: OfflineNetworkImage(
                                   imageUrl: imageUrl,
                                   fit: BoxFit.cover,
                                   width: double.infinity,
@@ -1076,14 +1076,15 @@ class _FavoritesPageState extends State<FavoritesPage>
     final isFuneraire = tid == 7 || typeName.contains('funéra') || typeName.contains('funera');
     final showMonthly = isForRent && !isHotel && !isTerrain && !isFestive && !isFuneraire;
 
-    final hotelFrom = isHotel ? hotelStartingPriceLabel(propertyData) : null;
-    final priceText = isHotel
-        ? (hotelFrom ?? '')
-        : (showMonthly
-            ? '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}/mois'
-            : '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}');
+    final priceText = propertyData.isStartingPriceListing
+        ? propertyData.startingPriceLabel
+        : (isHotel
+            ? ''
+            : (showMonthly
+                ? '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}/mois'
+                : '${propertyData.price?.toStringAsFixed(0) ?? '0'} ${propertyData.currency ?? '\$'}'));
 
-    final showPriceOnCard = !isHotel || hotelFrom != null;
+    final showPriceOnCard = !isHotel;
 
     final cardContent = InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -1117,7 +1118,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                       child: imageUrl != null && imageUrl.isNotEmpty
                           ? ClipRRect(
                               borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                              child: CachedNetworkImage(
+                              child: OfflineNetworkImage(
                                 imageUrl: imageUrl,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
@@ -1324,7 +1325,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                       child: imageUrl != null && imageUrl.isNotEmpty
                           ? ClipRRect(
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                        child: CachedNetworkImage(
+                        child: OfflineNetworkImage(
                           imageUrl: imageUrl,
                           fit: BoxFit.cover,
                           width: double.infinity,
@@ -1503,7 +1504,7 @@ class _FavoritesPageState extends State<FavoritesPage>
                         child: imageUrl != null && imageUrl.isNotEmpty
                             ? ClipRRect(
                                 borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                                child: CachedNetworkImage(
+                                child: OfflineNetworkImage(
                                   imageUrl: imageUrl,
                                   fit: BoxFit.cover,
                                   placeholder: (context, url) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),

@@ -21,6 +21,26 @@ import '../utils/cache/HotelImageCache.dart';
 import '../utils/property_snapshot_merge.dart';
 import '../utils/listing_fields_parse.dart';
 
+class OwnerHotelsPage {
+  final List<PropertyModel> items;
+  final int total;
+  final bool hasMore;
+  final bool serverPaged;
+
+  const OwnerHotelsPage({
+    required this.items,
+    required this.total,
+    required this.hasMore,
+    required this.serverPaged,
+  });
+
+  const OwnerHotelsPage.empty()
+      : items = const [],
+        total = 0,
+        hasMore = false,
+        serverPaged = false;
+}
+
 class PropertyController with ChangeNotifier {
   PropertyController({this.stockage});
 
@@ -54,13 +74,81 @@ class PropertyController with ChangeNotifier {
   List<PropertyModel> _listedOnly(List<PropertyModel> list) =>
       list.where((p) => p.listingAllowed).toList();
 
-  /// Toutes les propriétés combinées (standard + bureaux + festives + funéraires + terrains).
-  /// En mode filtré, on retourne uniquement la liste 'properties' qui contient les résultats unifiés.
+  /// Type canonique. Vacances vaut 11 (l’ancien code écrivait parfois 10).
+  int _normalizedType(PropertyModel property) {
+    if (property.isHotelListing) return 5;
+    final typeName = (property.propertyType?.name ?? '').toLowerCase();
+    var id = property.propertyTypeId ?? 0;
+    if (id == 10) id = 11;
+    if (id == 4 || id == 5 || id == 7 || id == 8 || id == 9 || id == 11) {
+      return id;
+    }
+    if (typeName.contains('bureau')) return 4;
+    if (typeName.contains('funér') || typeName.contains('funer')) return 7;
+    if (typeName.contains('fête') ||
+        typeName.contains('fete') ||
+        typeName.contains('festive')) {
+      return 8;
+    }
+    if (typeName.contains('terrain')) return 9;
+    if (typeName.contains('vacance') || typeName.contains('tourisme')) {
+      return 11;
+    }
+    return id;
+  }
+
+  bool _isDedicatedCategory(PropertyModel property) {
+    switch (_normalizedType(property)) {
+      case 4:
+      case 5:
+      case 7:
+      case 8:
+      case 9:
+      case 11:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /// Clé stable : le type distingue un hôtel n°6 d’une maison n°6.
+  String _listingKey(PropertyModel property) {
+    return '${_normalizedType(property)}:${property.propertyId}';
+  }
+
+  /// Même annonce, y compris si une copie n’a pas de type et l’autre si.
+  /// Un id partagé entre une maison et un hôtel reste deux annonces.
+  bool _sameAnnouncement(PropertyModel a, PropertyModel b) {
+    if (a.propertyId == null || a.propertyId != b.propertyId) return false;
+    final ta = _normalizedType(a);
+    final tb = _normalizedType(b);
+    if (ta == tb) return true;
+    if (ta != 0 && tb != 0) return false;
+    final titleA = (a.title ?? '').trim().toLowerCase();
+    final titleB = (b.title ?? '').trim().toLowerCase();
+    return titleA.isNotEmpty && titleA == titleB;
+  }
+
+  List<PropertyModel> _uniqueListings(List<PropertyModel> list) {
+    final out = <PropertyModel>[];
+    for (final property in list) {
+      if (property.propertyId == null) continue;
+      final index = out.indexWhere((existing) => _sameAnnouncement(existing, property));
+      if (index == -1) {
+        out.add(property);
+      } else if (_normalizedType(property) != 0) {
+        out[index] = property;
+      }
+    }
+    return out;
+  }
+
+  int _catalogGeneration = 0;
+
+  /// Toutes les propriétés combinées, une seule fois par annonce.
+  /// La copie d’une catégorie dédiée remplace celle restée dans la liste générale.
   List<PropertyModel> get allProperties {
-    // IMPORTANT: même en mode filtré, certains écrans (AllPropertiesPage / listes unifiées)
-    // attendent un pool global. `properties` peut contenir un sous-ensemble filtré,
-    // mais on garde aussi les catégories dédiées pour éviter de "perdre" terrains/hôtels/vacances.
-    return [
+    return _uniqueListings([
       ..._listedOnly(properties),
       ..._listedOnly(bureaux),
       ..._listedOnly(festives),
@@ -68,7 +156,52 @@ class PropertyController with ChangeNotifier {
       ..._listedOnly(vacances),
       ..._listedOnly(terrainProperties),
       ..._listedOnly(hotels),
+    ]);
+  }
+
+  /// Retire de la liste générale les annonces déjà présentes dans une catégorie dédiée.
+  Future<void> _detachSpecialsFromMain() async {
+    final specialKeys = <String>{};
+    for (final property in [
+      ...bureaux,
+      ...festives,
+      ...funeraires,
+      ...vacances,
+      ...hotels,
+      ...terrainProperties,
+    ]) {
+      if (property.propertyId != null) specialKeys.add(_listingKey(property));
+    }
+    if (specialKeys.isEmpty) return;
+
+    final specials = <PropertyModel>[
+      ...bureaux,
+      ...festives,
+      ...funeraires,
+      ...vacances,
+      ...hotels,
+      ...terrainProperties,
     ];
+    bool coveredBySpecial(PropertyModel property) {
+      if (property.propertyId == null) return false;
+      if (specialKeys.contains(_listingKey(property))) return true;
+      return specials.any((special) => _sameAnnouncement(special, property));
+    }
+
+    final removed = properties
+        .where(coveredBySpecial)
+        .map((property) => property.propertyId!)
+        .toSet();
+    if (removed.isEmpty) return;
+
+    properties.removeWhere(coveredBySpecial);
+    final db = DatabaseHelper.instance;
+    for (final id in removed) {
+      final row = await db.getPropertyById(id);
+      if (row != null && coveredBySpecial(row)) {
+        await db.deleteProperty(id);
+      }
+    }
   }
 
   static bool? _parseBoolLoose(dynamic v) {
@@ -196,7 +329,11 @@ class PropertyController with ChangeNotifier {
     }
   }
 
-  Future<void> syncProperties() async {
+  bool _catalogIsCurrent(int? generation) =>
+      generation == null || generation == _catalogGeneration;
+
+  Future<void> syncProperties({int? generation}) async {
+    if (!_catalogIsCurrent(generation)) return;
     syncing = true;
     notifyListeners();
 
@@ -235,11 +372,14 @@ class PropertyController with ChangeNotifier {
               .where((property) => property.propertyId != null)
               .toList();
 
+          if (!_catalogIsCurrent(generation)) return;
           await _syncWithLocalDatabase(onlineProperties);
+          if (!_catalogIsCurrent(generation)) return;
 
-          // Remplacer les propriétés standard uniquement
-          // Les catégories spéciales (bureaux, festives, funeraires) restent dans leurs listes dédiées
-          properties = onlineProperties;
+          // La liste générale ne garde pas les bureaux, hôtels, etc. :
+          // ces annonces vivent dans leur propre cache, une seule fois.
+          properties = _standardOnly(onlineProperties);
+          await _detachSpecialsFromMain();
 
           final total = onlineProperties.length + bureaux.length + festives.length + funeraires.length + terrains.length;
           print("✅ syncProperties terminé: ${onlineProperties.length} standard + ${bureaux.length} bureaux + ${festives.length} festives + ${funeraires.length} funéraires + ${terrains.length} terrains = $total total");
@@ -255,8 +395,10 @@ class PropertyController with ChangeNotifier {
       print("Erreur lors de la synchronisation: $e");
       await _loadFromCache();
     } finally {
-      syncing = false;
-      notifyListeners();
+      if (_catalogIsCurrent(generation)) {
+        syncing = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -314,9 +456,11 @@ class PropertyController with ChangeNotifier {
   }
 
   /// Charge toutes les catégories spéciales avec une stratégie "Local First" pour un affichage instantané
-  Future<void> syncAllSpecialCategories() async {
+  Future<void> syncAllSpecialCategories({int? generation}) async {
+    if (!_catalogIsCurrent(generation)) return;
     // 1. Charger d'abord tout depuis le SQL local pour un affichage instantané
     await _loadSpecialFromCache();
+    if (!_catalogIsCurrent(generation)) return;
     
     // Les catégories spéciales restent dans leurs listes dédiées (bureaux, festives, funeraires)
     // Si on a des données locales, on affiche tout de suite (pas de loader bloquant)
@@ -330,19 +474,23 @@ class PropertyController with ChangeNotifier {
 
     try {
       await Future.wait([
-        _syncSpecialCategory(Endpoints.propertyBureaux, DatabaseHelper.tableBureaux, (list) => bureaux = list),
-        _syncSpecialCategory(Endpoints.propertyFestives, DatabaseHelper.tableFestives, (list) => festives = list),
-        _syncSpecialCategory(Endpoints.propertyFuneraires, DatabaseHelper.tableFuneraires, (list) => funeraires = list),
-        _syncSpecialCategory(Endpoints.propertyVacances, DatabaseHelper.tableVacances, (list) => vacances = list),
-        _syncSpecialCategory(Endpoints.propertyHotelsPublic, DatabaseHelper.tableHotels, (list) => hotels = list),
-        _syncTerrainCategory(),
+        _syncSpecialCategory(Endpoints.propertyBureaux, DatabaseHelper.tableBureaux, (list) => bureaux = list, generation: generation),
+        _syncSpecialCategory(Endpoints.propertyFestives, DatabaseHelper.tableFestives, (list) => festives = list, generation: generation),
+        _syncSpecialCategory(Endpoints.propertyFuneraires, DatabaseHelper.tableFuneraires, (list) => funeraires = list, generation: generation),
+        _syncSpecialCategory(Endpoints.propertyVacances, DatabaseHelper.tableVacances, (list) => vacances = list, generation: generation),
+        _syncSpecialCategory(Endpoints.propertyHotelsPublic, DatabaseHelper.tableHotels, (list) => hotels = list, generation: generation),
+        _syncTerrainCategory(generation: generation),
       ]);
+      if (!_catalogIsCurrent(generation)) return;
+      await _detachSpecialsFromMain();
       print("🎯 Synchronisation des catégories spéciales terminée");
     } catch (e) {
       print("⚠️ Erreur lors de la sync globale des catégories spéciales: $e");
     } finally {
-      loadingSpecial = false;
-      notifyListeners();
+      if (_catalogIsCurrent(generation)) {
+        loadingSpecial = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -359,7 +507,7 @@ class PropertyController with ChangeNotifier {
     // print("📦 Local: ${bureaux.length} bureaux, ${festives.length} fêtes, ${funeraires.length} funéraires, ${terrains.length} terrains");
   }
 
-  Future<void> _syncSpecialCategory(String endpoint, String tableName, Function(List<PropertyModel>) updateList) async {
+  Future<void> _syncSpecialCategory(String endpoint, String tableName, Function(List<PropertyModel>) updateList, {int? generation}) async {
     try {
       final response = await getData(endpoint);
       if (response != null && response is Map<String, dynamic>) {
@@ -375,6 +523,7 @@ class PropertyController with ChangeNotifier {
         if (rawData != null && rawData is List) {
           print("📦 [$tableName] Raw items found: ${rawData.length}");
           final List<PropertyModel> onlineList = [];
+          final seenOnline = <String>{};
           for (var e in rawData) {
             try {
               final p = PropertyModel.fromJson(e);
@@ -390,14 +539,14 @@ class PropertyController with ChangeNotifier {
                  p.propertyTypeId = 7;
                  p.propertyType = PropertyTypeModel(propertyTypeId: 7, name: 'Funéraire');
               } else if (tableName == DatabaseHelper.tableVacances) {
-                 p.propertyTypeId = 10; // Assigning 10 for Vacance if not already defined
-                 p.propertyType = PropertyTypeModel(propertyTypeId: 10, name: 'Vacance');
+                 p.propertyTypeId = 11;
+                 p.propertyType = PropertyTypeModel(propertyTypeId: 11, name: 'Vacance');
               } else if (tableName == DatabaseHelper.tableHotels) {
                  p.propertyTypeId = 5;
                  p.propertyType = PropertyTypeModel(propertyTypeId: 5, name: 'Hôtel');
               }
               
-              if (p.propertyId != null) {
+              if (p.propertyId != null && seenOnline.add(_listingKey(p))) {
                 onlineList.add(p);
               }
             } catch (err) {
@@ -436,16 +585,20 @@ class PropertyController with ChangeNotifier {
             }
           }
 
+          if (!_catalogIsCurrent(generation)) return;
+          final fresh = _uniqueListings(onlineList);
           if (hasChanges) {
              print("🚀 [$tableName] Updating local database with fresh data...");
              await db.clearCategory(tableName);
-             for (var p in onlineList) {
+             for (var p in fresh) {
                await db.insertOrUpdateInCategory(tableName, p);
              }
-             updateList(onlineList);
+             if (!_catalogIsCurrent(generation)) return;
+             updateList(fresh);
           } else {
              print("✅ [$tableName] Local data is up-to-date. Using local.");
-             updateList(localList); // Ensure memory uses the (verified valid) local list
+             if (!_catalogIsCurrent(generation)) return;
+             updateList(_uniqueListings(localList));
           }
         } else {
              print("⚠️ [$tableName] Raw data is null or not a list");
@@ -457,21 +610,15 @@ class PropertyController with ChangeNotifier {
   }
 
 
-  void _mergeIntoMainProperties(List<PropertyModel> specialistList) {
-    for (var p in specialistList) {
-      if (!properties.any((existing) => existing.propertyId == p.propertyId)) {
-        properties.add(p);
-      }
-    }
-  }
-
   /// Load terrains from local cache and convert to PropertyModel
   Future<void> _loadTerrainsFromCache() async {
     try {
       final db = TerrainDatabaseHelper.instance;
       final cachedTerrains = await db.getAllTerrains();
       terrains = cachedTerrains;
-      terrainProperties = cachedTerrains.map(_terrainToPropertyModel).toList();
+      terrainProperties = _uniqueListings(
+        cachedTerrains.map(_terrainToPropertyModel).toList(),
+      );
       print("📦 [PropertyCtrl] ${terrains.length} terrains chargés depuis le cache local");
     } catch (e) {
       print("⚠️ [PropertyCtrl] Erreur lors du chargement des terrains depuis le cache: $e");
@@ -481,7 +628,7 @@ class PropertyController with ChangeNotifier {
   }
 
   /// Sync terrains with API and local database
-  Future<void> _syncTerrainCategory() async {
+  Future<void> _syncTerrainCategory({int? generation}) async {
     try {
       final response = await getData(Endpoints.propertyTerrains);
       if (response != null && response is Map<String, dynamic>) {
@@ -495,13 +642,15 @@ class PropertyController with ChangeNotifier {
               .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e as Map))
               .toList();
 
+          if (!_catalogIsCurrent(generation)) return;
           // Store in local database
           final db = TerrainDatabaseHelper.instance;
           await db.insertTerrains(terrainList);
+          if (!_catalogIsCurrent(generation)) return;
 
           // Update in-memory lists
           terrains = terrainList;
-          terrainProperties = terrainList.map(_terrainToPropertyModel).toList();
+          terrainProperties = _uniqueListings(terrainList.map(_terrainToPropertyModel).toList());
 
           print("✅ [PropertyCtrl] ${terrains.length} terrains synchronisés depuis l'API");
         } else {
@@ -542,22 +691,32 @@ class PropertyController with ChangeNotifier {
     return false;
   }
 
+  List<PropertyModel> _standardOnly(List<PropertyModel> list) {
+    return _uniqueListings(list.where((property) => !_isDedicatedCategory(property)).toList());
+  }
+
   Future<void> _syncWithLocalDatabase(List<PropertyModel> onlineProperties) async {
     final db = DatabaseHelper.instance;
+    final standard = _standardOnly(onlineProperties);
     final localProperties = await db.getAllProperties();
-    final onlineIds = onlineProperties.map((p) => p.propertyId).toSet();
-    final localIds = localProperties.map((p) => p.propertyId).toSet();
-    final deletedIds = localIds.difference(onlineIds);
-    for (final id in deletedIds) {
-      if (id != null) await db.deleteProperty(id);
+    final onlineIds = standard.map((p) => p.propertyId).toSet();
+    for (final local in localProperties) {
+      final id = local.propertyId;
+      if (id == null) continue;
+      // Une annonce de catégorie dédiée ne doit plus rester dans la table générale,
+      // sinon le prochain démarrage la relit deux fois.
+      if (_isDedicatedCategory(local) || !onlineIds.contains(id)) {
+        await db.deleteProperty(id);
+      }
     }
-    for (var property in onlineProperties) {
+    for (final property in standard) {
       await db.insertOrUpdateProperty(property);
     }
-    print("Synchronisation terminée: ${onlineProperties.length} propriétés en ligne, ${deletedIds.length} supprimées localement");
+    print("Synchronisation terminée: ${standard.length} propriétés générales, ${onlineProperties.length} reçues du serveur");
   }
 
   Future<void> refreshProperties({bool forceSync = false}) async {
+    final generation = ++_catalogGeneration;
     syncing = true;
     notifyListeners();
 
@@ -590,8 +749,11 @@ class PropertyController with ChangeNotifier {
               .where((property) => property.propertyId != null)
               .toList();
 
+          if (generation != _catalogGeneration) return;
           await _syncWithLocalDatabase(onlineProperties);
-          properties = onlineProperties;
+          if (generation != _catalogGeneration) return;
+          properties = _standardOnly(onlineProperties);
+          await _detachSpecialsFromMain();
         } else {
           print("⚠Réponse properties vide ou invalide");
           if (!forceSync) await _loadFromCache();
@@ -601,10 +763,14 @@ class PropertyController with ChangeNotifier {
       }
     } catch (e) {
       print("Erreur during refresh: $e");
-      if (properties.isEmpty) await _loadFromCache();
+      if (properties.isEmpty && generation == _catalogGeneration) {
+        await _loadFromCache();
+      }
     } finally {
-      syncing = false;
-      notifyListeners();
+      if (generation == _catalogGeneration) {
+        syncing = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -685,6 +851,7 @@ class PropertyController with ChangeNotifier {
           local.address != online.address ||
           local.sold != online.sold ||
           local.transactionType != online.transactionType ||
+          (local.hotelStructure?.length ?? 0) != (online.hotelStructure?.length ?? 0) ||
           _hasImagesChanged(local, online);
   }
 
@@ -772,26 +939,31 @@ class PropertyController with ChangeNotifier {
 
   Future<List<PropertyModel>> getAllProperty() async {
     loading = true;
+    final generation = ++_catalogGeneration;
     notifyListeners();
 
     try {
-      // 1. Chargement local rapide → affichage immédiat
+      // 1. Chargement local rapide → affichage immédiat, sans doublon cache/catégorie.
       await _loadFromCache();
-      // Charger aussi les spéciales depuis le cache local (dans leurs listes dédiées)
       await _loadSpecialFromCache();
+      await _detachSpecialsFromMain();
 
       loading = false;
       notifyListeners();
       print("Cache initial: ${properties.length} standard + ${bureaux.length} bureaux + ${festives.length} festives + ${funeraires.length} funéraires + ${terrains.length} terrains");
 
-      // 2. Sync online en arrière-plan
-      // syncProperties() re-fusionnera automatiquement les spéciales après l'écrasement
-      syncProperties().catchError((e) {
-        print("Erreur de synchronisation en arrière-plan: $e");
-      });
-
-      // 3. Sync des catégories spéciales en arrière-plan (pour les nouvelles données online)
-      syncAllSpecialCategories();
+      // 2. Le serveur remplace le cache. Une ouverture plus récente annule celle-ci,
+      // pour qu’une vieille réponse ne se recolle pas sur la liste déjà à jour.
+      unawaited(() async {
+        try {
+          if (generation != _catalogGeneration) return;
+          await syncProperties(generation: generation);
+          if (generation != _catalogGeneration) return;
+          await syncAllSpecialCategories(generation: generation);
+        } catch (e) {
+          print("Erreur de synchronisation en arrière-plan: $e");
+        }
+      }());
 
       return properties;
     } catch (e) {
@@ -807,7 +979,7 @@ class PropertyController with ChangeNotifier {
   Future<void> _loadFromCache() async {
     final db = DatabaseHelper.instance;
     final cachedProperties = await db.getAllProperties();
-    properties = cachedProperties;
+    properties = _uniqueListings(cachedProperties);
     print("Chargement depuis le cache: ${properties.length} propriétés");
   }
 
@@ -889,11 +1061,56 @@ class PropertyController with ChangeNotifier {
   Future<PropertyModel> _persistHotelSnapshot(PropertyModel property) async {
     final db = DatabaseHelper.instance;
     final hydrated = await db.hydrateHotelFromRoomCache(property);
-    await db.insertOrUpdateProperty(hydrated);
+    final id = hydrated.propertyId;
+    // Une seule copie : la table hôtels. La table générale sert aux autres biens.
+    if (id != null) {
+      final existing = await db.getPropertyById(id);
+      if (existing != null && existing.isHotelListing) {
+        await db.deleteProperty(id);
+      }
+      properties.removeWhere((item) => item.propertyId == id && item.isHotelListing);
+    }
     await db.insertOrUpdateInCategory(DatabaseHelper.tableHotels, hydrated);
     await db.persistHotelRoomRows(hydrated);
     unawaited(HotelImageCache.instance.prefetchUrls(HotelImageCache.urlsOf(hydrated)));
     return hydrated;
+  }
+
+  /// Détail d'une chambre, enregistré dans `hotel_rooms` pour le prochain affichage.
+  Future<HotelRoomStructure?> fetchAndCacheHotelRoom(int chambreId) async {
+    try {
+      final chResp = await getData("${Endpoints.propertyHotelRoomsPublic}/$chambreId");
+      if (chResp is Map<String, dynamic> && chResp['data'] is List) {
+        final arr = chResp['data'] as List;
+        if (arr.isNotEmpty && arr.first is Map) {
+          final enriched = HotelRoomStructure.fromJson(
+            Map<String, dynamic>.from(arr.first as Map),
+          );
+          await DatabaseHelper.instance.insertOrUpdateHotelRoom(enriched);
+          unawaited(HotelImageCache.instance.prefetchUrls(
+            (enriched.images ?? const <PropertyImageModel>[])
+                .map((image) => image.path ?? '')
+                .where((url) => url.startsWith('http')),
+          ));
+          return enriched;
+        }
+      }
+    } catch (e) {
+      print('⚠️ fetchAndCacheHotelRoom $chambreId: $e');
+    }
+    return DatabaseHelper.instance.getHotelRoomById(chambreId);
+  }
+
+  void _rememberHotel(PropertyModel hotel) {
+    final id = hotel.propertyId;
+    if (id == null) return;
+    var found = false;
+    hotels = hotels.map((item) {
+      if (item.propertyId != id) return item;
+      found = true;
+      return hotel;
+    }).toList();
+    if (!found) hotels = [...hotels, hotel];
   }
 
   /// Hôtels : pas de `GET /property/{id}` — catalogue [Endpoints.propertyHotelsPublic] puis détail chambre optionnel.
@@ -1043,8 +1260,7 @@ class PropertyController with ChangeNotifier {
               }
               final enrichedHotel = property.copyWith(hotelStructure: mergedRooms);
               await _persistHotelSnapshot(enrichedHotel);
-              // notifier les listeners pour refresh UI si l’écran écoute le controller
-              hotels = hotels.map((h) => h.propertyId == enrichedHotel.propertyId ? enrichedHotel : h).toList();
+              _rememberHotel(enrichedHotel);
               notifyListeners();
             } catch (_) {}
           });
@@ -1053,6 +1269,7 @@ class PropertyController with ChangeNotifier {
 
       final saved = await _persistHotelSnapshot(property);
       currentProperty = saved;
+      _rememberHotel(saved);
       return saved;
     } catch (e) {
       print('❌ _fetchHotelFromPublicCatalog: $e');
@@ -1185,9 +1402,21 @@ class PropertyController with ChangeNotifier {
             similarProperties = [];
           }
 
-          // Mettre à jour le cache local
+          // Mettre à jour le cache local, sans recopier un hôtel dans la liste générale.
           final db = DatabaseHelper.instance;
-          await db.insertOrUpdateProperty(property);
+          if (property.isHotelListing) {
+            final id = property.propertyId;
+            if (id != null) {
+              final existing = await db.getPropertyById(id);
+              if (existing != null && existing.isHotelListing) {
+                await db.deleteProperty(id);
+              }
+              properties.removeWhere((item) => item.propertyId == id && item.isHotelListing);
+            }
+            await db.insertOrUpdateInCategory(DatabaseHelper.tableHotels, property);
+          } else {
+            await db.insertOrUpdateProperty(property);
+          }
 
           loading = false;
           notifyListeners();
@@ -1489,22 +1718,31 @@ class PropertyController with ChangeNotifier {
       final fresh = await fetchHotelsByOwner();
       if (fresh.isEmpty) return [];
 
-      final userDb = PropertyDatabaseHelper.instance;
-      final cached = await loadMyHotelsFromDatabase();
-      final cachedIds = cached.map((p) => p.propertyId).whereType<int>().toSet();
-      final onlineIds = fresh.map((p) => p.propertyId).whereType<int>().toSet();
-      for (final id in cachedIds.difference(onlineIds)) {
-        await userDb.deleteProperty(id.toString());
-      }
-      for (final h in fresh) {
-        await userDb.insertOrUpdateProperty(h, userId);
-      }
-      notifyListeners();
+      await rememberOwnerHotels(fresh, replaceMissing: true);
       return fresh;
     } catch (e) {
       print('⚠️ syncOwnerHotelsToDatabase: $e');
       return [];
     }
+  }
+
+  /// Enregistre les hôtels du propriétaire. [replaceMissing] retire du cache
+  /// ceux absents de [hotels] (à n’utiliser que quand la liste est complète).
+  Future<void> rememberOwnerHotels(List<PropertyModel> hotels, {bool replaceMissing = false}) async {
+    final userId = _ownerUserIdFromStorage();
+    if (userId == null || hotels.isEmpty) return;
+    final userDb = PropertyDatabaseHelper.instance;
+    if (replaceMissing) {
+      final cached = await loadMyHotelsFromDatabase();
+      final onlineIds = hotels.map((p) => p.propertyId).whereType<int>().toSet();
+      for (final id in cached.map((p) => p.propertyId).whereType<int>()) {
+        if (!onlineIds.contains(id)) await userDb.deleteProperty(id.toString());
+      }
+    }
+    for (final hotel in hotels) {
+      await userDb.insertOrUpdateProperty(hotel, userId);
+    }
+    notifyListeners();
   }
 
   /// Cache puis API (pour appels one-shot). Préférer [loadMyHotelsFromDatabase] + [syncOwnerHotelsToDatabase] pour l’UI progressive.
@@ -1516,19 +1754,42 @@ class PropertyController with ChangeNotifier {
 
   /// Hôtels du propriétaire (`GET` [Endpoints.propertyHotelsByOwner]`{userId}`).
   Future<List<PropertyModel>> fetchHotelsByOwner() async {
+    const size = 50;
+    final first = await fetchOwnerHotelsPage(page: 0, size: size);
+    if (!first.serverPaged || !first.hasMore) return first.items;
+    final all = List<PropertyModel>.from(first.items);
+    for (var page = 1; page < 40; page++) {
+      final next = await fetchOwnerHotelsPage(page: page, size: size);
+      all.addAll(next.items);
+      if (!next.hasMore || next.items.isEmpty) break;
+    }
+    return all;
+  }
+
+  /// Une page d’hôtels du propriétaire. Si l’API ignore `page`, toute la liste
+  /// revient dans [OwnerHotelsPage.items] et [OwnerHotelsPage.serverPaged] est faux.
+  Future<OwnerHotelsPage> fetchOwnerHotelsPage({int page = 0, int size = 8}) async {
     final userId = _ownerUserIdFromStorage();
-    if (userId == null) return [];
+    if (userId == null) return const OwnerHotelsPage.empty();
 
     final tkn = stockage?.read<String>(StockageKeys.tokenKey);
-    final url = "${Endpoints.propertyHotelsByOwner}$userId";
+    final url = "${Endpoints.propertyHotelsByOwner}$userId?page=$page&size=$size";
     try {
       final response = await getData(url, token: tkn);
-      if (response == null) return [];
+      if (response == null) return const OwnerHotelsPage.empty();
+
       dynamic raw = response;
+      int? declaredTotal;
+      bool? last;
       if (response is Map) {
-        raw = response['data'] ?? response['hotels'] ?? response['properties'] ?? response;
+        final declared = response['totalElements'] ?? response['total'] ?? response['totalCount'];
+        if (declared is num) declaredTotal = declared.toInt();
+        if (response['last'] is bool) last = response['last'] as bool;
+        raw = response['content'] ?? response['data'] ?? response['hotels'] ?? response['properties'];
+        raw ??= response;
       }
-      if (raw is! List) return [];
+      if (raw is! List) return const OwnerHotelsPage.empty();
+
       final out = <PropertyModel>[];
       for (final e in raw) {
         if (e == null) continue;
@@ -1542,10 +1803,19 @@ class PropertyController with ChangeNotifier {
           print("⚠️ fetchHotelsByOwner parse: $err");
         }
       }
-      return out;
+
+      final total = declaredTotal ?? out.length;
+      final serverPaged = declaredTotal != null && declaredTotal > out.length;
+      final hasMore = serverPaged && last != true && (page + 1) * size < total;
+      return OwnerHotelsPage(
+        items: out,
+        total: declaredTotal ?? out.length,
+        hasMore: hasMore,
+        serverPaged: serverPaged,
+      );
     } catch (e) {
-      print("❌ fetchHotelsByOwner: $e");
-      return [];
+      print("❌ fetchOwnerHotelsPage: $e");
+      return const OwnerHotelsPage.empty();
     }
   }
 

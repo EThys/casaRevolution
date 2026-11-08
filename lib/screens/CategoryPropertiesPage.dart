@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/utils/Constantes.dart';
 import 'package:flutter/material.dart';
@@ -12,7 +12,6 @@ import '../models/PropertyModel.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/FavoriteEartIcon.dart';
 import '../utils/property_detail_navigation.dart';
-import '../utils/hotel_room_price.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../controllers/provider/FavoriteProvider.dart';
 import '../controllers/AgenceController.dart';
@@ -625,7 +624,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     ImageProvider? imageProvider;
     if (agence.logo != null && agence.logo!.isNotEmpty) {
       if (agence.logo!.startsWith('http')) {
-        imageProvider = CachedNetworkImageProvider(agence.logo!);
+        imageProvider = OfflineImageProvider(agence.logo!);
       } else if (agence.logo!.startsWith('data:image')) {
         try {
           final base64String = agence.logo!.split(',').last;
@@ -755,7 +754,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
     
     if (hasLogo) {
        if (agence.logo!.startsWith('http')) {
-         imageProvider = CachedNetworkImageProvider(agence.logo!);
+         imageProvider = OfflineImageProvider(agence.logo!);
        } else if (agence.logo!.startsWith('data:image')) {
          try {
            final base64String = agence.logo!.split(',').last;
@@ -871,9 +870,11 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
 
   // Carte en mode liste - Design moderne avec superposition
   Widget _buildPropertyListItem(PropertyModel property, bool isForRent) {
-    final priceText = isForRent
-        ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
-        : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
+    final priceText = property.isStartingPriceListing
+        ? property.startingPriceLabel
+        : (isForRent
+            ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+            : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
 
     // Utilisation des vraies images du modèle PropertyModel
     final firstImage = property.propertyImage?.isNotEmpty ?? false
@@ -928,7 +929,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                     child: Hero(
                       tag: 'category-list-${property.propertyId}',
                       child: imageUrl != null
-                          ? CachedNetworkImage(
+                          ? OfflineNetworkImage(
                         imageUrl: imageUrl,
                         fit: BoxFit.cover,
                         width: double.infinity,
@@ -1346,11 +1347,13 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
         !isFestive &&
         !isFuneraire;
 
-    final priceText = isHotel
-        ? hotelStartingPriceLabel(property)
-        : (isMonthly
-            ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
-            : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
+    final priceText = property.isStartingPriceListing
+        ? property.startingPriceLabel
+        : (isHotel
+            ? null
+            : (isMonthly
+                ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+                : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}'));
 
     final firstImage = property.propertyImage?.isNotEmpty ?? false
         ? property.propertyImage!.first
@@ -1404,7 +1407,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                           topRight: Radius.circular(16),
                         ),
                         child: imageUrl != null
-                            ? CachedNetworkImage(
+                            ? OfflineNetworkImage(
                                 imageUrl: imageUrl,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
@@ -1494,7 +1497,7 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                       bottom: 0,
                       left: 0,
                       right: 0,
-                      child: (priceText == null)
+                      child: (priceText == null && !isHotel)
                           ? const SizedBox.shrink()
                           : Container(
                               padding: EdgeInsets.symmetric(
@@ -1578,7 +1581,8 @@ class _CategoryPropertiesPageState extends State<CategoryPropertiesPage> {
                                     ],
                                   ),
                                   const SizedBox(height: 5),
-                                  Text(
+                                  if (priceText != null)
+                                    Text(
                                     priceText,
                                     style: const TextStyle(
                                       fontSize: 12,

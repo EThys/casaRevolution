@@ -13,7 +13,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import '../models/PropertyModel.dart';
 import '../models/PropertyImageModel.dart';
 import '../models/PropertyFeatureModel.dart';
@@ -408,9 +408,11 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     Future<void> _shareProperty() async {
       bool isForRent = property.transactionType?.toLowerCase().contains('location') ?? false;
 
-      final priceText = isForRent && !_isFestiveOrFuneraireFor(property)
-          ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
-          : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}';
+      final priceText = property.isStartingPriceListing
+          ? property.startingPriceLabel
+          : (isForRent && !_isFestiveOrFuneraireFor(property)
+              ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+              : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
 
       final lines = <String>[
         '🏠 ${property.title ?? 'Belle propriété'}',
@@ -484,7 +486,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                   tag: index == 0 && widget.heroTag != null 
                       ? widget.heroTag! 
                       : 'property_image_${property.propertyId}_$index',
-                  child: CachedNetworkImage(
+                  child: OfflineNetworkImage(
                     imageUrl: imageUrl,
                     fit: BoxFit.cover,
                     placeholder: (context, url) => Container(
@@ -770,7 +772,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: CachedNetworkImage(
+                        child: OfflineNetworkImage(
                           imageUrl: imageUrl,
                           fit: BoxFit.cover,
                           width: double.infinity,
@@ -1158,6 +1160,18 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
+                    if (property.isStartingPriceListing)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6, bottom: 4),
+                        child: Text(
+                          'À partir de',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: _greyColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     Text(
                       '${property.price?.toInt() ?? 0}',
                       style: TextStyle(
@@ -1175,7 +1189,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                         color: _primaryColor,
                       ),
                     ),
-                    if (isForRent && !_isFestiveOrFuneraireFor(property))
+                    if (isForRent && !property.isStartingPriceListing && !_isFestiveOrFuneraireFor(property))
                       Padding(
                         padding: EdgeInsets.only(left: 4, bottom: 2),
                         child: Text(
@@ -1433,6 +1447,17 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
             textBaseline: TextBaseline.alphabetic,
             crossAxisAlignment: CrossAxisAlignment.baseline,
             children: [
+              if (property.isStartingPriceListing) ...[
+                Text(
+                  'À partir de',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
               Text(
                 '$price',
                 style: TextStyle(
@@ -1444,7 +1469,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
               ),
               SizedBox(width: 4),
               Text(
-                (isForRent && !_isFestiveOrFuneraireFor(property)) ? '${property.currency ?? '\$'}/mois' : '${property.currency ?? '\$'}',
+                property.isStartingPriceListing
+                    ? '${property.currency ?? '\$'}'
+                    : ((isForRent && !_isFestiveOrFuneraireFor(property)) ? '${property.currency ?? '\$'}/mois' : '${property.currency ?? '\$'}'),
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.9),
                   fontSize: 16,
@@ -2156,7 +2183,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(23),
                         child: (property.image != null && property.image!.isNotEmpty)
-                            ? CachedNetworkImage(
+                            ? OfflineNetworkImage(
                                 imageUrl: property.image!,
                                 fit: BoxFit.cover,
                                 placeholder: (context, url) => Center(
@@ -2179,7 +2206,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                                 ),
                               )
                             : (property.user?.profilePicture != null && property.user!.profilePicture!.isNotEmpty)
-                                ? CachedNetworkImage(
+                                ? OfflineNetworkImage(
                                     imageUrl: property.user!.profilePicture!,
                                     fit: BoxFit.cover,
                                     placeholder: (context, url) => Center(
@@ -2605,7 +2632,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                       ClipRRect(
                         borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
                         child: image != null
-                            ? CachedNetworkImage(
+                            ? OfflineNetworkImage(
                                 imageUrl: image,
                                 height: 120,
                                 width: double.infinity,
@@ -2991,7 +3018,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                     PageView.builder(
                       itemCount: images.length,
                       itemBuilder: (context, idx) {
-                        return CachedNetworkImage(
+                        return OfflineNetworkImage(
                           imageUrl: images[idx].path ?? '',
                           fit: BoxFit.cover,
                           placeholder: (context, url) => Container(color: Colors.grey[200]),

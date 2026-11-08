@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -12,7 +12,6 @@ import '../models/AgenceModel.dart';
 import '../utils/Constantes.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/property_detail_navigation.dart';
-import '../utils/hotel_room_price.dart';
 import '../utils/FavoriteEartIcon.dart';
 import 'package:casa/widgets/property_sold_badge.dart';
 import 'AgenceDetailsPage.dart';
@@ -67,7 +66,15 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
   final Color _accentColor = Color(0xFF4CAF50);
 
   bool get _shouldShowAgencesSection =>
-      _selectedFilter == 'Tous' || _selectedFilter == 'Vacances';
+      widget.isForRent &&
+      (_selectedFilter == 'Tous' || _selectedFilter == 'Vacances');
+
+  List<String> get _visibleFilters => widget.isForRent
+      ? _filters
+      : _filters.where((filter) => filter != 'Vacances').toList();
+
+  Color get _pageAccent =>
+      widget.isForRent ? _primaryColor : const Color(0xFF047857);
 
   bool _matchesAgenceQuery(AgenceModel a, String q) {
     final query = q.trim().toLowerCase();
@@ -155,7 +162,9 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
     return Scaffold(
       backgroundColor: isDarkMode ? _darkColor : _lightColor,
       appBar: _buildAppBar(theme),
-      body: SmartRefresher(
+      body: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewPaddingOf(context).bottom),
+        child: SmartRefresher(
         controller: _refreshController,
         enablePullDown: true,
         enablePullUp: true,
@@ -185,12 +194,76 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
           children: [
             //_buildSearchBar(isDarkMode),
             _buildFilterChips(isDarkMode),
+            _buildPageIntro(isDarkMode),
 
             // Indicateur de synchronisation discret
             if (propertyCtrl.syncing) _buildMinimalSyncIndicator(),
 
             Expanded(
               child: _buildResultsScroll(isDarkMode),
+            ),
+          ],
+        ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPageIntro(bool isDarkMode) {
+    final rent = widget.isForRent;
+    final accent = _pageAccent;
+    final count = _filteredProperties.length;
+    final label = count == 1 ? '1 bien' : '$count biens';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: accent.withOpacity(isDarkMode ? 0.18 : 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: accent.withOpacity(0.22)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: accent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                rent ? Icons.vpn_key_rounded : Icons.sell_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    rent ? 'À louer maintenant' : 'À acheter maintenant',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: isDarkMode ? Colors.white : _darkColor,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    rent
+                        ? '$label · maisons, appartements et studios'
+                        : '$label · maisons, appartements et terrains',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: isDarkMode ? Colors.white70 : _greyColor,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -493,7 +566,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
             fit: StackFit.expand,
             children: [
               if (imageUrl != null)
-                CachedNetworkImage(imageUrl: imageUrl, fit: BoxFit.cover)
+                OfflineNetworkImage(imageUrl: imageUrl, fit: BoxFit.cover)
               else
                 Container(
                     color: Colors.grey[200],
@@ -661,7 +734,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
             fit: StackFit.expand,
             children: [
               if (cover != null && cover.trim().isNotEmpty)
-                CachedNetworkImage(
+                OfflineNetworkImage(
                   imageUrl: cover,
                   fit: BoxFit.cover,
                   placeholder: (context, url) =>
@@ -810,10 +883,10 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
       ),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        itemCount: _filters.length,
+        itemCount: _visibleFilters.length,
         separatorBuilder: (_, __) => SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final filter = _filters[index];
+          final filter = _visibleFilters[index];
           final isSelected = _selectedFilter == filter;
 
           return GestureDetector(
@@ -827,16 +900,16 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
               duration: Duration(milliseconds: 200),
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? _primaryColor : Colors.transparent,
+                color: isSelected ? _pageAccent : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isSelected ? _primaryColor : Colors.grey[300]!,
+                  color: isSelected ? _pageAccent : Colors.grey[300]!,
                   width: 1.5,
                 ),
                 boxShadow: isSelected
                     ? [
                         BoxShadow(
-                          color: _primaryColor.withOpacity(0.3),
+                          color: _pageAccent.withOpacity(0.3),
                           blurRadius: 6,
                           offset: Offset(0, 2),
                         )
@@ -970,12 +1043,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
       // Si le filtre est "Tous", récupérer toutes les propriétés du type de transaction
       if (currentFilter == 'Tous') {
         final newProperties = propertyCtrl.allProperties
-            .where((p) =>
-                p.listingAllowed &&
-                (p.transactionType
-                        ?.toLowerCase()
-                        .contains(widget.isForRent ? 'location' : 'vente') ??
-                    false))
+            .where((p) => p.listingAllowed && _matchesTransaction(p))
             .toList();
 
         setState(() {
@@ -1178,11 +1246,13 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         property.propertyTypeId == 5;
 
     final isForRent = widget.isForRent;
-    final priceText = isHotel
-        ? hotelStartingPriceLabel(property)
-        : (isForRent
-            ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
-            : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
+    final String? priceText = property.isStartingPriceListing
+        ? property.startingPriceLabel
+        : (isHotel
+            ? null
+            : (isForRent
+                ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+                : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}'));
 
     // Utilisation des vraies images du modèle
     final firstImage = property.propertyImage?.isNotEmpty ?? false
@@ -1230,7 +1300,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                           bottomLeft: Radius.circular(16),
                         ),
                         child: imageUrl != null
-                            ? CachedNetworkImage(
+                            ? OfflineNetworkImage(
                                 imageUrl: imageUrl,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
@@ -1611,11 +1681,13 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
         !isFestive &&
         !isFuneraire;
 
-    final priceText = isHotel
-        ? hotelStartingPriceLabel(property)
-        : (isMonthly
-            ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
-            : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
+    final String? priceText = property.isStartingPriceListing
+        ? property.startingPriceLabel
+        : (isHotel
+            ? null
+            : (isMonthly
+                ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+                : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}'));
 
     // Utilisation des vraies images du modèle
     final firstImage = property.propertyImage?.isNotEmpty ?? false
@@ -1672,7 +1744,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                           topRight: Radius.circular(16),
                         ),
                         child: imageUrl != null
-                            ? CachedNetworkImage(
+                            ? OfflineNetworkImage(
                                 imageUrl: imageUrl,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
@@ -2125,13 +2197,15 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
           (p.propertyTypeId == 5 ||
               p.propertyTypeId == 6 ||
               p.propertyTypeId == 10 ||
-              p.propertyTypeId == 11)) {
+              p.propertyTypeId == 11 ||
+              p.isVacationListing)) {
         return true;
       }
       return false;
     }
 
-    // Vente
+    // Vente : les séjours vacances restent dans Locations.
+    if (p.isVacationListing) return false;
     if (isSale) return true;
     return false;
   }

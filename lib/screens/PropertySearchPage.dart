@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -12,7 +12,6 @@ import '../controllers/LocationController.dart';
 import '../models/CityModel.dart';
 import '../models/CommuneModel.dart';
 import 'package:casa/models/PropertyModel.dart';
-import 'package:casa/utils/hotel_room_price.dart';
 import 'package:casa/models/PrestationModel.dart'; // Added
 import 'package:casa/utils/property_detail_navigation.dart';
 import '../utils/city_suggestions.dart';
@@ -2251,7 +2250,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                       fit: StackFit.expand,
                       children: [
                         if (cover != null)
-                          CachedNetworkImage(
+                          OfflineNetworkImage(
                             imageUrl: cover,
                             fit: BoxFit.cover,
                             placeholder: (_, __) => Container(color: const Color(0xFFF3F4F6)),
@@ -2766,11 +2765,13 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     // Prix: pas de “/mois” pour les hôtels (et autres catégories non-locatives).
     final isMonthly =
         _selectedTransaction == 'Location' && !isHotel && !isTourisme && !isTerrain && !isFestive && !isFuneraire;
-    final priceText = isHotel
-        ? (hotelStartingPriceLabel(property) ?? 'Tarifs par chambre')
-        : (isMonthly
-            ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
-            : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
+    final priceText = property.isStartingPriceListing
+        ? property.startingPriceLabel
+        : (isHotel
+            ? ''
+            : (isMonthly
+                ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+                : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}'));
 
     // Hôtels: enrichir les chambres en cache-first (local + refresh async) pour éviter "0 chambre".
     if (isHotel && property.propertyId != null) {
@@ -2824,7 +2825,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                   fit: StackFit.expand,
                   children: [
                     if (imageUrl != null)
-                      CachedNetworkImage(
+                      OfflineNetworkImage(
                         imageUrl: imageUrl,
                         fit: BoxFit.cover,
                         placeholder: (context, url) => _buildImagePlaceholder(),
@@ -2990,15 +2991,6 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         ],
                       ),
                     if (isHotel) ...[
-                      Text(
-                        priceText,
-                        style: GoogleFonts.inter(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: _primaryColor,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
                       Align(
                         alignment: Alignment.centerLeft,
                         child: OutlinedButton.icon(
@@ -3125,7 +3117,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                                   color: const Color(0xFFEFF6FF),
                                   child: (img != null &&
                                           img.toString().trim().isNotEmpty)
-                                      ? CachedNetworkImage(
+                                      ? OfflineNetworkImage(
                                           imageUrl: img,
                                           fit: BoxFit.cover,
                                           errorWidget: (_, __, ___) =>
