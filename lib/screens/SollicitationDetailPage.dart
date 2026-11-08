@@ -1,10 +1,12 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/controllers/CotationController.dart';
 import 'package:casa/models/CotationModel.dart';
 import 'package:casa/models/PrestationModel.dart';
 import 'package:casa/models/SollicitationModel.dart';
 import 'package:casa/screens/ServiceDetailPage.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/review_eligibility.dart';
+import 'package:casa/widgets/ReviewComposerSheet.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -44,120 +46,42 @@ class _SollicitationDetailPageState extends State<SollicitationDetailPage> {
   }
 
   bool get _canRate {
-    final me = widget.currentUserId;
-    final s = widget.sollicitation;
     if (!widget.canRateForTest) return false;
-    if (me == null || s.id == null) return false;
-    if (s.userId != me) return false;
-    // status rules handled in MyServices for now; keep open here for tests
-    return true;
+    return solicitationCanBeReviewed(
+      widget.sollicitation,
+      userId: widget.currentUserId,
+    );
+  }
+
+  bool _alreadyRatedHere() {
+    final me = widget.currentUserId;
+    final sid = widget.sollicitation.id;
+    if (me == null || sid == null) return false;
+    return context
+        .read<CotationController>()
+        .cotationsForSollicitation(sid)
+        .any((review) => review.userId == me);
   }
 
   Future<void> _showCotationDialog() async {
     final me = widget.currentUserId;
     final sid = widget.sollicitation.id;
-    if (me == null || sid == null) return;
-
-    final commentCtrl = TextEditingController();
-    double cote = 4.0;
-
-    await showDialog<void>(
+    if (me == null || sid == null || !_canRate) return;
+    final ok = await showReviewComposer(
       context: context,
-      builder: (ctx) {
-        return Consumer<CotationController>(
-          builder: (ctx, cotationCtrl, _) {
-            return StatefulBuilder(
-              builder: (ctx, setDialogState) {
-                return AlertDialog(
-                  title: Text(
-                    'Mettre un avis',
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w800),
-                  ),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Note : ${cote.toStringAsFixed(1)} / 5',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.w700),
-                        ),
-                        Slider(
-                          value: cote,
-                          min: 0.5,
-                          max: 5.0,
-                          divisions: 9,
-                          label: cote.toStringAsFixed(1),
-                          activeColor: _primary,
-                          onChanged: cotationCtrl.loading ? null : (v) => setDialogState(() => cote = v),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: commentCtrl,
-                          maxLines: 4,
-                          decoration: const InputDecoration(
-                            labelText: 'Commentaire',
-                            hintText: 'Décrivez votre expérience',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: cotationCtrl.loading ? null : () => Navigator.pop(ctx),
-                      child: const Text('Annuler'),
-                    ),
-                    TextButton(
-                      onPressed: cotationCtrl.loading
-                          ? null
-                          : () async {
-                              final text = commentCtrl.text.trim();
-                              if (text.length < 3) {
-                                FancyNotification.show(
-                                  ctx,
-                                  'Le commentaire doit contenir au moins 3 caractères.',
-                                  type: NotificationType.warning,
-                                );
-                                return;
-                              }
-                              final resp = await cotationCtrl.upsertCotation(
-                                userId: me,
-                                sollicitationId: sid,
-                                commentaire: text,
-                                cote: cote,
-                              );
-                              if (!ctx.mounted) return;
-                              if (resp.status) {
-                                Navigator.pop(ctx);
-                                FancyNotification.show(
-                                  context,
-                                  'Merci pour votre avis.',
-                                  type: NotificationType.success,
-                                );
-                                await cotationCtrl.fetchPublicCotations(forceRefresh: true);
-                              } else {
-                                FancyNotification.show(
-                                  ctx,
-                                  resp.errorMsg ?? 'Impossible d\'enregistrer l\'avis.',
-                                  type: NotificationType.error,
-                                );
-                              }
-                            },
-                      child: cotationCtrl.loading
-                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Text('Envoyer'),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
+      userId: me,
+      sollicitationId: sid,
+      serviceTitle: widget.sollicitation.prestation?.title,
     );
-    commentCtrl.dispose();
+    if (!mounted || !ok) return;
+    FancyNotification.show(
+      context,
+      'Merci pour votre avis.',
+      type: NotificationType.success,
+    );
+    final ctrl = context.read<CotationController>();
+    await ctrl.fetchPublicCotations(forceRefresh: true);
+    if (mounted) setState(() {});
   }
 
   @override
@@ -202,7 +126,7 @@ class _SollicitationDetailPageState extends State<SollicitationDetailPage> {
                     height: 160,
                     width: double.infinity,
                     child: img != null && img.trim().isNotEmpty
-                        ? CachedNetworkImage(imageUrl: img, fit: BoxFit.cover)
+                        ? OfflineNetworkImage(imageUrl: img, fit: BoxFit.cover)
                         : Container(
                             color: _primary.withOpacity(0.08),
                             child: const Icon(Icons.miscellaneous_services_rounded, size: 56, color: _primary),
@@ -241,7 +165,7 @@ class _SollicitationDetailPageState extends State<SollicitationDetailPage> {
                           s.description!.trim(),
                           style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF4B5563), height: 1.4),
                         ),
-                      if (_canRate) ...[
+                      if (_canRate && !_alreadyRatedHere()) ...[
                         const SizedBox(height: 14),
                         SizedBox(
                           width: double.infinity,

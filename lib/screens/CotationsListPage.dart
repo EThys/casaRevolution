@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 
 import '../models/CotationModel.dart';
 
@@ -33,19 +33,11 @@ class _CotationsListPageState extends State<CotationsListPage> {
 
   _ReviewsSortMode _sortMode = _ReviewsSortMode.recent;
 
-  String _getTimeAgo(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-    if (difference.inDays == 0) {
-      if (difference.inHours == 0) {
-        if (difference.inMinutes == 0) return 'À l\'instant';
-        return 'Il y a ${difference.inMinutes} min';
-      }
-      return 'Aujourd\'hui';
-    }
-    if (difference.inDays == 1) return 'Hier';
-    if (difference.inDays < 7) return 'Il y a ${difference.inDays} j';
-    return '${date.day}/${date.month}/${date.year}';
+  String _shortDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = (date.year % 100).toString().padLeft(2, '0');
+    return '$day/$month/$year';
   }
 
   double _avgRating(List<CotationModel> list) {
@@ -333,14 +325,26 @@ class _CotationsListPageState extends State<CotationsListPage> {
             )
           else
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 22),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                10,
+                16,
+                22 + MediaQuery.viewPaddingOf(context).bottom,
+              ),
               sliver: SliverList.separated(
                 itemCount: list.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (context, i) {
                   final c = list[i];
-                  final name = c.user?.username ?? c.user?.fullName ?? 'Client';
-                  final avatarUrl = c.user?.profilePicture;
+                  final directName = c.name?.trim();
+                  final name = (directName != null && directName.isNotEmpty)
+                      ? directName
+                      : (c.user?.displayFullName ?? 'Client');
+                  final directPhoto = c.profile?.trim();
+                  final avatarUrl =
+                      (directPhoto != null && directPhoto.isNotEmpty)
+                          ? directPhoto
+                          : c.user?.profilePicture;
                   final rating = c.cote ?? 0;
                   final comment = c.commentaire?.trim().isNotEmpty == true
                       ? c.commentaire!.trim()
@@ -383,7 +387,7 @@ class _CotationsListPageState extends State<CotationsListPage> {
                               child: (avatarUrl != null &&
                                       avatarUrl.trim().isNotEmpty &&
                                       avatarUrl.toLowerCase() != 'null')
-                                  ? CachedNetworkImage(
+                                  ? OfflineNetworkImage(
                                       imageUrl: avatarUrl.trim(),
                                       fit: BoxFit.cover,
                                       placeholder: (_, __) => Center(
@@ -454,7 +458,7 @@ class _CotationsListPageState extends State<CotationsListPage> {
                                       if (datePosted != null) ...[
                                         const SizedBox(width: 8),
                                         Text(
-                                          '• ${_getTimeAgo(datePosted)}',
+                                          '• ${_shortDate(datePosted)}',
                                           style: GoogleFonts.inter(
                                               fontSize: 12,
                                               color: _muted,
@@ -468,14 +472,22 @@ class _CotationsListPageState extends State<CotationsListPage> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 10),
-                        Text(
-                          comment,
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            color: const Color(0xFF374151),
-                            height: 1.45,
-                            fontWeight: FontWeight.w600,
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            comment,
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              color: const Color(0xFF374151),
+                              height: 1.45,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],

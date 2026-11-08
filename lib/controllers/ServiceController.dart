@@ -985,9 +985,46 @@ class ServiceController with ChangeNotifier {
     }
   }
 
+  int _prestationsGeneration = 0;
+  Future<void> _prestationWriteChain = Future<void>.value();
+
+  Future<void> _replacePrestationCache(
+      List<PrestationModel> next, int generation) {
+    _prestationWriteChain = _prestationWriteChain.then<void>((_) async {
+      if (generation != _prestationsGeneration) return;
+      final dbHelper = PrestationDatabaseHelper.instance;
+      await dbHelper.clearAllPrestations();
+      if (generation != _prestationsGeneration) return;
+      await dbHelper.insertOrUpdatePrestations(next);
+      if (generation != _prestationsGeneration) return;
+      prestations = next;
+    }, onError: (Object _, StackTrace __) async {
+      if (generation != _prestationsGeneration) return;
+      final dbHelper = PrestationDatabaseHelper.instance;
+      await dbHelper.clearAllPrestations();
+      if (generation != _prestationsGeneration) return;
+      await dbHelper.insertOrUpdatePrestations(next);
+      if (generation != _prestationsGeneration) return;
+      prestations = next;
+    });
+    return _prestationWriteChain;
+  }
+
+  List<PrestationModel> _uniquePrestations(List<PrestationModel> list) {
+    final seen = <int>{};
+    final out = <PrestationModel>[];
+    for (final prestation in list) {
+      final id = prestation.id;
+      if (id == null || !seen.add(id)) continue;
+      out.add(prestation);
+    }
+    return out;
+  }
+
   // Récupérer toutes les prestations (avec cache SQLite)
   Future<List<PrestationModel>> fetchAllPrestations(
       {int page = 0, int size = 15, bool isLoadMore = false}) async {
+    final generation = isLoadMore ? _prestationsGeneration : ++_prestationsGeneration;
     try {
       if (!isLoadMore) {
         currentPage = 0;
@@ -1001,7 +1038,7 @@ class ServiceController with ChangeNotifier {
         List<PrestationModel> cachedPrestations =
             await dbHelper.getAllPrestations();
         if (cachedPrestations.isNotEmpty) {
-          prestations = cachedPrestations;
+          prestations = _uniquePrestations(cachedPrestations);
           notifyListeners();
         }
       }
@@ -1025,12 +1062,13 @@ class ServiceController with ChangeNotifier {
         }
 
         if (prestationsData is List) {
-          final apiPrestations = prestationsData
+          final apiPrestations = _uniquePrestations(prestationsData
               .where((e) => e != null)
               .map<PrestationModel>((e) => _parsePrestation(e))
               .where((prestation) => prestation.id != null)
-              .toList();
+              .toList());
 
+          if (generation != _prestationsGeneration) return prestations;
           if (isLoadMore) {
             final existingIds = prestations.map((p) => p.id).toSet();
             final newItems = apiPrestations
@@ -1039,9 +1077,11 @@ class ServiceController with ChangeNotifier {
             prestations.addAll(newItems);
             currentPage++;
           } else {
-            // Mettre à jour le cache uniquement sur le refresh complet (page 0)
+            // Le serveur remplace le cache. On n’ajoute pas la page réseau
+            // à la liste déjà affichée, sinon chaque prestation apparaît deux fois.
             await dbHelper.clearAllPrestations();
             await dbHelper.insertOrUpdatePrestations(apiPrestations);
+            if (generation != _prestationsGeneration) return prestations;
             prestations = apiPrestations;
           }
 
@@ -1167,9 +1207,13 @@ class ServiceController with ChangeNotifier {
   }
 
   // Récupérer les sollicitations de l'utilisateur
-  Future<List<SollicitationModel>> fetchUserSollicitations() async {
-    loading = true;
-    notifyListeners();
+  Future<List<SollicitationModel>> fetchUserSollicitations({
+    bool silent = false,
+  }) async {
+    if (!silent) {
+      loading = true;
+      notifyListeners();
+    }
 
     try {
       final userData = stockage?.read(StockageKeys.userKey);
@@ -1221,8 +1265,10 @@ class ServiceController with ChangeNotifier {
           "❌ [ServiceController] Erreur lors de la récupération des sollicitations: $e");
       return [];
     } finally {
-      loading = false;
-      notifyListeners();
+      if (!silent) {
+        loading = false;
+        notifyListeners();
+      }
     }
   }
 

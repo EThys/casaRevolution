@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/controllers/PropertyCtrl.dart';
 import 'package:casa/controllers/ServiceController.dart';
 import 'package:casa/controllers/AuthentificationCtrl.dart';
@@ -17,7 +17,6 @@ import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/casanayo_share_copy.dart';
 import 'package:casa/utils/AppColors.dart';
-import 'package:casa/utils/hotel_room_price.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -38,6 +37,7 @@ import '../utils/requetes.dart' show HttpResponse, deleteData, getData;
 import '../utils/Endpoints.dart';
 import '../utils/Routes.dart';
 import '../utils/property_detail_navigation.dart';
+import '../widgets/ReviewReminderCard.dart';
 import '../utils/database/FavoriteDatabaseHelper.dart';
 import '../utils/database/ReservationDatabaseHelper.dart';
 import '../utils/database/ServiceCategoryDatabaseHelper.dart';
@@ -215,8 +215,6 @@ class _HomePageState extends State<HomePage> {
 
       propertyCtrl.getAllProperty().then((_) {
         _logHomePageLoaded(propertyCtrl.properties.length);
-        // Charger les catégories spéciales APRÈS les propriétés urgentes
-        propertyCtrl.syncAllSpecialCategories();
       });
 
       // Charger les types de propriété dynamiquement
@@ -389,7 +387,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   // Charger les prestations avec stratégie Cache-First puis API Parallèle
+  int _prestationLoad = 0;
+
   Future<void> _loadPrestationsFromAPI() async {
+    final request = ++_prestationLoad;
     if (mounted) {
       setState(() => isLoadingPrestations = true);
     }
@@ -404,7 +405,7 @@ class _HomePageState extends State<HomePage> {
 
       // 2. CHARGEMENT INITIAL DEPUIS LE CACHE SQL
       final cachedPrestations = await dbHelper.getAllPrestations();
-      if (cachedPrestations.isNotEmpty) {
+      if (cachedPrestations.isNotEmpty && request == _prestationLoad) {
         print(
             "📦 [HomePage] Chargement express de ${cachedPrestations.length} prestations du cache");
         _processPrestations(cachedPrestations);
@@ -415,9 +416,9 @@ class _HomePageState extends State<HomePage> {
       // Note: On utilise uniquement /api/prestations car /api/prestations/service/{id} n'existe pas
       final allList = await serviceCtrl.fetchAllPrestations(size: 200);
 
-      if (mounted) {
+      if (mounted && request == _prestationLoad) {
         setState(() {
-          // Traiter TOUTES les prestations (filtrage local par serviceId)
+          // Remplacer les groupes : ne pas ajouter la réponse réseau au cache.
           _processPrestations(allList);
 
           isLoadingPrestations = false;
@@ -441,8 +442,20 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  List<PrestationModel> _uniquePrestations(List<PrestationModel> list) {
+    final seen = <int>{};
+    final out = <PrestationModel>[];
+    for (final prestation in list) {
+      final id = prestation.id;
+      if (id == null || !seen.add(id)) continue;
+      out.add(prestation);
+    }
+    return out;
+  }
+
   // Méthode utilitaire pour traiter et grouper les prestations
-  void _processPrestations(List<PrestationModel> allPrestations) {
+  void _processPrestations(List<PrestationModel> source) {
+    final allPrestations = _uniquePrestations(source);
     // 1. Filtrer les majordomes et déménagements (gérés séparément)
     final majordomeId =
         accountNameToIdMap['majordome'] ?? accountNameToIdMap['majordhomme'];
@@ -665,7 +678,10 @@ class _HomePageState extends State<HomePage> {
 
     final saleProperties = properties.where((p) {
       final tt = p.transactionType?.toLowerCase() ?? '';
-      return tt.contains('vente') && allowedTypeIds.contains(p.propertyTypeId);
+      return tt.contains('vente') &&
+          !p.isHotelListing &&
+          !p.isVacationListing &&
+          allowedTypeIds.contains(p.propertyTypeId);
     }).toList()
       ..sort((a, b) => (b.propertyId ?? 0).compareTo(a.propertyId ?? 0));
 
@@ -855,6 +871,7 @@ class _HomePageState extends State<HomePage> {
 
                   _buildCategorySection(),
                   SizedBox(height: 15),
+                  const ReviewReminderCard(),
 
                   if (propertyCtrl.syncing && !_isManualRefresh)
                     Padding(
@@ -1126,8 +1143,7 @@ class _HomePageState extends State<HomePage> {
     });
 
     try {
-      // Refresh properties and special categories SEQUENTIALLY to avoid race conditions
-      // syncAllSpecialCategories will merge its results into propertyCtrl.properties
+      // Le serveur remplace chaque cache. Les catégories restent dans leurs listes.
       await propertyCtrl.refreshProperties(forceSync: true);
       await propertyCtrl.syncAllSpecialCategories();
 
@@ -1558,7 +1574,7 @@ class _HomePageState extends State<HomePage> {
 
                                     // 2. Sinon, image réseau avec cache
                                     if (hasValidUrl) {
-                                      return CachedNetworkImageProvider(
+                                      return OfflineImageProvider(
                                           imageUrl!);
                                     }
 
@@ -2845,7 +2861,7 @@ class _HomePageState extends State<HomePage> {
                             child: AnimatedSwitcher(
                               duration: Duration(milliseconds: 500),
                               child: imageUrl != null && imageUrl.isNotEmpty
-                                  ? CachedNetworkImage(
+                                  ? OfflineNetworkImage(
                                       imageUrl: imageUrl,
                                       fit: BoxFit.cover,
                                       width: double.infinity,
@@ -3496,13 +3512,14 @@ class _HomePageState extends State<HomePage> {
               typeName.contains('hotel') ||
               typeName.contains('hôtel');
 
-          final String? priceText = isHotel
-              ? hotelStartingPriceLabel(property)
-              : ((isForRent && !isHotel)
-                  ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
-                  : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}');
+          final String? priceText = property.isStartingPriceListing
+              ? property.startingPriceLabel
+              : (isHotel
+                  ? null
+                  : ((isForRent && !isHotel)
+                      ? '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}/mois'
+                      : '${property.price?.toStringAsFixed(0) ?? '0'} ${property.currency}'));
 
-          // Hôtels: enrichir les chambres en cache-first (local + refresh async) pour afficher le vrai nombre.
           if (isHotel && property.propertyId != null) {
             final id = property.propertyId!;
             final hasRooms = (property.hotelStructure?.isNotEmpty ?? false);
@@ -3563,7 +3580,7 @@ class _HomePageState extends State<HomePage> {
                             child: AnimatedSwitcher(
                               duration: Duration(milliseconds: 500),
                               child: imageUrl != null
-                                  ? CachedNetworkImage(
+                                  ? OfflineNetworkImage(
                                       imageUrl: imageUrl,
                                       fit: BoxFit.cover,
                                       width: double.infinity,

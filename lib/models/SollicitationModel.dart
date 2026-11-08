@@ -7,6 +7,13 @@ SollicitationModel sollicitationModelFromJson(String str) =>
 String sollicitationModelToJson(SollicitationModel data) =>
     json.encode(data.toJson());
 
+int? _asInt(dynamic value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value.toString());
+}
+
 class SollicitationModel {
   int? id;
   int? userId;
@@ -71,10 +78,29 @@ class SollicitationModel {
       sollicitationData = json;
     }
 
+    final user = json["user"] == null
+        ? null
+        : UserModel.fromJson(
+            json["user"] is Map<String, dynamic>
+                ? json["user"] as Map<String, dynamic>
+                : Map<String, dynamic>.from(json["user"] as Map),
+          );
+    final prestation = json["prestation"] == null
+        ? null
+        : PrestationModel.fromJson(
+            json["prestation"] is Map<String, dynamic>
+                ? json["prestation"] as Map<String, dynamic>
+                : Map<String, dynamic>.from(json["prestation"] as Map),
+          );
+
     return SollicitationModel(
-      id: sollicitationData?["id"],
-      userId: sollicitationData?["userId"],
-      prestationId: sollicitationData?["prestationId"],
+      id: _asInt(sollicitationData?["id"] ?? json["id"]),
+      userId: _asInt(sollicitationData?["userId"] ?? json["userId"]) ??
+          user?.userId,
+      prestationId: _asInt(
+            sollicitationData?["prestationId"] ?? json["prestationId"],
+          ) ??
+          prestation?.id,
       deviseId: sollicitationData?["deviseId"],
       budget: (sollicitationData?["budget"] as num?)?.toDouble(),
       description: sollicitationData?["description"],
@@ -82,12 +108,11 @@ class SollicitationModel {
       startDate: sollicitationData?["startDate"],
       endDate: sollicitationData?["endDate"],
       createdAt: sollicitationData?["createdAt"],
-      user: json["user"] == null ? null : UserModel.fromJson(json["user"]),
-      prestation: json["prestation"] == null
-          ? null
-          : PrestationModel.fromJson(json["prestation"]),
+      user: user,
+      prestation: prestation,
       userImage:
           (json["userImage"] ?? sollicitationData?["userImage"])?.toString(),
+      postByTel: _parsePostByTel(json, sollicitationData),
     );
   }
 

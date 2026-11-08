@@ -10,7 +10,7 @@ import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/decertification_access_guard.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
@@ -32,7 +32,10 @@ import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:casa/utils/export_directory.dart';
 import '../utils/realtime_refresh_hub.dart';
+import '../utils/french_date.dart';
+import '../utils/review_eligibility.dart';
 import '../utils/status_labels_fr.dart';
+import '../widgets/ReviewComposerSheet.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 
@@ -55,7 +58,6 @@ class _MyServicesPageState extends State<MyServicesPage>
   final Set<int> _loadedTabs = {}; // Suivi des onglets déjà chargés via API
 
   late TabController _tabController;
-  final DateFormat _dateFormat = DateFormat('dd MMM yyyy', 'fr_FR');
   final GetStorage _stockage = GetStorage();
 
   // Couleurs modernes
@@ -67,7 +69,6 @@ class _MyServicesPageState extends State<MyServicesPage>
   final Color _successColor = Color(0xFF00B894);
   final Color _warningColor = Color(0xFFFDCB6E);
   final Color _errorColor = Color(0xFFD63031);
-  final Color _cardBackground = Colors.white;
 
   List<PrestationModel> _myPrestations = [];
   List<SollicitationModel> _mySolicitations = []; // Sent by user
@@ -201,313 +202,38 @@ class _MyServicesPageState extends State<MyServicesPage>
     return null;
   }
 
-  /// Onglet « Mes demandes » : seul le demandeur peut noter (pas le propriétaire de l’annonce).
+  /// Onglet « Mes demandes » : avis seulement après acceptation et date de fin passée.
   bool _canShowCotationButton(SollicitationModel item) {
-    if (_viewMode != 1 || item.id == null) return false;
-    final me = _currentUserIdFromStorage();
-    if (me == null || item.userId != me) return false;
-    if (_ratedSolicitationIds.contains(item.id!)) return false;
-    final st = item.status?.toUpperCase() ?? '';
-    // Règle cible: pas PENDING / pas CANCELLED. Mais pour tests, on autorise aussi PENDING.
-    if (st == 'CANCELLED' || st == 'REJECTED') return false;
-    return st == 'COMPLETED' ||
-        st == 'APPROVED' ||
-        st == 'ACCEPTED' ||
-        st == 'PENDING';
+    if (_viewMode != 1) return false;
+    _loadRatedSolicitationIds();
+    return solicitationCanBeReviewed(
+      item,
+      userId: _currentUserIdFromStorage(),
+      alreadyRated: _ratedSolicitationIds,
+    );
   }
 
   Future<void> _showCotationDialog(SollicitationModel item) async {
     final me = _currentUserIdFromStorage();
-    if (me == null || item.id == null) {
+    final sid = item.id;
+    if (me == null || sid == null) return;
+    if (!_canShowCotationButton(item)) {
       FancyNotification.show(
         context,
-        'Session invalide. Reconnectez-vous.',
-        type: NotificationType.error,
+        'L’avis s’ouvre une fois la demande acceptée et la date de fin passée.',
+        type: NotificationType.info,
       );
       return;
     }
-
-    final commentCtrl = TextEditingController();
-    double cote = 4.5;
-
-    bool? submitted;
-    try {
-      submitted = await showModalBottomSheet<bool>(
+    final ok = await showReviewComposer(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        final bottom = MediaQuery.of(sheetContext).viewInsets.bottom;
-        var submitting = false;
-        return Padding(
-          padding: EdgeInsets.only(bottom: bottom),
-          child: StatefulBuilder(
-            builder: (ctx, setSheetState) {
-              final cotationCtrl =
-                  Provider.of<CotationController>(ctx, listen: false);
-              return Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Center(
-                              child: Container(
-                                width: 46,
-                                height: 5,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFE5E7EB),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [
-                                        Color(0xFF1976D2),
-                                        Color(0xFF64B5F6)
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: const Icon(Icons.rate_review_rounded,
-                                      color: Colors.white),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Votre avis',
-                                        style: GoogleFonts.inter(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w900),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        'Sollicitation #${item.id}',
-                                        style: GoogleFonts.inter(
-                                            fontSize: 12,
-                                            color: const Color(0xFF6B7280)),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  onPressed: submitting
-                                      ? null
-                                      : () => Navigator.pop(ctx),
-                                  icon: const Icon(Icons.close_rounded),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF9FAFB),
-                                borderRadius: BorderRadius.circular(16),
-                                border:
-                                    Border.all(color: const Color(0xFFF1F5F9)),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          gradient: const LinearGradient(
-                                            colors: [
-                                              Color(0xFF1976D2),
-                                              Color(0xFF64B5F6)
-                                            ],
-                                          ),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          '★ ${cote.toStringAsFixed(1)} / 5',
-                                          style: GoogleFonts.inter(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w900,
-                                              color: Colors.white),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Text(
-                                        'Glissez pour ajuster',
-                                        style: GoogleFonts.inter(
-                                            fontSize: 12,
-                                            color: const Color(0xFF6B7280)),
-                                      ),
-                                    ],
-                                  ),
-                                  Slider(
-                                    value: cote,
-                                    min: 0.5,
-                                    max: 5.0,
-                                    divisions: 9,
-                                    label: cote.toStringAsFixed(1),
-                                    activeColor: _primaryColor,
-                                    onChanged: submitting
-                                        ? null
-                                        : (v) => setSheetState(() => cote = v),
-                                  ),
-                                  TextField(
-                                    controller: commentCtrl,
-                                    maxLines: 4,
-                                    enabled: !submitting,
-                                    decoration: InputDecoration(
-                                      hintText:
-                                          'Ex: Service rapide, pro, respect du délai…',
-                                      hintStyle: GoogleFonts.inter(
-                                          color: const Color(0xFF9CA3AF)),
-                                      border: OutlineInputBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14)),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(14),
-                                        borderSide: BorderSide(
-                                          color: _primaryColor,
-                                          width: 1.2,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: submitting
-                                        ? null
-                                        : () => Navigator.pop(ctx),
-                                    style: OutlinedButton.styleFrom(
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14)),
-                                      side: const BorderSide(
-                                          color: Color(0xFFE5E7EB)),
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 14),
-                                    ),
-                                    child: Text('Annuler',
-                                        style: GoogleFonts.inter(
-                                            fontWeight: FontWeight.w800)),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded( 
-                                  child: FilledButton(
-                                    onPressed: submitting
-                                        ? null
-                                        : () async {
-                                            final text =
-                                                commentCtrl.text.trim();
-                                            if (text.length < 3) {
-                                              FancyNotification.show(
-                                                ctx,
-                                                'Le commentaire doit contenir au moins 3 caractères.',
-                                                type: NotificationType.warning,
-                                              );
-                                              return;
-                                            }
-                                            setSheetState(
-                                                () => submitting = true);
-                                            final resp = await cotationCtrl
-                                                .createCotation(
-                                              userId: me,
-                                              sollicitationId: item.id!,
-                                              commentaire: text,
-                                              cote: cote,
-                                            );
-                                            if (!ctx.mounted) return;
-                                            if (resp.status) {
-                                              FocusScope.of(ctx).unfocus();
-                                              Navigator.pop(ctx, true);
-                                            } else {
-                                              setSheetState(
-                                                  () => submitting = false);
-                                              final msg = resp.errorMsg ??
-                                                  (resp.data is Map
-                                                      ? (resp.data['message']
-                                                          ?.toString())
-                                                      : null) ??
-                                                  'Impossible d\'enregistrer l\'avis.';
-                                              FancyNotification.show(
-                                                ctx,
-                                                msg,
-                                                type: NotificationType.error,
-                                              );
-                                            }
-                                          },
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: _primaryColor,
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14)),
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 14),
-                                    ),
-                                    child: submitting
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                color: Colors.white),
-                                          )
-                                        : Text('Envoyer',
-                                            style: GoogleFonts.inter(
-                                                fontWeight: FontWeight.w900)),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                ),
-              );
-            },
-          ),
-        );
-      },
+      userId: me,
+      sollicitationId: sid,
+      serviceTitle: item.prestation?.title,
     );
-    } finally {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        commentCtrl.dispose();
-      });
-    }
-
-    if (submitted != true || !mounted) return;
-    setState(() {
-      _ratedSolicitationIds.add(item.id!);
-    });
-    _stockage.write(
+    if (!mounted || !ok) return;
+    setState(() => _ratedSolicitationIds.add(sid));
+    await _stockage.write(
       _ratedCotationStorageKey,
       _ratedSolicitationIds.toList(),
     );
@@ -518,6 +244,7 @@ class _MyServicesPageState extends State<MyServicesPage>
     );
     await _loadMySolicitations(forceRefresh: true);
   }
+
 
   Future<void> _loadData({bool forceRefresh = false}) async {
     // Si on a déjà chargé l'onglet et qu'on ne force pas le refresh, on ne fait rien
@@ -866,16 +593,103 @@ class _MyServicesPageState extends State<MyServicesPage>
     );
   }
 
+  double get _safeBottom => MediaQuery.viewPaddingOf(context).bottom;
+
+  EdgeInsets get _listPadding =>
+      EdgeInsets.fromLTRB(16, 12, 16, 24 + _safeBottom);
+
   Widget _buildBody() {
-    return TabBarView(
-      controller: _tabController,
+    final titles = ['Mes annonces', 'Mes demandes', 'Demandes reçues'];
+    final hints = [
+      'Services que vous proposez',
+      'Demandes que vous avez envoyées',
+      'Demandes arrivées sur vos services',
+    ];
+    final icons = [
+      Icons.home_repair_service_rounded,
+      Icons.send_rounded,
+      Icons.move_to_inbox_rounded,
+    ];
+    final counts = [
+      _myPrestations.length,
+      _mySolicitations.length,
+      _hostSolicitations.length,
+    ];
+    return Column(
       children: [
-        // Tab 0: Mes Annonces
-        _buildPrestationList(_myPrestations),
-        // Tab 1: Mes Demandes
-        _buildSolicitationList(_mySolicitations),
-        // Tab 2: Demandes Reçues
-        _buildSolicitationList(_hostSolicitations),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _primaryColor.withOpacity(0.12)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icons[_viewMode], color: _primaryColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        titles[_viewMode],
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: _darkColor,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        hints[_viewMode],
+                        style: TextStyle(
+                          color: _mediumGrey,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${counts[_viewMode]}',
+                    style: TextStyle(
+                      color: _primaryColor,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _buildPrestationList(_myPrestations),
+              _buildSolicitationList(_mySolicitations),
+              _buildSolicitationList(_hostSolicitations),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -884,6 +698,7 @@ class _MyServicesPageState extends State<MyServicesPage>
     return AppBar(
       iconTheme: IconThemeData(color: Colors.white),
       elevation: 0,
+      backgroundColor: Colors.transparent,
       flexibleSpace: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -903,6 +718,8 @@ class _MyServicesPageState extends State<MyServicesPage>
       ),
       bottom: TabBar(
         controller: _tabController,
+        dividerColor: Colors.transparent,
+        isScrollable: true,
         labelColor: Colors.white,
         unselectedLabelColor: Colors.white.withOpacity(0.6),
         indicatorColor: Colors.white,
@@ -1010,9 +827,9 @@ class _MyServicesPageState extends State<MyServicesPage>
       child: _isGridView
           ? _buildGridView(prestations)
           : ListView.separated(
-              padding: EdgeInsets.all(20),
+              padding: _listPadding,
               itemCount: prestations.length,
-              separatorBuilder: (_, __) => SizedBox(height: 20),
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final prestation = prestations[index];
                 return _buildPrestationCard(prestation, isGrid: false);
@@ -1030,9 +847,9 @@ class _MyServicesPageState extends State<MyServicesPage>
       backgroundColor: Colors.white,
       onRefresh: () => _loadData(forceRefresh: true),
       child: ListView.separated(
-        padding: EdgeInsets.all(16),
+        padding: _listPadding,
         itemCount: items.length,
-        separatorBuilder: (_, __) => SizedBox(height: 16),
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, index) => _buildSolicitationCard(items[index]),
       ),
     );
@@ -1040,7 +857,7 @@ class _MyServicesPageState extends State<MyServicesPage>
 
   Widget _buildShimmerEffect() {
     return ListView.separated(
-      padding: EdgeInsets.all(20),
+      padding: _listPadding,
       itemCount: 4,
       separatorBuilder: (_, __) => SizedBox(height: 20),
       itemBuilder: (context, index) {
@@ -1060,7 +877,9 @@ class _MyServicesPageState extends State<MyServicesPage>
   }
 
   Widget _buildEmptyState() {
-    return Center(
+    return Padding(
+      padding: EdgeInsets.only(bottom: _safeBottom),
+      child: Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -1087,11 +906,14 @@ class _MyServicesPageState extends State<MyServicesPage>
           ),
         ],
       ),
+      ),
     );
   }
 
   Widget _buildEmptyStateSolicitation() {
-    return Center(
+    return Padding(
+      padding: EdgeInsets.only(bottom: _safeBottom),
+      child: Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -1105,23 +927,88 @@ class _MyServicesPageState extends State<MyServicesPage>
                   fontWeight: FontWeight.w600)),
         ],
       ),
+      ),
     );
   }
 
   Widget _buildGridView(List<PrestationModel> prestations) {
     return GridView.builder(
-      padding: EdgeInsets.all(16),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+      padding: _listPadding,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        childAspectRatio: 0.75,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
+        childAspectRatio: 0.68,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
       ),
       itemCount: prestations.length,
       itemBuilder: (context, index) {
         final prestation = prestations[index];
         return _buildPrestationCard(prestation, isGrid: true);
       },
+    );
+  }
+
+  Widget _coverImage(String? url, {double? size, bool topRounded = false}) {
+    final clean = url?.trim() ?? '';
+    final image = clean.isNotEmpty
+        ? OfflineNetworkImage(
+            imageUrl: clean,
+            width: size ?? double.infinity,
+            height: size ?? double.infinity,
+            fit: BoxFit.cover,
+            placeholder: (context, imageUrl) => Container(
+              color: const Color(0xFFE8EEF4),
+              child: const Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+            errorWidget: (context, imageUrl, error) => Container(
+              color: const Color(0xFFE8EEF4),
+              child: Icon(Icons.home_repair_service_rounded, color: _mediumGrey),
+            ),
+          )
+        : Container(
+            color: const Color(0xFFE8EEF4),
+            child: Icon(Icons.home_repair_service_rounded, color: _mediumGrey, size: 28),
+          );
+    if (size != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(width: size, height: size, child: image),
+      );
+    }
+    return ClipRRect(
+      borderRadius: topRounded
+          ? const BorderRadius.vertical(top: Radius.circular(20))
+          : BorderRadius.zero,
+      child: SizedBox.expand(child: image),
+    );
+  }
+
+  Widget _availabilityChip(PrestationModel prestation) {
+    final active = prestation.isActive == true;
+    return InkWell(
+      onTap: () => _togglePrestationActive(prestation),
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFFE8F8F3) : const Color(0xFFF1F3F6),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          active ? 'Disponible' : 'Indisponible',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: active ? const Color(0xFF047857) : _mediumGrey,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1133,223 +1020,155 @@ class _MyServicesPageState extends State<MyServicesPage>
         (prestation.images != null && prestation.images!.isNotEmpty
             ? prestation.images!.first
             : null);
+    final title = (prestation.title ?? '').trim().isEmpty
+        ? 'Sans titre'
+        : prestation.title!.trim();
+    final city = (prestation.cityValue ?? '').trim();
+    final hasPrice = (prestation.minPrice ?? 0) > 0;
+    final price = hasPrice
+        ? '${NumberFormat('#,##0', 'fr_FR').format(prestation.minPrice)} ${prestation.currency}'
+        : '';
+    final isOwner = _isOwnerPrestation(prestation);
 
-    return GestureDetector(
-      onTap: isDeleting
-          ? null
-          : () {
-              if (prestation.id != null) {
-                final serviceController =
-                    Provider.of<ServiceController>(context, listen: false);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ServiceDetailPage(
-                      service: prestation,
-                      serviceTypeName: serviceController
-                          .getServiceName(prestation.serviceId),
-                    ),
-                  ),
-                );
-              }
-            },
-      child: Opacity(
-        opacity: isDeleting ? 0.5 : 1.0,
-        child: Container(
-          decoration: BoxDecoration(
-            color: _cardBackground,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: Offset(0, 4),
-              ),
-            ],
+    void openDetail() {
+      if (isDeleting || prestation.id == null) return;
+      final serviceController =
+          Provider.of<ServiceController>(context, listen: false);
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ServiceDetailPage(
+            service: prestation,
+            serviceTypeName:
+                serviceController.getServiceName(prestation.serviceId),
           ),
-          // Fix: Enforce height in ListView so Expanded works inside Column
-          height: isGrid ? null : 320,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Image
-              Expanded(
-                flex: isGrid ? 3 : 2,
-                child: Stack(
-                  children: [
-                    ClipRRect(
-                      borderRadius:
-                          BorderRadius.vertical(top: Radius.circular(16)),
-                      child: imageUrl != null && imageUrl.isNotEmpty
-                          ? CachedNetworkImage(
-                              imageUrl: imageUrl,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                              placeholder: (context, url) => Container(
-                                color: _lightGrey,
-                                child:
-                                    Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    return Opacity(
+      opacity: isDeleting ? 0.5 : 1,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: openDetail,
+            child: isGrid
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: _coverImage(imageUrl, topRounded: true)),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                color: _darkColor,
+                                height: 1.2,
                               ),
-                              errorWidget: (context, url, error) => Container(
-                                color: _lightGrey,
-                                child: Icon(Icons.image_not_supported,
-                                    color: _mediumGrey),
+                            ),
+                            if (price.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                price,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: _primaryColor,
+                                ),
                               ),
-                            )
-                          : Container(
-                              color: _lightGrey,
-                              child: Icon(Icons.work_outline,
-                                  size: 50, color: _mediumGrey),
-                            ),
-                    ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: _buildStatusBadge(prestation, isGrid: isGrid),
-                    ),
-                    if (prestation.minPrice != null)
-                      Positioned(
-                        bottom: 8,
-                        left: 8,
-                        child: Container(
-                          padding:
-                              EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.7),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            '${NumberFormat('#,###').format(prestation.minPrice)} ${prestation.currency}',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
+                            ],
+                            if (isOwner) ...[
+                              const SizedBox(height: 6),
+                              _availabilityChip(prestation),
+                            ],
+                          ],
                         ),
                       ),
-                    if (prestation.cityValue != null &&
-                        prestation.cityValue!.isNotEmpty)
-                      Positioned(
-                        top: 8,
-                        left: 8,
-                        child: Container(
-                          padding:
-                              EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.5),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                    ],
+                  )
+                : Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _coverImage(imageUrl, size: 92),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(Icons.location_on,
-                                  size: 12, color: Colors.white),
-                              SizedBox(width: 4),
-                              ConstrainedBox(
-                                constraints: BoxConstraints(maxWidth: 100),
-                                child: Text(
-                                  prestation.cityValue!,
-                                  style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500),
-                                  overflow: TextOverflow.ellipsis,
+                              Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: _darkColor,
+                                  height: 1.25,
                                 ),
-                              )
+                              ),
+                              if (city.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  city,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _mediumGrey,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      price.isEmpty ? 'Prix sur demande' : price,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                        color: price.isEmpty
+                                            ? _mediumGrey
+                                            : _primaryColor,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isOwner) _availabilityChip(prestation),
+                                ],
+                              ),
                             ],
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              // Contenu
-              Expanded(
-                flex: isGrid ? 2 : 1,
-                child: Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        prestation.title ?? 'Sans titre',
-                        style: GoogleFonts.inter(
-                          fontSize: isGrid ? 14 : 16,
-                          fontWeight: FontWeight.w600,
-                          color: _darkColor,
-                        ),
-                        maxLines: isGrid ? 2 : 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: 4),
-                      SizedBox(height: 8),
-                      // Action Buttons
-                      if (!isGrid && _isOwnerPrestation(prestation)) // owner only
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _togglePrestationActive(prestation),
-                                icon: Icon(
-                                  (prestation.isActive == true)
-                                      ? Icons.toggle_off_rounded
-                                      : Icons.toggle_on_rounded,
-                                  size: 16,
-                                  color: _primaryColor,
-                                ),
-                                label: Text(
-                                  (prestation.isActive == true)
-                                      ? "Rendre indisponible"
-                                      : "Rendre disponible",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: _primaryColor,
-                                  ),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  alignment: Alignment.center,
-                                  padding: EdgeInsets.symmetric(
-                                      vertical: 0, horizontal: 8),
-                                  side: BorderSide(
-                                      color: _primaryColor.withOpacity(0.5)),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8)),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              ),
-                            ),
-                          ],
-                        )
-                      else if (isGrid && _isOwnerPrestation(prestation)) // owner only
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            InkWell(
-                              onTap: () => _togglePrestationActive(prestation),
-                              child: Container(
-                                padding: EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: _primaryColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  (prestation.isActive == true)
-                                      ? Icons.toggle_off_rounded
-                                      : Icons.toggle_on_rounded,
-                                  size: 18,
-                                  color: _primaryColor,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ),
-            ],
           ),
         ),
       ),
@@ -1357,352 +1176,291 @@ class _MyServicesPageState extends State<MyServicesPage>
   }
 
   Widget _buildSolicitationCard(SollicitationModel item) {
-    // Logic for currency based on deviseId (1 = FC, 2 = $)
-    final String currency = (item.deviseId == 1) ? "FC" : "\$";
-
+    final currency = item.deviseId == 1 ? 'FC' : '\$';
     final canCancel = _viewMode == 1 &&
         (item.status?.toUpperCase() == 'PENDING') &&
         item.id != null;
-    final createdAtText = (item.createdAt != null && item.createdAt!.isNotEmpty)
-        ? _dateFormat.format(DateTime.parse(item.createdAt!))
-        : null;
-    final String periodText = () {
-      final s = _formatDate(item.startDate).trim();
-      final e = _formatDate(item.endDate).trim();
-      if (e.isEmpty) return s;
-      if (s.isEmpty) return e;
-      return '$s - $e';
-    }();
+    final statusColor = _getStatusColor(item.status);
+    final statusText =
+        statusColor == _warningColor ? const Color(0xFFB45309) : statusColor;
+    final created = formatFrenchDateTime(item.createdAt);
+    final period = formatFrenchStay(item.startDate, item.endDate);
+    final prestation = item.prestation;
+    final imageUrl = prestation?.profile ??
+        ((prestation?.images != null && prestation!.images!.isNotEmpty)
+            ? prestation.images!.first
+            : null);
+    final title = (prestation?.title ?? '').trim().isEmpty
+        ? 'Service'
+        : prestation!.title!.trim();
+    final city = (prestation?.cityValue ?? '').trim();
+    final budgetLabel = item.budget == null
+        ? ''
+        : '${NumberFormat('#,##0', 'fr_FR').format(item.budget)} $currency';
+    final description = (item.description ?? '').trim();
+    final requester = _viewMode == 2 ? item.user : null;
+    final requesterName = requester == null ? '' : requester.displayFullName;
+    final photo = (item.userImage ?? requester?.profilePicture ?? '').trim();
 
-    return GestureDetector(
-      onTap: () {
-        if (_viewMode == 2) {
-          // Si on est dans "Demandes reçues", on affiche le BottomSheet de gestion
-          _showSolicitationActionBottomSheet(item);
-        } else {
-          // Détails du service (et avis liés à cette sollicitation)
-          if (item.prestation != null) {
-            final serviceController =
-                Provider.of<ServiceController>(context, listen: false);
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ServiceDetailPage(
-                  service: item.prestation!,
-                  serviceTypeName: serviceController
-                      .getServiceName(item.prestation!.serviceId),
-                  sollicitationId: item.id,
-                ),
-              ),
-            );
-          }
-        }
-      },
-      child: Stack(
-        children: [
-          Container(
-            padding: EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: _cardBackground,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: Offset(0, 4))
-              ],
-            ),
+    void open() {
+      if (_viewMode == 2) {
+        _showSolicitationActionBottomSheet(item);
+        return;
+      }
+      if (prestation == null) return;
+      final serviceController =
+          Provider.of<ServiceController>(context, listen: false);
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ServiceDetailPage(
+            service: prestation,
+            serviceTypeName:
+                serviceController.getServiceName(prestation.serviceId),
+            sollicitationId: item.id,
+          ),
+        ),
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: open,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Container(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _getStatusColor(item.status).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(20),
+                        color: statusColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         frSolicitationStatus(item.status),
                         style: TextStyle(
-                            color: _getStatusColor(item.status),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12),
+                          color: statusText,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
-                    Row(
-                      children: [
-                        if (_viewMode == 2 && item.user != null) ...[
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: BoxConstraints(),
-                            icon: Icon(Icons.person_pin_rounded,
-                                size: 20, color: _primaryColor),
-                            onPressed: () =>
-                                UserInfoBottomSheet.show(context, item.user!),
-                            tooltip: "Voir le demandeur",
-                          ),
-                          SizedBox(width: 8),
-                        ],
-                        Text(
-                          createdAtText ?? '',
-                          style: TextStyle(color: _mediumGrey, fontSize: 12),
+                    const Spacer(),
+                    if (created != '—')
+                      Text(
+                        created,
+                        style: TextStyle(
+                          color: _mediumGrey,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ],
-                    ),
+                      ),
                   ],
                 ),
-                SizedBox(height: 12),
-                if (item.prestation != null) ...[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (_viewMode == 2 && item.user != null) ...[
-                        GestureDetector(
-                          onTap: () {
-                            final url = item.user!.profilePicture;
-                            if (url != null && url.isNotEmpty) {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      FullScreenImageViewer(imagePath: url),
-                                ),
-                              );
-                            }
-                          },
-                          child: CircleAvatar(
-                            radius: 26,
-                            backgroundColor: _primaryColor.withOpacity(0.15),
-                            backgroundImage: ((item.userImage ??
-                                            item.user!.profilePicture) !=
-                                        null &&
-                                    (item.userImage ??
-                                            item.user!.profilePicture)!
-                                        .isNotEmpty)
-                                ? CachedNetworkImageProvider((item.userImage ??
-                                    item.user!.profilePicture)!)
-                                : null,
-                            child: ((item.userImage ??
-                                            item.user!.profilePicture) ==
-                                        null ||
-                                    (item.userImage ??
-                                            item.user!.profilePicture)!
-                                        .isEmpty)
-                                ? Icon(Icons.person_rounded,
-                                    color: _primaryColor, size: 28)
-                                : null,
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _coverImage(imageUrl, size: 72),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: _darkColor,
+                              height: 1.25,
+                            ),
                           ),
-                        ),
-                        SizedBox(width: 10),
-                      ],
-                      Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          color: _lightGrey,
-                          image: (item.prestation!.profile != null ||
-                                  (item.prestation!.images?.isNotEmpty ??
-                                      false))
-                              ? DecorationImage(
-                                  image: CachedNetworkImageProvider(
-                                    item.prestation!.profile ??
-                                        item.prestation!.images!.first,
-                                  ),
-                                  fit: BoxFit.cover,
-                                )
-                              : null,
-                        ),
-                        child: (item.prestation!.profile == null &&
-                                (item.prestation!.images?.isEmpty ?? true))
-                            ? Icon(Icons.build, color: _mediumGrey)
-                            : null,
-                      ),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                          if (city.isNotEmpty) ...[
+                            const SizedBox(height: 4),
                             Text(
-                              item.prestation!.title ?? 'Service',
-                              style: GoogleFonts.inter(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: _darkColor),
+                              city,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              item.prestation!.cityValue ?? '',
-                              style:
-                                  TextStyle(fontSize: 12, color: _mediumGrey),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _mediumGrey,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ],
-                        ),
+                          if (period != '—') ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              period,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _darkColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                    ],
-                  ),
-                  SizedBox(height: 12),
-                ],
-                Divider(color: Colors.grey[200]),
-                SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(Icons.calendar_today_rounded,
-                        size: 16, color: _primaryColor),
-                    SizedBox(width: 8),
-                    Text(
-                      periodText,
-                      style: TextStyle(fontSize: 13, color: _darkColor),
                     ),
                   ],
                 ),
-                if (createdAtText != null) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Icon(Icons.history_toggle_off_rounded,
-                          size: 16, color: _mediumGrey),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Demande faite le $createdAtText',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: _mediumGrey,
-                              fontWeight: FontWeight.w500),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                if (requester != null) ...[
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () => UserInfoBottomSheet.show(context, requester),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: _primaryColor.withOpacity(0.12),
+                            backgroundImage: photo.isNotEmpty
+                                ? OfflineImageProvider(photo)
+                                : null,
+                            child: photo.isEmpty
+                                ? Icon(Icons.person_rounded,
+                                    size: 16, color: _primaryColor)
+                                : null,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              requesterName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: _darkColor,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ],
-                SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(Icons.payments_rounded,
-                        size: 16, color: _primaryColor),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Budget: ${NumberFormat('#,###').format(item.budget)} $currency',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: _darkColor),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    SizedBox(width: 10),
-                    _buildIconButton(
-                      icon: Icons.share_rounded,
-                      color: _primaryColor,
-                      onTap: () => _shareSolicitationPdf(item),
-                      tooltip: "Partager",
-                    ),
-                    SizedBox(width: 10),
-                    _buildIconButton(
-                      icon: Icons.download_rounded,
-                      color: _primaryColor,
-                      onTap: () => _downloadSolicitationPdf(item),
-                      tooltip: "Télécharger",
-                    ),
-                    if (_canShowCotationButton(item)) ...[
-                      SizedBox(width: 10),
-                      _buildIconButton(
-                        icon: Icons.rate_review_rounded,
-                        color: _primaryColor,
-                        onTap: () => _showCotationDialog(item),
-                        tooltip: "Mettre un avis",
-                      ),
-                    ],
-                  ],
-                ),
-                if (item.description != null &&
-                    item.description!.isNotEmpty) ...[
-                  SizedBox(height: 8),
-                  Container(
-                    padding: EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _lightGrey,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      item.description!,
-                      style: TextStyle(fontSize: 13, color: Colors.grey[800]),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
-
-                if (_viewMode == 1 &&
-                    (item.status?.toUpperCase() == 'PENDING')) ...[
+                if (budgetLabel.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    budgetLabel,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: _primaryColor,
+                    ),
+                  ),
+                ],
+                if (description.isNotEmpty) ...[
                   const SizedBox(height: 4),
+                  Text(
+                    description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      height: 1.35,
+                      color: Color(0xFF4B5563),
+                    ),
+                  ),
                 ],
-
-                // Actions déplacées sur la ligne Budget (plus compact)
+                const SizedBox(height: 8),
+                const Divider(height: 1, color: Color(0xFFEEF2F6)),
+                Wrap(
+                  spacing: 2,
+                  runSpacing: 0,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _cardAction(
+                      icon: Icons.share_rounded,
+                      label: 'Partager',
+                      onTap: () => _shareSolicitationPdf(item),
+                    ),
+                    _cardAction(
+                      icon: Icons.download_rounded,
+                      label: 'PDF',
+                      onTap: () => _downloadSolicitationPdf(item),
+                    ),
+                    if (_canShowCotationButton(item))
+                      _cardAction(
+                        icon: Icons.star_rounded,
+                        label: 'Avis',
+                        onTap: () => _showCotationDialog(item),
+                      ),
+                    if (canCancel)
+                      _cardAction(
+                        icon: Icons.close_rounded,
+                        label: 'Annuler',
+                        color: _errorColor,
+                        onTap: _isProcessingAction
+                            ? null
+                            : () => _confirmCancelUserSolicitation(item),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
-
-          // Annuler (overlay) - action secondaire, non intrusive
-          if (canCancel)
-            Positioned(
-              top: 10,
-              right: 10,
-              child: Material(
-                color: Colors.white.withOpacity(0.92),
-                shape: const CircleBorder(),
-                elevation: 2,
-                shadowColor: Colors.black.withOpacity(0.12),
-                child: IconButton(
-                  onPressed: _isProcessingAction
-                      ? null
-                      : () => _confirmCancelUserSolicitation(item),
-                  tooltip: 'Annuler la demande',
-                  iconSize: 20,
-                  icon: Icon(Icons.close_rounded, color: _errorColor),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIconButton(
-      {required IconData icon,
-      required Color color,
-      required VoidCallback onTap,
-      required String tooltip}) {
-    return Material(
-      color: color.withOpacity(0.1),
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: EdgeInsets.all(10),
-          child: Icon(icon, size: 18, color: color),
         ),
       ),
     );
   }
 
-  String _formatDate(String? dateStr) {
-    if (dateStr == null) return '';
-    try {
-      final date = DateTime.parse(dateStr);
-      return DateFormat('dd MMM', 'fr_FR').format(date);
-    } catch (e) {
-      return dateStr;
-    }
+
+  Widget _cardAction({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+    Color? color,
+  }) {
+    final tint = color ?? _primaryColor;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: tint),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: tint,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showSolicitationActionBottomSheet(SollicitationModel item) {
@@ -1720,7 +1478,7 @@ class _MyServicesPageState extends State<MyServicesPage>
 
     return Container(
       padding: EdgeInsets.fromLTRB(
-          24, 12, 24, 24 + MediaQuery.of(context).padding.bottom),
+          24, 12, 24, 24 + MediaQuery.viewPaddingOf(context).bottom),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
@@ -1801,7 +1559,7 @@ class _MyServicesPageState extends State<MyServicesPage>
                       backgroundColor: _primaryColor.withOpacity(0.2),
                       backgroundImage: ((item.userImage ?? item.user?.profilePicture) != null &&
                               (item.userImage ?? item.user?.profilePicture)!.isNotEmpty)
-                          ? CachedNetworkImageProvider(
+                          ? OfflineImageProvider(
                               (item.userImage ?? item.user!.profilePicture!)!)
                           : null,
                       child: ((item.userImage ?? item.user?.profilePicture) == null ||
@@ -2232,33 +1990,81 @@ class _MyServicesPageState extends State<MyServicesPage>
       ttf = pw.Font.ttf(fontData);
     } catch (_) {}
 
-    final now = DateFormat('dd/MM/yyyy HH:mm', 'fr_FR').format(DateTime.now());
+    final now = DateFormat('dd/MM/yy HH:mm', 'fr_FR').format(DateTime.now());
     final prestation = item.prestation;
     final String currency = (item.deviseId == 1) ? "FC" : "\$";
 
-    // Helper pour les lignes de détails
+    String clean(String? value) {
+      final text = value?.trim() ?? '';
+      if (text.isEmpty || text.toLowerCase() == 'null') return '';
+      return text;
+    }
+
+    final providerName = clean(prestation?.postBy).isNotEmpty
+        ? clean(prestation?.postBy)
+        : (clean(prestation?.username).isNotEmpty
+            ? clean(prestation?.username)
+            : (prestation?.user == null ? '' : prestation!.user!.displayFullName));
+    final providerPhone = clean(item.postByTel).isNotEmpty
+        ? clean(item.postByTel)
+        : (clean(prestation?.phone).isNotEmpty
+            ? clean(prestation?.phone)
+            : clean(prestation?.user?.phone));
+    final providerEmail = clean(prestation?.email).isNotEmpty
+        ? clean(prestation?.email)
+        : clean(prestation?.user?.email);
+    final place = [
+      clean(prestation?.address),
+      clean(prestation?.quartierValue),
+      clean(prestation?.communeValue),
+      clean(prestation?.cityValue),
+      clean(prestation?.countryValue),
+    ].where((part) => part.isNotEmpty).join(', ');
+    final availability = [
+      clean(prestation?.plageJourPrestation),
+      clean(prestation?.plageHeurePrestation),
+    ].where((part) => part.isNotEmpty).join(' · ');
+    final tariff = () {
+      String fmt(double? amount) {
+        if (amount == null || amount <= 0) return '';
+        return '${NumberFormat('#,##0', 'fr_FR').format(amount)} ${prestation?.currency ?? currency}';
+      }
+
+      final min = fmt(prestation?.minPrice);
+      final max = fmt(prestation?.maxPrice);
+      if (min.isEmpty && max.isEmpty) return '';
+      if (max.isEmpty || min == max) return min.isEmpty ? '' : 'À partir de $min';
+      if (min.isEmpty) return 'Jusqu’à $max';
+      return 'De $min à $max';
+    }();
+    final clientName = item.user == null ? '' : item.user!.displayFullName;
+    final budgetLabel = item.budget == null
+        ? ''
+        : '${NumberFormat('#,##0.##', 'fr_FR').format(item.budget)} $currency';
+
     pw.Widget _buildDetailRow(String label, String value) {
+      final text = value.trim().isEmpty ? 'Non renseigné' : value.trim();
       return pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+        padding: const pw.EdgeInsets.symmetric(vertical: 3),
         child: pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text(label,
-                style:
-                    pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-            pw.Text(value, style: const pw.TextStyle(fontSize: 10)),
+            pw.SizedBox(
+              width: 132,
+              child: pw.Text(label,
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            ),
+            pw.Expanded(child: pw.Text(text, style: const pw.TextStyle(fontSize: 10))),
           ],
         ),
       );
     }
 
     doc.addPage(
-      pw.Page(
+      pw.MultiPage(
         theme: ttf != null ? pw.ThemeData.withFont(base: ttf, bold: ttf) : null,
         margin: const pw.EdgeInsets.all(32),
-        build: (ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
+        build: (ctx) => [
             // --- HEADER PREMIUM ---
             pw.Container(
               padding:
@@ -2359,22 +2165,14 @@ class _MyServicesPageState extends State<MyServicesPage>
                 children: [
                   _buildDetailRow('Service sollicité',
                       prestation?.title ?? 'Service CasaNayo'),
-                  _buildDetailRow('Prestataire',
-                      prestation?.username ?? 'Partenaire CasaNayo'),
-                  _buildDetailRow(
-                    'Téléphone prestataire',
-                    () {
-                      final pt = item.postByTel?.trim();
-                      if (pt != null && pt.isNotEmpty && pt != 'null')
-                        return pt;
-                      final ph = prestation?.phone?.trim();
-                      if (ph != null && ph.isNotEmpty && ph != 'null')
-                        return ph;
-                      return 'Non renseigné';
-                    }(),
-                  ),
-                  _buildDetailRow(
-                      'Localisation', prestation?.cityValue ?? 'Non spécifiée'),
+                  _buildDetailRow('Prestataire', providerName),
+                  _buildDetailRow('Téléphone', providerPhone),
+                  if (providerEmail.isNotEmpty)
+                    _buildDetailRow('E-mail', providerEmail),
+                  _buildDetailRow('Lieu', place),
+                  if (tariff.isNotEmpty) _buildDetailRow('Tarif annoncé', tariff),
+                  if (availability.isNotEmpty)
+                    _buildDetailRow('Disponibilité', availability),
                 ],
               ),
             ),
@@ -2396,11 +2194,9 @@ class _MyServicesPageState extends State<MyServicesPage>
                       const pw.BorderRadius.all(pw.Radius.circular(4))),
               child: pw.Column(
                 children: [
-                  _buildDetailRow('Nom du Client',
-                      item.user?.username ?? 'Utilisateur CasaNayo'),
-                  _buildDetailRow(
-                      'Téléphone', item.user?.phone ?? 'Non renseigné'),
-                  _buildDetailRow('Email', item.user?.email ?? 'Non renseigné'),
+                  _buildDetailRow('Nom', clientName),
+                  _buildDetailRow('Téléphone', clean(item.user?.phone)),
+                  _buildDetailRow('E-mail', clean(item.user?.email)),
                 ],
               ),
             ),
@@ -2423,28 +2219,33 @@ class _MyServicesPageState extends State<MyServicesPage>
               child: pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  _buildDetailRow('Période souhaitée',
-                      '${_formatDate(item.startDate)} - ${_formatDate(item.endDate)}'),
-                  _buildDetailRow('Budget proposé',
-                      '${NumberFormat('#,###').format(item.budget)} $currency'),
+                  _buildDetailRow('Début', formatFrenchShortDate(item.startDate)),
+                  _buildDetailRow('Fin', formatFrenchShortDate(item.endDate)),
+                  _buildDetailRow('Budget proposé', budgetLabel),
+                  _buildDetailRow('Statut', frSolicitationStatus(item.status)),
+                  _buildDetailRow(
+                    'Envoyée le',
+                    item.createdAt == null || item.createdAt!.trim().isEmpty
+                        ? ''
+                        : formatFrenchShortDate(item.createdAt),
+                  ),
                   if (item.description != null &&
                       item.description!.isNotEmpty) ...[
                     pw.SizedBox(height: 8),
                     pw.Divider(color: PdfColors.grey200),
                     pw.SizedBox(height: 8),
-                    pw.Text('Description / Instructions :',
+                    pw.Text('Description',
                         style: pw.TextStyle(
                             fontWeight: pw.FontWeight.bold, fontSize: 10)),
                     pw.SizedBox(height: 4),
                     pw.Text(item.description!,
-                        style: const pw.TextStyle(fontSize: 10),
-                        textAlign: pw.TextAlign.justify),
+                        style: const pw.TextStyle(fontSize: 10)),
                   ],
                 ],
               ),
             ),
 
-            pw.Spacer(),
+            pw.SizedBox(height: 20),
 
             // --- FOOTER ---
             pw.Divider(color: PdfColors.grey400),
@@ -2455,12 +2256,9 @@ class _MyServicesPageState extends State<MyServicesPage>
               textAlign: pw.TextAlign.justify,
             ),
             pw.SizedBox(height: 12),
-            pw.Center(
-                child: pw.Text(
-                    'Document généré par CasaNayo - www.casanayo.com',
-                    style: const pw.TextStyle(fontSize: 8))),
+            pw.Text('Document généré par CasaNayo - www.casanayo.com',
+                style: const pw.TextStyle(fontSize: 8)),
           ],
-        ),
       ),
     );
     return doc.save();
@@ -2541,33 +2339,4 @@ class _MyServicesPageState extends State<MyServicesPage>
     }
   }
 
-  Widget _buildStatusBadge(PrestationModel prestation, {bool isGrid = false}) {
-    Color bgColor;
-    String text;
-
-    if (prestation.isActive == true) {
-      bgColor = _successColor;
-      text = 'Actif';
-    } else {
-      bgColor = _mediumGrey;
-      text = 'Inactif';
-    }
-
-    return Container(
-      padding: EdgeInsets.symmetric(
-          horizontal: isGrid ? 8 : 12, vertical: isGrid ? 4 : 6),
-      decoration: BoxDecoration(
-        color: bgColor.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(isGrid ? 12 : 20),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: isGrid ? 10 : 12,
-        ),
-      ),
-    );
-  }
 }

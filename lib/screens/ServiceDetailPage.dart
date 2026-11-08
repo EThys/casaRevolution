@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart'; // Added for date formatting
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:share_plus/share_plus.dart';
 import '../controllers/CotationController.dart';
 import '../models/CotationModel.dart';
 import '../models/PrestationModel.dart';
+import '../models/SollicitationModel.dart';
+import '../utils/database/DatabaseHelper.dart';
+import '../utils/review_eligibility.dart';
 import 'CotationsListPage.dart';
 import '../utils/FancyNotification.dart';
 import 'package:casa/utils/casanayo_share_copy.dart';
@@ -60,6 +63,14 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   bool _publicCotationsLoadSettled = false;
   /// Copie des avis publics pour cette prestation (backup si cache pas encore notifié).
   List<CotationModel> _hostDerivedCotationsForPrestation = const [];
+  static const String _ratedSolicitationsKey =
+      'cotation_rated_sollicitation_ids';
+  List<SollicitationModel> _mySolicitations = [];
+  Set<int> _ratedSolicitationIds = {};
+  bool _reviewContextReady = false;
+  final TextEditingController _reviewCommentCtrl = TextEditingController();
+  double _reviewScore = 5;
+  bool _sendingReview = false;
   CotationController? _cotCtrl;
 
   static List<CotationModel> _mergeCotationsDedupe(
@@ -155,98 +166,298 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
 
   int? _currentUserIdFromStorage() {
     try {
-      final storage = GetStorage();
-      final raw = storage.read(StockageKeys.userKey);
-      if (raw is Map) {
-        final v = raw['userId'] ?? raw['id'];
-        if (v is int) return v;
-        return int.tryParse(v?.toString() ?? '');
-      }
-    } catch (_) {}
-    return null;
+      final raw = GetStorage().read(StockageKeys.userKey);
+      if (raw is! Map) return null;
+      final map = Map<String, dynamic>.from(raw);
+      final nested = map['user'];
+      final source = nested is Map ? Map<String, dynamic>.from(nested) : map;
+      final value = source['userId'] ?? source['id'] ?? map['userId'] ?? map['id'];
+      if (value is int) return value;
+      return int.tryParse(value?.toString() ?? '');
+    } catch (_) {
+      return null;
+    }
   }
 
-  bool get _canRateThisSollicitation {
+  Set<int> _ratedIdsIncludingPublic() {
+    final ids = {..._ratedSolicitationIds};
     final me = _currentUserIdFromStorage();
-    if (me == null) return false;
-    final sid = widget.sollicitationId;
-    if (sid == null) return false;
-    // Pour l'instant, même logique "test": on autorise, le backend filtrera si besoin.
-    return true;
+    final cot = _cotCtrl;
+    if (me == null || cot == null) return ids;
+    for (final review in cot.publicCotations) {
+      if (review.userId == me && review.sollicitationId != null) {
+        ids.add(review.sollicitationId!);
+      }
+    }
+    return ids;
   }
 
-  Widget _buildAddReviewCta() {
-    final enabled = _canRateThisSollicitation;
+  SollicitationModel? get _eligibleSolicitation {
+    return firstReviewableSolicitation(
+      _mySolicitations,
+      userId: _currentUserIdFromStorage(),
+      prestationId: widget.service.id,
+      alreadyRated: _ratedIdsIncludingPublic(),
+      preferredId: widget.sollicitationId,
+    );
+  }
+
+  bool get _alreadyReviewedThisService {
+    final me = _currentUserIdFromStorage();
+    final serviceId = widget.service.id;
+    if (me == null || serviceId == null) return false;
+    final rated = _ratedIdsIncludingPublic();
+    for (final item in _mySolicitations) {
+      final linked = item.prestationId ?? item.prestation?.id;
+      if (linked != serviceId || item.id == null || !rated.contains(item.id)) {
+        continue;
+      }
+      if (solicitationCanBeReviewed(item, userId: me)) return true;
+    }
+    return false;
+  }
+
+  Future<void> _loadReviewContext() async {
+    final storage = GetStorage();
+    final raw = storage.read(_ratedSolicitationsKey);
+    final rated = <int>{};
+    if (raw is List) {
+      for (final entry in raw) {
+        final id = int.tryParse(entry.toString());
+        if (id != null && id > 0) rated.add(id);
+      }
+    }
+    var mine = <SollicitationModel>[];
+    if (_currentUserIdFromStorage() != null) {
+      try {
+        mine = await DatabaseHelper.instance.getAllUserSolicitations();
+      } catch (_) {}
+      if (mounted && mine.isNotEmpty) {
+        setState(() {
+          _ratedSolicitationIds = rated;
+          _mySolicitations = mine;
+          _reviewContextReady = true;
+        });
+      }
+      try {
+        final fresh = await context
+            .read<ServiceController>()
+            .fetchUserSollicitations(silent: true);
+        if (fresh.isNotEmpty) mine = fresh;
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _ratedSolicitationIds = rated;
+      _mySolicitations = mine;
+      _reviewContextReady = true;
+    });
+  }
+
+  Future<void> _rememberRatedSolicitation(int sollicitationId) async {
+    _ratedSolicitationIds.add(sollicitationId);
+    await GetStorage().write(
+      _ratedSolicitationsKey,
+      _ratedSolicitationIds.toList(),
+    );
+  }
+
+  Future<void> _submitInlineReview() async {
+    final me = _currentUserIdFromStorage();
+    if (me == null) {
+      FancyNotification.show(
+        context,
+        'Connectez-vous pour publier un avis.',
+        type: NotificationType.info,
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => LoginScreen()),
+      );
+      return;
+    }
+    final item = _eligibleSolicitation;
+    final sid = item?.id;
+    if (sid == null) {
+      FancyNotification.show(
+        context,
+        'L’avis s’ouvre une fois la demande acceptée et la date de fin passée.',
+        type: NotificationType.info,
+      );
+      return;
+    }
+    final text = _reviewCommentCtrl.text.trim();
+    if (text.length < 3) {
+      FancyNotification.show(
+        context,
+        'Écrivez au moins quelques mots.',
+        type: NotificationType.warning,
+      );
+      return;
+    }
+    setState(() => _sendingReview = true);
+    final response = await context.read<CotationController>().createCotation(
+          userId: me,
+          sollicitationId: sid,
+          commentaire: text,
+          cote: _reviewScore,
+        );
+    if (!mounted) return;
+    setState(() => _sendingReview = false);
+    if (response.status) {
+      await _rememberRatedSolicitation(sid);
+      _reviewCommentCtrl.clear();
+      if (!mounted) return;
+      setState(() => _reviewScore = 5);
+      FancyNotification.show(
+        context,
+        'Merci pour votre avis.',
+        type: NotificationType.success,
+      );
+      await context.read<CotationController>().fetchPublicCotations(
+            forceRefresh: true,
+          );
+    } else if (mounted) {
+      FancyNotification.show(
+        context,
+        response.errorMsg ?? 'Impossible d’enregistrer l’avis.',
+        type: NotificationType.error,
+      );
+    }
+  }
+
+  Widget _buildReviewComposer() {
+    final me = _currentUserIdFromStorage();
+    final eligible = _eligibleSolicitation != null;
+    if (me == null) {
+      return _reviewNotice(
+        title: 'Donner un avis',
+        message: 'Connectez-vous pour noter ce service après l’intervention.',
+        actionLabel: 'Se connecter',
+        onAction: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => LoginScreen()),
+          );
+          if (mounted) _loadReviewContext();
+        },
+      );
+    }
+    if (!_reviewContextReady) {
+      return _reviewNotice(
+        title: 'Donner un avis',
+        message: 'Vérification de vos demandes…',
+      );
+    }
+    if (_alreadyReviewedThisService) {
+      return _reviewNotice(
+        title: 'Avis publié',
+        message: 'Merci, votre avis sur ce service est déjà enregistré.',
+      );
+    }
+    if (!eligible) {
+      return _reviewNotice(
+        title: 'Donner un avis',
+        message:
+            'L’avis s’ouvre ici une fois votre demande acceptée et la date de fin passée.',
+      );
+    }
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            primaryColor.withOpacity(0.10),
-            accentColor.withOpacity(0.08),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: primaryColor.withOpacity(0.14)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: primaryColor.withOpacity(0.16)),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                )
-              ],
-            ),
-            child: const Icon(Icons.star_rounded, color: primaryColor),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Mettre un avis',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF111827),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  enabled
-                      ? 'Aidez-nous à améliorer la qualité.'
-                      : 'Connectez-vous pour noter.',
-                  style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: const Color(0xFF4B5563),
-                      height: 1.3),
-                ),
-              ],
+          Text(
+            'Donner un avis',
+            style: GoogleFonts.inter(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: darkBlue,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(height: 4),
+          Text(
+            'L’intervention est terminée. Vous pouvez noter ici, sans repasser par vos demandes.',
+            style: GoogleFonts.inter(
+              fontSize: 12.5,
+              height: 1.35,
+              color: const Color(0xFF64748B),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: List.generate(5, (index) {
+              final filled = _reviewScore >= index + 1;
+              return IconButton(
+                visualDensity: VisualDensity.compact,
+                onPressed: _sendingReview
+                    ? null
+                    : () => setState(() => _reviewScore = (index + 1).toDouble()),
+                icon: Icon(
+                  filled ? Icons.star_rounded : Icons.star_border_rounded,
+                  color: const Color(0xFFFFB300),
+                  size: 32,
+                ),
+              );
+            }),
+          ),
+          TextField(
+            controller: _reviewCommentCtrl,
+            minLines: 3,
+            maxLines: 5,
+            enabled: !_sendingReview,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText: 'Comment s’est passée l’intervention ?',
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           SizedBox(
-            height: 44,
+            width: double.infinity,
             child: FilledButton(
-              onPressed: enabled ? _showCotationBottomSheet : null,
+              onPressed: _sendingReview ? null : _submitInlineReview,
               style: FilledButton.styleFrom(
                 backgroundColor: primaryColor,
+                padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
-              child: Text('Noter',
-                  style: GoogleFonts.inter(fontWeight: FontWeight.w800)),
+              child: _sendingReview
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      'Publier l’avis',
+                      style: GoogleFonts.inter(fontWeight: FontWeight.w800),
+                    ),
             ),
           ),
         ],
@@ -254,275 +465,54 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     );
   }
 
-  Future<void> _showCotationBottomSheet() async {
-    final me = _currentUserIdFromStorage();
-    final sid = widget.sollicitationId;
-    if (me == null || sid == null) return;
-
-    final commentCtrl = TextEditingController();
-    double cote = 4.5;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        final bottom = MediaQuery.of(ctx).viewInsets.bottom;
-        return Padding(
-          padding: EdgeInsets.only(bottom: bottom),
-          child: Consumer<CotationController>(
-            builder: (ctx, cotCtrl, _) {
-              return Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: StatefulBuilder(
-                    builder: (ctx, setLocal) {
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Center(
-                              child: Container(
-                                width: 46,
-                                height: 5,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFE5E7EB),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                Container(
-                                  width: 44,
-                                  height: 44,
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [
-                                        Color(0xFF1976D2),
-                                        Color(0xFF64B5F6)
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: const Icon(Icons.rate_review_rounded,
-                                      color: Colors.white),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text('Votre avis',
-                                          style: GoogleFonts.inter(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w900)),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        'Sollicitation #$sid',
-                                        style: GoogleFonts.inter(
-                                            fontSize: 12,
-                                            color: const Color(0xFF6B7280)),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  onPressed: cotCtrl.loading
-                                      ? null
-                                      : () => Navigator.pop(ctx),
-                                  icon: const Icon(Icons.close_rounded),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF9FAFB),
-                                borderRadius: BorderRadius.circular(16),
-                                border:
-                                    Border.all(color: const Color(0xFFF1F5F9)),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          gradient: const LinearGradient(
-                                            colors: [
-                                              Color(0xFF1976D2),
-                                              Color(0xFF64B5F6)
-                                            ],
-                                          ),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
-                                        ),
-                                        child: Text(
-                                          '★ ${cote.toStringAsFixed(1)} / 5',
-                                          style: GoogleFonts.inter(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w900,
-                                              color: Colors.white),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Text(
-                                        'Glissez pour ajuster',
-                                        style: GoogleFonts.inter(
-                                            fontSize: 12,
-                                            color: const Color(0xFF6B7280)),
-                                      ),
-                                    ],
-                                  ),
-                                  Slider(
-                                    value: cote,
-                                    min: 0.5,
-                                    max: 5.0,
-                                    divisions: 9,
-                                    label: cote.toStringAsFixed(1),
-                                    activeColor: primaryColor,
-                                    onChanged: cotCtrl.loading
-                                        ? null
-                                        : (v) => setLocal(() => cote = v),
-                                  ),
-                                  TextField(
-                                    controller: commentCtrl,
-                                    maxLines: 4,
-                                    enabled: !cotCtrl.loading,
-                                    decoration: InputDecoration(
-                                      hintText:
-                                          'Ex: Service rapide, pro, respect du délai…',
-                                      hintStyle: GoogleFonts.inter(
-                                          color: const Color(0xFF9CA3AF)),
-                                      border: OutlineInputBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14)),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(14),
-                                        borderSide: const BorderSide(
-                                            color: primaryColor, width: 1.2),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: cotCtrl.loading
-                                        ? null
-                                        : () => Navigator.pop(ctx),
-                                    style: OutlinedButton.styleFrom(
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14)),
-                                      side: const BorderSide(
-                                          color: Color(0xFFE5E7EB)),
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 14),
-                                    ),
-                                    child: Text('Annuler',
-                                        style: GoogleFonts.inter(
-                                            fontWeight: FontWeight.w800)),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: FilledButton(
-                                    onPressed: cotCtrl.loading
-                                        ? null
-                                        : () async {
-                                            final text =
-                                                commentCtrl.text.trim();
-                                            if (text.length < 3) {
-                                              FancyNotification.show(
-                                                ctx,
-                                                'Le commentaire doit contenir au moins 3 caractères.',
-                                                type: NotificationType.warning,
-                                              );
-                                              return;
-                                            }
-                                            final resp =
-                                                await cotCtrl.createCotation(
-                                              userId: me,
-                                              sollicitationId: sid,
-                                              commentaire: text,
-                                              cote: cote,
-                                            );
-                                            if (!ctx.mounted) return;
-                                            if (resp.status) {
-                                              Navigator.pop(ctx);
-                                              FancyNotification.show(
-                                                context,
-                                                'Merci pour votre avis.',
-                                                type: NotificationType.success,
-                                              );
-                                              await cotCtrl
-                                                  .fetchPublicCotations(
-                                                      forceRefresh: true);
-                                            } else {
-                                              FancyNotification.show(
-                                                ctx,
-                                                resp.errorMsg ??
-                                                    'Impossible d\'enregistrer l\'avis.',
-                                                type: NotificationType.error,
-                                              );
-                                            }
-                                          },
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: primaryColor,
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14)),
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 14),
-                                    ),
-                                    child: cotCtrl.loading
-                                        ? const SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                color: Colors.white))
-                                        : Text('Envoyer',
-                                            style: GoogleFonts.inter(
-                                                fontWeight: FontWeight.w900)),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              );
-            },
+  Widget _reviewNotice({
+    required String title,
+    required String message,
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.inter(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: darkBlue,
+            ),
           ),
-        );
-      },
+          const SizedBox(height: 6),
+          Text(
+            message,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              height: 1.4,
+              color: const Color(0xFF64748B),
+            ),
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: onAction,
+              style: FilledButton.styleFrom(backgroundColor: primaryColor),
+              child: Text(
+                actionLabel,
+                style: GoogleFonts.inter(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
-
-    commentCtrl.dispose();
   }
 
   /// Photo de profil du prestataire en premier, puis les autres visuels (sans doublon profil).
@@ -682,6 +672,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
       } else {
         setState(() => _publicCotationsLoadSettled = true);
       }
+      _loadReviewContext();
     });
   }
 
@@ -690,6 +681,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     _cotCtrl?.removeListener(_onCotationControllerNotify);
     _serviceCtrl?.removeListener(_onServiceControllerNotify);
     _autoScrollTimer?.cancel();
+    _reviewCommentCtrl.dispose();
     _imageController.dispose();
     super.dispose();
   }
@@ -777,7 +769,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
                               ),
                             );
                           },
-                          child: CachedNetworkImage(
+                          child: OfflineNetworkImage(
                             imageUrl: firstImage,
                             fit: BoxFit.cover,
                             placeholder: (context, url) => Container(
@@ -1227,7 +1219,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
                               ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(10),
-                                child: CachedNetworkImage(
+                                child: OfflineNetworkImage(
                                   imageUrl: images[index],
                                   fit: BoxFit.cover,
                                   placeholder: (context, url) => Container(
@@ -1420,10 +1412,8 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
                         children: widgets);
                   }),
 
-                  if (widget.sollicitationId != null) ...[
-                    const SizedBox(height: 12),
-                    _buildAddReviewCta(),
-                  ],
+                  const SizedBox(height: 16),
+                  _buildReviewComposer(),
 
                   // Bouton principal : Demander une intervention
                   SizedBox(height: 24),
@@ -1480,7 +1470,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
                       color: Colors.grey[700],
                     ),
                   ),
-                  SizedBox(height: 24),
+                  SizedBox(height: 24 + MediaQuery.viewPaddingOf(context).bottom),
                 ],
               ),
             ),
@@ -1547,7 +1537,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
               },
               child: Hero(
                 tag: 'service_image_$index',
-                child: CachedNetworkImage(
+                child: OfflineNetworkImage(
                   imageUrl: images[index],
                   fit: BoxFit.cover,
                   width: double.infinity,
@@ -1714,12 +1704,18 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   }
 
   Widget _buildReviewCardFromCotation(CotationModel c) {
-    final name = c.user?.username ?? c.user?.fullName ?? 'Client';
+    final directName = c.name?.trim();
+    final name = (directName != null && directName.isNotEmpty)
+        ? directName
+        : (c.user?.displayFullName ?? 'Client');
+    final directPhoto = c.profile?.trim();
     final datePosted =
         c.createdAt != null ? DateTime.tryParse(c.createdAt!) : null;
     return _buildReviewCard(
       name: name,
-      avatarUrl: c.user?.profilePicture,
+      avatarUrl: (directPhoto != null && directPhoto.isNotEmpty)
+          ? directPhoto
+          : c.user?.profilePicture,
       rating: c.cote ?? 0,
       comment: (c.commentaire != null && c.commentaire!.trim().isNotEmpty)
           ? c.commentaire!.trim()
@@ -1760,7 +1756,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
                 backgroundColor: primaryColor.withOpacity(0.1),
                 backgroundImage:
                     (avatarUrl != null && avatarUrl.trim().isNotEmpty)
-                        ? CachedNetworkImageProvider(avatarUrl.trim())
+                        ? OfflineImageProvider(avatarUrl.trim())
                         : null,
                 child: (avatarUrl != null && avatarUrl.trim().isNotEmpty)
                     ? null
@@ -1905,7 +1901,7 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(23),
                       child: profilePicture != null && profilePicture.isNotEmpty
-                          ? CachedNetworkImage(
+                          ? OfflineNetworkImage(
                               imageUrl: profilePicture,
                               fit: BoxFit.cover,
                               placeholder: (context, url) => Center(
