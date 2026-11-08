@@ -365,6 +365,7 @@ class Endpoints {
 
   // Publicités Endpoints
   static const String advertising = "$version/protected/pub";
+  static const String publicPubs = "$version/public/pub";
   static const String updateActiveAds = "$version/protected/pub/update/active/"; // {id}
 
   // WebSocket Endpoint
