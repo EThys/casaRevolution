@@ -15,13 +15,15 @@ import 'package:casa/utils/networkCheck.dart';
 import 'package:casa/utils/export_directory.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/currency_display.dart';
+import 'package:casa/utils/cache/HotelImageCache.dart';
+import 'package:casa/utils/database/DatabaseHelper.dart';
 import 'package:casa/utils/hotel_room_price.dart';
 import 'package:casa/utils/api_error_message.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/property_availability_ui.dart';
 import 'package:casa/utils/reservation_pdf_bytes.dart';
-import 'package:casa/widgets/property_sold_badge.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/widgets/RequestSentDialog.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_datetime_picker_plus/flutter_datetime_picker_plus.dart' as picker;
 import 'package:get_storage/get_storage.dart';
@@ -187,6 +189,20 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     return null;
   }
 
+  String? get _roomImageUrl {
+    final roomId = _effectiveChambreId;
+    if (roomId == null || _rawProperty is! PropertyModel) return null;
+    final rooms = (_rawProperty as PropertyModel).hotelStructure ?? <HotelRoomStructure>[];
+    for (final structure in rooms) {
+      if (structure.chambre?.id != roomId) continue;
+      for (final image in structure.images ?? const []) {
+        final path = (image.path ?? '').trim();
+        if (path.isNotEmpty) return HotelImageCache.resolve(path);
+      }
+    }
+    return null;
+  }
+
   String _joinAddress(List<String?> values) {
     final parts = <String>[];
     for (final raw in values) {
@@ -256,10 +272,84 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
        return "${t.terrain?.price?.toInt() ?? 0} ${CurrencyDisplay.symbolFromCode(t.devise?.code)}";
     }
     final p = _rawProperty as PropertyModel;
+    if (p.isStartingPriceListing) return p.startingPriceLabel;
     final isForRent = p.transactionType?.toLowerCase().contains('location') ?? false;
     final price = p.price?.toInt() ?? 0;
     final sym = CurrencyDisplay.symbolFromCode(p.currency);
     return isForRent ? '$price $sym / mois' : '$price $sym';
+  }
+
+  bool _textBlank(String? value) {
+    final text = value?.trim() ?? '';
+    return text.isEmpty || text.toLowerCase() == 'null';
+  }
+
+  PropertyModel? _pageListingAsProperty() {
+    if (_isTerrain) {
+      final terrain = _rawProperty as TerrainModel;
+      final inner = terrain.terrain;
+      final surfaceText = inner?.surface ?? '';
+      final surfaceMatch = RegExp(r'\d+(?:[.,]\d+)?').firstMatch(surfaceText);
+      return PropertyModel(
+        propertyId: inner?.id,
+        title: inner?.title,
+        description: inner?.description,
+        price: inner?.price,
+        surface: surfaceMatch == null
+            ? null
+            : double.tryParse(surfaceMatch.group(0)!.replaceAll(',', '.')),
+        address: terrain.address?.address,
+        cityValue: terrain.address?.cityValue,
+        communeValue: terrain.address?.communeValue,
+        countryValue: terrain.address?.countryValue,
+        quartierValue: terrain.address?.quartierValue,
+        transactionType: inner?.transactionType,
+        postBy: terrain.postBy,
+        propertyTypeId: 9,
+        propertyType: PropertyTypeModel(propertyTypeId: 9, name: 'Terrain'),
+        deviseId: terrain.devise?.id,
+        userId: inner?.userId,
+      );
+    }
+    if (_rawProperty is PropertyModel) return _rawProperty as PropertyModel;
+    return null;
+  }
+
+  PropertyModel _preferListing(PropertyModel? fromApi, PropertyModel local) {
+    if (fromApi == null) return local;
+    String? text(String? current, String? fallback) =>
+        _textBlank(current) ? fallback : current;
+    int? count(int? current, int? fallback) =>
+        (current == null || current <= 0) ? fallback : current;
+    double? amount(double? current, double? fallback) =>
+        (current == null || current <= 0) ? fallback : current;
+    final typeName = fromApi.propertyType?.name?.trim() ?? '';
+    final keepLocalType = typeName.isEmpty || typeName == 'Produit';
+
+    return fromApi.copyWith(
+      title: text(fromApi.title, local.title),
+      description: text(fromApi.description, local.description),
+      address: text(fromApi.address, local.address),
+      communeValue: text(fromApi.communeValue, local.communeValue),
+      cityValue: text(fromApi.cityValue, local.cityValue),
+      countryValue: text(fromApi.countryValue, local.countryValue),
+      quartierValue: text(fromApi.quartierValue, local.quartierValue),
+      quartier: text(fromApi.quartier, local.quartier),
+      postBy: text(fromApi.postBy, local.postBy),
+      transactionType: text(fromApi.transactionType, local.transactionType),
+      price: amount(fromApi.price, local.price),
+      surface: amount(fromApi.surface, local.surface),
+      numberPiece: count(fromApi.numberPiece, local.numberPiece),
+      bedrooms: count(fromApi.bedrooms, local.bedrooms),
+      rooms: count(fromApi.rooms, local.rooms),
+      capacityPeople: count(fromApi.capacityPeople, local.capacityPeople),
+      propertyTypeId: count(fromApi.propertyTypeId, local.propertyTypeId),
+      propertyType: keepLocalType
+          ? (local.propertyType ?? fromApi.propertyType)
+          : fromApi.propertyType,
+      deviseId: count(fromApi.deviseId, local.deviseId),
+      user: fromApi.user ?? local.user,
+    );
   }
 
   Future<Uint8List> _buildReservationPdfBytes() async {
@@ -372,11 +462,23 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               propertyType: typeName != null ? PropertyTypeModel(name: typeName) : null,
             );
 
+        final localListing = _pageListingAsProperty();
+        final mergedProperty = localListing == null
+            ? (nextProperty ?? parsed.property)
+            : _preferListing(nextProperty ?? parsed.property, localListing);
+        final client = parsed.user ??
+            UserModel(
+              fullName: _userName,
+              email: _userEmail,
+              phone: _userPhone,
+              username: _userName,
+            );
+
         final patched = ReservationModel(
           reservationId: parsed.reservationId,
-          user: parsed.user,
+          user: client,
           proprietaire: parsed.proprietaire,
-          property: nextProperty ?? parsed.property,
+          property: mergedProperty,
           message: parsed.message,
           status: parsed.status,
           type: parsed.type,
@@ -399,7 +501,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
               : parsed.postByTel,
         );
 
-        return await buildReservationPdfBytes(patched, null);
+        return await buildReservationPdfBytes(patched, _logoImage);
       }
     } catch (_) {
       // Fallback sur l'ancien PDF spécifique à BookingVisitPage si parsing impossible.
@@ -834,7 +936,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     final url = _userProfilePhotoUrl;
     if (url == null || url.trim().isEmpty) return;
     try {
-      await precacheImage(CachedNetworkImageProvider(url), context);
+      await precacheImage(OfflineImageProvider(url), context);
     } catch (_) {
       // best-effort only
     }
@@ -1462,163 +1564,74 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
         DateFormat('EEEE d MMMM y', 'fr_FR').format(visitDate);
     final formattedTime =
         '${visitTime.hour.toString().padLeft(2, '0')}h${visitTime.minute == 0 ? '' : visitTime.minute.toString().padLeft(2, '0')}';
+    final roomTitle = (_bookedRoom?.title ?? '').trim();
+    final listingTitle = _propertyTitle.trim();
+    final showRoom = _isHotelStay &&
+        roomTitle.isNotEmpty &&
+        roomTitle.toLowerCase() != listingTitle.toLowerCase();
+    final kind = _propertyType.trim().isEmpty ? 'Bien' : _propertyType.trim();
+    final address = _propertyAddress.trim();
 
-    showDialog(
+    showRequestSentDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.45),
-      builder: (BuildContext dialogContext) {
-        return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                height: 5,
-                color: _primaryColor,
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Visite programmée',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: _textPrimary,
-                        letterSpacing: -0.3,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Votre demande a bien été envoyée au propriétaire.',
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 14,
-                        height: 1.35,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 20),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 18,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0F4F8),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            'Date et heure',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: _textSecondary,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            formattedDate,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: _textPrimary,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'à $formattedTime',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: _primaryColor,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () async => await _downloadPdf(),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              side: BorderSide(
-                                color: _primaryColor.withOpacity(0.45),
-                              ),
-                              foregroundColor: _primaryColor,
-                            ),
-                            child: const Text(
-                              'Télécharger le PDF',
-                              style: TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () async => await _sharePdf(),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              backgroundColor: _primaryColor,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text(
-                              'Partager',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () {
-                          Navigator.pop(dialogContext);
-                          Navigator.pop(context);
-                        },
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          foregroundColor: _textSecondary,
-                        ),
-                        child: const Text(
-                          'Fermer et retourner',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+      primaryColor: _primaryColor,
+      message: _isHotelStay
+          ? 'Votre demande de séjour a bien été envoyée.'
+          : 'Votre demande a bien été envoyée.',
+      facts: [
+        RequestSentFact(
+          icon: _listingIcon,
+          label: kind,
+          value: listingTitle.isEmpty ? kind : listingTitle,
+        ),
+        if (showRoom)
+          RequestSentFact(
+            icon: Icons.bed_outlined,
+            label: 'Chambre',
+            value: roomTitle,
           ),
-        );
+        RequestSentFact(
+          icon: Icons.location_on_rounded,
+          label: 'Adresse',
+          value: address.isEmpty ? 'Adresse non renseignée' : address,
+        ),
+        RequestSentFact(
+          icon: Icons.payments_rounded,
+          label: 'Prix',
+          value: _propertyPriceText,
+        ),
+        if (_pieceCount > 0)
+          RequestSentFact(
+            icon: Icons.meeting_room_outlined,
+            label: 'Pièces',
+            value: '$_pieceCount',
+          ),
+        if (_surfaceLabel.isNotEmpty)
+          RequestSentFact(
+            icon: Icons.square_foot_rounded,
+            label: 'Surface',
+            value: _surfaceLabel,
+          ),
+        RequestSentFact(
+          icon: Icons.event_rounded,
+          label: 'Date',
+          value: formattedDate,
+        ),
+        RequestSentFact(
+          icon: Icons.schedule_rounded,
+          label: _isHotelStay ? 'Heure d’arrivée' : 'Heure',
+          value: formattedTime,
+        ),
+        const RequestSentFact(
+          icon: Icons.hourglass_top_rounded,
+          label: 'Statut',
+          value: 'En attente de confirmation',
+        ),
+      ],
+      onDownload: _downloadPdf,
+      onShare: _sharePdf,
+      onClose: () {
+        if (mounted) Navigator.pop(context);
       },
     );
   }
@@ -1756,11 +1769,80 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
     );
   }
 
-  Widget _buildPropertyHeader() {
-    final imageUrl = _propertyImageUrl;
+  IconData get _listingIcon {
+    final name = _propertyType.toLowerCase();
+    if (_isHotelStay || name.contains('hôtel') || name.contains('hotel')) {
+      return Icons.hotel_rounded;
+    }
+    if (name.contains('bureau')) return Icons.apartment_rounded;
+    if (name.contains('studio')) return Icons.meeting_room_rounded;
+    if (name.contains('fête') || name.contains('fete') || name.contains('fest')) {
+      return Icons.celebration_rounded;
+    }
+    if (name.contains('funér') || name.contains('funer') || name.contains('deuil')) {
+      return Icons.account_balance_rounded;
+    }
+    if (name.contains('terrain')) return Icons.landscape_rounded;
+    if (name.contains('vacance') || name.contains('tour')) return Icons.beach_access_rounded;
+    return Icons.home_rounded;
+  }
 
+  int get _pieceCount {
+    if (_isHotelStay) return _bookedRoom?.numberPiece ?? 0;
+    if (_rawProperty is PropertyModel) {
+      return (_rawProperty as PropertyModel).numberPiece ?? 0;
+    }
+    return 0;
+  }
+
+  String get _surfaceLabel {
+    if (_isTerrain) {
+      final raw = (_rawProperty as TerrainModel).terrain?.surface?.trim() ?? '';
+      if (raw.isEmpty || raw.toLowerCase() == 'null') return '';
+      return raw.toLowerCase().contains('m') ? raw : '$raw m²';
+    }
+    if (_rawProperty is! PropertyModel) return '';
+    final surface = (_rawProperty as PropertyModel).surface ?? 0;
+    if (surface <= 0) return '';
+    final whole = surface == surface.roundToDouble();
+    return '${whole ? surface.toInt() : surface} m²';
+  }
+
+  Widget _buildPropertyHeader() {
+    if (_isHotelStay && _rawProperty is PropertyModel) {
+      return _buildHotelRoomHeader();
+    }
+    final imageUrl = _propertyImageUrl ?? '';
+    final typeName = _propertyType.trim();
+    final title = _propertyTitle.trim();
+    final showType = typeName.isNotEmpty &&
+        typeName.toLowerCase() != title.toLowerCase();
+
+    return _buildWideListingHeader(
+      imageUrl: imageUrl,
+      title: title.isEmpty ? typeName : title,
+      subtitle: showType ? typeName : null,
+      address: _propertyAddress,
+      price: _propertyPriceText,
+      extraChips: [
+        if (_pieceCount > 0) '$_pieceCount pièce(s)',
+        if (_surfaceLabel.isNotEmpty) _surfaceLabel,
+      ],
+      emptyIcon: _listingIcon,
+    );
+  }
+
+  Widget _buildWideListingHeader({
+    required String imageUrl,
+    required String title,
+    required String address,
+    required String price,
+    String? subtitle,
+    List<String> extraChips = const [],
+    IconData emptyIcon = Icons.home_rounded,
+    bool hotelImage = false,
+  }) {
     return Container(
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: _cardColor,
         borderRadius: BorderRadius.circular(16),
@@ -1772,167 +1854,132 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
           ),
         ],
       ),
-      child: Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  imageUrl != null
-                      ? CachedNetworkImage(
-                          imageUrl: imageUrl,
-                          width: 80,
-                          height: 80,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => Container(
-                            color: Colors.grey[100],
-                            child: Center(
-                              child: SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor),
-                              ),
+          SizedBox(
+            height: 180,
+            width: double.infinity,
+            child: imageUrl.trim().isEmpty
+                ? Container(
+                    color: const Color(0xFFE5E7EB),
+                    child: Icon(emptyIcon, color: Colors.grey[500], size: 42),
+                  )
+                : hotelImage
+                    ? HotelCachedImage(
+                        url: imageUrl,
+                        fit: BoxFit.cover,
+                        height: 180,
+                        placeholderColor: const Color(0xFFE5E7EB),
+                        error: Container(
+                          color: const Color(0xFFE5E7EB),
+                          child: Icon(emptyIcon, color: Colors.grey[500], size: 42),
+                        ),
+                      )
+                    : OfflineNetworkImage(
+                        imageUrl: imageUrl,
+                        width: double.infinity,
+                        height: 180,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: const Color(0xFFE5E7EB),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           ),
-                          errorWidget: (context, url, error) => Container(
-                            color: Colors.grey[100],
-                            child: Icon(Icons.home_rounded, color: Colors.grey[400], size: 30),
-                          ),
-                        )
-                      : Container(
-                          color: Colors.grey[100],
-                          child: Icon(Icons.home_rounded, color: Colors.grey[400], size: 30),
                         ),
-                  Positioned(
-                    top: 4,
-                    left: 4,
-                    child: _isTerrain
-                        ? PropertyListingStatusChip(
-                            sold: (_rawProperty as TerrainModel).terrain?.sold,
-                            transactionType:
-                                (_rawProperty as TerrainModel).terrain?.transactionType,
-                            available:
-                                (_rawProperty as TerrainModel).terrain?.isAvailable,
-                            listingAllowed: true,
-                            compact: true,
-                            onDarkBackground: true,
-                          )
-                        : PropertyListingStatusChip(
-                            sold: (_rawProperty as PropertyModel).sold,
-                            transactionType:
-                                (_rawProperty as PropertyModel).transactionType,
-                            available: (_rawProperty as PropertyModel).available,
-                            listingAllowed:
-                                (_rawProperty as PropertyModel).listingAllowed,
-                            compact: true,
-                            onDarkBackground: true,
-                          ),
-                  ),
-                ],
-              ),
-            ),
+                        errorWidget: (context, url, error) => Container(
+                          color: const Color(0xFFE5E7EB),
+                          child: Icon(emptyIcon, color: Colors.grey[500], size: 42),
+                        ),
+                      ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _propertyTitle,
+                  title.isEmpty ? 'Bien' : title,
                   style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
                     color: _textPrimary,
+                    height: 1.25,
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 8),
-
-                _isHotelStay
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.location_on_rounded, size: 18, color: _primaryColor),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _propertyAddress.isEmpty
-                                  ? 'Adresse non renseignée'
-                                  : _propertyAddress,
-                              style: TextStyle(
-                                color: _textPrimary,
-                                fontSize: 14,
-                                height: 1.35,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    : InkWell(
-                  borderRadius: BorderRadius.circular(10),
-                  onTap: _showAddressVerification,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0F4F8),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                if (subtitle != null && subtitle.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
                     ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.location_on_rounded, size: 16, color: _primaryColor),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Adresse masquée — appuyez pour voir',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: _textSecondary,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.location_on_rounded, size: 18, color: _primaryColor),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        address.trim().isEmpty ? 'Adresse non renseignée' : address,
+                        style: TextStyle(
+                          color: _textPrimary,
+                          fontSize: 14,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (price.trim().isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          price,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: _primaryColor,
+                            fontSize: 15,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.lock_outline_rounded, size: 16, color: _primaryColor),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _primaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    _propertyPriceText,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: _primaryColor,
-                      fontSize: 15,
-                      height: 1.3,
-                    ),
-                  ),
+                      ),
+                    for (final chip in extraChips)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0F4F8),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          chip,
+                          style: TextStyle(
+                            color: _textSecondary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),
@@ -1943,149 +1990,33 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
   }
 
 
-  void _showAddressVerification() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(20),
-          child: Container(
-            decoration: BoxDecoration(
-              color: _cardColor,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Icone décorative
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: _primaryColor.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.location_on_rounded,
-                      size: 40,
-                      color: _primaryColor,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
+  Widget _buildHotelRoomHeader() {
+    final hotel = _rawProperty as PropertyModel;
+    final room = _bookedRoom;
+    final covers = hotel.propertyImage;
+    final hotelCover = (covers != null && covers.isNotEmpty) ? covers.first.path : hotel.image;
+    final imageUrl = _roomImageUrl ?? HotelImageCache.resolve(hotelCover ?? '');
+    final roomTitle = (room?.title ?? '').trim();
+    final hotelTitle = (hotel.title ?? '').trim();
+    final showRoomTitle = roomTitle.isNotEmpty &&
+        roomTitle.toLowerCase() != hotelTitle.toLowerCase();
+    final address = _propertyAddress;
+    final priceView = room == null ? null : hotelRoomPriceView(room, hotel);
 
-                  // Titre
-                  Text(
-                    "Adresse Protégée",
-                    style: TextStyle(
-                      color: _textPrimary,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      height: 1.2,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Sous-titre
-                  Text(
-                    "Pour préserver l'intimité des propriétaires",
-                    style: TextStyle(
-                      color: _textPrimary.withOpacity(0.7),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Contenu
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: _accentColor.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: _primaryColor.withOpacity(0.1),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline_rounded,
-                          color: _primaryColor,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            "L'adresse exacte vous sera communiquée après réservation et sera disponible dans votre document de confirmation à télécharger.",
-                            style: TextStyle(
-                              color: _textPrimary.withOpacity(0.8),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w400,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Bouton Principal
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        Navigator.of(context).pop();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 0,
-                        shadowColor: Colors.transparent,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.check_circle_rounded,
-                            size: 18,
-                            color: Colors.white,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Fermer",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+    return _buildWideListingHeader(
+      imageUrl: imageUrl,
+      title: hotelTitle.isEmpty ? 'Hôtel' : hotelTitle,
+      subtitle: showRoomTitle ? roomTitle : null,
+      address: address,
+      price: priceView == null ? _propertyPriceText : priceView.compact,
+      extraChips: [
+        if ((room?.numberPiece ?? 0) > 0) '${room!.numberPiece} pièce(s)',
+      ],
+      emptyIcon: Icons.bed_outlined,
+      hotelImage: true,
     );
   }
+
 
   void _navigateToContactPage() {
     // Navigation vers la page de contact/rendez-vous
@@ -2208,7 +2139,7 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                   return Image.file(localFile, width: 50, height: 50, fit: BoxFit.cover);
                 }
                 if (_userProfilePhotoUrl != null) {
-                  return CachedNetworkImage(
+                  return OfflineNetworkImage(
                     imageUrl: _userProfilePhotoUrl!,
                     width: 50,
                     height: 50,
