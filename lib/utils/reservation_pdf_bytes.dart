@@ -5,6 +5,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'dart:typed_data';
 
+import 'french_date.dart';
 import 'status_labels_fr.dart';
 
 /// Génère le PDF « bon de réservation » (même contenu que [BookingHistoryPage]).
@@ -117,10 +118,57 @@ Future<Uint8List> buildReservationPdfBytes(
     }
   }
 
-  final userName = reservation.user?.username?.toString() ?? 'Client';
-  final userPhone = reservation.user?.phone?.toString() ?? '';
-  final userEmail = reservation.user?.email?.toString() ?? '';
+  final client = reservation.user;
+  final userName = (client?.displayFullName ?? '').trim().isEmpty
+      ? 'Client'
+      : client!.displayFullName;
+  final userPhone = telOrEmpty(client?.phone?.toString());
+  final userEmail = telOrEmpty(client?.email?.toString());
   final statusFr = frReservationStatus(reservation.status);
+  final isHotelStay = reservation.chambreId != null || property?.propertyTypeId == 5;
+  final clock = telOrEmpty(reservation.reservationHeure);
+  final arrival = formatFrenchDateTime(reservation.startDate, time: clock.isEmpty ? null : clock);
+  final departure = formatFrenchDateTime(reservation.endDate);
+  final created = formatFrenchDateTime(reservation.createdAt);
+  final priceLabel = () {
+    if (property == null) return '';
+    if (property.isStartingPriceListing && (property.price ?? 0) > 0) {
+      return property.startingPriceLabel;
+    }
+    final amount = property.price;
+    if (amount == null || amount <= 0) return '';
+    final devise = property.deviseId == 1
+        ? 'FC'
+        : (property.deviseId == 2 ? 'USD' : telOrEmpty(property.currency));
+    final suffix = devise.isEmpty ? '' : ' $devise';
+    final rent = (property.transactionType ?? '').toLowerCase().contains('location');
+    return '${amount.toStringAsFixed(0)}$suffix${rent ? ' / mois' : ''}';
+  }();
+  final surfaceLabel = () {
+    final surface = property?.surface;
+    if (surface == null || surface <= 0) return '';
+    final whole = surface == surface.roundToDouble();
+    return '${whole ? surface.toInt() : surface} m²';
+  }();
+  final capacity = property?.capacityPeople ?? 0;
+  final bedrooms = property?.bedrooms ?? 0;
+  final transaction = telOrEmpty(property?.publicTransactionLabel);
+  final hostEmail = telOrEmpty(publisher?.email?.toString());
+  final pieces = property?.numberPiece;
+  final message = telOrEmpty(reservation.message);
+  final cancelReason = telOrEmpty(reservation.cancellationReason);
+  final address = getCleanAddress(property?.address);
+  final placeBits = [quartierName, communeName, cityName, countryName]
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty && e.toLowerCase() != 'null')
+      .toList();
+  String shown(String value) {
+    final text = value.trim();
+    if (text.isEmpty || text.toLowerCase() == 'null' || text == ',' || text == '—') {
+      return 'Non renseigné';
+    }
+    return text;
+  }
 
   pw.Widget buildPdfDetailRow(String label, String value) {
     return pw.Padding(
@@ -178,7 +226,9 @@ Future<Uint8List> buildReservationPdfBytes(
                       ),
                     ),
                     pw.Text(
-                      'Confirmation Officielle de Demande de Visite',
+                      isHotelStay
+                          ? 'Confirmation de séjour'
+                          : 'Confirmation de demande de visite',
                       style: pw.TextStyle(
                         color: PdfColor.fromInt(0xE6FFFFFF),
                         fontSize: 12,
@@ -214,6 +264,9 @@ Future<Uint8List> buildReservationPdfBytes(
                   pw.SizedBox(height: 4),
                   pw.Text('Statut : $statusFr',
                       style: pw.TextStyle(fontSize: 10, color: PdfColors.grey800)),
+                  if (created != '—')
+                    pw.Text('Demandée le : $created',
+                        style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
                 ],
               ),
               pw.Container(
@@ -244,32 +297,56 @@ Future<Uint8List> buildReservationPdfBytes(
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text(property?.title ?? 'Propriété Non Spécifiée',
+                pw.Text(shown(property?.title ?? ''),
                     style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
                 pw.SizedBox(height: 8),
-                buildPdfDetailRow('Adresse', getCleanAddress(property?.address)),
-                buildPdfDetailRow('Type', propTypeName),
-                buildPdfDetailRow('Emplacement', '$quartierName, $communeName'),
-                buildPdfDetailRow('Ville / Pays', '$cityName, $countryName'),
+                buildPdfDetailRow('Type', shown(propTypeName)),
+                if (transaction.isNotEmpty) buildPdfDetailRow('Transaction', transaction),
+                if (isHotelStay && reservation.chambreId != null)
+                  buildPdfDetailRow('Chambre', '#${reservation.chambreId}'),
+                if (priceLabel.isNotEmpty) buildPdfDetailRow('Prix', priceLabel),
+                if (pieces != null && pieces > 0)
+                  buildPdfDetailRow('Pièces', '$pieces'),
+                if (bedrooms > 0) buildPdfDetailRow('Chambres', '$bedrooms'),
+                if (surfaceLabel.isNotEmpty) buildPdfDetailRow('Surface', surfaceLabel),
+                if (capacity > 0) buildPdfDetailRow('Capacité', '$capacity personnes'),
+                buildPdfDetailRow('Adresse', shown(address)),
+                buildPdfDetailRow('Lieu', shown(placeBits.join(', '))),
+                if (telOrEmpty(property?.description).isNotEmpty)
+                  buildPdfDetailRow('Description', telOrEmpty(property?.description)),
               ],
             ),
           ),
           pw.SizedBox(height: 24),
-          pw.Text('2. RENDEZ-VOUS DE VISITE',
+          pw.Text(isHotelStay ? '2. SÉJOUR' : '2. RENDEZ-VOUS',
               style: pw.TextStyle(
                   fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
           pw.SizedBox(height: 12),
           pw.Table(
             border: pw.TableBorder.all(color: PdfColors.grey300),
             children: [
-              buildPdfTableRow('Date de Visite', formatElegantDate(reservation.startDate)),
+              buildPdfTableRow(isHotelStay ? 'Arrivée' : 'Début', shown(arrival)),
+              buildPdfTableRow(isHotelStay ? 'Départ' : 'Fin', shown(departure)),
               buildPdfTableRow(
-                  'Heure du RDV', (reservation.reservationHeure ?? '14:00').split(':').take(2).join(':')),
-              buildPdfTableRow(
-                  'Fin Estimée',
-                  getEstimatedEnd(reservation.endDate ?? reservation.startDate, reservation.reservationHeure)),
+                'Heure',
+                clock.isEmpty ? 'Non renseignée' : formatFrenchDateTime(null, time: clock),
+              ),
             ],
           ),
+          if (message.isNotEmpty) ...[
+            pw.SizedBox(height: 16),
+            pw.Text('Message',
+                style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 4),
+            pw.Text(message, style: const pw.TextStyle(fontSize: 10)),
+          ],
+          if (cancelReason.isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            pw.Text('Motif d\'annulation',
+                style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 4),
+            pw.Text(cancelReason, style: const pw.TextStyle(fontSize: 10)),
+          ],
           pw.SizedBox(height: 24),
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -281,9 +358,9 @@ Future<Uint8List> buildReservationPdfBytes(
                     pw.Text('3. INFORMATIONS CLIENT',
                         style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
                     pw.SizedBox(height: 8),
-                    pw.Text('Nom : $userName', style: const pw.TextStyle(fontSize: 11)),
-                    if (userPhone.isNotEmpty) pw.Text('Tel : $userPhone', style: const pw.TextStyle(fontSize: 11)),
-                    if (userEmail.isNotEmpty) pw.Text('Email : $userEmail', style: const pw.TextStyle(fontSize: 11)),
+                    pw.Text('Nom : ${shown(userName)}', style: const pw.TextStyle(fontSize: 11)),
+                    pw.Text('Tél : ${shown(userPhone)}', style: const pw.TextStyle(fontSize: 11)),
+                    pw.Text('Email : ${shown(userEmail)}', style: const pw.TextStyle(fontSize: 11)),
                   ],
                 ),
               ),
@@ -298,16 +375,20 @@ Future<Uint8List> buildReservationPdfBytes(
                     pw.Text('Nom : $advertiserName', style: const pw.TextStyle(fontSize: 11)),
                     pw.Text('Rôle : $publisherRole', style: const pw.TextStyle(fontSize: 11)),
                     pw.Text('Tel : $publisherPhone', style: const pw.TextStyle(fontSize: 11)),
+                    if (hostEmail.isNotEmpty)
+                      pw.Text('Email : $hostEmail', style: const pw.TextStyle(fontSize: 11)),
                   ],
                 ),
               ),
             ],
           ),
-          pw.Spacer(),
+          pw.SizedBox(height: 28),
           pw.Divider(color: PdfColors.grey400),
           pw.SizedBox(height: 8),
           pw.Text(
-            "IMPORTANT : Ce document est une preuve de demande de visite. Il doit être validé par l'annonceur via l'application CasaNayo. Pour toute assistance, contactez notre support.",
+            isHotelStay
+                ? "IMPORTANT : Ce document récapitule la demande de séjour. Il doit être confirmé par l'hôtel via l'application CasaNayo. Pour toute assistance, contactez notre support."
+                : "IMPORTANT : Ce document est une preuve de demande de visite. Il doit être validé par l'annonceur via l'application CasaNayo. Pour toute assistance, contactez notre support.",
             style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
             textAlign: pw.TextAlign.justify,
           ),
