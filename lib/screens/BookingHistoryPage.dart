@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/models/ReservationModel.dart';
 import 'package:open_file/open_file.dart';
 import 'package:casa/utils/property_detail_navigation.dart';
@@ -19,6 +19,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import '../utils/french_date.dart';
 import '../controllers/ReservationController.dart';
 import '../controllers/PropertyCtrl.dart';
 import '../controllers/TypeAccountController.dart';
@@ -1080,7 +1081,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                         child: imageUrl != null
                             ? ClipRRect(
                                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                                child: CachedNetworkImage(
+                                child: OfflineNetworkImage(
                                   imageUrl: imageUrl,
                                   fit: BoxFit.cover,
                                   width: double.infinity,
@@ -1136,7 +1137,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            '${_formatDate(reservation.createdAt)?.split(' ')[0] ?? 'N/A'}',
+                            '${_formatDate(reservation.createdAt) ?? 'N/A'}',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 10,
@@ -1175,7 +1176,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               SizedBox(width: 4),
                               Expanded(
                                 child: Text(
-                                  _formatDate(reservation.startDate) ?? 'Date non renseignée',
+                                  _formatDate(reservation.startDate, time: reservation.reservationHeure) ?? 'Date non renseignée',
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: _mediumGrey,
@@ -1194,7 +1195,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               Icon(Icons.access_time_rounded, size: 12, color: _mediumGrey),
                               SizedBox(width: 4),
                               Text(
-                                reservation.reservationHeure ?? '',
+                                formatFrenchDateTime(null, time: reservation.reservationHeure),
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: _mediumGrey,
@@ -1273,7 +1274,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       child: imageUrl != null
                           ? ClipRRect(
                         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                        child: CachedNetworkImage(
+                        child: OfflineNetworkImage(
                           imageUrl: imageUrl,
                           fit: BoxFit.cover,
                           width: double.infinity,
@@ -1384,7 +1385,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
-                              '${_formatDate(reservation.createdAt)?.split(' ')[0] ?? 'N/A'}',
+                              '${_formatDate(reservation.createdAt) ?? 'N/A'}',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 10,
@@ -1499,7 +1500,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Du ${_formatDate(reservation.startDate) ?? 'N/A'}',
+                                  'Du ${_formatDate(reservation.startDate, time: reservation.reservationHeure) ?? 'N/A'}',
                                   style: TextStyle(
                                     color: _darkColor,
                                     fontSize: 13,
@@ -1748,14 +1749,12 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     );
   }
 
-  String? _formatDate(String? dateString) {
-    if (dateString == null) return null;
-    try {
-      final date = DateTime.parse(dateString);
-      return DateFormat('dd/MM/yyyy').format(date);
-    } catch (e) {
-      return dateString;
+  String? _formatDate(String? dateString, {String? time}) {
+    if ((dateString == null || dateString.trim().isEmpty) &&
+        (time == null || time.trim().isEmpty)) {
+      return null;
     }
+    return formatFrenchDateTime(dateString, time: time);
   }
 
   Color _getStatusColor(String? status) {
@@ -1949,7 +1948,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                        radius: 20,
                        backgroundColor: _primaryColor.withOpacity(0.2),
                        backgroundImage: (reservation.userImage != null && reservation.userImage!.isNotEmpty)
-                           ? CachedNetworkImageProvider(reservation.userImage!) as ImageProvider
+                           ? OfflineImageProvider(reservation.userImage!) as ImageProvider
                            : null,
                        child: (reservation.userImage != null && reservation.userImage!.isNotEmpty)
                            ? null
@@ -1991,7 +1990,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
               Icon(Icons.calendar_today_rounded, size: 14, color: _primaryColor),
               SizedBox(width: 6),
               Text(
-                'Visite prévue: ${_formatDate(reservation.startDate)} à ${reservation.reservationHeure ?? "N/A"}',
+                'Visite prévue: ${_formatDate(reservation.startDate, time: reservation.reservationHeure) ?? "N/A"}',
                 style: TextStyle(fontSize: 13, color: _mediumGrey),
               ),
             ],
@@ -2201,7 +2200,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                       borderRadius: BorderRadius.circular(15),
                       child: Stack(
                         children: [
-                          CachedNetworkImage(
+                          OfflineNetworkImage(
                             imageUrl: imageUrl,
                             fit: BoxFit.cover,
                             width: double.infinity,
@@ -2294,7 +2293,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 _buildDetailRow(
                   icon: Icons.date_range,
                   label: 'Date de début',
-                  value: _formatDate(reservation.startDate) ?? 'Non spécifiée',
+                  value: _formatDate(reservation.startDate, time: reservation.reservationHeure) ?? 'Non spécifiée',
                   isImportant: true,
                 ),
                 _buildDetailRow(
@@ -2306,7 +2305,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                 _buildDetailRow(
                   icon: Icons.access_time,
                   label: 'Heure',
-                  value: reservation.reservationHeure ?? 'Non spécifiée',
+                  value: formatFrenchDateTime(null, time: reservation.reservationHeure),
                 ),
                 _buildDetailRow(
                   icon: Icons.message,

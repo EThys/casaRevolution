@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'UserModel.dart';
 import 'PropertyModel.dart';
+import 'PropertyTypeModel.dart';
 import 'PropertyImageModel.dart';
 
 ReservationModel reservationModelFromJson(String str) => ReservationModel.fromJson(json.decode(str));
@@ -134,16 +135,38 @@ class ReservationModel {
     // Réservations chambre: structure spéciale
     // { reservation: {...}, chambre: {...}, user: {...}, imageChambre: [...] }
     PropertyModel? parsedProperty;
-    if (json["chambre"] is Map) {
-      final chambre = Map<String, dynamic>.from(json["chambre"] as Map);
+    final chambreNode = json["chambre"] ?? reservationData?["chambre"];
+    if (chambreNode is Map) {
+      final chambre = Map<String, dynamic>.from(chambreNode);
+      final hotelNode = json["hotel"] ?? reservationData?["hotel"];
+      final hotel = hotelNode is Map ? Map<String, dynamic>.from(hotelNode) : null;
+      final roomTitle = chambre["title"]?.toString().trim() ?? '';
+      final hotelTitle = hotel?["title"]?.toString().trim() ?? '';
+      final title = roomTitle.isEmpty
+          ? hotelTitle
+          : (hotelTitle.isEmpty ? roomTitle : '$roomTitle — $hotelTitle');
+      String place(dynamic value) {
+        if (value is Map) return value["name"]?.toString() ?? '';
+        return value?.toString() ?? '';
+      }
       parsedProperty = PropertyModel(
-        propertyId: chambre["hotelId"] is int ? chambre["hotelId"] as int : null,
+        propertyId: chambre["hotelId"] is int
+            ? chambre["hotelId"] as int
+            : (hotel?["id"] is int ? hotel!["id"] as int : null),
         propertyTypeId: 5,
-        title: chambre["title"]?.toString(),
+        propertyType: PropertyTypeModel(propertyTypeId: 5, name: 'Hôtel'),
+        title: title.isEmpty ? null : title,
         description: chambre["description"]?.toString(),
         price: (chambre["price"] is num) ? (chambre["price"] as num).toDouble() : null,
         deviseId: chambre["deviseId"] is int ? chambre["deviseId"] as int : null,
-        propertyImage: parseImages(json["imageChambre"]),
+        numberPiece: chambre["numberPiece"] is int ? chambre["numberPiece"] as int : int.tryParse('${chambre["numberPiece"]}'),
+        address: (hotel?["address"] ?? chambre["address"])?.toString(),
+        communeValue: place(hotel?["commune"] ?? hotel?["communeValue"]),
+        cityValue: place(hotel?["city"] ?? hotel?["cityValue"]),
+        countryValue: place(hotel?["country"] ?? hotel?["countryValue"]),
+        quartierValue: place(hotel?["quartier"] ?? hotel?["quartierValue"]),
+        postBy: hotel?["postBy"]?.toString() ?? chambre["postBy"]?.toString(),
+        propertyImage: parseImages(json["imageChambre"] ?? reservationData?["imageChambre"]),
       );
     } else if (json["terrain"] is Map) {
       // Réservations terrains

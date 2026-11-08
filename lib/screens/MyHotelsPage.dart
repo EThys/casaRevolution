@@ -7,7 +7,7 @@ import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/decertification_access_guard.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:intl/intl.dart';
@@ -37,6 +37,12 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
   final Color _cardBackground = Colors.white;
 
   List<PropertyModel> _hotels = [];
+  static const int _pageSize = 6;
+  int _visible = _pageSize;
+  int _nextServerPage = 0;
+  bool _serverHasMore = false;
+  bool _loadingMore = false;
+  bool _revealQueued = false;
 
   @override
   void initState() {
@@ -70,12 +76,21 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
         _hotels = cached;
         _isLoadingData = false;
       });
-      final fresh = await ctrl.syncOwnerHotelsToDatabase();
+      final first = await ctrl.fetchOwnerHotelsPage(page: 0, size: _pageSize);
       if (!mounted) return;
       setState(() {
-        if (fresh.isNotEmpty) _hotels = fresh;
+        if (first.items.isNotEmpty) {
+          _hotels = first.serverPaged ? _mergeHotels(cached, first.items) : first.items;
+          _serverHasMore = first.hasMore;
+          _nextServerPage = first.serverPaged ? 1 : 0;
+        }
+        _visible = _pageSize;
         _isRefreshing = false;
+        _isLoadingData = false;
       });
+      if (first.items.isNotEmpty) {
+        await ctrl.rememberOwnerHotels(first.items, replaceMissing: !first.serverPaged);
+      }
     } catch (e) {
       print('❌ MyHotelsPage load: $e');
       if (mounted) {
@@ -92,8 +107,58 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
     }
   }
 
-  List<PropertyModel> get _disponibles => _hotels.where((p) => p.sold != true).toList();
-  List<PropertyModel> get _indisponibles => _hotels.where((p) => p.sold == true).toList();
+  bool _isOffline(PropertyModel property) => property.sold == true || property.isAdminHidden;
+
+  List<PropertyModel> get _disponibles => _hotels.where((p) => !_isOffline(p)).toList();
+  List<PropertyModel> get _indisponibles => _hotels.where((p) => _isOffline(p)).toList();
+
+  List<PropertyModel> _mergeHotels(List<PropertyModel> current, List<PropertyModel> incoming) {
+    final next = List<PropertyModel>.from(current);
+    for (final hotel in incoming) {
+      final index = next.indexWhere((item) => item.propertyId == hotel.propertyId);
+      if (index >= 0) {
+        next[index] = hotel;
+      } else {
+        next.add(hotel);
+      }
+    }
+    return next;
+  }
+
+  Future<void> _loadMore(String filterKey) async {
+    if (_revealQueued || _loadingMore) return;
+    final shown = _filtered(filterKey).take(_visible).length;
+    final totalForFilter = _filtered(filterKey).length;
+    if (shown < totalForFilter) {
+      _revealQueued = true;
+      setState(() => _visible += _pageSize);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _revealQueued = false;
+      });
+      return;
+    }
+    if (!_serverHasMore || _loadingMore) return;
+    setState(() => _loadingMore = true);
+    try {
+      final ctrl = context.read<PropertyController>();
+      final page = await ctrl.fetchOwnerHotelsPage(page: _nextServerPage, size: _pageSize);
+      if (!mounted) return;
+      setState(() {
+        if (page.items.isNotEmpty) {
+          _hotels = _mergeHotels(_hotels, page.items);
+          _nextServerPage += 1;
+          _visible += _pageSize;
+        }
+        _serverHasMore = page.hasMore && page.items.isNotEmpty;
+        _loadingMore = false;
+      });
+      if (page.items.isNotEmpty) {
+        await ctrl.rememberOwnerHotels(page.items);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingMore = false);
+    }
+  }
 
   List<PropertyModel> _filtered(String key) {
     switch (key) {
@@ -139,9 +204,12 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
   }
 
   Widget _buildStatusBadge(PropertyModel property) {
+    final deactivated = property.isAdminHidden;
     final isSold = property.sold == true;
-    final bg = isSold ? _mediumGrey : _successColor;
-    final text = isSold ? 'Indisponible' : 'Disponible';
+    final bg = deactivated
+        ? const Color(0xFF6D4C41)
+        : (isSold ? _mediumGrey : _successColor);
+    final text = deactivated ? 'Désactivé' : (isSold ? 'Indisponible' : 'Disponible');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -264,7 +332,7 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
                   height: 180,
                   width: double.infinity,
                   child: cover != null && cover.isNotEmpty
-                      ? CachedNetworkImage(
+                      ? OfflineNetworkImage(
                           imageUrl: cover,
                           fit: BoxFit.cover,
                           placeholder: (_, __) => Container(
@@ -300,6 +368,17 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
+                if (h.isAdminHidden) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Retiré par l’administration',
+                    style: TextStyle(
+                      color: const Color(0xFF6D4C41),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -387,22 +466,49 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
   }
 
   Widget _buildList(String filterKey) {
-    final list = _filtered(filterKey == 'all' ? 'all' : filterKey);
+    final key = filterKey == 'all' ? 'all' : filterKey;
+    final list = _filtered(key);
     if (_isLoadingData && list.isEmpty) {
       return _buildShimmerList();
     }
     if (list.isEmpty) {
-      return _buildEmpty(filterKey == 'all' ? 'all' : filterKey);
+      return _buildEmpty(key);
     }
+    final shown = list.take(_visible).toList();
+    final hasMore = shown.length < list.length || _serverHasMore;
+    final bottom = MediaQuery.viewPaddingOf(context).bottom;
     return RefreshIndicator(
       color: _primaryColor,
       backgroundColor: Colors.white,
       onRefresh: _load,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(20),
-        itemCount: list.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 20),
-        itemBuilder: (_, i) => _buildHotelCard(list[i]),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (notification.metrics.pixels >= notification.metrics.maxScrollExtent - 280) {
+            _loadMore(key);
+          }
+          return false;
+        },
+        child: ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 28 + bottom + 72),
+          itemCount: shown.length + (hasMore ? 1 : 0),
+          separatorBuilder: (_, __) => const SizedBox(height: 20),
+          itemBuilder: (_, i) {
+            if (i >= shown.length) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Center(
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: _primaryColor),
+                  ),
+                ),
+              );
+            }
+            return _buildHotelCard(shown[i]);
+          },
+        ),
       ),
     );
   }
@@ -489,20 +595,23 @@ class _MyHotelsPageState extends State<MyHotelsPage> with SingleTickerProviderSt
     return Scaffold(
       backgroundColor: _lightGrey,
       appBar: _buildAppBar(),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'my_hotels_fab',
-        onPressed: _isRefreshing ? null : _load,
-        backgroundColor: _primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: _isRefreshing
-            ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-              )
-            : const Icon(Icons.refresh_rounded, size: 24),
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewPaddingOf(context).bottom),
+        child: FloatingActionButton(
+          heroTag: 'my_hotels_fab',
+          onPressed: _isRefreshing ? null : _load,
+          backgroundColor: _primaryColor,
+          foregroundColor: Colors.white,
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: _isRefreshing
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Icon(Icons.refresh_rounded, size: 24),
+        ),
       ),
       body: Column(
         children: [

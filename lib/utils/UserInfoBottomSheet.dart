@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:photo_view/photo_view.dart';
@@ -42,7 +42,7 @@ class UserInfoBottomSheet extends StatelessWidget {
             body: Stack(
               children: [
                 PhotoView(
-                  imageProvider: CachedNetworkImageProvider(user.profilePicture!),
+                  imageProvider: OfflineImageProvider(user.profilePicture!),
                   minScale: PhotoViewComputedScale.contained,
                   maxScale: PhotoViewComputedScale.covered * 3,
                   heroAttributes: const PhotoViewHeroAttributes(tag: 'user-avatar'),
@@ -74,7 +74,9 @@ class UserInfoBottomSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     const primaryColor = Color(0xFF1976D2);
 
+    final bottom = MediaQuery.viewPaddingOf(context).bottom;
     return Container(
+      margin: EdgeInsets.only(bottom: bottom),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.only(
@@ -121,6 +123,15 @@ class UserInfoBottomSheet extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // ── Compact header row ──────────────────────────────────
+                  Text(
+                    'Personne qui réserve',
+                    style: GoogleFonts.outfit(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: primaryColor,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       // Tappable avatar with hero tag
@@ -148,7 +159,7 @@ class UserInfoBottomSheet extends StatelessWidget {
                             child: ClipOval(
                               child: user.profilePicture != null &&
                                       user.profilePicture!.isNotEmpty
-                                  ? CachedNetworkImage(
+                                  ? OfflineNetworkImage(
                                       imageUrl: user.profilePicture!,
                                       fit: BoxFit.cover,
                                       placeholder: (_, __) => Container(

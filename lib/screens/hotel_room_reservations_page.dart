@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/controllers/ReservationController.dart';
 import 'package:casa/models/ReservationModel.dart';
 import 'package:casa/utils/FancyNotification.dart';
@@ -24,6 +24,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/PropertyModel.dart';
+import '../utils/french_date.dart';
 
 /// Liste des réservations d’une chambre d’hôtel (onglets + actions hôte alignés sur [BookingHistoryPage]).
 class HotelRoomReservationsPage extends StatefulWidget {
@@ -143,15 +144,8 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
 
   String _getStatusText(String? status) => frReservationStatus(status);
 
-  String? _formatDate(String? dateString) {
-    if (dateString == null) return null;
-    try {
-      final date = DateTime.parse(dateString);
-      return DateFormat('dd/MM/yyyy').format(date);
-    } catch (_) {
-      return dateString;
-    }
-  }
+  String _formatDate(String? dateString, {String? time}) =>
+      formatFrenchDateTime(dateString, time: time);
 
   List<Widget> _buildFeatureChips(PropertyModel? propertyData) {
     final features = <Widget>[];
@@ -686,7 +680,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
         24,
         12,
         24,
-        24 + MediaQuery.of(context).padding.bottom,
+        24 + MediaQuery.viewPaddingOf(context).bottom,
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -744,7 +738,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
 
           if (reservation.user != null) ...[
             const Text(
-              "Client",
+              "Personne qui réserve",
               style: TextStyle(
                   fontWeight: FontWeight.bold, fontSize: 15, color: _darkColor),
             ),
@@ -772,7 +766,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                       backgroundColor: _primaryColor.withOpacity(0.2),
                       backgroundImage: (reservation.userImage != null &&
                               reservation.userImage!.isNotEmpty)
-                          ? CachedNetworkImageProvider(reservation.userImage!)
+                          ? OfflineImageProvider(reservation.userImage!)
                               as ImageProvider
                           : null,
                       child: (reservation.userImage != null &&
@@ -832,7 +826,11 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Du ${_formatDate(reservation.startDate) ?? 'N/A'} au ${_formatDate(reservation.endDate) ?? 'N/A'}',
+                  formatFrenchStay(
+                    reservation.startDate,
+                    reservation.endDate,
+                    time: reservation.reservationHeure,
+                  ),
                   style: TextStyle(fontSize: 13, color: _mediumGrey),
                 ),
               ),
@@ -1078,7 +1076,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                 Stack(
                   children: [
                     Container(
-                      height: 180,
+                      height: imageUrl != null ? 132 : 92,
                       decoration: BoxDecoration(
                         borderRadius:
                             const BorderRadius.vertical(top: Radius.circular(20)),
@@ -1088,7 +1086,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                           ? ClipRRect(
                               borderRadius: const BorderRadius.vertical(
                                   top: Radius.circular(20)),
-                              child: CachedNetworkImage(
+                              child: OfflineNetworkImage(
                                 imageUrl: imageUrl,
                                 fit: BoxFit.cover,
                                 width: double.infinity,
@@ -1126,24 +1124,48 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                                 },
                               ),
                             )
-                          : Container(
-                              color: _lightGrey,
-                              child: Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.hotel,
-                                        size: 50, color: _mediumGrey),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'Aucune image',
-                                      style: TextStyle(
-                                        color: _mediumGrey,
-                                        fontSize: 12,
-                                      ),
+                          : Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: _primaryColor.withOpacity(0.12),
+                                    child: const Icon(Icons.person_rounded, color: _primaryColor),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          reservation.user?.fullName?.trim().isNotEmpty == true
+                                              ? reservation.user!.fullName!.trim()
+                                              : (reservation.user?.username ?? 'Client'),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 15,
+                                            color: _darkColor,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          formatFrenchStay(
+                                            reservation.startDate,
+                                            reservation.endDate,
+                                            time: reservation.reservationHeure,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(color: _mediumGrey, fontSize: 12, fontWeight: FontWeight.w600),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
                             ),
                     ),
@@ -1207,7 +1229,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
-                              '${_formatDate(reservation.createdAt)?.split(' ')[0] ?? 'N/A'}',
+                              _formatDate(reservation.createdAt),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 10,
@@ -1260,6 +1282,15 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      const SizedBox(height: 6),
+                      Text(
+                        reservation.user?.fullName?.trim().isNotEmpty == true
+                            ? 'Réservé par ${reservation.user!.fullName!.trim()}'
+                            : 'Réservé par ${reservation.user?.username ?? 'un client'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: _primaryColor, fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
                       const SizedBox(height: 8),
                       Row(
                         children: [
@@ -1301,7 +1332,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Du ${_formatDate(reservation.startDate) ?? 'N/A'}',
+                                  'Du ${_formatDate(reservation.startDate, time: reservation.reservationHeure)}',
                                   style: const TextStyle(
                                     color: _darkColor,
                                     fontSize: 13,
@@ -1309,7 +1340,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                                   ),
                                 ),
                                 Text(
-                                  'Au ${_formatDate(reservation.endDate) ?? 'N/A'}',
+                                  'Au ${_formatDate(reservation.endDate)}',
                                   style: const TextStyle(
                                     color: _darkColor,
                                     fontSize: 13,
@@ -1497,7 +1528,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
   Widget _buildTabBody(List<ReservationModel> list, int tabIndex) {
     if (list.isEmpty) return _buildEmptyStateForTab(tabIndex);
     return ListView.separated(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 20 + MediaQuery.viewPaddingOf(context).bottom),
       itemCount: list.length,
       separatorBuilder: (_, __) => const SizedBox(height: 20),
       itemBuilder: (_, i) => _buildReservationCard(list[i]),
@@ -1531,8 +1562,10 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
+        backgroundColor: Colors.transparent,
         bottom: TabBar(
           controller: _tabController,
+          dividerColor: Colors.transparent,
           indicatorColor: Colors.white,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
