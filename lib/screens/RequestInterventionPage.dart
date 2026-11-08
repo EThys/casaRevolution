@@ -9,7 +9,7 @@ import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/decertification_access_guard.dart';
 import 'package:casa/utils/networkCheck.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_datetime_picker_plus/flutter_datetime_picker_plus.dart' as picker;
 import 'package:get_storage/get_storage.dart';
@@ -26,6 +26,9 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:casa/utils/export_directory.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/currency_display.dart';
+import 'package:casa/utils/french_date.dart';
+import 'package:casa/utils/status_labels_fr.dart';
+import 'package:casa/widgets/RequestSentDialog.dart';
 
 
 class RequestInterventionPage extends StatefulWidget {
@@ -103,7 +106,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     final url = _userProfilePhotoUrl;
     if (url == null || url.trim().isEmpty) return;
     try {
-      await precacheImage(CachedNetworkImageProvider(url), context);
+      await precacheImage(OfflineImageProvider(url), context);
     } catch (_) {
       // best-effort only
     }
@@ -420,9 +423,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
         "budget": budget,
         "description": _notesController.text.trim(),
         "startDate": DateFormat('yyyy-MM-dd').format(_selectedDate!),
-        "endDate": _selectedEndDate != null 
-            ? DateFormat('yyyy-MM-dd').format(_selectedEndDate!)
-            : DateFormat('yyyy-MM-dd').format(DateTime.now())
+        "endDate": DateFormat('yyyy-MM-dd').format(_selectedEndDate ?? _selectedDate!),
       };
 
 
@@ -438,6 +439,18 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
          }
 
          final startSnapshot = _selectedDate;
+         final endSnapshot = _selectedEndDate;
+         final budgetSnapshot = budget;
+         final deviseSnapshot = _selectedDevise?.displaySymbol ?? '';
+         responseData['localDescription'] = _notesController.text.trim();
+         responseData['localBudget'] = budgetSnapshot;
+         responseData['localDevise'] = deviseSnapshot;
+         responseData['localStart'] = startSnapshot == null
+             ? ''
+             : DateFormat('yyyy-MM-dd').format(startSnapshot);
+         responseData['localEnd'] = endSnapshot == null
+             ? ''
+             : DateFormat('yyyy-MM-dd').format(endSnapshot);
 
          // VIDER LES CHAMPS APRÈS SUCCESS (ne pas utiliser _selectedDate! dans le dialogue ensuite)
          setState(() {
@@ -448,7 +461,13 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
            _budgetController.clear();
          });
 
-         _showConfirmationDialog(responseData, startDate: startSnapshot);
+         _showConfirmationDialog(
+           responseData,
+           startDate: startSnapshot,
+           endDate: endSnapshot,
+           budget: budgetSnapshot,
+           devise: deviseSnapshot,
+         );
       } else {
          reportApiFailureToCrashlytics(
            'RequestInterventionPage',
@@ -498,149 +517,88 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     return DateTime.tryParse(s) ?? DateTime.tryParse(s.split('T').first);
   }
 
-  void _showConfirmationDialog(Map<String, dynamic> successData, {DateTime? startDate}) {
-    final date =
-        startDate ?? _startDateFromSolicitationResponse(successData);
+  void _showConfirmationDialog(
+    Map<String, dynamic> successData, {
+    DateTime? startDate,
+    DateTime? endDate,
+    double? budget,
+    String devise = '',
+  }) {
+    final date = startDate ?? _startDateFromSolicitationResponse(successData);
     final formattedDate = date != null
         ? DateFormat('EEEE d MMMM y', 'fr_FR').format(date)
-        : 'Date communiquée par le serveur';
+        : '';
+    final formattedEnd = endDate != null
+        ? DateFormat('EEEE d MMMM y', 'fr_FR').format(endDate)
+        : '';
+    final budgetLabel = budget == null
+        ? ''
+        : '${NumberFormat('#,##0.##', 'fr_FR').format(budget)} ${devise.trim()}'.trim();
+    final ref = _solicitationRef(successData);
 
-    showDialog(
+    showRequestSentDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.45),
-      builder: (BuildContext context) {
-        return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                height: 5,
-                color: _primaryColor,
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Demande envoyée',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: _textPrimary,
-                        letterSpacing: -0.3,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Votre demande d’intervention a bien été envoyée au prestataire.',
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 14,
-                        height: 1.35,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 20),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0F4F8),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            'Date prévue',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: _textSecondary,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            formattedDate,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: _textPrimary,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () async => await _downloadInterventionPdf(successData),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              side: BorderSide(color: _primaryColor.withOpacity(0.45)),
-                              foregroundColor: _primaryColor,
-                            ),
-                            child: const Text(
-                              'Télécharger le PDF',
-                              style: TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () async => await _shareInterventionPdf(successData),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              backgroundColor: _primaryColor,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: const Text(
-                              'Partager',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          Navigator.pop(context);
-                        },
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          foregroundColor: _textSecondary,
-                        ),
-                        child: const Text(
-                          'Fermer et retourner',
-                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+      primaryColor: _primaryColor,
+      message: 'Votre demande d’intervention a bien été envoyée au prestataire.',
+      facts: [
+        RequestSentFact(
+          icon: Icons.handyman_rounded,
+          label: 'Service',
+          value: (widget.service.title ?? '').trim(),
+        ),
+        if (ref.isNotEmpty)
+          RequestSentFact(
+            icon: Icons.tag_rounded,
+            label: 'Référence',
+            value: '#$ref',
           ),
-        );
+        RequestSentFact(
+          icon: Icons.event_rounded,
+          label: 'Début',
+          value: formattedDate,
+        ),
+        if (formattedEnd.isNotEmpty)
+          RequestSentFact(
+            icon: Icons.event_available_rounded,
+            label: 'Fin',
+            value: formattedEnd,
+          ),
+        RequestSentFact(
+          icon: Icons.payments_rounded,
+          label: 'Budget',
+          value: budgetLabel,
+        ),
+        const RequestSentFact(
+          icon: Icons.hourglass_top_rounded,
+          label: 'Statut',
+          value: 'En attente de confirmation',
+        ),
+      ],
+      onDownload: () => _downloadInterventionPdf(successData),
+      onShare: () => _shareInterventionPdf(successData),
+      onClose: () {
+        if (mounted) Navigator.pop(context);
       },
     );
+  }
+
+  String _solicitationRef(Map<String, dynamic> data) {
+    Map<String, dynamic> asMap(dynamic value) {
+      if (value is Map) return Map<String, dynamic>.from(value);
+      return {};
+    }
+
+    var root = asMap(data);
+    if (root['sollicitation'] == null && root['data'] is Map) {
+      root = asMap(root['data']);
+    }
+    final wrapper = asMap(root['sollicitation']);
+    final nested = asMap(wrapper['sollicitation']);
+    final node = nested.isNotEmpty ? nested : wrapper;
+    final id = node['id'] ?? root['id'];
+    final text = id?.toString().trim() ?? '';
+    if (text.isEmpty || text == 'null') return '';
+    return text;
   }
 
   Future<Uint8List> _buildInterventionPdfBytes(Map<String, dynamic> data) async {
@@ -652,232 +610,257 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
       ttf = pw.Font.ttf(fontData);
     } catch (_) {}
 
-    final now = DateFormat('dd/MM/yyyy HH:mm', 'fr_FR').format(DateTime.now());
+    final now = DateFormat('dd/MM/yy HH:mm', 'fr_FR').format(DateTime.now());
+    final service = widget.service;
 
-    final solicitationWrapper = data['sollicitation'] ?? {};
-    final solicitation = solicitationWrapper['sollicitation'] ?? solicitationWrapper;
-
-    final prestation = solicitationWrapper['prestation'] ?? data['prestation'] ?? {};
-    final prestateur = data['prestateur'] ?? {};
-    final demandeur = data['demandeur'] ?? {};
-    final devise = solicitationWrapper['devise'] ?? data['devise'] ?? {};
-    
-    // Infos Prestateur — priorité au `postByTel` renvoyé par l’API (même clé que réservations)
-    String? _pickTel(dynamic v) {
-      if (v == null) return null;
-      final s = v.toString().trim();
-      if (s.isEmpty || s == 'null') return null;
-      return s;
+    Map<String, dynamic> asMap(dynamic value) {
+      if (value is Map) return Map<String, dynamic>.from(value);
+      return {};
     }
 
-    final postByTelResolved = _pickTel(data['postByTel']) ??
-        _pickTel(solicitationWrapper is Map ? solicitationWrapper['postByTel'] : null) ??
-        _pickTel(solicitation is Map ? solicitation['postByTel'] : null) ??
-        _pickTel(prestation is Map ? prestation['postByTel'] : null) ??
-        _pickTel(prestateur is Map ? prestateur['postByTel'] : null);
+    String pick(dynamic value) {
+      if (value == null) return '';
+      final text = value.toString().trim();
+      if (text.isEmpty || text.toLowerCase() == 'null') return '';
+      return text;
+    }
 
-    final prestateurName = prestateur['username']?.toString() ?? 'Non renseigné';
-    final prestateurPhone = postByTelResolved ??
-        prestateur['phone']?.toString() ??
-        'Non renseigné';
-
-    // Service Info
-    final serviceTitle = prestation['title']?.toString() ?? 'Service CasaNayo';
-    final serviceCity = prestation['cityValue']?.toString() ?? 'Non spécifiée';
-
-    // Infos Demandeur
-    final demandeurName = demandeur['username']?.toString() ?? 'Client';
-    final demandeurPhone = demandeur['phone']?.toString() ?? 'Non renseigné';
-    final demandeurEmail = demandeur['email']?.toString() ?? 'Non renseigné';
-
-    // Sollicitation Info
-    final budget = solicitation['budget']?.toString() ?? '0';
-    final deviseCode = CurrencyDisplay.symbolFromCode(devise['code']?.toString() ?? 'USD');
-    final startDateStr = solicitation['startDate'];
-    final endDateStr = solicitation['endDate'];
-    final description = solicitation['description']?.toString() ?? '';
-
-    String formatDate(String? dateStr) {
-      if (dateStr == null) return 'Non spécifiée';
-      try {
-        final date = DateTime.parse(dateStr);
-        return DateFormat('dd/MM/yyyy', 'fr_FR').format(date);
-      } catch (e) {
-        return dateStr;
+    String first(List<String> values) {
+      for (final value in values) {
+        if (value.trim().isNotEmpty) return value.trim();
       }
+      return '';
     }
 
-    // Helper pour les lignes de détails
-    pw.Widget _buildDetailRow(String label, String value) {
+    String shown(String value) => value.trim().isEmpty ? 'Non renseigné' : value.trim();
+
+    String shownDate(dynamic raw) {
+      final value = formatFrenchShortDate(pick(raw));
+      return value == '—' ? 'Non renseignée' : value;
+    }
+
+    var root = asMap(data);
+    if (root['sollicitation'] == null && root['data'] is Map) {
+      root = asMap(root['data']);
+    }
+    final wrapper = asMap(root['sollicitation']);
+    final nested = asMap(wrapper['sollicitation']);
+    final sol = nested.isNotEmpty ? nested : wrapper;
+    final prestation = asMap(root['prestation']).isNotEmpty
+        ? asMap(root['prestation'])
+        : asMap(wrapper['prestation']);
+    final userApi = asMap(root['user']).isNotEmpty
+        ? asMap(root['user'])
+        : asMap(root['demandeur']);
+    final devise = asMap(root['devise']).isNotEmpty
+        ? asMap(root['devise'])
+        : asMap(wrapper['devise']);
+
+    final ref = first([pick(sol['id']), pick(root['id']), 'NO-REF']);
+    final status = frSolicitationStatus(first([pick(sol['status']), 'PENDING']));
+    final serviceTitle = first([
+      pick(prestation['title']),
+      pick(service.title),
+      'Service CasaNayo',
+    ]);
+    final providerName = first([
+      pick(service.postBy),
+      pick(service.username),
+      pick(service.user?.displayFullName),
+      pick(prestation['postBy']),
+      pick(prestation['username']),
+    ]);
+    final providerPhone = first([
+      pick(root['postByTel']),
+      pick(wrapper['postByTel']),
+      pick(sol['postByTel']),
+      pick(prestation['postByTel']),
+      pick(prestation['phone']),
+      pick(service.phone),
+      pick(service.user?.phone),
+    ]);
+    final providerEmail = first([
+      pick(prestation['email']),
+      pick(service.email),
+      pick(service.user?.email),
+    ]);
+    final place = first([
+      [
+        pick(prestation['address']).isNotEmpty ? pick(prestation['address']) : pick(service.address),
+        pick(prestation['quartierValue']).isNotEmpty ? pick(prestation['quartierValue']) : pick(service.quartierValue),
+        pick(prestation['communeValue']).isNotEmpty ? pick(prestation['communeValue']) : pick(service.communeValue),
+        pick(prestation['cityValue']).isNotEmpty ? pick(prestation['cityValue']) : pick(service.cityValue),
+        pick(prestation['countryValue']).isNotEmpty ? pick(prestation['countryValue']) : pick(service.countryValue),
+      ].where((part) => part.isNotEmpty).join(', '),
+    ]);
+    final availability = [
+      first([pick(service.plageJourPrestation), pick(prestation['plageJourPrestation'])]),
+      first([pick(service.plageHeurePrestation), pick(prestation['plageHeurePrestation'])]),
+    ].where((part) => part.isNotEmpty).join(' · ');
+    String money(dynamic amount) {
+      final number = amount is num ? amount.toDouble() : double.tryParse(pick(amount).replaceAll(',', '.'));
+      if (number == null) return '';
+      return NumberFormat('#,##0.##', 'fr_FR').format(number);
+    }
+
+    final tariff = () {
+      final cur = service.currency;
+      String priced(double? amount) {
+        if (amount == null || amount <= 0) return '';
+        return '${money(amount)} $cur';
+      }
+
+      final min = priced(service.minPrice);
+      final max = priced(service.maxPrice);
+      if (min.isEmpty && max.isEmpty) return '';
+      if (max.isEmpty || min == max) return min.isEmpty ? '' : 'À partir de $min $cur';
+      if (min.isEmpty) return 'Jusqu’à $max $cur';
+      return 'De $min à $max $cur';
+    }();
+    final deviseLabel = first([
+      pick(data['localDevise']),
+      CurrencyDisplay.symbolFromCode(pick(devise['code'])),
+      pick(devise['code']),
+    ]);
+    final budgetValue = first([
+      pick(sol['budget']),
+      pick(data['localBudget']),
+    ]);
+    final budgetLabel = money(budgetValue).isEmpty
+        ? shown(budgetValue)
+        : '${money(budgetValue)} $deviseLabel'.trim();
+    final description = first([
+      pick(sol['description']),
+      pick(data['localDescription']),
+    ]);
+    final clientName = first([
+      _userName,
+      pick(userApi['fullName']),
+      pick(userApi['username']),
+    ]);
+    final clientPhone = first([_userPhone, pick(userApi['phone'])]);
+    final clientEmail = first([_userEmail, pick(userApi['email'])]);
+    final startRaw = first([pick(sol['startDate']), pick(data['localStart'])]);
+    final endRaw = first([pick(sol['endDate']), pick(data['localEnd'])]);
+    final createdRaw = first([pick(sol['createdAt']), now]);
+
+    pw.Widget row(String label, String value) {
       return pw.Padding(
-        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+        padding: const pw.EdgeInsets.symmetric(vertical: 3),
         child: pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-            pw.Text(value, style: const pw.TextStyle(fontSize: 10)),
+            pw.SizedBox(
+              width: 132,
+              child: pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            ),
+            pw.Expanded(child: pw.Text(shown(value), style: const pw.TextStyle(fontSize: 10))),
           ],
         ),
       );
     }
 
+    pw.Widget section(String title) {
+      return pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 16, bottom: 8),
+        child: pw.Text(
+          title,
+          style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2')),
+        ),
+      );
+    }
+
     doc.addPage(
-      pw.Page(
+      pw.MultiPage(
         theme: ttf != null ? pw.ThemeData.withFont(base: ttf, bold: ttf) : null,
         margin: const pw.EdgeInsets.all(32),
-        build: (ctx) => pw.Column(
+        footer: (ctx) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            // --- HEADER PREMIUM ---
-            pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              decoration: pw.BoxDecoration(
-                color: PdfColor.fromHex('#1976D2'),
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-              ),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                   pw.Column(
-                     crossAxisAlignment: pw.CrossAxisAlignment.start,
-                     children: [
-                       pw.Text(
-                         'DEMANDE D\'INTERVENTION',
-                         style: pw.TextStyle(
-                           color: PdfColors.white,
-                           fontSize: 18,
-                           fontWeight: pw.FontWeight.bold,
-                         ),
-                       ),
-                       pw.Text(
-                         'Référence : #SOL-${solicitation['id'] ?? 'NO-REF'}',
-                         style: pw.TextStyle(
-                           color: PdfColor.fromInt(0xE6FFFFFF),
-                           fontSize: 11,
-                         ),
-                       ),
-                     ],
-                   ),
-                   if (_logoImage != null)
-                     pw.Container(
-                       width: 45,
-                       height: 45,
-                       decoration: const pw.BoxDecoration(
-                         color: PdfColors.white,
-                         shape: pw.BoxShape.circle,
-                       ),
-                       padding: const pw.EdgeInsets.all(4),
-                       child: pw.Image(_logoImage!),
-                     ),
-                ],
-              ),
+            pw.Divider(color: PdfColors.grey400),
+            pw.SizedBox(height: 6),
+            pw.Text(
+              "Ce document est la preuve de votre demande d'intervention via CasaNayo. Le prestataire doit l'accepter avant d'intervenir. Assistance : +243 836 323 805.",
+              style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
             ),
-
-            pw.SizedBox(height: 24),
-
-            // --- STATUT ET DATE ---
-            pw.Row(
+            pw.SizedBox(height: 4),
+            pw.Text('Document généré par CasaNayo - www.casanayo.com', style: const pw.TextStyle(fontSize: 8)),
+          ],
+        ),
+        build: (ctx) => [
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            decoration: pw.BoxDecoration(
+              color: PdfColor.fromHex('#1976D2'),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+            ),
+            child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('Document Officiel CasaNayo', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                    pw.Text('Généré le $now', style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
+                    pw.Text(
+                      'DEMANDE D\'INTERVENTION',
+                      style: pw.TextStyle(color: PdfColors.white, fontSize: 18, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.Text(
+                      'Référence : #SOL-$ref',
+                      style: pw.TextStyle(color: PdfColor.fromInt(0xE6FFFFFF), fontSize: 11),
+                    ),
                   ],
                 ),
-                pw.Container(
-                  padding: const pw.EdgeInsets.all(8),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey400),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                if (_logoImage != null)
+                  pw.Container(
+                    width: 45,
+                    height: 45,
+                    decoration: const pw.BoxDecoration(color: PdfColors.white, shape: pw.BoxShape.circle),
+                    padding: const pw.EdgeInsets.all(4),
+                    child: pw.Image(_logoImage!),
                   ),
-                  child: pw.Text(
-                    'DEMANDE ENVOYÉE', 
-                    style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))
-                  ),
-                ),
               ],
             ),
-
-            pw.SizedBox(height: 24),
-            pw.Divider(color: PdfColors.grey300),
-            pw.SizedBox(height: 16),
-
-            // --- SECTION 1: PRESTATAIRE & SERVICE ---
-            pw.Text('1. DÉTAILS DU SERVICE & PRESTATAIRE', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
-            pw.SizedBox(height: 12),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
-              child: pw.Column(
-                children: [
-                  _buildDetailRow('Service sollicité', serviceTitle),
-                  _buildDetailRow('Prestataire', prestateurName),
-                  _buildDetailRow('Contact Prestataire', prestateurPhone),
-                  _buildDetailRow('Localisation', serviceCity),
-                ],
-              ),
-            ),
-
-            pw.SizedBox(height: 24),
-
-            // --- SECTION 2: CLIENT ---
-            // --- SECTION 2: CLIENT ---
-            pw.Text('2. DÉTAILS DU DEMANDEUR (CLIENT)', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
-            pw.SizedBox(height: 12),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
-              child: pw.Column(
-                children: [
-                  _buildDetailRow('Nom du Client', demandeurName),
-                  _buildDetailRow('Téléphone', demandeurPhone),
-                  _buildDetailRow('Email', demandeurEmail),
-                ],
-              ),
-            ),
-
-            pw.SizedBox(height: 24),
-
-            // --- SECTION 3: OBJET ET BUDGET ---
-            pw.Text('3. OBJET ET PÉRIODE DE L\'INTERVENTION', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
-            pw.SizedBox(height: 12),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey200), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
-              child: pw.Column(
+          ),
+          pw.SizedBox(height: 16),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Column(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  _buildDetailRow('Date prévue', formatDate(startDateStr)),
-                  _buildDetailRow('Date de fin (est.)', formatDate(endDateStr)),
-                  _buildDetailRow('Budget proposé', '$budget $deviseCode'),
-                  if (description.isNotEmpty) ...[
-                    pw.SizedBox(height: 8),
-                    pw.Divider(color: PdfColors.grey200),
-                    pw.SizedBox(height: 8),
-                    pw.Text('Description / Instructions :', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                    pw.SizedBox(height: 4),
-                    pw.Text(description, style: const pw.TextStyle(fontSize: 10), textAlign: pw.TextAlign.justify),
-                  ],
+                  pw.Text('CasaNayo', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                  pw.Text('Généré le $now', style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                 ],
               ),
-            ),
-
-            pw.Spacer(),
-
-            // --- FOOTER ---
-            pw.Divider(color: PdfColors.grey400),
+              pw.Text(status, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
+            ],
+          ),
+          section('1. SERVICE ET PRESTATAIRE'),
+          row('Service', serviceTitle),
+          row('Prestataire', providerName),
+          row('Téléphone', providerPhone),
+          if (providerEmail.isNotEmpty) row('E-mail', providerEmail),
+          row('Lieu', place),
+          if (tariff.isNotEmpty) row('Tarif annoncé', tariff),
+          if (availability.isNotEmpty) row('Disponibilité', availability),
+          section('2. DEMANDEUR'),
+          row('Nom', clientName),
+          row('Téléphone', clientPhone),
+          row('E-mail', clientEmail),
+          section('3. INTERVENTION'),
+          row('Début', shownDate(startRaw)),
+          row('Fin', shownDate(endRaw)),
+          row('Budget proposé', budgetLabel),
+          row('Statut', status),
+          row('Envoyée le', createdRaw.contains('/') ? createdRaw : shownDate(createdRaw)),
+          if (description.isNotEmpty) ...[
             pw.SizedBox(height: 8),
-            pw.Text(
-              "IMPORTANT : Ce document constitue une preuve de votre demande d'intervention via CasaNayo. Le prestataire doit valider cette demande avant toute intervention effective. Pour toute assistance : +243 836 323 805.",
-              style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
-              textAlign: pw.TextAlign.justify,
-            ),
-            pw.SizedBox(height: 12),
-            pw.Center(child: pw.Text('Document généré par CasaNayo - www.casanayo.com', style: const pw.TextStyle(fontSize: 8))),
+            pw.Text('Description', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            pw.SizedBox(height: 4),
+            pw.Text(description, style: const pw.TextStyle(fontSize: 10)),
           ],
-        ),
+          pw.SizedBox(height: 18),
+        ],
       ),
     );
 
@@ -900,9 +883,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
 
       final bytes = await _buildInterventionPdfBytes(data);
 
-      final solicitationWrapper = data['sollicitation'] ?? {};
-      final solicitation = solicitationWrapper['sollicitation'] ?? solicitationWrapper;
-      final ref = solicitation['id'] ?? 'NO-REF';
+      final ref = _solicitationRef(data).isEmpty ? 'NO-REF' : _solicitationRef(data);
 
       final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
       final fileName = 'Demande_Intervention_Ref_${ref}_du_$generationDate.pdf';
@@ -930,9 +911,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
   Future<void> _shareInterventionPdf(Map<String, dynamic> data) async {
     try {
       final bytes = await _buildInterventionPdfBytes(data);
-      final solicitationWrapper = data['sollicitation'] ?? {};
-      final solicitation = solicitationWrapper['sollicitation'] ?? solicitationWrapper;
-      final ref = solicitation['id'] ?? 'NO-REF';
+      final ref = _solicitationRef(data).isEmpty ? 'NO-REF' : _solicitationRef(data);
 
       final generationDate = DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
       final fileName = 'Demande_Intervention_Ref_${ref}_du_$generationDate.pdf';
@@ -1002,7 +981,12 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
       backgroundColor: _surfaceColor,
       appBar: _buildAppBar(),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          28 + MediaQuery.viewPaddingOf(context).bottom,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1056,13 +1040,37 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
     );
   }
 
+  String _servicePlace() {
+    final service = widget.service;
+    final parts = <String>[
+      service.address ?? '',
+      service.quartierValue ?? '',
+      service.communeValue ?? '',
+      service.cityValue ?? '',
+      service.countryValue ?? '',
+    ];
+    final seen = <String>{};
+    final labels = <String>[];
+    for (final part in parts) {
+      final text = part.trim();
+      if (text.isEmpty || text.toLowerCase() == 'null') continue;
+      if (seen.add(text.toLowerCase())) labels.add(text);
+    }
+    return labels.join(', ');
+  }
+
   Widget _buildServiceHeader() {
-    final firstImage = widget.service.images != null && widget.service.images!.isNotEmpty
-        ? widget.service.images!.first
-        : null;
+    final images = widget.service.images ?? const <String>[];
+    final imageUrl = images.cast<String?>().map((item) => item?.trim() ?? '').firstWhere(
+          (item) => item.isNotEmpty,
+          orElse: () => '',
+        );
+    final title = (widget.service.title ?? '').trim();
+    final provider = (widget.service.postBy ?? widget.service.username ?? '').trim();
+    final place = _servicePlace();
+    final hours = (widget.service.plageHeurePrestation ?? '').trim();
 
     return Container(
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: _cardColor,
         borderRadius: BorderRadius.circular(16),
@@ -1074,129 +1082,122 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
           ),
         ],
       ),
-      child: Row(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: firstImage != null
-                  ? CachedNetworkImage(
-                      imageUrl: firstImage,
-                      width: 80,
-                      height: 80,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        color: Colors.grey[100],
-                        child: Icon(
-                          Icons.build,
-                          color: Colors.grey[400],
-                          size: 30,
+          SizedBox(
+            height: 180,
+            width: double.infinity,
+            child: imageUrl.isNotEmpty
+                ? OfflineNetworkImage(
+                    imageUrl: imageUrl,
+                    width: double.infinity,
+                    height: 180,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => Container(
+                      color: const Color(0xFFE5E7EB),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         ),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        color: Colors.grey[100],
-                        child: Icon(
-                          Icons.build,
-                          color: Colors.grey[400],
-                          size: 30,
-                        ),
-                      ),
-                    )
-                  : Container(
-                      color: Colors.grey[100],
-                      child: Icon(
-                        Icons.build,
-                        color: Colors.grey[400],
-                        size: 30,
                       ),
                     ),
-            ),
+                    errorWidget: (context, url, error) => Container(
+                      color: const Color(0xFFE5E7EB),
+                      child: Icon(Icons.handyman_rounded, color: Colors.grey[500], size: 42),
+                    ),
+                  )
+                : Container(
+                    color: const Color(0xFFE5E7EB),
+                    child: Icon(Icons.handyman_rounded, color: Colors.grey[500], size: 42),
+                  ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.service.title ?? "Service sans titre",
+                  title.isEmpty ? 'Service' : title,
                   style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
                     color: _textPrimary,
+                    height: 1.25,
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 10),
-                // Address hidden as requested
-                // if (widget.service.address != null && widget.service.address!.isNotEmpty)
-                //   Container(
-                //     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                //     decoration: BoxDecoration(
-                //       color: _accentColor,
-                //       borderRadius: BorderRadius.circular(8),
-                //       border: Border.all(color: _primaryColor.withOpacity(0.2)),
-                //     ),
-                //     child: Row(
-                //       children: [
-                //         Icon(Icons.location_on_rounded, size: 14, color: _primaryColor),
-                //         const SizedBox(width: 6),
-                //         Expanded(
-                //           child: Text(
-                //             widget.service.address!,
-                //             style: TextStyle(
-                //               color: _textPrimary,
-                //               fontSize: 13,
-                //               fontWeight: FontWeight.w500,
-                //             ),
-                //             maxLines: 1,
-                //             overflow: TextOverflow.ellipsis,
-                //           ),
-                //         ),
-                //       ],
-                //     ),
-                //   ),
-                if (widget.service.minPrice != null) ...[
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0F4F8),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.payments_rounded, size: 16, color: _primaryColor),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            _getPriceText(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: _textPrimary,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ],
+                if (provider.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    provider,
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
+                const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.location_on_rounded, size: 18, color: _primaryColor),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        place.isEmpty ? 'Adresse non renseignée' : place,
+                        style: TextStyle(
+                          color: _textPrimary,
+                          fontSize: 14,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if ((widget.service.minPrice ?? 0) > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _getPriceText(),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: _primaryColor,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    if (hours.isNotEmpty && hours.toLowerCase() != 'null')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0F4F8),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          hours,
+                          style: TextStyle(
+                            color: _textSecondary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -1261,7 +1262,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                   return Image.file(localFile, width: 50, height: 50, fit: BoxFit.cover);
                 }
                 if (_userProfilePhotoUrl != null) {
-                  return CachedNetworkImage(
+                  return OfflineNetworkImage(
                     imageUrl: _userProfilePhotoUrl!,
                     width: 50,
                     height: 50,
