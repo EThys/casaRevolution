@@ -54,8 +54,21 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Cette application a besoin d'accéder au microphone pour les vidéos.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Cette application a besoin de votre localisation pour afficher la carte.</string>
+	<string>CasaNayo utilise votre position, avec votre accord, pour enregistrer la latitude et la longitude lors de la publication d'une annonce.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.casa.casa.casa</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>casanayo</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
