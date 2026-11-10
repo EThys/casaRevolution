@@ -35,4 +35,11 @@ class CommuneModel {
   String toString() {
     return name ?? '';
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is CommuneModel && other.communeId == communeId;
+
+  @override
+  int get hashCode => communeId.hashCode;
 }

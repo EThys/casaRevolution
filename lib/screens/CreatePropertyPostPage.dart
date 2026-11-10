@@ -10,12 +10,17 @@ import 'package:casa/models/CommuneModel.dart';
 import 'package:casa/models/DistrictModel.dart';
 import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/models/DeviseModel.dart';
+import 'package:casa/utils/listing_form_chrome.dart';
+import 'package:casa/widgets/casa_choice_sheet.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -40,6 +45,7 @@ import 'package:casa/screens/forms/VacanceFormFields.dart';
 import 'package:casa/screens/forms/FuneraireFormFields.dart';
 import 'package:casa/screens/forms/FestiveFormFields.dart';
 import 'package:casa/screens/forms/HotelFormFields.dart';
+import 'package:casa/utils/listing_form_rules.dart';
 import 'package:casa/screens/HotelManageDetailPage.dart';
 import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/models/PropertyTypeModel.dart';
@@ -119,6 +125,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   
   // Validation state
   bool _hasAttemptedSubmit = false;
+  int? _submitAttemptStep;
   Map<String, bool> _fieldTouched = {}; // Track which fields have been interacted with
 
   // Form controllers
@@ -281,7 +288,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     }
   }
 
-  Map<int, bool> _stepValidations = {0: false, 1: false, 2: false};
+  Map<int, bool> _stepValidations = {
+    0: false,
+    1: false,
+    2: false,
+    3: false,
+    4: false,
+    5: false,
+  };
   Map<int, Map<String, String>> _stepFieldErrors = {
     0: {}, // Erreurs par champ pour l'étape 1
     1: {}, // Erreurs par champ pour l'étape 2
@@ -514,14 +528,80 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   String _getStepName(int step) {
     switch (step) {
       case 0:
-        return 'type_and_photos';
+        return 'type';
       case 1:
-        return 'details';
+        return 'basics';
       case 2:
+        return 'location';
+      case 3:
+        return 'characteristics';
+      case 4:
+        return 'photos';
+      case 5:
         return 'amenities';
       default:
         return 'unknown';
     }
+  }
+
+  bool get _hidesUtilityStep {
+    final typeName = _selectedCategory?.toLowerCase() ?? '';
+    return typeName.contains('terrain') ||
+        typeName.contains('vacance') ||
+        typeName.contains('hotel') ||
+        typeName.contains('hôtel');
+  }
+
+  int get _publicationStepCount => _hidesUtilityStep ? 5 : 6;
+
+  List<String> get _publicationStepLabels => _hidesUtilityStep
+      ? const ['Type', 'Infos', 'Lieu', 'Détails', 'Photos']
+      : const ['Type', 'Infos', 'Lieu', 'Détails', 'Photos', 'Atouts'];
+
+  bool _validateAt(int step) {
+    switch (step) {
+      case 0:
+        return _validateStep0();
+      case 1:
+        return _validateBasics();
+      case 2:
+        return _validateLocation();
+      case 3:
+        return _validateCharacteristics();
+      case 4:
+        return _validatePhotosOnly();
+      case 5:
+        return _hidesUtilityStep ? true : _validateServicesOnly();
+      default:
+        return true;
+    }
+  }
+
+  void _goToStep(int stepIndex) {
+    if (!mounted || stepIndex < 0 || stepIndex >= _publicationStepCount) return;
+    if (stepIndex > _currentStep) {
+      for (int i = 0; i <= _currentStep; i++) {
+        if (!_validateAt(i)) {
+          _showStepErrorNotification(i);
+          setState(() {
+            _hasAttemptedSubmit = true;
+            _submitAttemptStep = i;
+            _currentStep = i;
+          });
+          return;
+        }
+      }
+    }
+    final from = _currentStep;
+    setState(() {
+      _hasAttemptedSubmit = false;
+      _submitAttemptStep = null;
+      _currentStep = stepIndex;
+    });
+    _trackEvent('step_navigation_click', {
+      'target_step': stepIndex,
+      'from_step': from,
+    });
   }
 
   // =============================================
@@ -543,6 +623,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         .toList();
   }
 
+  void _putRule(int step, String field, String? error) {
+    if (error == null || error.isEmpty) {
+      _removeFieldError(step, field);
+      return;
+    }
+    _setFieldError(step, field, error);
+  }
+
   void _setFieldError(int step, String field, String error) {
     if (!_stepFieldErrors.containsKey(step)) {
       _stepFieldErrors[step] = {};
@@ -560,11 +648,25 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     });
   }
   
+  int _uiStepForField(String field) {
+    const basics = {'title', 'price', 'description', 'guarantee'};
+    const location = {'city', 'district', 'commune', 'quartier', 'address'};
+    const details = {
+      'date', 'time', 'capacity', 'usage', 'numberPiece', 'area', 'roomMeet',
+      'bedrooms', 'bathrooms', 'livingRooms', 'kitchens',
+    };
+    if (basics.contains(field)) return 1;
+    if (location.contains(field)) return 2;
+    if (details.contains(field)) return 3;
+    if (field == 'photos') return 4;
+    if (field == 'electric' || field == 'water') return 5;
+    return 0;
+  }
+
   bool _shouldShowError(int step, String field) {
-    // Afficher l'erreur seulement si :
-    // 1. L'utilisateur a tenté de soumettre, OU
-    // 2. Le champ a été touché/interagi
-    return _hasAttemptedSubmit || _fieldTouched[field] == true;
+    if (_submitAttemptStep == -1) return true;
+    final attemptedHere = _hasAttemptedSubmit && _submitAttemptStep == _uiStepForField(field);
+    return attemptedHere || _fieldTouched[field] == true;
   }
 
   void _removeFieldError(int step, String field) {
@@ -576,11 +678,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   String? _getFieldError(int step, String field) {
     final err = _stepFieldErrors[step]?[field];
     if (err == null || err.isEmpty) return null;
-    // N'afficher l'erreur qu'après interaction sur le champ ou tentative d'étape / publication
-    const gated = {'capacity', 'usage'};
-    if (gated.contains(field) && !_shouldShowError(step, field)) {
-      return null;
-    }
+    if (!_shouldShowError(step, field)) return null;
     return err;
   }
 
@@ -845,6 +943,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     try {
       final draft = {
         'currentStep': _currentStep,
+        'stepModel': 6,
         'isForRent': _isForRent,
         'selectedCategory': _selectedCategory,
         'selectedPropertyTypeId': _selectedPropertyTypeId,
@@ -905,10 +1004,19 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         final draft = jsonDecode(draftData) as Map<String, dynamic>;
 
         setState(() {
-          _currentStep = draft['currentStep'] ?? 0;
+          final model = draft['stepModel'] is int
+              ? draft['stepModel'] as int
+              : int.tryParse('${draft['stepModel']}') ?? 3;
+          var step = draft['currentStep'] is int
+              ? draft['currentStep'] as int
+              : int.tryParse('${draft['currentStep']}') ?? 0;
           _isForRent = draft['isForRent'] ?? true;
           _selectedCategory = draft['selectedCategory'];
           _selectedPropertyTypeId = draft['selectedPropertyTypeId'];
+          if (model < 6 && step >= 2) step = 4;
+          if (step >= _publicationStepCount) step = _publicationStepCount - 1;
+          if (step < 0) step = 0;
+          _currentStep = step;
           _titleController.text = draft['title'] ?? '';
           _priceController.text = draft['price'] ?? '';
           _guaranteeController.text = draft['guarantee'] ?? '';
@@ -1062,17 +1170,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   void _validateCurrentStepFields() {
     if (mounted) {
       setState(() {
-        switch (_currentStep) {
-          case 0:
-            _validateStep0();
-            break;
-          case 1:
-            _validateStep1();
-            break;
-          case 2:
-            _validateStep2();
-            break;
-        }
+        _validateAt(_currentStep);
       });
     }
     _saveDraft();
@@ -1099,87 +1197,43 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     return isValid;
   }
 
-  bool _validateStep1() {
-    _clearStepFieldErrors(1);
-    final errors = <String>[];
-    final typeName = _selectedCategory?.toLowerCase() ?? '';
-    final isFestive = typeName.contains('fête') || typeName.contains('festive');
-    final isFuneraire = typeName.contains('funéra') || typeName.contains('deuil');
-    final isVacances = typeName.contains('vacance');
-
-    final isBureau = typeName.contains('bureau') || (_selectedPropertyTypeId == 4);
-  final isTerrain = typeName.contains('terrain');
-  final isHotel = _selectedCategory == 'Hotels';
-
-  // Vacances validation
-  if (isVacances) {
-      if (_dateVacanceController.text.trim().isEmpty) {
-         _setFieldError(1, 'date', 'Date requise');
-         errors.add('Date requise');
-      }
-      if (_heureVacanceController.text.trim().isEmpty) {
-         _setFieldError(1, 'time', 'Heure requise');
-         errors.add('Heure requise');
-      }
-      if (_capacityController.text.trim().isEmpty) {
-        _setFieldError(1, 'capacity', 'Capacité requise');
-        errors.add('Capacité requise');
-      }
+  bool _fieldsClear(int step, List<String> fields) {
+    final bag = _stepFieldErrors[step] ?? {};
+    return fields.every((field) => (bag[field] ?? '').isEmpty);
   }
 
-  // Bureau validation
-  if (isBureau) {
-      if (_numberPieceController.text.trim().isEmpty) {
-         _setFieldError(1, 'numberPiece', 'Nombre de pièces requis');
-      }
-      if (_areaController.text.trim().isEmpty) {
-         _setFieldError(1, 'area', 'Superficie requise');
-      }
-  }
-
-  // Terrain validation
-  if (isTerrain) {
-      if (_areaController.text.trim().isEmpty) {
-         _setFieldError(1, 'area', 'Superficie requise');
-      }
-  }
-
-  // Title validation
-  if (_titleController.text.trim().isEmpty) {
-      _setFieldError(1, 'title', 'Veuillez entrer un titre');
-    } else if (_titleController.text.trim().length < (isHotel ? 3 : 5)) {
-      _setFieldError(1, 'title', isHotel ? 'Titre trop court (min 3 caractères)' : 'Titre trop court (min 5 caractères)');
+  void _dropFields(int step, List<String> fields) {
+    for (final field in fields) {
+      _removeFieldError(step, field);
     }
+  }
 
-    // Price validation (pas de prix à la création hôtel — les chambres portent le tarif)
+  bool _markStep(int step, bool ok, String message) {
+    setState(() {
+      _stepValidations[step] = ok;
+      _stepErrorMessages[step] = ok ? '' : message;
+    });
+    return ok;
+  }
+
+  bool _validateBasics() {
+    const fields = ['title', 'price', 'description', 'guarantee'];
+    _dropFields(1, fields);
+    final isHotel = _selectedCategory == 'Hotels';
+    _putRule(1, 'title', ListingFormRules.title(_titleController.text));
     if (!isHotel) {
-      if (_priceController.text.trim().isEmpty) {
-        _setFieldError(1, 'price', 'Prix requis'); // Shortened
-      }
+      _putRule(1, 'price', ListingFormRules.price(_priceController.text));
     }
+    _putRule(1, 'description', ListingFormRules.description(
+      _descriptionController.text,
+      required: !isHotel,
+    ));
+    return _markStep(1, _fieldsClear(1, fields), 'Veuillez corriger les erreurs');
+  }
 
-    // Capacity validation for specific types
-    if (isFestive) {
-      final usageCsv = (_selectedUsage ?? '').trim();
-      if (usageCsv.isEmpty) {
-        _setFieldError(1, 'usage', 'Sélectionnez au moins un type d\'événement');
-        errors.add('Type d\'événement requis');
-      }
-      if (_capacityController.text.trim().isEmpty) {
-         _setFieldError(1, 'capacity', 'Capacité requise');
-         errors.add('Capacité requise');
-      }
-    }
-    
-    // Funeraire validation
-    if (isFuneraire) {
-       if (_capacityController.text.trim().isEmpty) {
-         _setFieldError(1, 'capacity', 'Capacité requise');
-         errors.add('Capacité requise');
-      }
-    }
-
-    // Location validation
+  bool _validateLocation() {
+    const fields = ['city', 'district', 'commune', 'quartier', 'address'];
+    _dropFields(1, fields);
     if (_isKinshasaSelected) {
       final quartierEffective = (() {
         final t = _quartierTextController.text.trim();
@@ -1192,8 +1246,6 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       if (quartierEffective.isEmpty) {
         _setFieldError(1, 'quartier', 'Quartier requis');
       }
-      // IMPORTANT: à Kinshasa, si on a sélection dans la liste => envoyer quartierId.
-      // Si l'utilisateur a tapé un quartier "libre" (non trouvé), on accepte quartierValue via texte et quartierId=0.
       final typed = _quartierTextController.text.trim();
       final selectedName = (_selectedQuartier?.name ?? '').trim();
       final matchedSelected =
@@ -1206,80 +1258,117 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       if (_communeTextController.text.trim().isEmpty) _setFieldError(1, 'commune', 'Commune requise');
       if (_quartierTextController.text.trim().isEmpty) _setFieldError(1, 'quartier', 'Quartier requis');
     }
-
-    // Address validation
-    if (_addressController.text.trim().isEmpty) {
-      _setFieldError(1, 'address', 'Adresse requise');
-    }
-    // Only check length for standard properties if needed, or remove completely as requested
-    // User asked to NOT be strict about 10 chars for terrain, bureau, salle de fete, funeraire, vacance
-    final isSpecial =
-        isFestive || isFuneraire || isTerrain || isBureau || isVacances || isHotel;
-    if (!isSpecial && _addressController.text.trim().length < 5) {
-       _setFieldError(1, 'address', 'Adresse trop courte');
-    }
-
-    final isValid = !_hasFieldErrors(1) && errors.isEmpty;
-    final errorMessage = _hasFieldErrors(1) || errors.isNotEmpty
-        ? 'Veuillez corriger les erreurs'
-        : '';
-
-    setState(() {
-      _stepValidations[1] = isValid;
-      _stepErrorMessages[1] = errorMessage;
-    });
-
-    return isValid;
+    _putRule(1, 'address', ListingFormRules.address(_addressController.text));
+    return _markStep(2, _fieldsClear(1, fields), 'Veuillez corriger les erreurs');
   }
 
-  bool _validateStep2() {
-    _clearStepFieldErrors(2);
-    final errors = <String>[];
+  bool _validateCharacteristics() {
+    const fields = [
+      'date', 'time', 'capacity', 'usage', 'numberPiece', 'area', 'roomMeet',
+      'bedrooms', 'bathrooms', 'livingRooms', 'kitchens',
+    ];
+    _dropFields(1, fields);
+    final typeName = _selectedCategory?.toLowerCase() ?? '';
+    final isFestive = typeName.contains('fête') || typeName.contains('festive');
+    final isFuneraire = typeName.contains('funéra') || typeName.contains('deuil');
+    final isVacances = typeName.contains('vacance');
+    final isBureau = typeName.contains('bureau') || (_selectedPropertyTypeId == 4);
+    final isTerrain = typeName.contains('terrain');
+    final isHotel = _selectedCategory == 'Hotels';
 
-    // 1. Validation des photos
+    if (isVacances) {
+      if (_dateVacanceController.text.trim().isEmpty) {
+        _setFieldError(1, 'date', 'Date requise');
+      }
+      if (_heureVacanceController.text.trim().isEmpty) {
+        _setFieldError(1, 'time', 'Heure requise');
+      }
+      _putRule(1, 'capacity', ListingFormRules.positiveCount(
+        _capacityController.text,
+        required: true,
+        emptyLabel: 'Capacité requise',
+      ));
+    }
+    if (isBureau) {
+      _putRule(1, 'numberPiece', ListingFormRules.positiveCount(
+        _numberPieceController.text,
+        required: true,
+        emptyLabel: 'Nombre de pièces requis',
+      ));
+      _putRule(1, 'area', ListingFormRules.positiveAmount(
+        _areaController.text,
+        required: true,
+        emptyLabel: 'Superficie requise',
+      ));
+      _putRule(1, 'roomMeet', ListingFormRules.optionalCount(_roomMeetController.text));
+    }
+    if (isTerrain) {
+      _putRule(1, 'area', ListingFormRules.surfaceText(_areaController.text));
+    }
+    if (!isBureau && !isTerrain && !isHotel && !isFestive && !isFuneraire && !isVacances) {
+      _putRule(1, 'bedrooms', ListingFormRules.optionalCount(_bedroomsController.text));
+      _putRule(1, 'bathrooms', ListingFormRules.optionalCount(_bathroomsController.text));
+      _putRule(1, 'livingRooms', ListingFormRules.optionalCount(_livingRoomsController.text));
+      _putRule(1, 'kitchens', ListingFormRules.optionalCount(_kitchensController.text));
+      _putRule(1, 'area', ListingFormRules.positiveAmount(
+        _areaController.text,
+        required: false,
+        emptyLabel: 'Superficie requise',
+      ));
+    }
+    if (isFestive) {
+      if ((_selectedUsage ?? '').trim().isEmpty) {
+        _setFieldError(1, 'usage', 'Sélectionnez au moins un type d\'événement');
+      }
+      _putRule(1, 'capacity', ListingFormRules.positiveCount(
+        _capacityController.text,
+        required: true,
+        emptyLabel: 'Capacité requise',
+      ));
+    }
+    if (isFuneraire) {
+      _putRule(1, 'capacity', ListingFormRules.positiveCount(
+        _capacityController.text,
+        required: true,
+        emptyLabel: 'Capacité requise',
+      ));
+    }
+    return _markStep(3, _fieldsClear(1, fields), 'Veuillez corriger les erreurs');
+  }
+
+  bool _validateStep1() =>
+      _validateBasics() && _validateLocation() && _validateCharacteristics();
+
+  bool _validatePhotosOnly() {
+    _removeFieldError(2, 'photos');
     final mainImages = _selectedImages['propertyImage'] ?? [];
     final isHotelCat = _selectedCategory == 'Hotels';
     final minPhotos = isHotelCat ? 1 : 3;
     if (mainImages.length < minPhotos) {
-      errors.add(isHotelCat
-          ? 'Au moins une photo de l’hôtel est requise'
-          : 'Au moins 3 photos principales sont requises');
       _setFieldError(2, 'photos', isHotelCat ? 'Min. 1 photo' : 'Min. 3 photos');
     }
-
-    // 2. Validation des services essentiels — alignée sur _buildStep3 (masqués pour terrain, vacances, hôtel)
-    final typeName = _selectedCategory?.toLowerCase() ?? '';
-    final isTerrain = typeName.contains('terrain');
-    final isVacancesOrHotel = typeName.contains('vacances') ||
-        typeName.contains('hotel') ||
-        typeName.contains('hôtel');
-    final isExcludedFromEssentialServices = isTerrain || isVacancesOrHotel;
-
-    if (!isExcludedFromEssentialServices) {
-      if (_selectedElectric == null) {
-         _setFieldError(2, 'electric', 'Requis');
-         errors.add("Electricité requise");
-      }
-      if (_selectedWater == null) {
-         _setFieldError(2, 'water', 'Requis');
-         errors.add("Eau requise");
-      }
-    }
-
-    // Les équipements (features) restent optionnels comme demandé
-
-    final isValid = !_hasFieldErrors(2) && errors.isEmpty;
-    final errorMessage = _hasFieldErrors(2) || errors.isNotEmpty
-        ? 'Il manque encore quelques informations importantes. Complétez les champs indiqués.'
-        : '';
-
-    setState(() {
-      _stepValidations[2] = isValid;
-      _stepErrorMessages[2] = errorMessage;
-    });
-
-    return isValid;
+    return _markStep(
+      4,
+      (_stepFieldErrors[2]?['photos'] ?? '').isEmpty,
+      isHotelCat
+          ? 'Au moins une photo de l’hôtel est requise'
+          : 'Au moins 3 photos principales sont requises',
+    );
   }
+
+  bool _validateServicesOnly() {
+    _removeFieldError(2, 'electric');
+    _removeFieldError(2, 'water');
+    if (!_hidesUtilityStep) {
+      if (_selectedElectric == null) _setFieldError(2, 'electric', 'Requis');
+      if (_selectedWater == null) _setFieldError(2, 'water', 'Requis');
+    }
+    final ok = (_stepFieldErrors[2]?['electric'] ?? '').isEmpty &&
+        (_stepFieldErrors[2]?['water'] ?? '').isEmpty;
+    return _markStep(5, ok, 'Indiquez l’électricité et l’eau.');
+  }
+
+  bool _validateStep2() => _validatePhotosOnly() && _validateServicesOnly();
 
   void _showStepErrorNotification(int step) {
     final errorMessage = _stepErrorMessages[step];
@@ -1364,23 +1453,26 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       primaryColor: _primaryColor,
       sheetTitle: _imagePickSheetTitle(categoryId),
       headerIcon: Icons.add_photo_alternate_rounded,
-      cameraTitle: 'Prendre une photo',
-      cameraSubtitle: 'Ajouter une photo avec la caméra.',
+      cameraTitle: 'Prendre des photos',
+      cameraSubtitle: 'Plusieurs prises d’affilée. Fermez l’appareil pour terminer.',
       galleryTitle: 'Choisir depuis la galerie',
       gallerySubtitle: 'Sélectionner une ou plusieurs photos.',
       onCamera: () async {
+        final taken = <XFile>[];
         try {
-          final XFile? image = await _picker.pickImage(
-            source: ImageSource.camera,
-            imageQuality: 85,
-            maxWidth: 1440,
-          );
-          if (!mounted || image == null) return;
-          await _addPickedImagesToCategory(categoryId, [image]);
+          while (mounted) {
+            final XFile? image = await _picker.pickImage(
+              source: ImageSource.camera,
+              imageQuality: 85,
+              maxWidth: 1440,
+            );
+            if (!mounted || image == null) break;
+            taken.add(image);
+          }
         } on PlatformException catch (e) {
           print('Failed to pick image (camera): $e');
           _trackEvent('image_pick_error', {'category': categoryId, 'error': e.toString()});
-          if (mounted) {
+          if (mounted && taken.isEmpty) {
             FancyNotification.show(
               context,
               "La photo n’a pas pu être prise. Réessayez ou utilisez la galerie.",
@@ -1390,7 +1482,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
         } catch (e) {
           print('Erreur caméra: $e');
           _trackEvent('image_pick_error', {'category': categoryId, 'error': e.toString()});
-          if (mounted) {
+          if (mounted && taken.isEmpty) {
             FancyNotification.show(
               context,
               "La photo n’a pas pu être prise. Réessayez ou utilisez la galerie.",
@@ -1398,6 +1490,8 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             );
           }
         }
+        if (!mounted || taken.isEmpty) return;
+        await _addPickedImagesToCategory(categoryId, taken);
       },
       onGallery: () async {
         try {
@@ -1722,9 +1816,15 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
       case 0:
         return _buildStep1();
       case 1:
-        return _buildStep2();
+        return _buildStep2(part: 0);
       case 2:
-        return _buildStep3();
+        return _buildStep2(part: 1);
+      case 3:
+        return _buildStep2(part: 2);
+      case 4:
+        return _buildStep3(part: 0);
+      case 5:
+        return _buildStep3(part: 1);
       default:
         return _buildStep1();
     }
@@ -1759,7 +1859,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             padding: EdgeInsets.only(right: 16),
             child: Center(
               child: Text(
-                '${_currentStep + 1}/3',
+                '${_currentStep + 1}/$_publicationStepCount',
                 style: TextStyle(
                   color: _greyColor,
                   fontWeight: FontWeight.w500,
@@ -1773,35 +1873,41 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
   }
 
   Widget _buildProgressIndicator() {
+    final labels = _publicationStepLabels;
+    final index = _currentStep.clamp(0, labels.length - 1);
     return Container(
-      padding: EdgeInsets.symmetric(vertical: _mediumSpace, horizontal: _largeSpace),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          )
-        ],
-      ),
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LinearProgressIndicator(
-            value: (_currentStep + 1) / 3,
-            backgroundColor: _borderColor,
-            color: _primaryColor,
-            minHeight: 6,
-            borderRadius: BorderRadius.circular(10),
+          Text(
+            labels[index],
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+              color: Color(0xFF111111),
+            ),
           ),
-          SizedBox(height: _smallSpace),
+          const SizedBox(height: 12),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildStepLabel(0, 'Type'),
-              _buildStepLabel(1, 'Détails'),
-              _buildStepLabel(2, 'Photos'),
-            ],
+            children: List.generate(labels.length, (i) {
+              final on = i <= _currentStep;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () => _goToStep(i),
+                  child: Container(
+                    height: 4,
+                    margin: EdgeInsets.only(right: i == labels.length - 1 ? 0 : 6),
+                    decoration: BoxDecoration(
+                      color: on ? const Color(0xFF111111) : const Color(0xFFE6E8EC),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+              );
+            }),
           ),
         ],
       ),
@@ -3028,7 +3134,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                 Text(
                   hasMinimumImages
                       ? 'Vous avez ajouté $totalImages photos. Excellente présentation !'
-                      : 'Ajoutez au moins 3 photos principales ($totalImages/3)',
+                      : 'Ajoutez au moins $minRequired photo${minRequired > 1 ? 's' : ''} ($totalImages/$minRequired)',
                   style: TextStyle(
                     color: _greyColor,
                     fontSize: _captionSize,
@@ -3057,7 +3163,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     );
   }
 
-  Widget _buildStep2() {
+  Widget _buildStep2({int part = 0}) {
     // Detect property type
     final typeName = _selectedCategory?.toLowerCase() ?? '';
     final isVacances = typeName.contains('vacance');
@@ -3070,12 +3176,13 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     final priceDeviseSymbol = _symbolForSelectedDevise(devisesForUi);
 
     return SingleChildScrollView(
-      key: ValueKey('step1_scroll'),
+      key: ValueKey('step_details_$part'),
       physics: BouncingScrollPhysics(),
       padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (part == 0) ...[
           _buildModernSectionHeader(
             title: 'Informations de base',
             icon: Icons.info_outline_rounded,
@@ -3085,152 +3192,62 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
           _buildModernTextField(
             controller: _titleController,
             label: 'Titre de l\'annonce',
-            hint: 'Magnifique appartement avec vue panoramique...',
+            hint: isHotel
+                ? 'Nom de l\'établissement'
+                : (isFestive
+                    ? 'Nom de la salle de fête'
+                    : (isFuneraire
+                        ? 'Nom de la salle funéraire'
+                        : (isBureau
+                            ? 'Nom du bureau'
+                            : (isVacances
+                                ? 'Nom du séjour'
+                                : (isTerrain ? 'Nom du terrain' : 'Appartement lumineux à Gombe'))))),
             icon: Icons.title_rounded,
             focusNode: _focusNodes[0],
             nextFocusNode: _focusNodes[1],
             errorText: _getFieldError(1, 'title'),
             fieldKey: 'title',
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Veuillez entrer un titre';
-              }
-              final minLen = isHotel ? 3 : 10;
-              if (value.length < minLen) {
-                return 'Le titre doit faire au moins $minLen caractères';
-              }
-              return null;
-            },
+            validator: ListingFormRules.title,
           ),
           SizedBox(height: _smallSpace),
+          SizedBox(height: _mediumSpace),
 
-          if (!isHotel)
-          _buildModernTextField(
-            controller: _priceController,
-            label: (isFestive || isFuneraire || isVacances || isTerrain)
-                ? 'Prix'
-                : (_isForRent ? 'Prix mensuel' : 'Prix de vente'),
-            hint: (isFestive || isFuneraire || isVacances || isTerrain)
-                ? '500'
-                : (_isForRent ? '1200' : '450000'),
-            icon: Icons.attach_money_rounded,
-            keyboardType: TextInputType.number,
-            suffixText: (isFestive || isFuneraire)
-                ? null
-                : ((isVacances || isTerrain)
-                    ? priceDeviseSymbol
-                    : (_isForRent ? '$priceDeviseSymbol/mois' : priceDeviseSymbol)),
-            prefixIconColor: _isForRent ? Colors.blue : Colors.green,
-            focusNode: _focusNodes[1],
-            nextFocusNode: _isForRent ? _focusNodes[2] : _focusNodes[3],
-            errorText: _getFieldError(1, 'price'),
-            fieldKey: 'price',
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Veuillez entrer un prix';
-              }
-              if (double.tryParse(value) == null) {
-                return 'Veuillez entrer un nombre valide';
-              }
-              return null;
-            },
-          ),
-          if (!isHotel) SizedBox(height: _smallSpace),
-
-          // SÉLECTEUR DE DEVISE DYNAMIQUE
-          if (!isHotel)
-          Consumer<PropertyController>(
-            builder: (context, ctrl, child) {
-              final devises = ctrl.devisesList;
-              
-              // Si pas de devises chargées, on affiche quand même avec fallback ou loader
-              if (devises.isEmpty) {
-                 return SizedBox.shrink(); // Ou un loader
-              }
-
-              // Conversion des modèles en DropdownMenuItem
-              final List<DropdownMenuItem<int>> dropdownItems = devises.map((devise) {
-                return DropdownMenuItem<int>(
-                  value: devise.id,
-                  child: Row(
-                    children: [
-                       Text(
-                        devise.displaySymbol,
-                        style: TextStyle(
-                          color: _darkColor,
-                          fontWeight: FontWeight.w600,
-                          fontSize: _bodySize
-                        )
-                       ),
-                       SizedBox(width: 8),
-                       Text(
-                        devise.name ?? "",
-                        style: TextStyle(
-                          color: _greyColor,
-                          fontSize: _captionSize
-                        )
-                       )
-                    ],
-                  ),
-                );
-              }).toList();
-
-              // Safeguard: Ensure selected value exists in list
-              int? validValue = _selectedDeviseId;
-              if (devises.isNotEmpty && !devises.any((d) => d.id == _selectedDeviseId)) {
-                  validValue = devises.first.id;
-                  // Optional: Schedule a microtask to update state if needed, but for display this is enough
-              }
-
-              return Container(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _borderColor),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.02),
-                      blurRadius: 8,
-                      offset: Offset(0, 4),
-                    )
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: EdgeInsets.only(left: 4, bottom: 4, top: 4),
-                      child: Text(
-                        'Devise',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: _darkColor,
-                        ),
-                      ),
-                    ),
-                    DropdownButtonHideUnderline(
-                      child: DropdownButton<int>(
-                        value: validValue,
-                        isExpanded: true,
-                        icon: Icon(Icons.keyboard_arrow_down_rounded, color: _primaryColor),
-                        items: dropdownItems,
-                        onChanged: (int? newValue) {
-                           if (newValue != null) {
-                             setState(() {
-                               _selectedDeviseId = newValue;
-                             });
-                           }
-                        },
-                      ),
-                    )
-                  ],
-                ),
-              );
-            }
-          ),
-          if (!isHotel) SizedBox(height: _smallSpace),
+          if (!isHotel && (isFestive || isFuneraire || isVacances)) ...[
+            ListingFormChrome.priceDeviseRow(
+              controller: _priceController,
+              priceLabel: 'Prix',
+              priceHint: '500',
+              priceError: _getFieldError(1, 'price'),
+              deviseValue: priceDeviseSymbol,
+              onPriceChanged: (_) {
+                if (!mounted) return;
+                setState(() {
+                  _markFieldTouched('price');
+                  _validateCurrentStepFields();
+                });
+              },
+              onDeviseTap: _pickDevise,
+            ),
+            SizedBox(height: _mediumSpace),
+          ] else if (!isHotel) ...[
+            ListingFormChrome.priceDeviseRow(
+              controller: _priceController,
+              priceLabel: isTerrain ? 'Prix' : (_isForRent ? 'Prix mensuel' : 'Prix de vente'),
+              priceHint: isTerrain ? '500' : (_isForRent ? '1200' : '450000'),
+              priceError: _getFieldError(1, 'price'),
+              deviseValue: priceDeviseSymbol,
+              onPriceChanged: (_) {
+                if (!mounted) return;
+                setState(() {
+                  _markFieldTouched('price');
+                  _validateCurrentStepFields();
+                });
+              },
+              onDeviseTap: _pickDevise,
+            ),
+            SizedBox(height: _mediumSpace),
+          ],
 
           // Guarantee field - only show for rent and NOT for Vacances, Bureau, Terrain, Festive, or Funeraire
           if (_isForRent && !isVacances && !isBureau && !isTerrain && !isFestive && !isFuneraire && !isHotel) ...[
@@ -3246,12 +3263,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               nextFocusNode: _focusNodes[3],
               errorText: _getFieldError(1, 'guarantee'),
               fieldKey: 'guarantee',
-              validator: (value) {
-                // No validation needed - allow any string format
-                return null;
-              },
+              required: false,
+              validator: (_) => null,
             ),
-            SizedBox(height: _smallSpace),
+            SizedBox(height: _mediumSpace),
           ],
 
           _buildModernTextField(
@@ -3264,19 +3279,24 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             nextFocusNode: _focusNodes[4],
             errorText: _getFieldError(1, 'description'),
             fieldKey: 'description',
-            validator: (value) {
-              if (isHotel) return null;
-              if (value == null || value.isEmpty) {
-                return 'Veuillez entrer une description';
-              }
-              return null;
-            },
+            required: !isHotel,
+            validator: (value) => ListingFormRules.description(value, required: !isHotel),
           ),
 
-          SizedBox(height: _largeSpace),
+          ],
+          if (part == 1) ...[
           _buildModernSectionHeader(
             title: 'Localisation',
             icon: Icons.location_on_outlined,
+          ),
+          SizedBox(height: 8),
+          Text(
+            'À la publication, CasaNayo demande votre accord pour enregistrer la latitude et la longitude de cet appareil.',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.35,
+              color: Color(0xFF64748B),
+            ),
           ),
           SizedBox(height: _mediumSpace),
 
@@ -3352,14 +3372,14 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                 );
               },
             ),
-            SizedBox(height: _smallSpace),
+            SizedBox(height: _mediumSpace),
             // Quartier dropdown avec données de l'API
             _buildKinshasaQuartierDropdown(),
             SizedBox(height: _mediumSpace),
           ] else if (_isMatadiSelected) ...[
             // Mode Matadi : dropdown pour communes spécifiques
             _buildMatadiCommuneDropdown(),
-            SizedBox(height: _smallSpace),
+            SizedBox(height: _mediumSpace),
             // Champ texte libre pour quartier
             _buildModernTextField(
               controller: _quartierTextController,
@@ -3378,7 +3398,7 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
               icon: Icons.place_rounded,
               fieldKey: 'commune',
             ),
-            SizedBox(height: _smallSpace),
+            SizedBox(height: _mediumSpace),
             _buildModernTextField(
               controller: _quartierTextController,
               label: 'Quartier',
@@ -3398,18 +3418,10 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
             nextFocusNode: null,
             errorText: _getFieldError(1, 'address'),
             fieldKey: 'address',
-            validator: (value) {
-              if (value == null || value.isEmpty) {
-                return 'Veuillez entrer une adresse complète';
-              }
-              if (value.length < 10) {
-                return 'L\'adresse doit être plus détaillée (${value.length}/10)';
-              }
-              return null;
-            },
+            validator: ListingFormRules.address,
           ),
-          SizedBox(height: _largeSpace),
-
+          ],
+          if (part == 2) ...[
           _buildModernSectionHeader(
             title: 'Caractéristiques',
             icon: Icons.apartment_rounded,
@@ -3437,6 +3449,11 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                    initUsage: _selectedUsage,
                    onUsageChanged: (val) => setState(() {
                      _selectedUsage = val;
+                     if ((val ?? '').trim().isEmpty) {
+                       _setFieldError(1, 'usage', 'Sélectionnez au moins un type d\'événement');
+                     } else {
+                       _removeFieldError(1, 'usage');
+                     }
                      _saveDraft();
                    }),
                    onDecoreChanged: (val) => setState(() => _isDecore = val),
@@ -3489,7 +3506,18 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                    dateError: _getFieldError(1, 'date'),
                    timeError: _getFieldError(1, 'time'),
                    capacityError: _getFieldError(1, 'capacity'),
-                   onCapacityInteracted: () => _markFieldTouched('capacity'),
+                   onDateChanged: () => setState(() {
+                     _markFieldTouched('date');
+                     _validateCharacteristics();
+                   }),
+                   onTimeChanged: () => setState(() {
+                     _markFieldTouched('time');
+                     _validateCharacteristics();
+                   }),
+                   onCapacityChanged: () => setState(() {
+                     _markFieldTouched('capacity');
+                     _validateCharacteristics();
+                   }),
                    onPriceComboChanged: (val) {
                      setState(() {
                        _selectedPriceCombo = val;
@@ -3518,59 +3546,74 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
                 );
               } else {
                 // Résidentiel (Standard)
-                 return GridView.count(
-                  shrinkWrap: true,
-                  physics: NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  crossAxisSpacing: _smallSpace,
-                  mainAxisSpacing: _smallSpace,
-                  childAspectRatio: 3.2,
+                 return Column(
                   children: [
-                    _buildModernFeatureInput(
-                      controller: _bedroomsController,
-                      label: 'Chambres',
-                      icon: FontAwesomeIcons.bed,
-                      color: Color(0xFF6B46C1).withOpacity(0.1),
-                      iconColor: Color(0xFF6B46C1),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: _buildModernFeatureInput(
+                          controller: _bedroomsController,
+                          label: 'Chambres',
+                          icon: FontAwesomeIcons.bed,
+                          color: Color(0xFF6B46C1).withOpacity(0.1),
+                          iconColor: Color(0xFF6B46C1),
+                          errorText: _getFieldError(1, 'bedrooms'),
+                        )),
+                        SizedBox(width: _mediumSpace),
+                        Expanded(child: _buildModernFeatureInput(
+                          controller: _bathroomsController,
+                          label: 'Salles de bain',
+                          icon: FontAwesomeIcons.bath,
+                          color: Color(0xFF059669).withOpacity(0.1),
+                          iconColor: Color(0xFF059669),
+                          errorText: _getFieldError(1, 'bathrooms'),
+                        )),
+                      ],
                     ),
-                    _buildModernFeatureInput(
-                      controller: _bathroomsController,
-                      label: 'Salles de bain',
-                      icon: FontAwesomeIcons.bath,
-                      color: Color(0xFF059669).withOpacity(0.1),
-                      iconColor: Color(0xFF059669),
+                    SizedBox(height: _mediumSpace),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: _buildModernFeatureInput(
+                          controller: _livingRoomsController,
+                          label: 'Salons',
+                          icon: FontAwesomeIcons.couch,
+                          color: Color(0xFFDC2626).withOpacity(0.1),
+                          iconColor: Color(0xFFDC2626),
+                          errorText: _getFieldError(1, 'livingRooms'),
+                        )),
+                        SizedBox(width: _mediumSpace),
+                        Expanded(child: _buildModernFeatureInput(
+                          controller: _kitchensController,
+                          label: 'Cuisines',
+                          icon: FontAwesomeIcons.kitchenSet,
+                          color: Color(0xFFEA580C).withOpacity(0.1),
+                          iconColor: Color(0xFFEA580C),
+                          errorText: _getFieldError(1, 'kitchens'),
+                        )),
+                      ],
                     ),
-                    _buildModernFeatureInput(
-                      controller: _livingRoomsController,
-                      label: 'Salons',
-                      icon: FontAwesomeIcons.couch,
-                      color: Color(0xFFDC2626).withOpacity(0.1),
-                      iconColor: Color(0xFFDC2626),
-                    ),
-                    _buildModernFeatureInput(
-                      controller: _kitchensController,
-                      label: 'Cuisines',
-                      icon: FontAwesomeIcons.kitchenSet,
-                      color: Color(0xFFEA580C).withOpacity(0.1),
-                      iconColor: Color(0xFFEA580C),
-                    ),
+                    SizedBox(height: _smallSpace),
                     _buildModernFeatureInput(
                       controller: _areaController,
                       label: 'Surface (m²)',
                       icon: FontAwesomeIcons.rulerCombined,
                       color: Color(0xFF0891B2).withOpacity(0.1),
                       iconColor: Color(0xFF0891B2),
+                      errorText: _getFieldError(1, 'area'),
                     ),
+                    SizedBox(height: _mediumSpace),
                     _buildSwitchTile(
-                      'Étage ?', 
-                      _hasFloor, 
-                      (v) => setState(() => _hasFloor = v)
+                      'Étage ?',
+                      _hasFloor,
+                      (v) => setState(() => _hasFloor = v),
                     ),
                   ],
                 );
               }
             }
           ),
+          ],
           SizedBox(height: _mediumSpace),
           _buildBottomNavigation(),
           SizedBox(height: 20),
@@ -3579,20 +3622,21 @@ class _CreatePropertyPostPageState extends State<CreatePropertyPostPage> {
     );
   }
 
-Widget _buildStep3() {
+  Widget _buildStep3({int part = 0}) {
     final typeName = _selectedCategory?.toLowerCase() ?? '';
     final isTerrain = typeName.contains('terrain');
     final isHotelPhotos = _selectedCategory == 'Hotels';
     final isVacances = typeName.contains('vacance');
+    final showUtilities = part == 1 && !isTerrain && !isVacances && !isHotelPhotos;
 
     return SingleChildScrollView(
-      key: ValueKey('step2_scroll'),
+      key: ValueKey('step_media_$part'),
       physics: BouncingScrollPhysics(),
       padding: EdgeInsets.symmetric(horizontal: _mediumSpace, vertical: _mediumSpace),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-           // PHOTOS SECTION (Moved from old Step 0)
+          if (part == 0) ...[
           _buildModernSectionHeader(
             title: 'Photos principales',
             icon: Icons.photo_library_rounded,
@@ -3609,33 +3653,26 @@ Widget _buildStep3() {
           ),
           SizedBox(height: _mediumSpace),
           _buildMainImagesCard(),
-
-          SizedBox(height: _mediumSpace),
           SizedBox(height: _mediumSpace),
           Builder(
             builder: (context) {
-              final typeName = _selectedCategory?.toLowerCase() ?? '';
-              final isExcluded = typeName.contains('bureau') || 
-                               typeName.contains('fête') || 
-                               typeName.contains('festive') ||
-                               typeName.contains('funéra') || 
-                               typeName.contains('deuil') || 
-                               typeName.contains('terrain') || 
-                               typeName.contains('hotel') || 
-                               typeName.contains('vacances');
-              
-              if (isExcluded) return SizedBox.shrink();
-              
+              final name = _selectedCategory?.toLowerCase() ?? '';
+              final isExcluded = name.contains('bureau') ||
+                  name.contains('fête') ||
+                  name.contains('festive') ||
+                  name.contains('funéra') ||
+                  name.contains('deuil') ||
+                  name.contains('terrain') ||
+                  name.contains('hotel') ||
+                  name.contains('vacances');
+              if (isExcluded) return const SizedBox.shrink();
               return _buildAdditionalRoomsExpansion();
-            }
+            },
           ),
-
           SizedBox(height: _mediumSpace),
           _buildModernImageCounter(minRequired: isHotelPhotos ? 1 : 3),
-          SizedBox(height: _largeSpace),
-          
-          if (!isTerrain && !isVacances && !isHotelPhotos) ...[
-            // SERVICES ESSENTIELS
+          ],
+          if (showUtilities) ...[
             _buildModernSectionHeader(
               title: 'Services essentiels',
               icon: Icons.engineering_rounded,
@@ -3653,14 +3690,10 @@ Widget _buildStep3() {
             SizedBox(height: _smallSpace),
             _buildModernWaterDropdown(),
             SizedBox(height: _largeSpace),
-          ],
-
-          if (!isTerrain && !isVacances && !isHotelPhotos)
             _buildModernSectionHeader(
               title: 'Équipements (optionnels)',
               icon: Icons.emoji_objects_outlined,
             ),
-          if (!isTerrain && !isVacances && !isHotelPhotos) ...[
             SizedBox(height: _smallSpace),
             Text(
               'Sélectionnez les équipements disponibles dans votre propriété',
@@ -3670,82 +3703,8 @@ Widget _buildStep3() {
               ),
             ),
             SizedBox(height: _mediumSpace),
+            _buildEquipmentPicker(),
           ],
-          
-          
-          // Show loading indicator while fetching features
-          if (!isTerrain && !isVacances && !isHotelPhotos)
-            if (_loadingFeatures)
-            Center(
-              child: Padding(
-                padding: EdgeInsets.all(_mediumSpace),
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(_primaryColor),
-                ),
-              ),
-            )
-          else if (_features.isEmpty)
-            Center(
-              child: Padding(
-                padding: EdgeInsets.all(_mediumSpace),
-                child: Text(
-                  'Aucune caractéristique disponible',
-                  style: TextStyle(color: _greyColor),
-                ),
-              ),
-            )
-          else
-            Wrap(
-              spacing: _smallSpace,
-              runSpacing: _smallSpace,
-              children: _features.map((feature) {
-                final rawId = feature['featureId'];
-                final featureId = rawId is int
-                    ? rawId
-                    : int.tryParse(rawId?.toString() ?? '') ?? 0;
-                final featureName = feature['name']?.toString() ?? '';
-                if (featureId <= 0 || featureName.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-                final isSelected = _selectedFeatureIds.contains(featureId);
-                
-                return ChoiceChip(
-                  label: Text(
-                    featureName,
-                    style: TextStyle(fontSize: _captionSize),
-                  ),
-                  selected: isSelected,
-                  onSelected: (selected) {
-                    if (mounted) {
-                      setState(() {
-                        if (selected) {
-                          _selectedFeatureIds.add(featureId);
-                          _selectedAmenities.add(featureName); // Keep for backward compatibility
-                        } else {
-                          _selectedFeatureIds.remove(featureId);
-                          _selectedAmenities.remove(featureName);
-                        }
-                        _validateStep2();
-                        _saveDraft();
-                      });
-                      _trackSelection('amenity', featureName);
-                    }
-                  },
-                  selectedColor: _primaryColor.withOpacity(0.1),
-                  backgroundColor: _lightColor,
-                  labelStyle: TextStyle(
-                    color: isSelected ? _primaryColor : _darkColor,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(
-                    color: isSelected ? _primaryColor : _borderColor,
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
           SizedBox(height: _largeSpace),
           _buildBottomNavigation(),
           SizedBox(height: 20),
@@ -3784,20 +3743,25 @@ Widget _buildStep3() {
 
   Widget _buildSwitchTile(String title, bool value, Function(bool) onChanged) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _borderColor),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE6E8EC)),
       ),
-      child: SwitchListTile(
-        title: Text(title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: _bodySize - 2, color: _darkColor)),
-        value: value,
-        onChanged: onChanged,
-        activeColor: _primaryColor,
-        contentPadding: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        dense: true,
+      child: Row(
+        children: [
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: _darkColor)),
+          ),
+          Switch(
+            value: value,
+            activeColor: _primaryColor,
+            onChanged: onChanged,
+          ),
+        ],
       ),
     );
   }
@@ -3805,9 +3769,13 @@ Widget _buildStep3() {
 
 
   Widget _buildBottomNavigation() {
-    final isLastStep = _currentStep == 2;
+    final isLastStep = _currentStep >= _publicationStepCount - 1;
     final canProceed = !_isLoading;
-    final canPublish = _stepValidations[0]! && _stepValidations[1]! && _stepValidations[2]! && !_isLoading;
+    var ready = !_isLoading;
+    for (int i = 0; i < _publicationStepCount; i++) {
+      if (_stepValidations[i] != true) ready = false;
+    }
+    final canPublish = ready;
     
     return Column(
       children: [
@@ -3845,25 +3813,22 @@ Widget _buildStep3() {
                   onPressed: isLastStep
                       ? (canPublish && !_isLoading ? _handleCreatePropertyPost : null)
                       : (canProceed ? () {
-                    bool currentStepValid = false;
-                    switch (_currentStep) {
-                      case 0:
-                        currentStepValid = _validateStep0();
-                        break;
-                      case 1:
-                        currentStepValid = _validateStep1();
-                        break;
-                      case 2:
-                        currentStepValid = _validateStep2();
-                        break;
-                    }
+                    bool currentStepValid = _validateAt(_currentStep);
                     
                     if (currentStepValid) {
                       _endStepTracking(_currentStep, _getStepName(_currentStep), true);
-                      setState(() => _currentStep++);
+                      setState(() {
+                        _hasAttemptedSubmit = false;
+                        _submitAttemptStep = null;
+                        _currentStep++;
+                      });
+                      _validateAt(_currentStep);
                       _startStepTracking(_currentStep, _getStepName(_currentStep));
                     } else {
-                       _hasAttemptedSubmit = true;
+                      setState(() {
+                        _hasAttemptedSubmit = true;
+                        _submitAttemptStep = _currentStep;
+                      });
                     }
                   } : null),
                   style: ElevatedButton.styleFrom(
@@ -3894,16 +3859,6 @@ Widget _buildStep3() {
               ),
             ],
           ),
-        ),
-        SizedBox(height: 8),
-        Text(
-          "La publication est soumise à validation.",
-          style: TextStyle(
-            color: Colors.grey[500],
-            fontSize: 12,
-            fontStyle: FontStyle.italic,
-          ),
-          textAlign: TextAlign.center,
         ),
       ],
     );
@@ -3985,20 +3940,23 @@ Widget _buildStep3() {
               decoration: InputDecoration(
                 hintText: 'Ex: Kinshasa, Lubumbashi...',
                 hintStyle: TextStyle(color: Colors.grey[600]),
-                prefixIcon: Icon(Icons.location_city_rounded, color: hasError ? _errorColor : _primaryColor),
+                prefixIcon: Icon(Icons.location_city_rounded, color: hasError ? _errorColor : _primaryColor, size: 20),
                 filled: true,
                 fillColor: Colors.white,
+                isDense: true,
+                constraints: const BoxConstraints(minHeight: 56, maxHeight: 56),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 1.5),
                 ),
                 errorText: null, // géré manuellement
               ),
@@ -4032,7 +3990,7 @@ Widget _buildStep3() {
     final hasError = _getFieldError(1, 'quartier') != null;
 
     return Container(
-      margin: EdgeInsets.only(bottom: _smallSpace),
+      margin: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4104,34 +4062,39 @@ Widget _buildStep3() {
                       ? 'Chargement...'
                       : 'Tapez ou choisissez un quartier…',
                   prefixIcon: Icon(Icons.search,
-                      color: hasError ? _errorColor : _primaryColor),
+                      color: hasError ? _errorColor : _primaryColor, size: 20),
                   filled: true,
                   fillColor: Colors.white,
+                  isDense: true,
+                  constraints: const BoxConstraints(minHeight: 56, maxHeight: 56),
                   contentPadding:
-                      EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                      color: hasError ? _errorColor : _borderColor,
+                      color: hasError ? _errorColor : const Color(0xFFE6E8EC),
                       width: hasError ? 1.5 : 1,
                     ),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                      color: hasError ? _errorColor : _borderColor,
+                      color: hasError ? _errorColor : const Color(0xFFE6E8EC),
                       width: hasError ? 1.5 : 1,
                     ),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
                       color: hasError ? _errorColor : _primaryColor,
-                      width: 2,
+                      width: 1.5,
                     ),
                   ),
                 ),
                 onChanged: (val) {
+                  if (_kinshasaQuartierFocusNode.hasFocus) {
+                    _markFieldTouched('quartier');
+                  }
                   final sel = _selectedKinshasaQuartier;
                   if (sel != null) {
                     final selName = _kinshasaQuartierLabel(sel);
@@ -4256,26 +4219,28 @@ Widget _buildStep3() {
               ),
               filled: true,
               fillColor: Colors.white,
-              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              isDense: true,
+              constraints: const BoxConstraints(minHeight: 56, maxHeight: 56),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                  color: hasError ? _errorColor : _borderColor,
+                  color: hasError ? _errorColor : const Color(0xFFE6E8EC),
                   width: hasError ? 1.5 : 1,
                 ),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                  color: hasError ? _errorColor : _borderColor,
+                  color: hasError ? _errorColor : const Color(0xFFE6E8EC),
                   width: hasError ? 1.5 : 1,
                 ),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
                   color: hasError ? _errorColor : _primaryColor,
-                  width: 2,
+                  width: 1.5,
                 ),
               ),
             ),
@@ -4393,23 +4358,25 @@ Widget _buildStep3() {
                   fontSize: _bodySize,
                   color: Colors.grey[600],
                 ),
-                prefixIcon: Icon(Icons.place_rounded, color: hasError ? _errorColor : _primaryColor),
+                prefixIcon: Icon(Icons.place_rounded, color: hasError ? _errorColor : _primaryColor, size: 20),
                 filled: true,
                 fillColor: Colors.white,
+                isDense: true,
+                constraints: const BoxConstraints(minHeight: 56, maxHeight: 56),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 2),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 1.5),
                 ),
                 errorText: null,
-                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               ),
               onSubmitted: (_) => onFieldSubmitted(),
             );
@@ -4452,6 +4419,7 @@ Widget _buildStep3() {
     String? errorText,
     String? Function(String?)? validator,
     String? fieldKey, // Clé unique pour identifier le champ
+    bool required = true,
   }) {
     // Afficher l'erreur seulement si nécessaire
     final shouldShow = fieldKey != null ? _shouldShowError(_currentStep, fieldKey) : true;
@@ -4459,12 +4427,12 @@ Widget _buildStep3() {
     final hasError = displayError;
 
     return Container(
-      margin: EdgeInsets.only(bottom: _smallSpace),
+      margin: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: EdgeInsets.only(bottom: 6, left: 4),
+            padding: EdgeInsets.only(bottom: 8, left: 2),
             child: Row(
               children: [
                 Text(
@@ -4475,13 +4443,14 @@ Widget _buildStep3() {
                     color: hasError ? _errorColor : _darkColor,
                   ),
                 ),
-                Text(
-                  '*',
-                  style: TextStyle(
-                    color: _errorColor,
-                    fontWeight: FontWeight.bold,
+                if (required)
+                  Text(
+                    ' *',
+                    style: TextStyle(
+                      color: _errorColor,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -4491,7 +4460,9 @@ Widget _buildStep3() {
             keyboardType: keyboardType,
             maxLines: maxLines,
             focusNode: focusNode,
+            autovalidateMode: AutovalidateMode.disabled,
             validator: validator,
+            style: TextStyle(fontSize: _bodySize, fontWeight: FontWeight.w600, color: const Color(0xFF1A1D26)),
             onChanged: (value) {
               if (mounted) {
                 setState(() {
@@ -4504,11 +4475,7 @@ Widget _buildStep3() {
             },
             onTap: () {
               if (fieldKey != null && mounted) {
-                setState(() {
-                  _clickCount++;
-                  _markFieldTouched(fieldKey);
-                  _validateCurrentStepFields();
-                });
+                setState(() => _clickCount++);
               }
             },
             onFieldSubmitted: (value) {
@@ -4531,50 +4498,52 @@ Widget _buildStep3() {
                 fontWeight: FontWeight.w500,
                 fontSize: _bodySize,
               ),
-              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              isDense: maxLines == 1,
+              constraints: maxLines == 1
+                  ? const BoxConstraints(minHeight: 56, maxHeight: 56)
+                  : null,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: maxLines == 1 ? 0 : 16,
+              ),
               floatingLabelBehavior: FloatingLabelBehavior.never,
               filled: true,
               fillColor: Colors.white,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                  color: hasError ? _errorColor : Colors.grey.shade300,
+                  color: hasError ? _errorColor : const Color(0xFFE6E8EC),
                   width: hasError ? 1.5 : 1,
                 ),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                  color: hasError ? _errorColor : Colors.grey.shade300,
+                  color: hasError ? _errorColor : const Color(0xFFE6E8EC),
                   width: hasError ? 1.5 : 1,
                 ),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
-                  color: hasError ? _errorColor : Colors.blue,
-                  width: 2,
+                  color: hasError ? _errorColor : _primaryColor,
+                  width: 1.5,
                 ),
               ),
               errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
                   color: _errorColor,
                   width: 1.5,
                 ),
               ),
               focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide(
                   color: _errorColor,
-                  width: 2,
+                  width: 1.5,
                 ),
               ),
-            ),
-            style: TextStyle(
-              fontSize: _bodySize,
-              color: Colors.grey.shade800,
-              fontWeight: FontWeight.w500,
             ),
           ),
 
@@ -4611,7 +4580,9 @@ Widget _buildStep3() {
     required Color iconColor,
     bool readOnly = false,
     VoidCallback? onTap,
+    String? errorText,
   }) {
+    final hasError = errorText != null && errorText.isNotEmpty;
     return TextFormField(
       controller: controller,
       keyboardType: TextInputType.number,
@@ -4623,27 +4594,29 @@ Widget _buildStep3() {
       },
       decoration: InputDecoration(
         labelText: label,
+        errorText: hasError ? errorText : null,
         labelStyle: TextStyle(
-          color: Colors.grey.shade700,
+          color: hasError ? _errorColor : Colors.grey.shade700,
           fontWeight: FontWeight.w500,
           fontSize: _captionSize,
         ),
-        prefixIcon: Icon(icon, color: _greyColor, size: 18),
+        prefixIcon: Icon(icon, color: hasError ? _errorColor : _greyColor, size: 18),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: _borderColor),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: _borderColor),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: _primaryColor, width: 2),
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 1.5),
         ),
         filled: true,
         fillColor: Colors.white,
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       ),
       style: TextStyle(
         fontSize: _bodySize,
@@ -4816,6 +4789,29 @@ Widget _buildStep3() {
     );
   }
 
+  Future<void> _pickDevise() async {
+    final devises = context.read<PropertyController>().devisesList;
+    if (devises.isEmpty) return;
+    final picked = await showCasaChoiceSheet<int>(
+      context: context,
+      title: 'Devise',
+      icon: Icons.payments_rounded,
+      selected: _selectedDeviseId,
+      options: [
+        for (final devise in devises)
+          if (devise.id != null)
+            CasaChoice<int>(
+              value: devise.id!,
+              title: devise.displaySymbol.trim().isEmpty ? (devise.name ?? 'Devise') : devise.displaySymbol,
+              subtitle: devise.name,
+            ),
+      ],
+    );
+    if (picked != null && mounted) {
+      setState(() => _selectedDeviseId = picked);
+    }
+  }
+
   Widget _buildPremiumDropdown<T>({
     required String label,
     required T? value,
@@ -4830,12 +4826,12 @@ Widget _buildStep3() {
     final hasError = errorText != null && errorText.isNotEmpty;
 
     return Container(
-      margin: EdgeInsets.only(bottom: _smallSpace),
+      margin: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: EdgeInsets.only(bottom: 6, left: 4),
+            padding: const EdgeInsets.only(bottom: 8, left: 2),
             child: Row(
               children: [
                 Text(
@@ -4861,87 +4857,54 @@ Widget _buildStep3() {
             ),
           ),
 
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: hasError ? _errorColor : value != null ? _primaryColor.withOpacity(0.3) : _borderColor,
-                width: hasError ? 1.5 : 1,
-              ),
-              color: Colors.white,
-              boxShadow: [
-                if (value != null)
-                  BoxShadow(
-                    color: _primaryColor.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: Offset(0, 2),
+          Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: items.isEmpty
+                  ? null
+                  : () async {
+                      final picked = await showCasaChoiceSheet<T>(
+                        context: context,
+                        title: label,
+                        icon: icon,
+                        selected: value,
+                        options: casaChoicesFromLabels(items, displayText),
+                      );
+                      if (!mounted || picked == null) return;
+                      onChanged(picked as T);
+                    },
+              child: Container(
+                height: 56,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: hasError ? _errorColor : const Color(0xFFE6E8EC),
+                    width: hasError ? 1.5 : 1,
                   ),
-              ],
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<T>(
-                value: value,
-                isExpanded: true,
-                items: [
-                  DropdownMenuItem<T>(
-                    value: null,
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
+                ),
+                child: Row(
+                  children: [
+                    Icon(icon, size: 18, color: hasError ? _errorColor : _primaryColor),
+                    const SizedBox(width: 10),
+                    Expanded(
                       child: Text(
-                        hintText ?? 'Sélectionnez...',
+                        value == null ? (hintText ?? 'Sélectionnez...') : displayText(value),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: _greyColor,
+                          color: value == null ? const Color(0xFF64748B) : Colors.black,
                           fontSize: _bodySize,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
-                  ),
-                  ...items.map((T item) {
-                    return DropdownMenuItem<T>(
-                      value: item,
-                      child: Container(
-                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                displayText(item),
-                                style: TextStyle(
-                                  fontSize: _bodySize,
-                                  color: _darkColor,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            if (value == item)
-                              Icon(
-                                Icons.check_circle_rounded,
-                                size: 16,
-                                color: _successColor,
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ],
-                onChanged: onChanged,
-                style: TextStyle(
-                  fontSize: _bodySize,
-                  color: _darkColor,
+                    Icon(Icons.keyboard_arrow_down_rounded, color: hasError ? _errorColor : _greyColor),
+                  ],
                 ),
-                icon: Padding(
-                  padding: EdgeInsets.only(right: 16),
-                  child: Icon(
-                    Icons.arrow_drop_down_rounded,
-                    color: hasError ? _errorColor : _greyColor,
-                    size: 24,
-                  ),
-                ),
-                dropdownColor: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                elevation: 4,
-                menuMaxHeight: 300,
               ),
             ),
           ),
@@ -4973,7 +4936,7 @@ Widget _buildStep3() {
     final hasError = _getFieldError(1, 'quartier') != null;
 
     return Container(
-      margin: EdgeInsets.only(bottom: _smallSpace),
+      margin: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -5057,31 +5020,35 @@ Widget _buildStep3() {
                   ),
                   filled: true,
                   fillColor: Colors.white,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  isDense: true,
+                  constraints: const BoxConstraints(minHeight: 56, maxHeight: 56),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                      color: hasError ? _errorColor : _borderColor,
+                      color: hasError ? _errorColor : const Color(0xFFE6E8EC),
                       width: hasError ? 1.5 : 1,
                     ),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                      color: hasError ? _errorColor : _borderColor,
+                      color: hasError ? _errorColor : const Color(0xFFE6E8EC),
                       width: hasError ? 1.5 : 1,
                     ),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
                       color: hasError ? _errorColor : _primaryColor,
-                      width: 2,
+                      width: 1.5,
                     ),
                   ),
                 ),
                 onChanged: (String value) {
-                   _markFieldTouched('quartier');
+                   if (fieldFocusNode.hasFocus) {
+                     _markFieldTouched('quartier');
+                   }
                    setState(() {
                      // Vérifier si la saisie correspond à un quartier existant
                      try {
@@ -5130,19 +5097,285 @@ Widget _buildStep3() {
     );
   }
 
+  List<({int id, String name})> _equipmentChoices() {
+    final items = <({int id, String name})>[];
+    for (final feature in _features) {
+      final rawId = feature['featureId'];
+      final id = rawId is int ? rawId : int.tryParse('${rawId ?? ''}') ?? 0;
+      final name = feature['name']?.toString().trim() ?? '';
+      if (id <= 0 || name.isEmpty) continue;
+      items.add((id: id, name: name));
+    }
+    return items;
+  }
+
+  void _setFeatureSelected(int id, String name, bool selected) {
+    setState(() {
+      if (selected) {
+        _selectedFeatureIds.add(id);
+        _selectedAmenities.add(name);
+      } else {
+        _selectedFeatureIds.remove(id);
+        _selectedAmenities.remove(name);
+      }
+    });
+    _saveDraft();
+    _trackSelection('amenity', name);
+  }
+
+  Widget _buildEquipmentPicker() {
+    if (_loadingFeatures) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    final choices = _equipmentChoices();
+    if (choices.isEmpty) {
+      return Text(
+        'Aucun équipement disponible pour le moment.',
+        style: TextStyle(color: _greyColor, fontSize: 13),
+      );
+    }
+    final selected = choices.where((item) => _selectedFeatureIds.contains(item.id)).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => _openEquipmentSheet(choices),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 56),
+              padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE6E8EC)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Icon(Icons.grid_view_rounded, size: 18, color: Color(0xFF1976D2)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: selected.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Text(
+                              'Ajouter des équipements',
+                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
+                            ),
+                          )
+                        : Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: selected.map((item) {
+                              return Container(
+                                padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1976D2),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 2),
+                                    GestureDetector(
+                                      onTap: () => _setFeatureSelected(item.id, item.name, false),
+                                      child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openEquipmentSheet(List<({int id, String name})> choices) async {
+    final search = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            final query = search.text.trim().toLowerCase();
+            final visible = choices
+                .where((item) => query.isEmpty || item.name.toLowerCase().contains(query))
+                .toList();
+            final count = choices.where((item) => _selectedFeatureIds.contains(item.id)).length;
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              child: Container(
+                height: MediaQuery.of(ctx).size.height * 0.78,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                ),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 10),
+                    Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE6E8EC),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Équipements',
+                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3),
+                            ),
+                          ),
+                          Text(
+                            '$count',
+                            style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                      child: TextField(
+                        controller: search,
+                        onChanged: (_) => setModal(() {}),
+                        decoration: InputDecoration(
+                          hintText: 'Rechercher',
+                          prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF1976D2)),
+                          filled: true,
+                          fillColor: const Color(0xFFF3F3F3),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(999),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                        itemCount: visible.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 4),
+                        itemBuilder: (_, index) {
+                          final item = visible[index];
+                          final on = _selectedFeatureIds.contains(item.id);
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () {
+                              _setFeatureSelected(item.id, item.name, !on);
+                              setModal(() {});
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      item.name,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: on ? const Color(0xFF1976D2) : const Color(0xFF1A1D26),
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 26,
+                                    height: 26,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: on ? const Color(0xFF1976D2) : Colors.white,
+                                      border: Border.all(
+                                        color: on ? const Color(0xFF1976D2) : const Color(0xFFD0D5DD),
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: on
+                                        ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                                        : null,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1976D2),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                            ),
+                            child: const Text('Terminé', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    search.dispose();
+  }
+
   Widget _buildModernElectricDropdown() {
     return _buildPremiumDropdown<String>(
       label: 'Disponibilité du courant',
       value: _selectedElectric,
       items: _electricOptions.map((opt) => opt['value'] as String).toList(),
       displayText: (value) {
-        final option = _electricOptions.isNotEmpty
-            ? _electricOptions.firstWhere(
-                (opt) => opt['value'] == value,
-                orElse: () => _electricOptions[0],
-              )
-            : _electricOptions.isNotEmpty ? _electricOptions[0] : {'label': '', 'description': '', 'value': ''};
-        return '${option['label']} - ${option['description']}';
+        for (final opt in _electricOptions) {
+          if (opt['value'] == value) return '${opt['label']} · ${opt['description']}';
+        }
+        return value;
       },
       onChanged: (String? newValue) {
         if (mounted) {
@@ -5169,13 +5402,10 @@ Widget _buildStep3() {
       value: _selectedWater,
       items: _waterOptions.map((opt) => opt['value'] as String).toList(),
       displayText: (value) {
-        final option = _waterOptions.isNotEmpty
-            ? _waterOptions.firstWhere(
-                (opt) => opt['value'] == value,
-                orElse: () => _waterOptions[0],
-              )
-            : _waterOptions.isNotEmpty ? _waterOptions[0] : {'label': '', 'description': '', 'value': ''};
-        return '${option['label']} - ${option['description']}';
+        for (final opt in _waterOptions) {
+          if (opt['value'] == value) return '${opt['label']} · ${opt['description']}';
+        }
+        return value;
       },
       onChanged: (String? newValue) {
         if (mounted) {
@@ -5371,11 +5601,46 @@ Widget _buildStep3() {
   // EXISTING METHODS FOR PROPERTY CREATION
   // =============================================
 
+  /// Demande l'accord, puis place la position réelle dans toutes les annonces.
+  Future<void> _capturePublicationLocation() async {
+    if (kIsWeb ||
+        !(defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS)) {
+      return;
+    }
+    try {
+      var access = await Permission.locationWhenInUse.status;
+      if (!access.isGranted) {
+        access = await Permission.locationWhenInUse.request();
+      }
+      if (!access.isGranted || !mounted) return;
+
+      final serviceOn = await Geolocator.isLocationServiceEnabled();
+      if (!serviceOn) {
+        FancyNotification.show(
+          context,
+          'Activez la localisation du téléphone pour envoyer la latitude et la longitude.',
+          type: NotificationType.info,
+        );
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
+      _selectedLocation = LatLng(position.latitude, position.longitude);
+    } catch (_) {}
+  }
+
   Future<void> _handleCreatePropertyPost() async {
     print("🎯 DEBUT _handleCreatePropertyPost");
 
     // Marquer qu'on a tenté de soumettre - afficher toutes les erreurs maintenant
     _hasAttemptedSubmit = true;
+    _submitAttemptStep = -1;
     _clickCount++; // Track submit click
 
     await _trackEvent('property_creation_start', {
@@ -5396,17 +5661,17 @@ Widget _buildStep3() {
     await Future.delayed(Duration(milliseconds: 50));
 
     // Refaire la validation complète
-    bool allStepsValid = _validateStep0() && _validateStep1() && _validateStep2();
+    bool allStepsValid = true;
+    int firstInvalidStep = 0;
+    for (int i = 0; i < _publicationStepCount; i++) {
+      if (!_validateAt(i)) {
+        allStepsValid = false;
+        firstInvalidStep = i;
+        break;
+      }
+    }
 
     if (!allStepsValid) {
-      int firstInvalidStep = 0;
-      for (int i = 0; i < 3; i++) {
-        if (!_stepValidations[i]!) {
-          firstInvalidStep = i;
-          break;
-        }
-      }
-
       if (mounted) {
         setState(() {
           _currentStep = firstInvalidStep;
@@ -5426,6 +5691,9 @@ Widget _buildStep3() {
     final subscriptionOk =
         await SubscriptionHelper.ensurePremiumForSubmit(context: context);
     if (!subscriptionOk || !mounted) return;
+
+    await _capturePublicationLocation();
+    if (!mounted) return;
 
     print("✅ Validation réussie, début du chargement...");
 

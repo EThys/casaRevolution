@@ -5,6 +5,7 @@ import 'package:casa/screens/auth/LoginScreen.dart';
 import 'package:provider/provider.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/api_error_message.dart';
+import 'package:casa/utils/casa_analytics.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/StockageKeys.dart';
 import 'package:casa/utils/decertification_access_guard.dart';
@@ -26,6 +27,8 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:casa/utils/export_directory.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/currency_display.dart';
+import 'package:casa/utils/listing_form_chrome.dart';
+import 'package:casa/widgets/casa_choice_sheet.dart';
 import 'package:casa/utils/french_date.dart';
 import 'package:casa/utils/status_labels_fr.dart';
 import 'package:casa/widgets/RequestSentDialog.dart';
@@ -433,6 +436,7 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
       if (!mounted) return;
 
       if (response.status) {
+         CasaAnalytics.interventionSent(serviceId: widget.service.id);
          Map<String, dynamic> responseData = {};
          if (response.data is Map) {
             responseData = Map<String, dynamic>.from(response.data);
@@ -788,50 +792,50 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
           ],
         ),
         build: (ctx) => [
-          pw.Container(
-            padding: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-            decoration: pw.BoxDecoration(
-              color: PdfColor.fromHex('#1976D2'),
-              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#1976D2'),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                   pw.Column(
+                     crossAxisAlignment: pw.CrossAxisAlignment.start,
+                     children: [
+                       pw.Text(
+                         'DEMANDE D\'INTERVENTION',
+                      style: pw.TextStyle(color: PdfColors.white, fontSize: 18, fontWeight: pw.FontWeight.bold),
+                       ),
+                       pw.Text(
+                      'Référence : #SOL-$ref',
+                      style: pw.TextStyle(color: PdfColor.fromInt(0xE6FFFFFF), fontSize: 11),
+                       ),
+                     ],
+                   ),
+                   if (_logoImage != null)
+                     pw.Container(
+                       width: 45,
+                       height: 45,
+                    decoration: const pw.BoxDecoration(color: PdfColors.white, shape: pw.BoxShape.circle),
+                       padding: const pw.EdgeInsets.all(4),
+                       child: pw.Image(_logoImage!),
+                     ),
+                ],
+              ),
             ),
-            child: pw.Row(
+          pw.SizedBox(height: 16),
+            pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text(
-                      'DEMANDE D\'INTERVENTION',
-                      style: pw.TextStyle(color: PdfColors.white, fontSize: 18, fontWeight: pw.FontWeight.bold),
-                    ),
-                    pw.Text(
-                      'Référence : #SOL-$ref',
-                      style: pw.TextStyle(color: PdfColor.fromInt(0xE6FFFFFF), fontSize: 11),
-                    ),
+                  pw.Text('CasaNayo', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+                    pw.Text('Généré le $now', style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                   ],
                 ),
-                if (_logoImage != null)
-                  pw.Container(
-                    width: 45,
-                    height: 45,
-                    decoration: const pw.BoxDecoration(color: PdfColors.white, shape: pw.BoxShape.circle),
-                    padding: const pw.EdgeInsets.all(4),
-                    child: pw.Image(_logoImage!),
-                  ),
-              ],
-            ),
-          ),
-          pw.SizedBox(height: 16),
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text('CasaNayo', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-                  pw.Text('Généré le $now', style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
-                ],
-              ),
               pw.Text(status, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1976D2'))),
             ],
           ),
@@ -853,10 +857,10 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
           row('Budget proposé', budgetLabel),
           row('Statut', status),
           row('Envoyée le', createdRaw.contains('/') ? createdRaw : shownDate(createdRaw)),
-          if (description.isNotEmpty) ...[
-            pw.SizedBox(height: 8),
+                  if (description.isNotEmpty) ...[
+                    pw.SizedBox(height: 8),
             pw.Text('Description', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
-            pw.SizedBox(height: 4),
+                    pw.SizedBox(height: 4),
             pw.Text(description, style: const pw.TextStyle(fontSize: 10)),
           ],
           pw.SizedBox(height: 18),
@@ -1090,12 +1094,12 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
             height: 180,
             width: double.infinity,
             child: imageUrl.isNotEmpty
-                ? OfflineNetworkImage(
+                  ? OfflineNetworkImage(
                     imageUrl: imageUrl,
                     width: double.infinity,
                     height: 180,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
                       color: const Color(0xFFE5E7EB),
                       child: const Center(
                         child: SizedBox(
@@ -1103,14 +1107,14 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                           height: 22,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
+                        ),
                       ),
-                    ),
-                    errorWidget: (context, url, error) => Container(
+                      errorWidget: (context, url, error) => Container(
                       color: const Color(0xFFE5E7EB),
                       child: Icon(Icons.handyman_rounded, color: Colors.grey[500], size: 42),
-                    ),
-                  )
-                : Container(
+                      ),
+                    )
+                  : Container(
                     color: const Color(0xFFE5E7EB),
                     child: Icon(Icons.handyman_rounded, color: Colors.grey[500], size: 42),
                   ),
@@ -1165,16 +1169,16 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                   runSpacing: 8,
                   children: [
                     if ((widget.service.minPrice ?? 0) > 0)
-                      Container(
+                  Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
+                    decoration: BoxDecoration(
                           color: _primaryColor.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(
-                          _getPriceText(),
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
+                          child: Text(
+                            _getPriceText(),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
                             color: _primaryColor,
                             fontSize: 14,
                           ),
@@ -1192,12 +1196,12 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
                           style: TextStyle(
                             color: _textSecondary,
                             fontWeight: FontWeight.w700,
-                            fontSize: 13,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
+                      ],
+                  ),
               ],
             ),
           ),
@@ -1493,63 +1497,37 @@ class _RequestInterventionPageState extends State<RequestInterventionPage> {
           ],
         ),
         const SizedBox(height: 12),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 2,
-              child: TextFormField(
-                controller: _budgetController,
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                style: TextStyle(fontSize: 16, color: _textPrimary),
-                decoration: InputDecoration(
-                  hintText: 'Montant (ex: 50)',
-                  helperStyle: TextStyle(color: _primaryColor, fontSize: 12, fontWeight: FontWeight.w500),
-                  hintStyle: TextStyle(color: _textLight),
-                  filled: true,
-                  fillColor: _cardColor,
-                  contentPadding: EdgeInsets.all(18),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: _borderColor)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: _borderColor)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: _primaryColor, width: 2)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 1,
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                height: 56, // Match height of TextFormField
-                decoration: BoxDecoration(
-                  color: _cardColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _borderColor),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<DeviseModel>(
-                    value: _selectedDevise,
-                    isExpanded: true,
-                    hint: Text("Devise"),
-                    items: devises.map((DeviseModel d) {
-                      return DropdownMenuItem<DeviseModel>(
-                        value: d,
-                        child: Text(
-                          d.displaySymbol,
-                          style: TextStyle(fontSize: 14),
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (DeviseModel? newVal) {
-                      setState(() {
-                        _selectedDevise = newVal;
-                      });
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ],
+        ListingFormChrome.priceDeviseRow(
+          controller: _budgetController,
+          priceLabel: 'Montant',
+          priceHint: 'ex. 50',
+          priceRequired: false,
+          deviseValue: (_selectedDevise?.displaySymbol ?? '').trim().isEmpty
+              ? 'Devise'
+              : _selectedDevise!.displaySymbol,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          onDeviseTap: () async {
+            if (devises.isEmpty) return;
+            final picked = await showCasaChoiceSheet<int>(
+              context: context,
+              title: 'Devise',
+              icon: Icons.payments_rounded,
+              selected: _selectedDevise?.id,
+              options: [
+                for (final devise in devises)
+                  if (devise.id != null)
+                    CasaChoice<int>(
+                      value: devise.id!,
+                      title: devise.displaySymbol.trim().isEmpty ? (devise.name ?? 'Devise') : devise.displaySymbol,
+                      subtitle: devise.name,
+                    ),
+              ],
+            );
+            if (picked == null || !mounted) return;
+            final match = devises.where((devise) => devise.id == picked);
+            if (match.isEmpty) return;
+            setState(() => _selectedDevise = match.first);
+          },
         ),
       ],
     );

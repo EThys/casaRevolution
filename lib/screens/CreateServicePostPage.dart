@@ -9,6 +9,8 @@ import 'package:casa/models/CommuneModel.dart';
 import 'package:casa/models/DistrictModel.dart';
 import 'package:casa/models/QuartierModel.dart';
 import 'package:casa/models/DeviseModel.dart';
+import 'package:casa/utils/listing_form_chrome.dart';
+import 'package:casa/widgets/casa_choice_sheet.dart';
 import 'package:casa/models/PrestationModel.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
@@ -132,11 +134,12 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
   // Validation
   Map<String, String> _fieldErrors = {};
-  Map<int, bool> _stepValidations = {0: false, 1: false, 2: false};
+  Map<int, bool> _stepValidations = {0: false, 1: false, 2: false, 3: false};
   Map<int, Map<String, String>> _stepFieldErrors = {
     0: {},
     1: {},
     2: {},
+    3: {},
   };
   Map<String, bool> _fieldTouched = {};
   bool _hasAttemptedSubmit = false;
@@ -224,6 +227,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     _stepValidations[0] = true;
     _stepValidations[1] = true;
     _stepValidations[2] = true;
+    _stepValidations[3] = true;
   }
 
   void _checkUserVerification() {
@@ -264,7 +268,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         _selectedCommune = null;
         _selectedQuartier = null;
       }
-      _validateStep(2);
+      _validateStep(3);
     });
   }
 
@@ -448,7 +452,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     setState(() {
       _plageHeureController.text = "$formattedStart - $formattedEnd";
       if (_plageHeureController.text.isNotEmpty) {
-        _removeFieldError(1, 'plage_heure');
+        _removeFieldError(2, 'plage_heure');
       }
     });
   }
@@ -632,9 +636,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                     controller: _pageController,
                     physics: NeverScrollableScrollPhysics(),
                     children: [
-                      _buildStep0(), // Photo principale (visage) + Réalisations
-                      _buildStep1(), // Détails (titre, description, prix)
-                      _buildStep2(), // Localisation
+                      _buildStep0(),
+                      _buildStep1(),
+                      _buildStepOffer(),
+                      _buildStep2(),
                     ],
                   ),
                 ),
@@ -660,22 +665,25 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _buildStepIndicator(0, 'Photo', Icons.camera_alt_rounded),
-          Container(
-            width: 40,
-            height: 2,
-            color: _currentStep > 0 ? _primaryColor : _borderColor,
-          ),
-          _buildStepIndicator(1, 'Détails', Icons.description_rounded),
-          Container(
-            width: 40,
-            height: 2,
-            color: _currentStep > 1 ? _primaryColor : _borderColor,
-          ),
-          _buildStepIndicator(2, 'Localisation', Icons.location_on_rounded),
+          _stepLink(0),
+          _buildStepIndicator(1, 'Infos', Icons.description_rounded),
+          _stepLink(1),
+          _buildStepIndicator(2, 'Offre', Icons.payments_rounded),
+          _stepLink(2),
+          _buildStepIndicator(3, 'Lieu', Icons.location_on_rounded),
         ],
+      ),
+    );
+  }
+
+  Widget _stepLink(int beforeStep) {
+    return Expanded(
+      child: Container(
+        height: 2,
+        margin: const EdgeInsets.only(bottom: 22),
+        color: _currentStep > beforeStep ? _primaryColor : _borderColor,
       ),
     );
   }
@@ -698,8 +706,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       child: Column(
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: isActive || isCompleted ? _primaryColor : Colors.grey[200],
@@ -711,7 +719,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             child: Icon(
               icon,
               color: isActive || isCompleted ? Colors.white : Colors.grey[600],
-              size: 24,
+              size: 18,
             ),
           ),
           SizedBox(height: 6),
@@ -846,39 +854,6 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
 
           SizedBox(height: _mediumSpace),
 
-          // Choix de la devise
-          _buildCurrencyDropdown(),
-
-          SizedBox(height: _mediumSpace),
-
-          // Section Fourchette de prix avec description
-          _buildSectionHeader(
-            'Fourchette de prix',
-            'Indiquez une fourchette de prix pour donner plus de flexibilité à vos clients',
-            Icons.attach_money_rounded,
-          ),
-          SizedBox(height: _mediumSpace),
-
-          // Prix Min uniquement (Max Price retiré de l'UI)
-          _buildModernTextField(
-            controller: _priceMinController,
-            label: 'Prix (à partir de)',
-            hint: '0',
-            icon: Icons.attach_money_rounded,
-            keyboardType: TextInputType.number,
-            suffixText: _selectedDevise?.displaySymbol ?? 'FC',
-            fieldKey: 'price_min',
-            helperText: 'Le prix de départ pour votre service',
-            validator: (v) {
-              if (v == null || v.trim().isEmpty) return 'Prix requis';
-              if (double.tryParse(v) == null) return 'Nombre invalide';
-              return null;
-            },
-          ),
-
-          SizedBox(height: _largeSpace),
-
-          // Année d'expérience
           _buildModernTextField(
             controller: _experienceController,
             label: 'Années d\'expérience',
@@ -894,30 +869,62 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               return null;
             },
           ),
-          SizedBox(height: _smallSpace),
-          _buildPhoneField(),
-          SizedBox(height: _smallSpace),
           SizedBox(height: _mediumSpace),
+          _buildPhoneField(),
 
-          // Plage Jours et Heures
+          SizedBox(height: _largeSpace),
+          _buildBottomNavigation(),
+          SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepOffer() {
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(_mediumSpace),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(
+            'Prix',
+            'Indiquez le tarif de départ de votre service',
+            Icons.attach_money_rounded,
+          ),
+          SizedBox(height: _mediumSpace),
+          ListingFormChrome.priceDeviseRow(
+            controller: _priceMinController,
+            priceLabel: 'Prix',
+            priceHint: '0',
+            priceError: _shouldShowError(2, 'price_min') ? _getFieldError(2, 'price_min') : null,
+            deviseValue: (_selectedDevise?.displaySymbol ?? '').trim().isEmpty
+                ? 'Devise'
+                : _selectedDevise!.displaySymbol,
+            onPriceChanged: (_) {
+              if (!mounted) return;
+              setState(() {
+                _markFieldTouched('price_min');
+                _validateStep(2);
+              });
+            },
+            onDeviseTap: _pickDevise,
+          ),
+          SizedBox(height: _mediumSpace),
           _buildSectionHeader(
             'Disponibilité',
-            'Précisez vos jours et heures de disponibilité',
+            'Choisissez les jours et les heures où vous êtes disponible',
             Icons.access_time_rounded,
           ),
           SizedBox(height: _mediumSpace),
-
           _buildDaySelector(),
-
-          // Sélecteur d'heure amélioré (UX)
           GestureDetector(
             onTap: () => _selectTimeRange(context),
-            child: AbsorbPointer( // Empêche le clavier de s'ouvrir
+            child: AbsorbPointer(
               child: _buildModernTextField(
                 controller: _plageHeureController,
                 label: 'Heures de prestation',
                 hint: 'Appuyez pour sélectionner une plage',
-                icon: Icons.access_time_rounded, // Icone plus parlante
+                icon: Icons.access_time_rounded,
                 fieldKey: 'plage_heure',
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return 'Plage horaire requise';
@@ -926,9 +933,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               ),
             ),
           ),
-
           SizedBox(height: _mediumSpace),
-
           _buildSectionHeader(
             'Curriculum Vitae (optionnel)',
             'Ajoutez votre CV pour renforcer votre crédibilité (PDF ou DOC)',
@@ -936,8 +941,6 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           ),
           SizedBox(height: _mediumSpace),
           _buildCvUploadSection(),
-          SizedBox(height: _mediumSpace),
-
           SizedBox(height: _largeSpace),
           _buildBottomNavigation(),
           SizedBox(height: 20),
@@ -1410,23 +1413,27 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       primaryColor: _primaryColor,
       sheetTitle: 'Photos de réalisations',
       headerIcon: Icons.photo_library_rounded,
-      cameraTitle: 'Prendre une photo',
-      cameraSubtitle: 'Une photo à la fois avec la caméra.',
+      cameraTitle: 'Prendre des photos',
+      cameraSubtitle: 'Plusieurs prises d’affilée. Fermez l’appareil pour terminer.',
       onCamera: () async {
         try {
-          final image = await _picker.pickImage(
-            source: ImageSource.camera,
-            imageQuality: 85,
-            maxWidth: 1440,
-          );
-          if (!mounted || image == null) return;
-          final persisted = await _persistPickedXFile(image, prefix: 'service_portfolio');
-          if (!mounted) return;
-          setState(() {
-            _markFieldTouched('portfolio_images');
-            _portfolioImages.add(persisted);
-            _validateStep(0);
-          });
+          while (mounted) {
+            final existingCount = _isEditing ? (_editingPrestation?.images?.length ?? 0) : 0;
+            if (_portfolioImages.length + existingCount >= 10) break;
+            final image = await _picker.pickImage(
+              source: ImageSource.camera,
+              imageQuality: 85,
+              maxWidth: 1440,
+            );
+            if (!mounted || image == null) break;
+            final persisted = await _persistPickedXFile(image, prefix: 'service_portfolio');
+            if (!mounted) return;
+            setState(() {
+              _markFieldTouched('portfolio_images');
+              _portfolioImages.add(persisted);
+              _validateStep(0);
+            });
+          }
         } catch (e) {
           if (mounted) {
             FancyNotification.show(
@@ -1538,7 +1545,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     final errorText = hasError ? _getFieldError(_currentStep, fieldKey) : null;
 
     return Container(
-      margin: EdgeInsets.only(bottom: _mediumSpace),
+      margin: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1550,8 +1557,10 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               color: hasError ? _errorColor : _darkColor,
             ),
           ),
-          SizedBox(height: _smallSpace),
-          TextFormField(
+          const SizedBox(height: 8),
+          SizedBox(
+            height: maxLines == 1 ? 56 : null,
+            child: TextFormField(
             controller: controller,
             keyboardType: keyboardType,
             maxLines: maxLines,
@@ -1579,28 +1588,24 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             },
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: TextStyle(color: Colors.grey[600]),
-              prefixIcon: Icon(icon, color: hasError ? _errorColor : _primaryColor),
+              hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 15),
+              prefixIcon: Icon(icon, color: hasError ? _errorColor : _primaryColor, size: 20),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: _primaryColor, width: 2),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 1.5),
               ),
               filled: true,
               fillColor: Colors.white,
-              helperText: helperText,
-              helperStyle: GoogleFonts.inter(
-                fontSize: _captionSize - 1,
-                color: _greyColor,
-                fontStyle: FontStyle.italic,
-              ),
+              isDense: maxLines == 1,
+              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: maxLines == 1 ? 0 : 16),
               suffixText: suffixText,
               suffixStyle: TextStyle(
                 color: _darkColor,
@@ -1609,6 +1614,19 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               ),
             ),
           ),
+          ),
+          if (helperText != null && helperText.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 2),
+              child: Text(
+                helperText,
+                style: GoogleFonts.inter(
+                  fontSize: _captionSize - 1,
+                  color: _greyColor,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
           if (hasError && errorText != null)
             Padding(
               padding: EdgeInsets.only(top: 6, left: 4),
@@ -1633,7 +1651,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     required void Function(T?) onChanged,
   }) {
     return Container(
-      margin: EdgeInsets.only(bottom: _mediumSpace),
+      margin: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1645,17 +1663,20 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               color: _darkColor,
             ),
           ),
-          SizedBox(height: _smallSpace),
+          const SizedBox(height: 8),
           Container(
+            height: 56,
+            alignment: Alignment.centerLeft,
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _borderColor),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE6E8EC)),
             ),
-            padding: EdgeInsets.symmetric(horizontal: _mediumSpace),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: DropdownButton<T>(
               value: value,
               isExpanded: true,
+              isDense: true,
               underline: SizedBox(),
               hint: Text('Sélectionner $label'),
               items: items.map((item) =>
@@ -1709,13 +1730,11 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
             flex: _currentStep == 0 ? 1 : 1,
             child: ElevatedButton(
               onPressed: _isLoading ? null : () async {
-                setState(() {
-                  _hasAttemptedSubmit = true;
-                });
-                if (_currentStep < 2) {
+                if (_currentStep < 3) {
                   final isValid = _validateStep(_currentStep);
                   if (isValid) {
                     setState(() {
+                      _hasAttemptedSubmit = false;
                       _currentStep++;
                     });
                     await _pageController.animateToPage(
@@ -1724,7 +1743,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                       curve: Curves.easeInOut,
                     );
                   } else {
-                    // Afficher un message d'erreur si la validation échoue
+                    setState(() => _hasAttemptedSubmit = true);
                     final errors = _stepFieldErrors[_currentStep];
                     if (errors != null && errors.isNotEmpty) {
                       final firstError = errors.values.first;
@@ -1757,7 +1776,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 ),
               )
                   : Text(
-                _currentStep == 2 ? 'Publier' : 'Suivant',
+                _currentStep == 3 ? 'Publier' : 'Suivant',
                 style: GoogleFonts.inter(
                   fontWeight: FontWeight.w700,
                   color: Colors.white,
@@ -1795,8 +1814,6 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         _clearStepFieldErrors(1);
         final title = _titleController.text.trim();
         final description = _descriptionController.text.trim();
-        final priceMin = _priceMinController.text.trim();
-        final priceMax = _priceMaxController.text.trim();
         final phone = _phoneController.text.trim();
 
         if (title.isEmpty) {
@@ -1807,14 +1824,6 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           _setFieldError(1, 'description', 'Description requise');
         }
 
-        if (priceMin.isEmpty) {
-          _setFieldError(1, 'price_min', 'Prix requis');
-        } else if (double.tryParse(priceMin) == null || double.parse(priceMin) < 1) {
-          _setFieldError(1, 'price_min', 'Prix invalide');
-        }
-
-        // Validation removed for priceMax as it is no longer in UI
-
         if (phone.isEmpty) {
           _setFieldError(1, 'phone', 'Téléphone requis');
         } else {
@@ -1824,19 +1833,32 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
           }
         }
 
-        if (_selectedDays.isEmpty) {
-          _setFieldError(1, 'plage_jour', 'Veuillez sélectionner au moins un jour');
-        }
-
-        if (_plageHeureController.text.trim().isEmpty) {
-          _setFieldError(1, 'plage_heure', 'Heures de prestation requises');
-        }
-
         _stepValidations[1] = !_hasFieldErrors(1);
         return _stepValidations[1]!;
 
       case 2:
         _clearStepFieldErrors(2);
+        final priceMin = _priceMinController.text.trim();
+
+        if (priceMin.isEmpty) {
+          _setFieldError(2, 'price_min', 'Prix requis');
+        } else if (double.tryParse(priceMin) == null || double.parse(priceMin) < 1) {
+          _setFieldError(2, 'price_min', 'Prix invalide');
+        }
+
+        if (_selectedDays.isEmpty) {
+          _setFieldError(2, 'plage_jour', 'Veuillez sélectionner au moins un jour');
+        }
+
+        if (_plageHeureController.text.trim().isEmpty) {
+          _setFieldError(2, 'plage_heure', 'Heures de prestation requises');
+        }
+
+        _stepValidations[2] = !_hasFieldErrors(2);
+        return _stepValidations[2]!;
+
+      case 3:
+        _clearStepFieldErrors(3);
         final address = _addressController.text.trim();
         final quartierEffective = (() {
           final t = _quartierTextController.text.trim();
@@ -1845,32 +1867,32 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         })();
 
         if (_isKinshasaSelected) {
-          if (_selectedCity == null) _setFieldError(2, 'city', 'Ville requise');
-          if (_selectedCommune == null) _setFieldError(2, 'commune', 'Commune requise');
+          if (_selectedCity == null) _setFieldError(3, 'city', 'Ville requise');
+          if (_selectedCommune == null) _setFieldError(3, 'commune', 'Commune requise');
           if (quartierEffective.isEmpty) {
-            _setFieldError(2, 'quartier', 'Quartier requis');
+            _setFieldError(3, 'quartier', 'Quartier requis');
           } else if (quartierEffective.length < 3) {
-            _setFieldError(2, 'quartier', 'Quartier trop court (min 3 car.)');
+            _setFieldError(3, 'quartier', 'Quartier trop court (min 3 car.)');
           }
         } else {
-          if (_cityTextController.text.trim().isEmpty) _setFieldError(2, 'city', 'Ville requise');
-          if (_communeTextController.text.trim().isEmpty) _setFieldError(2, 'commune', 'Commune requise');
+          if (_cityTextController.text.trim().isEmpty) _setFieldError(3, 'city', 'Ville requise');
+          if (_communeTextController.text.trim().isEmpty) _setFieldError(3, 'commune', 'Commune requise');
 
           if (quartierEffective.isEmpty) {
-            _setFieldError(2, 'quartier', 'Quartier requis');
+            _setFieldError(3, 'quartier', 'Quartier requis');
           } else if (quartierEffective.length < 3) {
-            _setFieldError(2, 'quartier', 'Quartier trop court (min 3 car.)');
+            _setFieldError(3, 'quartier', 'Quartier trop court (min 3 car.)');
           }
         }
 
         if (address.isEmpty) {
-          _setFieldError(2, 'address', 'Adresse requise');
+          _setFieldError(3, 'address', 'Adresse requise');
         } else if (address.length < 5) {
-          _setFieldError(2, 'address', 'Adresse trop courte');
+          _setFieldError(3, 'address', 'Adresse trop courte');
         }
 
-        _stepValidations[2] = !_hasFieldErrors(2);
-        return _stepValidations[2]!;
+        _stepValidations[3] = !_hasFieldErrors(3);
+        return _stepValidations[3]!;
 
       default:
         return false;
@@ -1917,8 +1939,14 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       _hasAttemptedSubmit = true;
     });
 
-    if (!_validateStep(2)) {
-      print("❌ [CreateService] Validation step 2 échouée");
+    for (final step in [1, 2, 3]) {
+      if (_validateStep(step)) continue;
+      setState(() => _currentStep = step);
+      await _pageController.animateToPage(
+        step,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
       FancyNotification.show(
         context,
         "Complétez ou corrigez les champs indiqués avant de publier.",
@@ -2152,8 +2180,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
   }
 
   Widget _buildCitySuggestionField() {
-    final hasError = _shouldShowError(2, 'city') && _getFieldError(2, 'city') != null;
-    final errorText = hasError ? _getFieldError(2, 'city') : null;
+    final hasError = _shouldShowError(3, 'city') && _getFieldError(3, 'city') != null;
+    final errorText = hasError ? _getFieldError(3, 'city') : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2201,17 +2229,20 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 1.5),
                 ),
+                isDense: true,
+                constraints: const BoxConstraints(minHeight: 56, maxHeight: 56),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
                 errorText: null,
               ),
               onSubmitted: (_) => onFieldSubmitted(),
@@ -2246,8 +2277,8 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     required String fieldKey,
     required List<String> suggestions,
   }) {
-    final hasError = _shouldShowError(2, fieldKey) && _getFieldError(2, fieldKey) != null;
-    final errorText = hasError ? _getFieldError(2, fieldKey) : null;
+    final hasError = _shouldShowError(3, fieldKey) && _getFieldError(3, fieldKey) != null;
+    final errorText = hasError ? _getFieldError(3, fieldKey) : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2285,7 +2316,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                   final match = pool.where((q) => (q.name ?? '').trim().toLowerCase() == lower).toList();
                   _selectedQuartier = match.isNotEmpty ? match.first : null;
                 }
-                _validateStep(2);
+                _validateStep(3);
               });
             }
           },
@@ -2313,7 +2344,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                         _selectedQuartier = match.isNotEmpty ? match.first : null;
                       }
                     }
-                    _validateStep(2);
+                    _validateStep(3);
                   });
                 }
               },
@@ -2327,23 +2358,25 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
                   fontSize: _bodySize,
                   color: Colors.grey.shade500,
                 ),
-                prefixIcon: Icon(Icons.place_rounded, color: hasError ? _errorColor : _primaryColor),
+                prefixIcon: Icon(Icons.place_rounded, color: hasError ? _errorColor : _primaryColor, size: 20),
                 filled: true,
                 fillColor: Colors.white,
+                isDense: true,
+                constraints: const BoxConstraints(minHeight: 56, maxHeight: 56),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 2),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 1.5),
                 ),
                 errorText: null,
-                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               ),
               onSubmitted: (_) => onFieldSubmitted(),
             );
@@ -2382,16 +2415,16 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     String? hintText,
     bool isRequired = true,
   }) {
-    final hasError = fieldKey != null && _shouldShowError(2, fieldKey) && _getFieldError(2, fieldKey) != null;
-    final errorText = hasError ? _getFieldError(2, fieldKey) : null;
+    final hasError = fieldKey != null && _shouldShowError(3, fieldKey) && _getFieldError(3, fieldKey) != null;
+    final errorText = hasError ? _getFieldError(3, fieldKey) : null;
 
     return Container(
-      margin: EdgeInsets.only(bottom: _smallSpace),
+      margin: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: EdgeInsets.only(bottom: 6, left: 4),
+            padding: const EdgeInsets.only(bottom: 8, left: 2),
             child: Row(
               children: [
                 Text(
@@ -2416,70 +2449,57 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               ],
             ),
           ),
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: hasError ? _errorColor : value != null ? _primaryColor.withOpacity(0.3) : _borderColor,
-                width: hasError ? 1.5 : 1,
-              ),
-              color: Colors.white,
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<T>(
-                value: value,
-                isExpanded: true,
-                items: [
-                  DropdownMenuItem<T>(
-                    value: null,
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16),
+          Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: items.isEmpty
+                  ? null
+                  : () async {
+                      final picked = await showCasaChoiceSheet<T>(
+                        context: context,
+                        title: label,
+                        icon: icon,
+                        selected: value,
+                        options: casaChoicesFromLabels(items, displayText),
+                      );
+                      if (!mounted || picked == null) return;
+                      setState(() {
+                        _markFieldTouched(fieldKey ?? label.toLowerCase());
+                        onChanged(picked as T);
+                        _validateStep(_currentStep);
+                      });
+                    },
+              child: Container(
+                height: 56,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: hasError ? _errorColor : const Color(0xFFE6E8EC),
+                    width: hasError ? 1.5 : 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(icon, size: 18, color: hasError ? _errorColor : _primaryColor),
+                    const SizedBox(width: 10),
+                    Expanded(
                       child: Text(
-                        hintText ?? 'Sélectionnez...',
+                        value == null ? (hintText ?? 'Sélectionnez...') : displayText(value),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: _greyColor,
+                          color: value == null ? _greyColor : _darkColor,
                           fontSize: _bodySize,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
-                  ),
-                  ...items.map((T item) {
-                    return DropdownMenuItem<T>(
-                      value: item,
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        child: Row(
-                          children: [
-                            Icon(icon, size: 18, color: _primaryColor),
-                            SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                displayText(item),
-                                style: TextStyle(
-                                  fontSize: _bodySize,
-                                  color: _darkColor,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ],
-                onChanged: (T? newValue) {
-                  if (mounted) {
-                    setState(() {
-                      if (newValue != null) {
-                        _markFieldTouched(fieldKey ?? label.toLowerCase());
-                      }
-                      onChanged(newValue);
-                      _validateStep(_currentStep);
-                    });
-                  }
-                },
-                icon: Icon(Icons.arrow_drop_down_rounded, color: _primaryColor),
+                    Icon(Icons.keyboard_arrow_down_rounded, color: _primaryColor),
+                  ],
+                ),
               ),
             ),
           ),
@@ -2506,97 +2526,48 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     );
   }
 
-  Widget _buildCurrencyDropdown() {
-    final devises = context.watch<ServiceController>().devisesList;
-
-    return Container(
-      margin: EdgeInsets.only(bottom: _mediumSpace),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Devise',
-            style: GoogleFonts.inter(
-              fontSize: _bodySize,
-              fontWeight: FontWeight.w600,
-              color: _darkColor,
+  Future<void> _pickDevise() async {
+    final devises = context.read<ServiceController>().devisesList;
+    if (devises.isEmpty) return;
+    final picked = await showCasaChoiceSheet<int>(
+      context: context,
+      title: 'Devise',
+      icon: Icons.payments_rounded,
+      selected: _selectedDevise?.id,
+      options: [
+        for (final devise in devises)
+          if (devise.id != null)
+            CasaChoice<int>(
+              value: devise.id!,
+              title: devise.displaySymbol.trim().isEmpty ? (devise.name ?? 'Devise') : devise.displaySymbol,
+              subtitle: devise.name,
             ),
-          ),
-          SizedBox(height: _smallSpace),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _borderColor),
-            ),
-            padding: EdgeInsets.symmetric(horizontal: _mediumSpace),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<DeviseModel>(
-                value: _selectedDevise,
-                isExpanded: true,
-                hint: Text("Sélectionner la devise"),
-                icon: Icon(Icons.currency_exchange_rounded, color: _primaryColor),
-                style: TextStyle(
-                  color: Colors.black87,
-                  fontSize: _bodySize,
-                ),
-                dropdownColor: Colors.white,
-                items: devises.map((DeviseModel d) {
-                  return DropdownMenuItem<DeviseModel>(
-                    value: d,
-                    child: Row(
-                      children: [
-                        Text(
-                          d.displaySymbol,
-                          style: TextStyle(
-                            fontSize: _bodySize,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          d.name ?? "",
-                          style: TextStyle(
-                            fontSize: _captionSize,
-                            color: _greyColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-                onChanged: (DeviseModel? value) {
-                  if (value != null && mounted) {
-                    setState(() {
-                      _markFieldTouched('currency');
-                      _selectedDevise = value;
-                      //_deviseId = value.id;
-                      _validateStep(1);
-                    });
-                  }
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
+      ],
     );
+    if (picked == null || !mounted) return;
+    final match = devises.where((devise) => devise.id == picked);
+    if (match.isEmpty) return;
+    setState(() {
+      _markFieldTouched('currency');
+      _selectedDevise = match.first;
+      _validateStep(2);
+    });
   }
 
   Widget _buildCvUploadSection() {
     return Container(
-      margin: EdgeInsets.only(bottom: _mediumSpace),
+      margin: EdgeInsets.zero,
       decoration: BoxDecoration(
         color: _cardColor,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: _selectedCvFile != null ? _successColor : _borderColor,
-          width: _selectedCvFile != null ? 2 : 1,
+          color: _selectedCvFile != null ? _successColor : const Color(0xFFE6E8EC),
+          width: 1,
         ),
       ),
       child: InkWell(
         onTap: _pickCvFile,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         child: Padding(
           padding: EdgeInsets.all(_mediumSpace),
           child: Column(
@@ -2680,7 +2651,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         setState(() {
           _markFieldTouched('cv_file');
           _selectedCvFile = file;
-          _validateStep(1);
+          _validateStep(2);
         });
 
         SnackbarForCasa.success(context, "Votre CV a bien été ajouté.");
@@ -2699,7 +2670,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     setState(() {
       _markFieldTouched('cv_file');
       _selectedCvFile = null;
-      _validateStep(1);
+      _validateStep(2);
     });
   }
 
@@ -2707,28 +2678,28 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     final errorText = _getFieldError(1, 'phone');
     final hasError = errorText != null && errorText.isNotEmpty && _shouldShowError(1, 'phone');
 
-    return Container(
-      margin: EdgeInsets.only(bottom: _mediumSpace),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: EdgeInsets.only(bottom: 6, left: 4),
-            child: Row(
-              children: [
-                Text(
-                  'Téléphone',
-                  style: TextStyle(
-                    fontSize: _bodySize,
-                    fontWeight: FontWeight.w600,
-                    color: hasError ? _errorColor : _darkColor,
-                  ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8, left: 2),
+          child: Row(
+            children: [
+              Text(
+                'Téléphone',
+                style: TextStyle(
+                  fontSize: _bodySize,
+                  fontWeight: FontWeight.w600,
+                  color: hasError ? _errorColor : _darkColor,
                 ),
-                Text('*', style: TextStyle(color: _errorColor, fontWeight: FontWeight.bold)),
-              ],
-            ),
+              ),
+              Text('*', style: TextStyle(color: _errorColor, fontWeight: FontWeight.bold)),
+            ],
           ),
-          TextField(
+        ),
+        SizedBox(
+          height: 56,
+          child: TextField(
             controller: _phoneController,
             keyboardType: TextInputType.phone,
             onChanged: (value) {
@@ -2760,22 +2731,24 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               prefixIcon: _buildCountryCodeDropdown(),
               filled: true,
               fillColor: Colors.white,
+              isDense: true,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: hasError ? _errorColor : _borderColor),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: hasError ? _errorColor : const Color(0xFFE6E8EC)),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 2),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: hasError ? _errorColor : _primaryColor, width: 1.5),
               ),
               errorText: null,
-              contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
             ),
           ),
+        ),
           if (hasError)
             Padding(
               padding: EdgeInsets.only(top: 6, left: 4),
@@ -2795,7 +2768,6 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
               ),
             ),
         ],
-      ),
     );
   }
 
@@ -2807,6 +2779,7 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
         child: DropdownButton<String>(
           value: _selectedCountryCode,
           isExpanded: true,
+          isDense: true,
           icon: Icon(Icons.arrow_drop_down_rounded, color: _primaryColor, size: 20),
           style: TextStyle(color: _darkColor, fontSize: 14, fontWeight: FontWeight.w500),
           items: _countryFlags.entries.map((entry) {
@@ -2845,111 +2818,195 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
     );
   }
 
-  // Widget pour sélectionner les jours de la semaine
+  static const List<String> _weekDays = [
+    'Lundi',
+    'Mardi',
+    'Mercredi',
+    'Jeudi',
+    'Vendredi',
+    'Samedi',
+    'Dimanche',
+  ];
+
   Widget _buildDaySelector() {
-    final days = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
-    final hasError = _shouldShowError(1, 'plage_jour') && _selectedDays.isEmpty;
+    final hasError = _shouldShowError(2, 'plage_jour') && _selectedDays.isEmpty;
+    final ordered = _weekDays.where(_selectedDays.contains).toList();
+    final label = ordered.isEmpty ? 'Choisir les jours' : ordered.join(', ');
 
     return Container(
       margin: EdgeInsets.only(bottom: _mediumSpace),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.calendar_today_rounded, color: _primaryColor, size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Jours de prestation',
-                style: GoogleFonts.inter(
-                  fontSize: _bodySize,
-                  fontWeight: FontWeight.w600,
-                  color: _darkColor,
-                ),
-              ),
-              Text(
-                ' *',
-                style: TextStyle(color: _errorColor, fontSize: _bodySize),
-              ),
-            ],
+          Text(
+            'Jours',
+            style: GoogleFonts.inter(
+              fontSize: _bodySize,
+              fontWeight: FontWeight.w600,
+              color: hasError ? _errorColor : _darkColor,
+            ),
           ),
-          SizedBox(height: _smallSpace),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: days.map((day) {
-              final isSelected = _selectedDays.contains(day);
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    if (isSelected) {
-                      _selectedDays.remove(day);
-                    } else {
-                      _selectedDays.add(day);
-                    }
-                    _markFieldTouched('plage_jour');
-                    _validateStep(1);
-                  });
-                },
-                child: AnimatedContainer(
-                  duration: Duration(milliseconds: 200),
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: isSelected ? _primaryColor : Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: isSelected ? _primaryColor : (hasError ? _errorColor : _borderColor),
-                      width: isSelected ? 2 : 1,
-                    ),
-                    boxShadow: isSelected ? [
-                      BoxShadow(
-                        color: _primaryColor.withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: Offset(0, 2),
-                      )
-                    ] : [],
-                  ),
-                  child: Text(
-                    day.substring(0, 3), // Lun, Mar, Mer, etc.
-                    style: GoogleFonts.inter(
-                      fontSize: _captionSize + 1,
-                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                      color: isSelected ? Colors.white : _darkColor,
-                    ),
+          const SizedBox(height: 8),
+          Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: _openAvailabilitySheet,
+              child: Container(
+                height: 56,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: hasError ? _errorColor : const Color(0xFFE6E8EC),
                   ),
                 ),
-              );
-            }).toList(),
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_today_rounded, color: _primaryColor, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: _bodySize,
+                          fontWeight: FontWeight.w600,
+                          color: ordered.isEmpty ? _greyColor : _primaryColor,
+                        ),
+                      ),
+                    ),
+                    Icon(Icons.keyboard_arrow_down_rounded, color: _primaryColor),
+                  ],
+                ),
+              ),
+            ),
           ),
           if (hasError)
             Padding(
-              padding: EdgeInsets.only(top: 8, left: 4),
-              child: Row(
-                children: [
-                  Icon(Icons.error_outline_rounded, size: 14, color: _errorColor),
-                  SizedBox(width: 6),
-                  Text(
-                    'Veuillez sélectionner au moins un jour',
-                    style: GoogleFonts.inter(
-                      fontSize: _captionSize,
-                      color: _errorColor,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+              padding: const EdgeInsets.only(top: 8, left: 4),
+              child: Text(
+                'Veuillez sélectionner au moins un jour',
+                style: GoogleFonts.inter(
+                  fontSize: _captionSize,
+                  color: _errorColor,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
-          SizedBox(height: 4),
-          Text(
-            'Sélectionnez les jours où vous proposez vos services',
-            style: GoogleFonts.inter(
-              fontSize: _captionSize - 1,
-              color: _greyColor,
-              fontStyle: FontStyle.italic,
-            ),
-          ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openAvailabilitySheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModal) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE6E8EC),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Disponibilité',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._weekDays.map((day) {
+                      final on = _selectedDays.contains(day);
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () {
+                          setState(() {
+                            if (on) {
+                              _selectedDays.remove(day);
+                            } else {
+                              _selectedDays.add(day);
+                            }
+                            _markFieldTouched('plage_jour');
+                            _validateStep(2);
+                          });
+                          setModal(() {});
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  day,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: on ? _primaryColor : const Color(0xFF1A1D26),
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                width: 26,
+                                height: 26,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: on ? _primaryColor : Colors.white,
+                                  border: Border.all(
+                                    color: on ? _primaryColor : const Color(0xFFD0D5DD),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: on
+                                    ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                                    : null,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _primaryColor,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        child: const Text(
+                          'Terminé',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -2959,9 +3016,9 @@ class _CreateServicePostPageState extends State<CreateServicePostPage> {
       width: double.infinity,
       padding: EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50], // Couleur très légère pour différencier
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _borderColor),
+        color: const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE6E8EC)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

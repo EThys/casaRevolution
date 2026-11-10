@@ -35,4 +35,11 @@ class DistrictModel {
   String toString() {
     return name ?? '';
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is DistrictModel && other.districtId == districtId;
+
+  @override
+  int get hashCode => districtId.hashCode;
 }

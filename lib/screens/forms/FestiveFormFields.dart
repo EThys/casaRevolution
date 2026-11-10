@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:casa/utils/listing_form_chrome.dart';
+
 class FestiveFormFields extends StatefulWidget {
   final TextEditingController capacityController;
   final String? usageError;
@@ -41,11 +43,6 @@ class FestiveFormFields extends StatefulWidget {
 }
 
 class _FestiveFormFieldsState extends State<FestiveFormFields> {
-  final Color _primaryBlue = const Color(0xFF1976D2);
-  final Color _borderColor = Colors.grey.shade300;
-  final double _bodySize = 14.0;
-  final double _smallSpace = 12.0;
-
   late Set<String> _selectedUsages;
 
   @override
@@ -64,16 +61,7 @@ class _FestiveFormFieldsState extends State<FestiveFormFields> {
 
   Set<String> _parseInit(String? raw) {
     if (raw == null || raw.trim().isEmpty) return {};
-    return raw
-        .split(',')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toSet();
-  }
-
-  void _emitUsage() {
-    final list = _selectedUsages.toList()..sort();
-    widget.onUsageChanged(list.join(', '));
+    return raw.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toSet();
   }
 
   void _toggleUsage(String type, bool selected) {
@@ -84,8 +72,151 @@ class _FestiveFormFieldsState extends State<FestiveFormFields> {
         _selectedUsages.remove(type);
       }
     });
-    _emitUsage();
+    final list = _selectedUsages.toList()..sort();
+    widget.onUsageChanged(list.isEmpty ? null : list.join(', '));
     widget.onUsageInteracted?.call();
+  }
+
+  Future<void> _openEventSheet() async {
+    const blue = ListingFormChrome.primary;
+    final search = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            final query = search.text.trim().toLowerCase();
+            final visible = FestiveFormFields.eventTypes
+                .where((type) => query.isEmpty || type.toLowerCase().contains(query))
+                .toList();
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+              child: Container(
+                height: MediaQuery.of(ctx).size.height * 0.72,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                ),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 10),
+                    Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE6E8EC),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              "Types d'événement",
+                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3, color: Color(0xFF1A1D26)),
+                            ),
+                          ),
+                          Text(
+                            '${_selectedUsages.length}',
+                            style: const TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                      child: TextField(
+                        controller: search,
+                        style: const TextStyle(color: Color(0xFF1A1D26), fontWeight: FontWeight.w600),
+                        onChanged: (_) => setModal(() {}),
+                        decoration: InputDecoration(
+                          hintText: 'Rechercher',
+                          prefixIcon: const Icon(Icons.search_rounded, color: blue),
+                          filled: true,
+                          fillColor: const Color(0xFFF3F3F3),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(999),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                        itemCount: visible.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 4),
+                        itemBuilder: (_, index) {
+                          final type = visible[index];
+                          final on = _selectedUsages.contains(type);
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () {
+                              _toggleUsage(type, !on);
+                              setModal(() {});
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      type,
+                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1A1D26)),
+                                    ),
+                                  ),
+                                  Container(
+                                    width: 26,
+                                    height: 26,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: on ? blue : Colors.white,
+                                      border: Border.all(color: on ? blue : const Color(0xFFD0D5DD), width: 1.5),
+                                    ),
+                                    child: on ? const Icon(Icons.check_rounded, size: 16, color: Colors.white) : null,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: blue,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                            ),
+                            child: const Text('Terminé', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    search.dispose();
   }
 
   @override
@@ -95,164 +226,105 @@ class _FestiveFormFieldsState extends State<FestiveFormFields> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildLabel("Types d'événement", usageHasError),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: FestiveFormFields.eventTypes.map((type) {
-            final sel = _selectedUsages.contains(type);
-            return FilterChip(
-              label: Text(type, style: TextStyle(fontSize: 13, fontWeight: sel ? FontWeight.w600 : FontWeight.w500)),
-              selected: sel,
-              selectedColor: _primaryBlue.withOpacity(0.2),
-              checkmarkColor: _primaryBlue,
-              onSelected: (v) => _toggleUsage(type, v),
-              side: BorderSide(
-                color: usageHasError ? Colors.red : _borderColor,
-                width: usageHasError ? 1.5 : 1,
+        ListingFormChrome.label("Types d'événement", required: true, hasError: usageHasError),
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: _openEventSheet,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 56),
+              padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: usageHasError ? ListingFormChrome.error : ListingFormChrome.border,
+                  width: usageHasError ? 1.5 : 1,
+                ),
               ),
-            );
-          }).toList(),
-        ),
-        if (usageHasError)
-          Padding(
-            padding: const EdgeInsets.only(left: 4.0, top: 6.0),
-            child: Text(
-              widget.usageError!,
-              style: const TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.w500),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Icon(Icons.celebration_outlined, size: 18, color: ListingFormChrome.primary),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _selectedUsages.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Text(
+                              'Ajouter des types d’événement',
+                              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
+                            ),
+                          )
+                        : Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: (_selectedUsages.toList()..sort()).map((type) {
+                              return Container(
+                                padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+                                decoration: BoxDecoration(
+                                  color: ListingFormChrome.primary,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      type,
+                                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                                    ),
+                                    const SizedBox(width: 2),
+                                    GestureDetector(
+                                      onTap: () => _toggleUsage(type, false),
+                                      child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: usageHasError ? ListingFormChrome.error : const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        SizedBox(height: _smallSpace),
-        _buildLabel("Capacité (pers.)", widget.capacityError != null && widget.capacityError!.isNotEmpty),
-        _buildModernFeatureInput(
+        ),
+        ListingFormChrome.errorLine(usageHasError ? widget.usageError : null),
+        ListingFormChrome.space,
+        ListingFormChrome.text(
           controller: widget.capacityController,
-          label: '0',
-          icon: Icons.groups_rounded,
-          color: const Color(0xFF4B5563).withOpacity(0.1),
-          iconColor: const Color(0xFF4B5563),
+          label: 'Capacité (personnes)',
+          hint: 'Ex. 150',
+          icon: Icons.groups_outlined,
           errorText: widget.capacityError,
-          onInteract: widget.onCapacityInteracted,
+          required: true,
+          keyboardType: TextInputType.number,
+          onTap: widget.onCapacityInteracted,
         ),
-        SizedBox(height: _smallSpace),
-        Row(
-          children: [
-            Expanded(
-              child: _buildSwitchTile(
-                'Décoration ?',
-                widget.isDecore,
-                widget.onDecoreChanged,
-              ),
-            ),
-            SizedBox(width: _smallSpace),
-            Expanded(
-              child: _buildSwitchTile(
-                'Piste de danse ?',
-                widget.pisteDanse,
-                widget.onPisteDanseChanged,
-              ),
-            ),
-          ],
+        ListingFormChrome.space,
+        ListingFormChrome.toggle(
+          title: 'Décoration',
+          value: widget.isDecore,
+          onChanged: widget.onDecoreChanged,
+        ),
+        ListingFormChrome.space,
+        ListingFormChrome.toggle(
+          title: 'Piste de danse',
+          value: widget.pisteDanse,
+          onChanged: widget.onPisteDanseChanged,
         ),
       ],
-    );
-  }
-
-  Widget _buildLabel(String label, bool hasError) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8, left: 4),
-      child: Row(
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: hasError ? Colors.red : const Color(0xFF1A1D26),
-            ),
-          ),
-          const Text(
-            ' *',
-            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModernFeatureInput({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    required Color color,
-    required Color iconColor,
-    String? errorText,
-    VoidCallback? onInteract,
-  }) {
-    final bool hasError = errorText != null && errorText.isNotEmpty;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          height: 50,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: hasError ? Colors.red : _borderColor,
-              width: hasError ? 1.5 : 1.0,
-            ),
-          ),
-          child: TextField(
-            controller: controller,
-            style: TextStyle(fontSize: _bodySize, fontWeight: FontWeight.w600),
-            decoration: InputDecoration(
-              hintText: label,
-              hintStyle: TextStyle(fontSize: _bodySize, color: Colors.grey, fontWeight: FontWeight.normal),
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              isDense: true,
-            ),
-            keyboardType: TextInputType.number,
-            onTap: () => onInteract?.call(),
-          ),
-        ),
-        if (hasError)
-          Padding(
-            padding: const EdgeInsets.only(left: 8.0, top: 4.0),
-            child: Text(
-              errorText,
-              style: const TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.w500),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildSwitchTile(String title, bool value, Function(bool) onChanged) {
-    return Container(
-      decoration: BoxDecoration(
-        color: value ? _primaryBlue.withOpacity(0.1) : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: value ? _primaryBlue.withOpacity(0.3) : _borderColor,
-        ),
-      ),
-      child: SwitchListTile(
-        title: Text(
-          title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: value ? FontWeight.w600 : FontWeight.normal,
-            color: value ? _primaryBlue : Colors.grey.shade700,
-          ),
-        ),
-        value: value,
-        onChanged: onChanged,
-        activeColor: _primaryBlue,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-        visualDensity: VisualDensity.compact,
-        dense: true,
-      ),
     );
   }
 }

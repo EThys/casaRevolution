@@ -69,9 +69,9 @@ String hotelStayPeriodLabel(String? raw) {
     return 'par heure';
   }
   if (lower.contains('nuit') || lower.contains('night')) return 'par nuit';
-  if (lower.contains('jour') || lower.contains('day')) return 'par jour';
+  if (lower.contains('séjour') || lower.contains('sejour')) return 'par séjour';
   if (lower.contains('semaine') || lower.contains('week')) return 'par semaine';
   if (lower.contains('mois') || lower.contains('month')) return 'par mois';
-  if (lower.contains('séjour') || lower.contains('sejour')) return 'par séjour';
+  if (lower.contains('jour') || lower.contains('day')) return 'par jour';
   return text;
 }

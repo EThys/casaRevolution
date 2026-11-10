@@ -17,6 +17,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:casa/widgets/SnackbarHelper.dart';
+import 'package:casa/utils/listing_form_chrome.dart';
+import 'package:casa/widgets/casa_choice_sheet.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
@@ -1039,34 +1041,26 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
           title: 'Aspects financiers',
         ),
         SizedBox(height: 16),
-        _buildModernTextField(
-            _priceController,
-            'Prix (${_isForRent && !_hideMonthlyPriceSuffix ? "\$/mois" : "\$"})',
-            Icons.attach_money_rounded,
-            keyboardType: TextInputType.number,
-            isRequired: true),
-        
-        SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildDeviseOption(
-                label: 'FC (Franc Congolais)',
-                value: 1,
-                isSelected: _selectedDeviseId == 1,
-                onTap: () => setState(() => _selectedDeviseId = 1),
-              ),
-            ),
-            SizedBox(width: 12),
-            Expanded(
-              child: _buildDeviseOption(
-                label: '\$ (Dollar US)',
-                value: 2,
-                isSelected: _selectedDeviseId == 2,
-                onTap: () => setState(() => _selectedDeviseId = 2),
-              ),
-            ),
-          ],
+        ListingFormChrome.priceDeviseRow(
+          controller: _priceController,
+          priceLabel: 'Prix',
+          priceHint: '0',
+          deviseValue: _selectedDeviseId == 1 ? 'FC' : 'USD',
+          keyboardType: TextInputType.number,
+          validator: (value) => value == null || value.trim().isEmpty ? 'Champ requis' : null,
+          onDeviseTap: () async {
+            final picked = await showCasaChoiceSheet<int>(
+              context: context,
+              title: 'Devise',
+              icon: Icons.payments_rounded,
+              selected: _selectedDeviseId,
+              options: const [
+                CasaChoice(value: 2, title: 'USD', subtitle: r'$'),
+                CasaChoice(value: 1, title: 'FC', subtitle: 'CDF'),
+              ],
+            );
+            if (picked != null && mounted) setState(() => _selectedDeviseId = picked);
+          },
         ),
 
         if (_showGuaranteeField) ...[
@@ -1805,53 +1799,67 @@ class _EditPropertyPageState extends State<EditPropertyPage> {
       final matches = items.where((i) => i == val).length;
       if (matches != 1) safeVal = null;
     }
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _borderColor),
-      ),
-      child: DropdownButtonFormField<T>(
-        value: safeVal,
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: GoogleFonts.outfit(color: _greyColor, fontSize: 13),
-          prefixIcon: Icon(icon, color: _primaryColor, size: 18),
-          border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        ),
-        items: items.map((i) => DropdownMenuItem(value: i, child: Text(getLab(i), style: GoogleFonts.outfit(fontSize: 14)))).toList(),
-        onChanged: onChanged,
-        icon: Icon(Icons.expand_more_rounded, color: _greyColor),
-      ),
-    );
-  }
-
-  Widget _buildDeviseOption({required String label, required int value, required bool isSelected, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: Duration(milliseconds: 200),
-        padding: EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? _primaryColor.withOpacity(0.05) : _lightColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? _primaryColor : _borderColor,
-            width: isSelected ? 2 : 1,
+    final shown = safeVal == null ? 'Sélectionner' : getLab(safeVal);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.outfit(
+            color: _darkColor,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
           ),
         ),
-        child: Center(
-          child: Text(
-            label,
-            style: GoogleFonts.outfit(
-              fontSize: 14,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-              color: isSelected ? _primaryColor : _greyColor,
+        const SizedBox(height: 8),
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: items.isEmpty
+                ? null
+                : () async {
+                    final picked = await showCasaChoiceSheet<T>(
+                      context: context,
+                      title: label,
+                      icon: icon,
+                      selected: safeVal,
+                      options: casaChoicesFromLabels(items, getLab),
+                    );
+                    if (picked == null) return;
+                    onChanged(picked as T);
+                  },
+            child: Container(
+              height: 56,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _borderColor),
+              ),
+              child: Row(
+                children: [
+                  Icon(icon, color: _primaryColor, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      shown,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.outfit(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: safeVal == null ? _greyColor : _darkColor,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.keyboard_arrow_down_rounded, color: _greyColor),
+                ],
+              ),
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 

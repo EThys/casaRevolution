@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../utils/listing_form_chrome.dart';
+
 /// Champs spécifiques à la création d’hôtel (aligné dashboard `hotels/new`).
 class HotelFormFields extends StatelessWidget {
   final String? hotelTypeLabel;
@@ -37,7 +39,7 @@ class HotelFormFields extends StatelessWidget {
               : 'Chargement du type…',
           muted: !propertyTypeReady,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: ListingFormChrome.gap),
         _switchCard(
           context: context,
           title: 'Visible / disponible',

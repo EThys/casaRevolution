@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:casa/utils/listing_form_chrome.dart';
+
 class VacanceFormFields extends StatefulWidget {
   final TextEditingController dateController;
   final TextEditingController heureController;
@@ -8,12 +10,13 @@ class VacanceFormFields extends StatefulWidget {
   final TextEditingController offreController;
   final String? selectedPriceCombo;
   final Function(String?) onPriceComboChanged;
-  
-  // Validation errors
+
   final String? dateError;
   final String? timeError;
   final String? capacityError;
-  final VoidCallback? onCapacityInteracted;
+  final VoidCallback? onDateChanged;
+  final VoidCallback? onTimeChanged;
+  final VoidCallback? onCapacityChanged;
 
   const VacanceFormFields({
     Key? key,
@@ -27,7 +30,9 @@ class VacanceFormFields extends StatefulWidget {
     this.dateError,
     this.timeError,
     this.capacityError,
-    this.onCapacityInteracted,
+    this.onDateChanged,
+    this.onTimeChanged,
+    this.onCapacityChanged,
   }) : super(key: key);
 
   @override
@@ -35,11 +40,6 @@ class VacanceFormFields extends StatefulWidget {
 }
 
 class _VacanceFormFieldsState extends State<VacanceFormFields> {
-  static const Color _accentBlue = Color(0xFF1976D2);
-  static const Color _accentBlueLight = Color(0xFF64B5F6);
-  final Color _borderColor = const Color(0xFFE9ECEF);
-  final double _smallSpace = 8.0;
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -49,13 +49,13 @@ class _VacanceFormFieldsState extends State<VacanceFormFields> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: _buildModernFeatureInput(
+              child: ListingFormChrome.text(
                 controller: widget.dateController,
                 label: 'Date',
+                hint: 'Choisir',
                 icon: Icons.calendar_today_rounded,
-                color: _accentBlue.withOpacity(0.12),
-                iconColor: _accentBlue,
                 errorText: widget.dateError,
+                required: true,
                 readOnly: true,
                 onTap: () async {
                   final date = await showDatePicker(
@@ -66,20 +66,21 @@ class _VacanceFormFieldsState extends State<VacanceFormFields> {
                   );
                   if (date != null) {
                     widget.dateController.text =
-                        "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+                        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+                    widget.onDateChanged?.call();
                   }
                 },
               ),
             ),
-            SizedBox(width: _smallSpace),
+            const SizedBox(width: ListingFormChrome.gap),
             Expanded(
-              child: _buildModernFeatureInput(
+              child: ListingFormChrome.text(
                 controller: widget.heureController,
                 label: 'Heure',
+                hint: 'Choisir',
                 icon: Icons.access_time_rounded,
-                color: _accentBlueLight.withOpacity(0.15),
-                iconColor: _accentBlue,
                 errorText: widget.timeError,
+                required: true,
                 readOnly: true,
                 onTap: () async {
                   final time = await showTimePicker(
@@ -88,179 +89,61 @@ class _VacanceFormFieldsState extends State<VacanceFormFields> {
                   );
                   if (time != null) {
                     widget.heureController.text =
-                        "${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}";
+                        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+                    widget.onTimeChanged?.call();
                   }
                 },
               ),
             ),
           ],
         ),
-        SizedBox(height: _smallSpace),
-        _buildModernFeatureInput(
+        ListingFormChrome.space,
+        ListingFormChrome.text(
           controller: widget.capacityController,
-          label: 'Capacité',
-          icon: Icons.people_outline_rounded,
-          color: _accentBlue.withOpacity(0.12),
-          iconColor: _accentBlue,
+          label: 'Capacité (personnes)',
+          hint: 'Ex. 4',
+          icon: Icons.groups_outlined,
           errorText: widget.capacityError,
-          onFieldTap: widget.onCapacityInteracted,
+          required: true,
+          keyboardType: TextInputType.number,
+          onChanged: (_) => widget.onCapacityChanged?.call(),
         ),
-        SizedBox(height: _smallSpace),
-
-        _buildModernTextField(
+        ListingFormChrome.space,
+        ListingFormChrome.text(
           controller: widget.noteController,
           label: 'Note',
-          hint: 'Information importante...',
-          icon: Icons.note_rounded,
+          hint: 'Information importante',
+          icon: Icons.notes_rounded,
         ),
-        SizedBox(height: _smallSpace),
-
-        _buildModernTextField(
+        ListingFormChrome.space,
+        ListingFormChrome.text(
           controller: widget.offreController,
           label: 'Offre spéciale',
-          hint: 'Ex: -20% pour le weekend...',
-          icon: Icons.local_offer_rounded,
+          hint: 'Ex. -20 % le week-end',
+          icon: Icons.local_offer_outlined,
         ),
-        SizedBox(height: _smallSpace),
-
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _borderColor),
-          ),
+        ListingFormChrome.space,
+        ListingFormChrome.menu(
+          label: 'Type de tarif',
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
               value: widget.selectedPriceCombo,
-              hint: const Text('Type de tarif', style: TextStyle(fontSize: 14)),
+              hint: Text('Choisir', style: TextStyle(fontSize: 15, color: Colors.grey.shade400)),
               isExpanded: true,
-              icon: Icon(Icons.keyboard_arrow_down_rounded, color: _accentBlue),
+              dropdownColor: Colors.white,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1D26)),
+              icon: const Icon(Icons.keyboard_arrow_down_rounded, color: ListingFormChrome.primary),
               items: ['Par Nuit', 'Par Semaine', 'Par Mois', 'Par Personne']
-                  .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                  .map((item) => DropdownMenuItem(
+                        value: item,
+                        child: Text(item, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1A1D26))),
+                      ))
+                  .toList(),
               onChanged: widget.onPriceComboChanged,
             ),
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildModernTextField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-    required IconData icon,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _borderColor),
-      ),
-      child: TextField(
-        controller: controller,
-        decoration: InputDecoration(
-          hintText: hint,
-          labelText: label,
-          prefixIcon: Icon(icon, color: _accentBlue, size: 20),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModernFeatureInput({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    Color? color,
-    Color? iconColor,
-    bool readOnly = false,
-    VoidCallback? onTap,
-    VoidCallback? onFieldTap,
-    String? suffix,
-    String? errorText,
-  }) {
-    final hasError = errorText != null && errorText.isNotEmpty;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: hasError ? Colors.red : Colors.grey.shade300,
-          width: hasError ? 1.5 : 1.0,
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            margin: const EdgeInsets.only(left: 4),
-            decoration: BoxDecoration(
-              color: color ?? _accentBlue.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 18, color: iconColor ?? _accentBlue),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: hasError ? Colors.red : Colors.grey[700],
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                SizedBox(
-                  height: 26,
-                  child: TextField(
-                    controller: controller,
-                    readOnly: onTap != null || readOnly,
-                    onTap: () {
-                      onFieldTap?.call();
-                      onTap?.call();
-                    },
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
-                    ),
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                      isDense: true,
-                      hintText: readOnly || onTap != null ? '…' : '0',
-                      hintStyle: TextStyle(
-                        color: Colors.grey[400],
-                        fontSize: 14,
-                      ),
-                      suffixText: suffix,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (onTap != null)
-            const Padding(
-              padding: EdgeInsets.only(right: 6),
-              child: Icon(Icons.arrow_drop_down, color: Colors.grey, size: 22),
-            ),
-        ],
-      ),
     );
   }
 }
