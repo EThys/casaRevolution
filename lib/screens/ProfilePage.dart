@@ -10,6 +10,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:casa/utils/casanayo_share_copy.dart';
+import 'package:casa/widgets/casanayo_invite_poster.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
 import 'dart:convert';
@@ -869,6 +870,15 @@ class _ProfilePageState extends State<ProfilePage> {
     return 'Ajoutez : ${missingFields.join(', ')}';
   }
 
+  void _openInvite() {
+    showCasanayoInviteSheet(
+      context,
+      name: safeUsername,
+      localImagePath: storage.read('user_image_path')?.toString(),
+      imageUrl: _profileImageUrl,
+    );
+  }
+
   Widget _buildProfileHeader() {
     return Container(
       padding: EdgeInsets.only(top: 40, bottom: 24),
@@ -978,12 +988,59 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           SizedBox(height: 16),
-          Text(
-            safeUsername,
-            style: TextStyle(
-              color: _cardColor,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(
+                    safeUsername,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _cardColor,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                if (isLoggedIn) ...[
+                  const SizedBox(width: 12),
+                  Material(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(999),
+                    child: InkWell(
+                      onTap: _openInvite,
+                      borderRadius: BorderRadius.circular(999),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.person_add_alt_1_rounded,
+                              size: 16,
+                              color: _primaryColor,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Inviter',
+                              style: TextStyle(
+                                color: _primaryColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           SizedBox(height: 12),
@@ -1521,6 +1578,17 @@ class _ProfilePageState extends State<ProfilePage> {
                 onTap: _shareApp,
                 isDarkMode: isDarkMode,
               ),
+              if (isLoggedIn) ...[
+                Divider(height: 1, indent: 60, endIndent: 20, color: _borderColor),
+                _buildSettingMenuItem(
+                  icon: Icons.person_add_alt_1_rounded,
+                  iconColor: _primaryColor,
+                  bgColor: _primaryColor.withOpacity(0.10),
+                  title: 'Inviter',
+                  onTap: _openInvite,
+                  isDarkMode: isDarkMode,
+                ),
+              ],
 
               if (isLoggedIn) ...[
                 Divider(height: 1, indent: 60, endIndent: 20, color: _borderColor),
@@ -1767,16 +1835,116 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _showDeleteAccountConfirmationDialog() {
-    ModernCustomDialog.show(
-      context,
-      title: 'Supprimer le compte ?',
-      message: 'Cette action est irréversible. Toutes vos données seront définitivement effacées.',
-      confirmText: 'OUI, SUPPRIMER DÉFINITIVEMENT',
-      cancelText: 'GARDER MON COMPTE',
-      isDanger: true,
-      popDialogOnSuccess: false,
-      onConfirm: _handleAccountDeletion,
-    );
+    final controller = TextEditingController();
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            final ready = controller.text.trim() == 'SUPPRIMER';
+            return Dialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFFEBEE),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFD32F2F), size: 34),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Supprimer le compte ?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1A1D26)),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Cette action est irréversible. Écrivez SUPPRIMER en majuscules pour lancer la demande.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, height: 1.45, color: Color(0xFF64748B)),
+                    ),
+                    const SizedBox(height: 18),
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      textCapitalization: TextCapitalization.characters,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
+                        color: Color(0xFF1A1D26),
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'SUPPRIMER',
+                        hintStyle: TextStyle(color: Colors.grey.shade400, fontWeight: FontWeight.w700, letterSpacing: 1.2),
+                        filled: true,
+                        fillColor: const Color(0xFFF7F8FA),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFFE6E8EC)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFFE6E8EC)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: const BorderSide(color: Color(0xFFD32F2F), width: 1.5),
+                        ),
+                      ),
+                      onChanged: (_) => setLocal(() {}),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: ready
+                            ? () {
+                                Navigator.of(dialogContext).pop();
+                                _handleAccountDeletion();
+                              }
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFD32F2F),
+                          disabledBackgroundColor: const Color(0xFFD32F2F).withOpacity(0.35),
+                          foregroundColor: Colors.white,
+                          disabledForegroundColor: Colors.white70,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        child: const Text('Supprimer le compte', style: TextStyle(fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text(
+                        'Garder mon compte',
+                        style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(controller.dispose);
   }
 
   Future<bool> _handleAccountDeletion() async {
@@ -1790,10 +1958,19 @@ class _ProfilePageState extends State<ProfilePage> {
       final response = await authCtrl.deleteAccount();
 
       if (response.status == true) {
-        // 2. EFFET DE SUPPRESSION "PROLONGÉ ET RALENTI"
-        // On attend la fin de l'animation majestueuse dans l'overlay
-        await Future.delayed(Duration(milliseconds: 7000));
+        try {
+          context.read<NotificationController>().clearForLogout();
+        } catch (_) {}
+        try {
+          await authCtrl.silentLogout();
+        } catch (_) {}
+        try {
+          await _clearLocalAuthData();
+        } catch (_) {}
 
+        await Future.delayed(const Duration(milliseconds: 7000));
+
+        if (!mounted) return true;
         _navigateToHomeAfterSessionReset();
         return true;
       } else {

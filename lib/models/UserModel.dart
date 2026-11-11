@@ -5,6 +5,40 @@ import 'TypeAccountModel.dart';
 UserModel userModelFromJson(String str) => UserModel.fromJson(json.decode(str));
 String userModelToJson(UserModel data) => json.encode(data.toJson());
 
+/// Première URL ou chaîne d’image exploitable (texte, liste ou objet `{image|url|...}`).
+String? profileImageUrlFrom(dynamic value) {
+  if (value == null) return null;
+  if (value is String) {
+    final s = value.trim();
+    if (s.isEmpty || s.toLowerCase() == 'null') return null;
+    return s;
+  }
+  if (value is List) {
+    for (final item in value) {
+      final found = profileImageUrlFrom(item);
+      if (found != null) return found;
+    }
+    return null;
+  }
+  if (value is Map) {
+    for (final key in const [
+      'image',
+      'url',
+      'images',
+      'profilePicture',
+      'profile_picture',
+      'avatar',
+      'photo',
+      'picture',
+    ]) {
+      if (!value.containsKey(key)) continue;
+      final found = profileImageUrlFrom(value[key]);
+      if (found != null) return found;
+    }
+  }
+  return null;
+}
+
 class UserModel {
   int? userId;
   String? password;
@@ -53,13 +87,21 @@ class UserModel {
         profileMap = Map<String, dynamic>.from(json['profile'] as Map);
       }
 
-      String? profilePicture = _safeParseString(source["profilePicture"] ??
+      String? profilePicture = profileImageUrlFrom(source["profilePicture"] ??
           source["avatar"] ??
+          source["photo"] ??
+          source["image"] ??
           json["profilePicture"] ??
-          json["avatar"]);
+          json["avatar"] ??
+          json["photo"] ??
+          json["image"]);
       if ((profilePicture == null || profilePicture.isEmpty) &&
           profileMap != null) {
-        profilePicture = _safeParseString(profileMap['images']);
+        profilePicture = profileImageUrlFrom(profileMap['image'] ??
+            profileMap['images'] ??
+            profileMap['profilePicture'] ??
+            profileMap['avatar'] ??
+            profileMap['photo']);
       }
 
       String? fullName = _safeParseString(source["fullName"] ??

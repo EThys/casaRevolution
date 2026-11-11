@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:get_storage/get_storage.dart';
 
 import '../models/CotationModel.dart';
+import '../utils/casa_analytics.dart';
 import '../utils/Endpoints.dart';
 import '../utils/StockageKeys.dart';
 import '../utils/requetes.dart';
@@ -41,6 +42,9 @@ class CotationController with ChangeNotifier {
         token: token,
         allowDefaultToken: false,
       );
+      if (response.status == true) {
+        CasaAnalytics.reviewSent(score: cote, solicitationId: sollicitationId);
+      }
       return response;
     } catch (e) {
       return HttpResponse(

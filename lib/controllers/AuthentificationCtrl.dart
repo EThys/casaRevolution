@@ -19,6 +19,7 @@ import '../utils/StompService.dart';
 import 'NotificationController.dart';
 import '../utils/database/UserDatabaseHelper.dart';
 import '../utils/auth_identifiant.dart';
+import '../utils/casa_analytics.dart';
 
 class AuthentificationCtrl with ChangeNotifier {
   AuthentificationCtrl({this.stockage});
@@ -117,7 +118,7 @@ class AuthentificationCtrl with ChangeNotifier {
       print("Erreur d'initialisation du stockage: $e");
     }
   }
-  Future<HttpResponse> login(Map<String, dynamic> data) async {
+  Future<HttpResponse> login(Map<String, dynamic> data, {bool trackLogin = true}) async {
     try {
       loading = true;
       notifyListeners();
@@ -186,6 +187,7 @@ class AuthentificationCtrl with ChangeNotifier {
           }
 
           print("Connexion et stockage réussis");
+          if (trackLogin) CasaAnalytics.login();
         } else {
           print("Token ou données membre manquants dans la réponse");
           throw Exception("Données d'authentification incomplètes");
@@ -235,7 +237,7 @@ class AuthentificationCtrl with ChangeNotifier {
     final res = await login({
       'identifiant': identifiant,
       'password': password.trim(),
-    });
+    }, trackLogin: false);
     return isLoginApiSuccess(res.data);
   }
 
@@ -667,6 +669,11 @@ class AuthentificationCtrl with ChangeNotifier {
             // Mettre à jour le profil local
             try {
               // Structure attendue pour le profileKey basée sur les logs user
+              final returnedNumber = (personData['numberCard'] ?? personData['number_card'] ?? '').toString().trim();
+              final sentNumber = (payload['numberCard'] ?? '').toString().trim();
+              final numberCard = (returnedNumber.isEmpty || returnedNumber == 'string')
+                  ? (sentNumber == 'string' ? '' : sentNumber)
+                  : returnedNumber;
               Map<String, dynamic> updatedProfile = {
                   'id': personData['id'], // Important: garder l'ID du profil
                   'firstname': personData['firstName'] ?? personData['first_name'],
@@ -676,7 +683,7 @@ class AuthentificationCtrl with ChangeNotifier {
                   'images': personData['images'],
                   'cardFront': personData['cardFront'] ?? personData['card_front'],
                   'cardBack': personData['cardBack'] ?? personData['card_back'],
-                  'numberCard': personData['numberCard'] ?? personData['number_card'],
+                  'numberCard': numberCard,
                   'typeCardId': personData['typeCardId'] ?? personData['type_card_id'],
                   'parrainId': personData['parrainId'] ?? personData['parrain_id'],
                  // Garder d'autres champs potentiels de l'ancien profil si nécessaire, mais ici on semble avoir tout
@@ -934,9 +941,7 @@ class AuthentificationCtrl with ChangeNotifier {
 
       // Crashlytics: éviter d'attribuer les erreurs à l'ancien utilisateur après logout.
       FirebaseCrashlytics.instance.setUserIdentifier('');
-
-      StompService().disconnect();
-
+      CasaAnalytics.clearUser();
       await stockage?.remove(StockageKeys.tokenKey);
       await stockage?.remove(StockageKeys.refreshTokenKey);
       await stockage?.remove(StockageKeys.userKey);

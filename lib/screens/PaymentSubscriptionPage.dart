@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../controllers/PaymentController.dart';
 import '../controllers/DeviseController.dart';
+import '../utils/casa_analytics.dart';
 import '../utils/casa_payment_log.dart';
 import '../utils/FancyNotification.dart';
 import '../utils/Routes.dart';
@@ -370,6 +371,7 @@ class _PaymentSubscriptionPageState extends State<PaymentSubscriptionPage>
 
     final authCtrl = context.read<AuthentificationCtrl>();
     authCtrl.user = authCtrl.user.copyWith(isPremium: true);
+    CasaAnalytics.premiumPaid();
     CasaPaymentLog.log('UI/Subscription', 'premium appliqué localement (source : notification STOMP)');
 
     final cb = widget.onSuccess;

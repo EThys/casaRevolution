@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get_storage/get_storage.dart';
@@ -25,7 +23,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> with WidgetsBindingOb
   bool _notifications = false;
   bool _camera = false;
   bool _microphone = false;
-  bool _photos = false;
+  bool _location = false;
 
   bool get _native =>
       !kIsWeb &&
@@ -62,25 +60,15 @@ class _AppSettingsPageState extends State<AppSettingsPage> with WidgetsBindingOb
     }
     final camera = await Permission.camera.isGranted;
     final microphone = await Permission.microphone.isGranted;
-    final photos = await _photosGranted();
+    final location = await Permission.locationWhenInUse.isGranted;
     if (!mounted) return;
     setState(() {
       _notifications = notifications;
       _camera = camera;
       _microphone = microphone;
-      _photos = photos;
+      _location = location;
       _loading = false;
     });
-  }
-
-  Future<bool> _photosGranted() async {
-    if (Platform.isIOS) {
-      final status = await Permission.photos.status;
-      return status.isGranted || status.isLimited;
-    }
-    if (await Permission.storage.isGranted) return true;
-    final photos = await Permission.photos.status;
-    return photos.isGranted || photos.isLimited;
   }
 
   Future<bool> _notificationsEnabled() async {
@@ -143,16 +131,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> with WidgetsBindingOb
       await openAppSettings();
     }
     await _refresh();
-  }
-
-  Future<void> _setPhotos(bool enabled) async {
-    final permission = Platform.isIOS ? Permission.photos : Permission.storage;
-    await _setOsPermission(
-      enabled: enabled,
-      permission: permission,
-      blockedMessage: 'L’accès aux photos est bloqué dans les réglages du téléphone.',
-      revokeMessage: 'Pour retirer l’accès aux photos, désactivez-le dans les réglages du téléphone.',
-    );
   }
 
   void _tellSettings(String message) {
@@ -227,11 +205,16 @@ class _AppSettingsPageState extends State<AppSettingsPage> with WidgetsBindingOb
                     ),
                     _divider(),
                     _toggle(
-                      icon: Icons.photo_library_rounded,
-                      title: 'Photos',
-                      subtitle: 'Choisir une image dans la galerie.',
-                      value: _photos,
-                      onChanged: _setPhotos,
+                      icon: Icons.location_on_rounded,
+                      title: 'Localisation',
+                      subtitle: 'Latitude et longitude envoyées à la publication d’une annonce.',
+                      value: _location,
+                      onChanged: (value) => _setOsPermission(
+                        enabled: value,
+                        permission: Permission.locationWhenInUse,
+                        blockedMessage: 'La localisation est bloquée dans les réglages du téléphone.',
+                        revokeMessage: 'Pour retirer l’accès à la localisation, désactivez-le dans les réglages du téléphone.',
+                      ),
                     ),
                   ]),
                 ],

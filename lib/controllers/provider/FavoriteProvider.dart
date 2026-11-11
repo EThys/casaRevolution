@@ -3,6 +3,7 @@ import 'package:casa/controllers/PropertyFavoriteCtrl.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../utils/casa_analytics.dart';
 import '../../models/state/FavoriteState.dart';
 import '../../utils/database/FavoriteDatabaseHelper.dart';
 
@@ -181,6 +182,7 @@ class FavoriteProvider with ChangeNotifier {
         if (newStatus) {
           final success = await _favoriteCtrl.addFavorite(userId, propertyId, propertyTypeId: propertyTypeId, isPrestation: isPrestation);
           if (!success) throw Exception("Échec de l'ajout");
+          CasaAnalytics.favorite(id: propertyId, service: isPrestation);
         } else {
           final success = await _favoriteCtrl.removeFavorite(userId, propertyId, propertyTypeId: propertyTypeId, isPrestation: isPrestation);
           if (!success) throw Exception("Échec de la suppression");

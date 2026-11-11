@@ -694,9 +694,7 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
 
       final userData = authCtrl.stockage?.read(StockageKeys.userKey) ?? {};
 
-      final cardNumber = _cardNumberController.text.trim().isEmpty
-          ? "string"
-          : _cardNumberController.text.trim();
+      final cardNumber = _cardNumberController.text.trim();
 
       final payload = {
         "lastName": lastName,
@@ -972,32 +970,45 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     );
   }
 
-  Widget _buildKycIntroBodyLine(String prefix, String text) {
+  Widget _introPoint(IconData icon, String title, String text) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: 22),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 28,
-            child: Text(
-              prefix,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primaryBlue,
-              ),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFF1976D2).withOpacity(0.10),
+              borderRadius: BorderRadius.circular(12),
             ),
+            child: Icon(icon, size: 18, color: const Color(0xFF1976D2)),
           ),
+          const SizedBox(width: 14),
           Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontSize: 14,
-                height: 1.45,
-                color: _kycMuted,
-                fontWeight: FontWeight.w400,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.2,
+                    color: Color(0xFF1A1D26),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  text,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.4,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1009,159 +1020,68 @@ class _IdentityVerificationPageState extends State<IdentityVerificationPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Vérification d’identité',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
+        const SizedBox(height: 12),
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1976D2).withOpacity(0.10),
+            borderRadius: BorderRadius.circular(18),
           ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'On confirme que c’est bien vous, pour la sécurité de CasaNayo et de tous les membres.',
-          style: TextStyle(fontSize: 14, height: 1.4, color: Colors.grey.shade700),
+          child: const Icon(Icons.verified_user_rounded, color: Color(0xFF1976D2), size: 28),
         ),
         const SizedBox(height: 22),
-        Text(
-          'Photo du document, vos infos de contact, puis envoi pour contrôle.',
-          style: TextStyle(fontSize: 14, height: 1.4, color: Colors.grey.shade700),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: Row(
-            children: [
-              Expanded(child: _buildKycIntroMiniStep('1', 'Photo')),
-              Icon(Icons.chevron_right_rounded, color: Colors.grey[400], size: 22),
-              Expanded(child: _buildKycIntroMiniStep('2', 'Infos')),
-              Icon(Icons.chevron_right_rounded, color: Colors.grey[400], size: 22),
-              Expanded(child: _buildKycIntroMiniStep('3', 'Envoi')),
-            ],
+        const Text(
+          'Confirmez que c’est bien vous',
+          style: TextStyle(
+            fontSize: 28,
+            height: 1.15,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.6,
+            color: Color(0xFF1A1D26),
           ),
         ),
         const SizedBox(height: 12),
-        Text(
-          'Vous pouvez continuer tout de suite. Les règles détaillées sont ci‑dessous (facultatif).',
+        const Text(
+          'Quelques minutes suffisent. Vos documents restent privés et servent seulement à certifier votre compte CasaNayo.',
           style: TextStyle(
-            fontSize: 13,
-            height: 1.4,
-            fontStyle: FontStyle.italic,
-            color: Colors.grey[600],
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 14),
-        Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          clipBehavior: Clip.antiAlias,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Theme(
-              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                iconColor: AppColors.primaryBlue,
-                collapsedIconColor: AppColors.primaryBlue,
-                tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
-                title: Text(
-                  'Pourquoi on demande une pièce ?',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
-                ),
-                subtitle: Text(
-                  'Touchez ici pour lire',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                ),
-                children: [
-                  const SizedBox(height: 10),
-                  _buildKycIntroBodyLine(
-                    '1.',
-                    'Vous nous envoyez vos documents pour que nous puissions les vérifier. '
-                    'Si tout est correct, votre compte pourra être certifié (une marque de confiance sur votre profil).',
-                  ),
-                  _buildKycIntroBodyLine(
-                    '2.',
-                    'Nous regardons surtout trois choses : la photo est-elle nette et lisible ? '
-                    'Les infos correspondent-elles à votre compte ? '
-                    'Le document est-il bien au nom de la personne qui utilise l’application ?',
-                  ),
-                  _buildKycIntroBodyLine(
-                    '3.',
-                    'Si nous trouvons un problème grave , par exemple une photo floue, un document qui n’est pas le vôtre, ou des infos qui ne collent pas,  '
-                    'nous pouvons bloquer ou fermer le compte le temps de tout vérifier, pour protéger les autres utilisateurs.',
-                  ),
-                  _buildKycIntroBodyLine(
-                    '4.',
-                    'Vos fichiers servent uniquement à cette vérification. Nous ne les mettons pas sur votre profil public et nous les gardons avec soin.',
-                  ),
-                ],
-              ),
-            ),
+            fontSize: 16,
+            height: 1.45,
+            color: Color(0xFF64748B),
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 32),
+        _introPoint(
+          Icons.photo_camera_outlined,
+          'Une photo nette',
+          'Le recto de votre pièce, et le verso si ce n’est pas un passeport.',
+        ),
+        _introPoint(
+          Icons.person_outline_rounded,
+          'Vos informations',
+          'Le nom de votre compte et une adresse, pour les comparer au document.',
+        ),
+        _introPoint(
+          Icons.lock_outline_rounded,
+          'Un contrôle réservé',
+          'Rien n’est publié sur votre profil. Un document illisible ou qui n’est pas le vôtre peut suspendre le compte le temps de la vérification.',
+        ),
+        const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
-          height: 50,
+          height: 56,
           child: ElevatedButton(
             onPressed: () => setState(() => _kycStep = 1),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryBlue,
+              backgroundColor: const Color(0xFF1976D2),
               foregroundColor: Colors.white,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
             child: const Text(
               'Continuer',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildKycIntroMiniStep(String num, String label) {
-    return Column(
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: Colors.grey[200],
-            shape: BoxShape.circle,
-          ),
-          child: Text(
-            num,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppColors.primaryBlue,
-            ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: Colors.grey.shade700,
           ),
         ),
       ],

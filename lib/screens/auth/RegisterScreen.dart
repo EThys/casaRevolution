@@ -1,6 +1,7 @@
 import 'package:casa/controllers/AuthentificationCtrl.dart';
 import 'package:casa/controllers/RegisterBailleurCtrl.dart';
 import 'package:casa/utils/Endpoints.dart';
+import 'package:casa/utils/casa_analytics.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/networkCheck.dart';
 import 'package:flutter/gestures.dart';
@@ -2319,6 +2320,7 @@ class _UserRegistrationPageState extends State<UserRegistrationPage> {
         if (!mounted) return;
 
         if (sessionReady) {
+          CasaAnalytics.signUp();
           SnackbarForCasa.success(
             context,
             "Bienvenue ! Votre compte est prêt.",
