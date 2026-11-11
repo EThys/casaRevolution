@@ -34,6 +34,13 @@ class ReservationModel {
 
   String? userImage;
 
+  /// Photo de la personne qui réserve, si l’API l’a envoyée.
+  String? get requesterPhoto {
+    final direct = profileImageUrlFrom(userImage);
+    if (direct != null) return direct;
+    return profileImageUrlFrom(user?.profilePicture);
+  }
+
   /// Téléphone annonceur renvoyé par l’API sur la réponse réservation réussie (`postByTel`).
   String? postByTel;
 
@@ -73,10 +80,23 @@ class ReservationModel {
       return s;
     }
 
+    String? fromNode(dynamic node) {
+      if (node is! Map) return null;
+      return pick(node['postByTel']) ?? pick(node['phone']) ?? pick(node['telephone']);
+    }
+
     final prop = json['property'];
     return pick(json['postByTel']) ??
         pick(reservationData?['postByTel']) ??
-        (prop is Map ? pick(prop['postByTel']) : null);
+        (prop is Map ? pick(prop['postByTel']) : null) ??
+        fromNode(json['hotel']) ??
+        fromNode(json['bureau']) ??
+        fromNode(json['terrain']) ??
+        fromNode(json['vacance']) ??
+        fromNode(json['salle']) ??
+        fromNode(json['festive']) ??
+        fromNode(json['funeraire']) ??
+        fromNode(json['proprietaire']);
   }
 
   factory ReservationModel.fromJson(Map<String, dynamic> json) {
@@ -132,10 +152,78 @@ class ReservationModel {
       return imgs;
     }
 
-    // Réservations chambre: structure spéciale
-    // { reservation: {...}, chambre: {...}, user: {...}, imageChambre: [...] }
+    PropertyModel listingFrom(
+      Map<String, dynamic> node, {
+      Map<String, dynamic>? placeSource,
+      required int typeId,
+      required String typeName,
+      String? title,
+      List<PropertyImageModel>? images,
+      int? agenceId,
+      double? surface,
+      int? capacity,
+      int? pieces,
+    }) {
+      String? text(dynamic value) {
+        if (value == null) return null;
+        if (value is Map) {
+          final inner = value["address"] ??
+              value["adresse"] ??
+              value["name"] ??
+              value["value"];
+          if (inner == null || inner is Map) return null;
+          final nested = inner.toString().trim();
+          if (nested.isEmpty || nested.toLowerCase() == 'null') return null;
+          return nested;
+        }
+        final raw = value.toString().trim();
+        if (raw.isEmpty || raw.toLowerCase() == 'null') return null;
+        return raw;
+      }
+
+      String? place(dynamic value) => text(value);
+      final where = placeSource ?? node;
+      final amount = node["price"];
+      return PropertyModel(
+        propertyId: node["hotelId"] is int
+            ? node["hotelId"] as int
+            : (where["id"] is int
+                ? where["id"] as int
+                : (node["id"] is int ? node["id"] as int : null)),
+        propertyTypeId: typeId,
+        propertyType: PropertyTypeModel(propertyTypeId: typeId, name: typeName),
+        userId: node["userId"] is int
+            ? node["userId"] as int
+            : (where["userId"] is int ? where["userId"] as int : null),
+        agenceId: agenceId,
+        title: title ?? text(node["title"]),
+        description: text(node["description"] ?? where["description"]),
+        price: amount is num ? amount.toDouble() : double.tryParse('${amount ?? ''}'),
+        deviseId: node["deviseId"] is int ? node["deviseId"] as int : null,
+        address: text(where["address"] ?? where["adresse"] ?? node["address"] ?? node["adresse"]),
+        communeValue: place(where["communeValue"] ?? where["commune"] ?? node["communeValue"]),
+        quartierValue: place(where["quartierValue"] ?? where["quartier"] ?? node["quartierValue"]),
+        cityValue: place(where["cityValue"] ?? where["city"] ?? node["cityValue"]),
+        countryValue: place(where["countryValue"] ?? where["country"] ?? node["countryValue"]),
+        postalCode: text(where["postalCode"] ?? node["postalCode"]),
+        surface: surface,
+        capacityPeople: capacity ?? int.tryParse('${node["capacityPeople"] ?? node["capacity"] ?? ''}'),
+        numberPiece: pieces ?? int.tryParse('${node["numberPiece"] ?? ''}'),
+        transactionType: text(node["transactionType"] ?? where["transactionType"]),
+        postBy: text(where["postBy"] ?? node["postBy"]),
+        propertyImage: images,
+      );
+    }
+
     PropertyModel? parsedProperty;
     final chambreNode = json["chambre"] ?? reservationData?["chambre"];
+    final terrainNode = json["terrain"] ?? reservationData?["terrain"];
+    final vacanceNode = json["vacance"] ?? reservationData?["vacance"];
+    final bureauNode = json["bureau"] ?? json["bureaux"] ?? reservationData?["bureau"];
+    final salleNode = json["salle"] ??
+        json["festive"] ??
+        json["funeraire"] ??
+        reservationData?["salle"];
     if (chambreNode is Map) {
       final chambre = Map<String, dynamic>.from(chambreNode);
       final hotelNode = json["hotel"] ?? reservationData?["hotel"];
@@ -145,95 +233,88 @@ class ReservationModel {
       final title = roomTitle.isEmpty
           ? hotelTitle
           : (hotelTitle.isEmpty ? roomTitle : '$roomTitle — $hotelTitle');
-      String place(dynamic value) {
-        if (value is Map) return value["name"]?.toString() ?? '';
-        return value?.toString() ?? '';
-      }
-      parsedProperty = PropertyModel(
-        propertyId: chambre["hotelId"] is int
-            ? chambre["hotelId"] as int
-            : (hotel?["id"] is int ? hotel!["id"] as int : null),
-        propertyTypeId: 5,
-        propertyType: PropertyTypeModel(propertyTypeId: 5, name: 'Hôtel'),
+      final roomListing = listingFrom(
+        chambre,
+        placeSource: hotel,
+        typeId: 5,
+        typeName: 'Hôtel',
         title: title.isEmpty ? null : title,
-        description: chambre["description"]?.toString(),
-        price: (chambre["price"] is num) ? (chambre["price"] as num).toDouble() : null,
-        deviseId: chambre["deviseId"] is int ? chambre["deviseId"] as int : null,
-        numberPiece: chambre["numberPiece"] is int ? chambre["numberPiece"] as int : int.tryParse('${chambre["numberPiece"]}'),
-        address: (hotel?["address"] ?? chambre["address"])?.toString(),
-        communeValue: place(hotel?["commune"] ?? hotel?["communeValue"]),
-        cityValue: place(hotel?["city"] ?? hotel?["cityValue"]),
-        countryValue: place(hotel?["country"] ?? hotel?["countryValue"]),
-        quartierValue: place(hotel?["quartier"] ?? hotel?["quartierValue"]),
-        postBy: hotel?["postBy"]?.toString() ?? chambre["postBy"]?.toString(),
-        propertyImage: parseImages(json["imageChambre"] ?? reservationData?["imageChambre"]),
+        images: parseImages(json["imageChambre"] ?? reservationData?["imageChambre"]),
+        pieces: chambre["numberPiece"] is int
+            ? chambre["numberPiece"] as int
+            : int.tryParse('${chambre["numberPiece"]}'),
       );
-    } else if (json["terrain"] is Map) {
-      // Réservations terrains
-      // { reservation: {...}, terrain: {...}, user: {...}, imageTerrain: [...] }
-      final t = Map<String, dynamic>.from(json["terrain"] as Map);
-      parsedProperty = PropertyModel(
-        propertyId: t["id"] is int ? t["id"] as int : null,
-        propertyTypeId: 9,
-        userId: t["userId"] is int ? t["userId"] as int : null,
-        title: t["title"]?.toString(),
-        description: t["description"]?.toString(),
-        price: (t["price"] is num) ? (t["price"] as num).toDouble() : null,
-        deviseId: t["deviseId"] is int ? t["deviseId"] as int : null,
-        quartierValue: t["quartierValue"]?.toString(),
-        communeValue: t["communeValue"]?.toString(),
-        cityValue: t["cityValue"]?.toString(),
-        countryValue: t["countryValue"]?.toString(),
-        surface: (t["surface"] is num) ? (t["surface"] as num).toDouble() : null,
-        propertyImage: parseImages(json["imageTerrain"]),
+      if (hotel != null && hotel["id"] is int) {
+        roomListing.propertyId = hotel["id"] as int;
+      }
+      parsedProperty = roomListing;
+    } else if (terrainNode is Map) {
+      final t = Map<String, dynamic>.from(terrainNode);
+      final surface = t["surface"];
+      parsedProperty = listingFrom(
+        t,
+        typeId: 9,
+        typeName: 'Terrain',
+        images: parseImages(json["imageTerrain"] ?? reservationData?["imageTerrain"]),
+        surface: surface is num ? surface.toDouble() : double.tryParse('${surface ?? ''}'),
       );
-    } else if (json["vacance"] is Map) {
-      // Réservations agences / tourisme (vacance)
-      // { reservation: {...}, vacance: {...}, user: {...}, imageVacance: [...] }
-      final v = Map<String, dynamic>.from(json["vacance"] as Map);
-      parsedProperty = PropertyModel(
-        propertyId: v["id"] is int ? v["id"] as int : null,
-        propertyTypeId: 6, // Tourisme (Vacances)
+    } else if (vacanceNode is Map) {
+      final v = Map<String, dynamic>.from(vacanceNode);
+      parsedProperty = listingFrom(
+        v,
+        typeId: 6,
+        typeName: 'Tourisme',
         agenceId: v["agenceId"] is int ? v["agenceId"] as int : null,
-        userId: v["userId"] is int ? v["userId"] as int : null,
-        title: v["title"]?.toString(),
-        description: v["description"]?.toString(),
-        price: (v["price"] is num) ? (v["price"] as num).toDouble() : null,
-        address: v["address"]?.toString(),
-        cityValue: v["cityValue"]?.toString(),
-        countryValue: v["countryValue"]?.toString(),
-        propertyImage: parseImages(json["imageVacance"]),
+        images: parseImages(json["imageVacance"] ?? reservationData?["imageVacance"]),
+        capacity: int.tryParse('${v["capacity"] ?? ''}'),
+      );
+    } else if (bureauNode is Map) {
+      final b = Map<String, dynamic>.from(bureauNode);
+      parsedProperty = listingFrom(
+        b,
+        typeId: 4,
+        typeName: 'Bureau',
+        images: parseImages(json["bureauImage"] ?? reservationData?["bureauImage"]),
+      );
+    } else if (salleNode is Map) {
+      final salle = Map<String, dynamic>.from(salleNode);
+      final funeral = reservationCore["funeraireId"] != null ||
+          json["funeraire"] is Map ||
+          (reservationCore["type"]?.toString().toLowerCase().contains('funer') ?? false);
+      parsedProperty = listingFrom(
+        salle,
+        typeId: funeral ? 7 : 8,
+        typeName: funeral ? 'Funéraire' : 'Salle de fête',
+        images: parseImages(json["imagSalle"] ?? reservationData?["imagSalle"]),
+        capacity: int.tryParse('${salle["capacityPeople"] ?? ''}'),
       );
     } else {
-      // Structure habituelle: PropertyModel sait extraire les champs depuis json / reservation.
       parsedProperty = PropertyModel.fromJson(json);
     }
 
     String? _pickUserImage() {
-      // 1) Champs possibles au niveau racine
-      final direct = (json["userImage"] ??
+      final direct = profileImageUrlFrom(json["userImage"] ??
           json["imageUser"] ??
           json["clientImage"] ??
-          json["avatar"]);
-      final directStr = direct?.toString().trim();
-      if (directStr != null &&
-          directStr.isNotEmpty &&
-          directStr.toLowerCase() != 'null') {
-        return directStr;
-      }
+          json["avatar"] ??
+          reservationData?["userImage"] ??
+          reservationData?["imageUser"]);
+      if (direct != null) return direct;
 
-      // 2) Champs sur l'objet user/client (nouveau: `avatar`)
-      final dynamic rawUser = json["user"] ?? json["client"] ?? reservationData?["user"];
+      final dynamic rawUser =
+          json["user"] ?? json["client"] ?? reservationData?["user"];
       if (rawUser is Map) {
         final m = Map<String, dynamic>.from(rawUser);
-        final v = (m["avatar"] ??
+        final fromUser = profileImageUrlFrom(m["avatar"] ??
             m["profilePicture"] ??
             m["profile_picture"] ??
-            m["image"]);
-        final s = v?.toString().trim();
-        if (s != null && s.isNotEmpty && s.toLowerCase() != 'null') {
-          return s;
-        }
+            m["image"] ??
+            m["photo"] ??
+            m["picture"] ??
+            m["images"]);
+        if (fromUser != null) return fromUser;
+        final fromProfile = profileImageUrlFrom(m["profile"]);
+        if (fromProfile != null) return fromProfile;
       }
       return null;
     }

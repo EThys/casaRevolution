@@ -188,6 +188,7 @@ class ServiceController with ChangeNotifier {
           }
 
           final result = PrestationModel.fromJson(prestationData);
+          result.absorbPublisher(response);
 
           if (response.containsKey('image') && response['image'] is List) {
             final images = (response['image'] as List)
@@ -217,7 +218,13 @@ class ServiceController with ChangeNotifier {
               map['cotation'] = rootCotations;
             }
           }
-          return PrestationModel.fromJson(map);
+          if (map['prestation'] is Map) {
+            return _parse(map);
+          }
+          final parsed = PrestationModel.fromJson(map);
+          parsed.absorbPublisher(response);
+          parsed.absorbPublisher(map);
+          return parsed;
         }
         return null;
       }
@@ -763,6 +770,9 @@ class ServiceController with ChangeNotifier {
                       if (e.containsKey('postBy')) {
                         prestationData['postBy'] = e['postBy'];
                       }
+                      if (e['actor'] != null) {
+                        prestationData['actor'] = e['actor'];
+                      }
                       if (e.containsKey('image') && e['image'] is List) {
                         images = (e['image'] as List)
                             .map((img) {
@@ -780,6 +790,9 @@ class ServiceController with ChangeNotifier {
                     }
 
                     final prestation = PrestationModel.fromJson(prestationData);
+                    if (e is Map) {
+                      prestation.absorbPublisher(Map<String, dynamic>.from(e));
+                    }
                     prestation.images = images.isNotEmpty ? images : null;
                     return prestation;
                   } catch (e) {
@@ -903,6 +916,9 @@ class ServiceController with ChangeNotifier {
                   }
 
                   final prestation = PrestationModel.fromJson(prestationData);
+                  if (e is Map) {
+                    prestation.absorbPublisher(Map<String, dynamic>.from(e));
+                  }
                   prestation.images = images.isNotEmpty ? images : null;
 
                   // Debug: vérifier les images
@@ -977,6 +993,9 @@ class ServiceController with ChangeNotifier {
       }
 
       final prestation = PrestationModel.fromJson(prestationData);
+      if (e is Map) {
+        prestation.absorbPublisher(Map<String, dynamic>.from(e));
+      }
       prestation.images = images.isNotEmpty ? images : null;
       return prestation;
     } catch (e) {
@@ -1442,7 +1461,10 @@ class ServiceController with ChangeNotifier {
   /// Met à jour le statut d'une sollicitation via **protected** PATCH.
   /// Côté serveur l’énumération suit `ReservationStatus` : `PENDING`, `APPROVED`, `CANCELLED` (pas `ACCEPTED`).
   Future<HttpResponse> updateSollicitationStatus(
-      int sollicitationId, String status) async {
+    int sollicitationId,
+    String status, {
+    String? reason,
+  }) async {
     loading = true;
     notifyListeners();
 
@@ -1455,10 +1477,14 @@ class ServiceController with ChangeNotifier {
 
       final url =
           "${Endpoints.updateSollicitationStatusProtected}$sollicitationId";
-      final data = {
+      final data = <String, dynamic>{
         'status': normalized,
         'userId': _currentUserIdAsInt(),
       };
+      final trimmedReason = reason?.trim() ?? '';
+      if (trimmedReason.isNotEmpty) {
+        data['reason'] = trimmedReason;
+      }
 
       final response = await putData(url, data, token: token);
 

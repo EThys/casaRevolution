@@ -97,6 +97,71 @@ class PrestationModel {
     this.cotations,
   });
 
+  /// Nom, téléphone et e-mail du prestataire quand l’API les met à côté de la prestation (`postBy`, `actor`).
+  void absorbPublisher(Map<String, dynamic> envelope) {
+    String? text(dynamic value) {
+      if (value == null) return null;
+      final raw = value.toString().trim();
+      if (raw.isEmpty || raw.toLowerCase() == 'null') return null;
+      return raw;
+    }
+
+    Map<String, dynamic>? asMap(dynamic value) {
+      if (value is Map) return Map<String, dynamic>.from(value);
+      return null;
+    }
+
+    final actor = asMap(envelope['actor']);
+    final person = asMap(actor?['user']) ?? asMap(actor?['member']) ?? actor;
+    final profile = asMap(person?['profile']);
+
+    postBy ??= text(envelope['postBy']) ??
+        text(person?['fullName']) ??
+        text(person?['fullname']) ??
+        text(person?['username']) ??
+        text(profile?['fullName']) ??
+        text(profile?['fullname']);
+    username ??= postBy ?? text(person?['username']);
+    phone ??= text(envelope['postByTel']) ??
+        text(person?['phone']) ??
+        text(person?['telephone']) ??
+        text(profile?['phone']) ??
+        text(profile?['telephone']);
+    email ??= text(person?['email']) ?? text(profile?['email']);
+    if (user == null && person != null) {
+      user = UserModel.fromJson(person);
+    }
+  }
+
+  void mergePublisherFrom(PrestationModel? other) {
+    if (other == null) return;
+    String? keep(String? current, String? incoming) {
+      final text = current?.trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return current;
+      final next = incoming?.trim() ?? '';
+      if (next.isEmpty || next.toLowerCase() == 'null') return current;
+      return incoming;
+    }
+
+    postBy = keep(postBy, other.postBy ?? other.username);
+    username = keep(username, other.username ?? other.postBy);
+    phone = keep(phone, other.phone ?? other.user?.phone);
+    email = keep(email, other.email ?? other.user?.email);
+    user ??= other.user;
+  }
+
+  static String? _placeText(dynamic value) {
+    if (value == null) return null;
+    if (value is Map) {
+      final inner = value["address"] ?? value["adresse"] ?? value["name"];
+      if (inner == null || inner is Map) return null;
+      return _placeText(inner);
+    }
+    final text = value.toString().trim();
+    if (text.isEmpty || text.toLowerCase() == 'null') return null;
+    return text;
+  }
+
   static List<CotationModel>? _parseCotations(Map<String, dynamic> json) {
     dynamic raw = json['cotation'] ?? json['cotations'];
     if (raw == null) return null;
@@ -127,11 +192,25 @@ class PrestationModel {
     plageHeurePrestation: json["plageHeurePrestation"] ?? "",
     minPrice: _parseDouble(json["minPrice"]) ?? 0.0,
     maxPrice: _parseDouble(json["maxPrice"]) ?? 0.0,
-    address: json["address"],
-    communeValue: json["communeValue"] ?? "",
-    quartierValue: json["quartierValue"] ?? "",
-    cityValue: json["cityValue"] ?? "",
-    countryValue: json["countryValue"] ?? "",
+    address: _placeText(json["address"] is Map
+        ? (json["address"] as Map)["address"] ?? (json["address"] as Map)["adresse"]
+        : json["address"]),
+    communeValue: _placeText(json["communeValue"] ??
+            (json["address"] is Map ? (json["address"] as Map)["communeValue"] : null) ??
+            (json["commune"] is Map ? (json["commune"] as Map)["name"] : json["commune"])) ??
+        "",
+    quartierValue: _placeText(json["quartierValue"] ??
+            (json["address"] is Map ? (json["address"] as Map)["quartierValue"] : null) ??
+            (json["quartier"] is Map ? (json["quartier"] as Map)["name"] : json["quartier"])) ??
+        "",
+    cityValue: _placeText(json["cityValue"] ??
+            (json["address"] is Map ? (json["address"] as Map)["cityValue"] : null) ??
+            (json["city"] is Map ? (json["city"] as Map)["name"] : json["city"])) ??
+        "",
+    countryValue: _placeText(json["countryValue"] ??
+            (json["address"] is Map ? (json["address"] as Map)["countryValue"] : null) ??
+            (json["country"] is Map ? (json["country"] as Map)["name"] : json["country"])) ??
+        "",
     cityId: _parseInt(json["cityId"]),
     communeId: _parseInt(json["communeId"]),
     quartierId: _parseInt(json["quartierId"]),

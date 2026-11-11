@@ -1878,21 +1878,21 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                         ),
                       )
                     : OfflineNetworkImage(
-                        imageUrl: imageUrl,
+                          imageUrl: imageUrl,
                         width: double.infinity,
                         height: 180,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(
                           color: const Color(0xFFE5E7EB),
                           child: const Center(
-                            child: SizedBox(
+                              child: SizedBox(
                               width: 22,
                               height: 22,
                               child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
                             ),
                           ),
-                        ),
-                        errorWidget: (context, url, error) => Container(
+                          errorWidget: (context, url, error) => Container(
                           color: const Color(0xFFE5E7EB),
                           child: Icon(emptyIcon, color: Colors.grey[500], size: 42),
                         ),
@@ -1926,20 +1926,20 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                 const SizedBox(height: 10),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                      children: [
                     Icon(Icons.location_on_rounded, size: 18, color: _primaryColor),
                     const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
+                        Expanded(
+                          child: Text(
                         address.trim().isEmpty ? 'Adresse non renseignée' : address,
-                        style: TextStyle(
+                            style: TextStyle(
                           color: _textPrimary,
                           fontSize: 14,
                           height: 1.35,
                           fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1948,43 +1948,43 @@ class _BookingVisitPageState extends State<BookingVisitPage> {
                   runSpacing: 8,
                   children: [
                     if (price.trim().isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: _primaryColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
                           price,
-                          style: TextStyle(
+                    style: TextStyle(
                             fontWeight: FontWeight.w800,
-                            color: _primaryColor,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
+                      color: _primaryColor,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
                     for (final chip in extraChips)
-                      Container(
+                  Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
+                    decoration: BoxDecoration(
                           color: const Color(0xFFF0F4F8),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(
+                          child: Text(
                           chip,
-                          style: TextStyle(
+                            style: TextStyle(
                             color: _textSecondary,
                             fontWeight: FontWeight.w700,
-                            fontSize: 13,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                      ],
                 ),
               ],
-            ),
-          ),
-        ],
+                    ),
+                  ),
+                ],
       ),
     );
   }

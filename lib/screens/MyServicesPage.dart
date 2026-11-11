@@ -5,7 +5,9 @@ import 'package:casa/models/UserModel.dart';
 import 'package:casa/models/ServiceModel.dart';
 import 'package:casa/models/SollicitationModel.dart';
 import 'package:casa/screens/ServiceDetailPage.dart';
+import 'package:casa/utils/Endpoints.dart';
 import 'package:casa/utils/FancyNotification.dart';
+import 'package:casa/utils/requetes.dart';
 import 'package:casa/utils/crashlytics_api.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/StockageKeys.dart';
@@ -20,7 +22,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../controllers/AuthentificationCtrl.dart';
 import '../utils/database/DatabaseHelper.dart';
 import '../utils/UserInfoBottomSheet.dart';
-import '../widgets/ModernCustomDialog.dart'; // Import du nouveau modal
 import 'FullScreenImageViewer.dart'; // Pour le zoom image
 // Détails: on reste sur ServiceDetailPage (avec cotations sollicitationId).
 import 'package:casa/utils/SubscriptionHelper.dart';
@@ -1183,6 +1184,18 @@ class _MyServicesPageState extends State<MyServicesPage>
     final statusColor = _getStatusColor(item.status);
     final statusText =
         statusColor == _warningColor ? const Color(0xFFB45309) : statusColor;
+    final statusKey = item.status?.toUpperCase().trim();
+    final isCancelled = statusKey == 'CANCELLED' || statusKey == 'CANCELED';
+    final isValidated = statusKey == 'APPROVED' ||
+        statusKey == 'ACCEPTED' ||
+        statusKey == 'CONFIRMED';
+    final markByBorder = _viewMode == 1 && (isCancelled || isValidated);
+    final cardBorder = !markByBorder
+        ? BorderSide.none
+        : BorderSide(
+            color: isCancelled ? _errorColor : _successColor,
+            width: 1.6,
+          );
     final created = formatFrenchDateTime(item.createdAt);
     final period = formatFrenchStay(item.startDate, item.endDate);
     final prestation = item.prestation;
@@ -1200,7 +1213,7 @@ class _MyServicesPageState extends State<MyServicesPage>
     final description = (item.description ?? '').trim();
     final requester = _viewMode == 2 ? item.user : null;
     final requesterName = requester == null ? '' : requester.displayFullName;
-    final photo = (item.userImage ?? requester?.profilePicture ?? '').trim();
+    final photo = (item.requesterPhoto ?? '').trim();
 
     void open() {
       if (_viewMode == 2) {
@@ -1236,7 +1249,10 @@ class _MyServicesPageState extends State<MyServicesPage>
       ),
       child: Material(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: cardBorder,
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: open,
@@ -1247,22 +1263,23 @@ class _MyServicesPageState extends State<MyServicesPage>
               children: [
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        frSolicitationStatus(item.status),
-                        style: TextStyle(
-                          color: statusText,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
+                    if (!markByBorder)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          frSolicitationStatus(item.status),
+                          style: TextStyle(
+                            color: statusText,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
-                    ),
                     const Spacer(),
                     if (created != '—')
                       Text(
@@ -1475,6 +1492,7 @@ class _MyServicesPageState extends State<MyServicesPage>
   Widget _buildSolicitationBottomSheetContent(SollicitationModel item) {
     final String currency = (item.deviseId == 1) ? "FC" : "\$";
     final isPending = item.status?.toUpperCase() == 'PENDING';
+    final photo = (item.requesterPhoto ?? '').trim();
 
     return Container(
       padding: EdgeInsets.fromLTRB(
@@ -1543,13 +1561,12 @@ class _MyServicesPageState extends State<MyServicesPage>
                 children: [
                   GestureDetector(
                     onTap: () {
-                      final img = (item.userImage ?? item.user?.profilePicture);
-                      if (img != null && img.trim().isNotEmpty) {
+                      if (photo.isNotEmpty) {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) => FullScreenImageViewer(
-                                imagePath: img),
+                                imagePath: photo),
                           ),
                         );
                       }
@@ -1557,13 +1574,10 @@ class _MyServicesPageState extends State<MyServicesPage>
                     child: CircleAvatar(
                       radius: 24,
                       backgroundColor: _primaryColor.withOpacity(0.2),
-                      backgroundImage: ((item.userImage ?? item.user?.profilePicture) != null &&
-                              (item.userImage ?? item.user?.profilePicture)!.isNotEmpty)
-                          ? OfflineImageProvider(
-                              (item.userImage ?? item.user!.profilePicture!)!)
+                      backgroundImage: photo.isNotEmpty
+                          ? OfflineImageProvider(photo)
                           : null,
-                      child: ((item.userImage ?? item.user?.profilePicture) == null ||
-                              (item.userImage ?? item.user?.profilePicture)!.isEmpty)
+                      child: photo.isEmpty
                           ? Icon(Icons.person, color: _primaryColor)
                           : null,
                     ),
@@ -1748,27 +1762,47 @@ class _MyServicesPageState extends State<MyServicesPage>
     );
   }
 
-  Future<void> _confirmCancelUserSolicitation(SollicitationModel item) async {
-    ModernCustomDialog.show(
-      context,
-      title: 'Annuler la demande',
-      message:
-          'Voulez-vous vraiment annuler cette sollicitation ? Cette action est définitive.',
-      confirmText: 'ANNULER LA DEMANDE',
-      cancelText: 'RETOUR',
-      isDanger: true,
-      onConfirm: () => _processUserSolicitationCancel(item),
+  /// `null` si la personne ferme la feuille. Chaîne vide si elle confirme sans motif.
+  Future<String?> _askOptionalCancelReason({
+    required String title,
+    required String message,
+    required String confirmText,
+  }) {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _OptionalCancelReasonSheet(
+        title: title,
+        message: message,
+        confirmText: confirmText,
+      ),
     );
   }
 
-  Future<bool> _processUserSolicitationCancel(SollicitationModel item) async {
+  Future<void> _confirmCancelUserSolicitation(SollicitationModel item) async {
+    final reason = await _askOptionalCancelReason(
+      title: 'Annuler la demande',
+      message:
+          'Vous pouvez indiquer pourquoi vous annulez. Ce motif est optionnel.',
+      confirmText: 'ANNULER LA DEMANDE',
+    );
+    if (reason == null || !mounted) return;
+    await _processUserSolicitationCancel(item, reason);
+  }
+
+  Future<bool> _processUserSolicitationCancel(
+      SollicitationModel item, String reason) async {
     if (item.id == null) return false;
     setState(() => _isProcessingAction = true);
     try {
       final serviceCtrl =
           Provider.of<ServiceController>(context, listen: false);
-      final response =
-          await serviceCtrl.updateSollicitationStatus(item.id!, 'CANCELLED');
+      final response = await serviceCtrl.updateSollicitationStatus(
+        item.id!,
+        'CANCELLED',
+        reason: reason,
+      );
       if (response.status == true) {
         await _loadMySolicitations(forceRefresh: true);
         if (mounted) {
@@ -1822,18 +1856,19 @@ class _MyServicesPageState extends State<MyServicesPage>
     final bool isAccept =
         status == 'APPROVED' || status.toUpperCase() == 'ACCEPTED';
 
-    // Demander confirmation via le nouveau ModernCustomDialog pour le refus
     if (!isAccept) {
-      ModernCustomDialog.show(
-        context,
-        title: "Refuser la demande",
+      final reason = await _askOptionalCancelReason(
+        title: 'Refuser la demande',
         message:
-            "Êtes-vous sûr de vouloir refuser cette demande ? Cette action est irréversible.",
-        confirmText: "REFUSER",
-        cancelText: "ANNULER",
-        isDanger: true,
-        onConfirm: () =>
-            _processSolicitationStatusUpdate(item, status, isAccept),
+            'Vous pouvez indiquer pourquoi vous refusez. Ce motif est optionnel.',
+        confirmText: 'REFUSER',
+      );
+      if (reason == null || !mounted) return;
+      await _processSolicitationStatusUpdate(
+        item,
+        status,
+        isAccept,
+        reason: reason,
       );
       return;
     }
@@ -1843,14 +1878,21 @@ class _MyServicesPageState extends State<MyServicesPage>
   }
 
   Future<bool> _processSolicitationStatusUpdate(
-      SollicitationModel item, String status, bool isAccept) async {
+    SollicitationModel item,
+    String status,
+    bool isAccept, {
+    String? reason,
+  }) async {
     setState(() => _isProcessingAction = true);
 
     try {
       final serviceCtrl =
           Provider.of<ServiceController>(context, listen: false);
-      final response =
-          await serviceCtrl.updateSollicitationStatus(item.id!, status);
+      final response = await serviceCtrl.updateSollicitationStatus(
+        item.id!,
+        status,
+        reason: reason,
+      );
 
       if (response.status == true) {
         await _loadHostSolicitations(forceRefresh: true);
@@ -1980,7 +2022,95 @@ class _MyServicesPageState extends State<MyServicesPage>
 
   // --- PDF Logic for Services (Premium Redesign) ---
 
+  String _cleanContact(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty || text.toLowerCase() == 'null') return '';
+    return text;
+  }
+
+  void _fillProviderFromAccount(PrestationModel prestation) {
+    final me = _currentUserIdFromStorage();
+    if (me == null || prestation.userId != me) return;
+
+    Map<String, dynamic>? asMap(dynamic value) {
+      if (value is Map) return Map<String, dynamic>.from(value);
+      return null;
+    }
+
+    final user = asMap(_stockage.read(StockageKeys.userKey));
+    final nested = asMap(user?['user']) ?? user;
+    final profile = asMap(_stockage.read(StockageKeys.profileKey));
+    String? text(dynamic value) => _cleanContact(value?.toString()).isEmpty
+        ? null
+        : _cleanContact(value?.toString());
+
+    if (_cleanContact(prestation.postBy).isEmpty) {
+      prestation.postBy = text(profile?['fullName']) ??
+          text(profile?['fullname']) ??
+          text(nested?['fullName']) ??
+          text(nested?['username']);
+    }
+    if (_cleanContact(prestation.phone).isEmpty) {
+      prestation.phone = text(nested?['phone']) ??
+          text(profile?['phone']) ??
+          text(profile?['telephone']);
+    }
+    if (_cleanContact(prestation.email).isEmpty) {
+      prestation.email = text(nested?['email']) ?? text(profile?['email']);
+    }
+  }
+
+  Future<void> _completeProviderForDocument(SollicitationModel item) async {
+    final prestation = item.prestation;
+    if (prestation == null) return;
+
+    for (final known in _myPrestations) {
+      if (known.id != null && known.id == prestation.id) {
+        prestation.mergePublisherFrom(known);
+      }
+    }
+    _fillProviderFromAccount(prestation);
+
+    final hasName = _cleanContact(prestation.postBy).isNotEmpty ||
+        _cleanContact(prestation.username).isNotEmpty;
+    final hasPhone = _cleanContact(prestation.phone).isNotEmpty ||
+        _cleanContact(item.postByTel).isNotEmpty;
+    final hasEmail = _cleanContact(prestation.email).isNotEmpty;
+    if (hasName && (hasPhone || hasEmail)) return;
+
+    final id = prestation.id ?? item.prestationId;
+    if (id == null) return;
+    final token = _stockage.read(StockageKeys.tokenKey)?.toString();
+    final urls = <String>[
+      '${Endpoints.publicPrestations}/$id',
+      '${Endpoints.prestations}/$id',
+    ];
+    for (final url in urls) {
+      final raw = await getData(
+        url,
+        token: url.contains('/public/') ? '' : token,
+      );
+      if (raw is! Map) continue;
+      final envelope = Map<String, dynamic>.from(raw);
+      final data = envelope['data'] is Map
+          ? Map<String, dynamic>.from(envelope['data'] as Map)
+          : envelope;
+      final node = data['prestation'] is Map
+          ? Map<String, dynamic>.from(data['prestation'] as Map)
+          : data;
+      final fetched = PrestationModel.fromJson(node);
+      fetched.absorbPublisher(data);
+      fetched.absorbPublisher(envelope);
+      prestation.mergePublisherFrom(fetched);
+      final ready = _cleanContact(prestation.postBy).isNotEmpty &&
+          (_cleanContact(prestation.phone).isNotEmpty ||
+              _cleanContact(prestation.email).isNotEmpty);
+      if (ready) return;
+    }
+  }
+
   Future<Uint8List> _buildSolicitationPdfBytes(SollicitationModel item) async {
+    await _completeProviderForDocument(item);
     final doc = pw.Document();
 
     pw.Font? ttf;
@@ -2013,13 +2143,13 @@ class _MyServicesPageState extends State<MyServicesPage>
     final providerEmail = clean(prestation?.email).isNotEmpty
         ? clean(prestation?.email)
         : clean(prestation?.user?.email);
+    final street = clean(prestation?.address);
     final place = [
-      clean(prestation?.address),
       clean(prestation?.quartierValue),
       clean(prestation?.communeValue),
       clean(prestation?.cityValue),
       clean(prestation?.countryValue),
-    ].where((part) => part.isNotEmpty).join(', ');
+    ].where((part) => part.isNotEmpty && !street.toLowerCase().contains(part.toLowerCase())).join(', ');
     final availability = [
       clean(prestation?.plageJourPrestation),
       clean(prestation?.plageHeurePrestation),
@@ -2166,9 +2296,11 @@ class _MyServicesPageState extends State<MyServicesPage>
                   _buildDetailRow('Service sollicité',
                       prestation?.title ?? 'Service CasaNayo'),
                   _buildDetailRow('Prestataire', providerName),
-                  _buildDetailRow('Téléphone', providerPhone),
-                  if (providerEmail.isNotEmpty)
+                  if (providerPhone.isNotEmpty)
+                    _buildDetailRow('Téléphone', providerPhone)
+                  else
                     _buildDetailRow('E-mail', providerEmail),
+                  _buildDetailRow('Adresse', street),
                   _buildDetailRow('Lieu', place),
                   if (tariff.isNotEmpty) _buildDetailRow('Tarif annoncé', tariff),
                   if (availability.isNotEmpty)
@@ -2339,4 +2471,148 @@ class _MyServicesPageState extends State<MyServicesPage>
     }
   }
 
+}
+
+class _OptionalCancelReasonSheet extends StatefulWidget {
+  final String title;
+  final String message;
+  final String confirmText;
+
+  const _OptionalCancelReasonSheet({
+    required this.title,
+    required this.message,
+    required this.confirmText,
+  });
+
+  @override
+  State<_OptionalCancelReasonSheet> createState() =>
+      _OptionalCancelReasonSheetState();
+}
+
+class _OptionalCancelReasonSheetState extends State<_OptionalCancelReasonSheet> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: EdgeInsets.fromLTRB(
+          24,
+          22,
+          24,
+          24 + MediaQuery.viewPaddingOf(context).bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              widget.title,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF1A1A1A),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.message,
+              style: const TextStyle(
+                color: Color(0xFF5D4037),
+                fontSize: 13,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Motif (optionnel)',
+              style: TextStyle(
+                color: Color(0xFF666666),
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _controller,
+              maxLines: 3,
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Ex: dates plus disponibles, empêchement…',
+                hintStyle: const TextStyle(
+                  color: Color(0xFFAAAAAA),
+                  fontSize: 14,
+                ),
+                fillColor: const Color(0xFFF5F5F5),
+                filled: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.all(16),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context, _controller.text.trim()),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD32F2F),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Text(
+                  widget.confirmText,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'RETOUR',
+                  style: TextStyle(
+                    color: Color(0xFF666666),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

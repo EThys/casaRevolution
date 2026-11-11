@@ -1,4 +1,5 @@
 import 'package:casa/models/ReservationModel.dart';
+import 'package:casa/models/UserModel.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -26,22 +27,48 @@ Future<Uint8List> buildReservationPdfBytes(
   final now = DateFormat('dd/MM/yy HH:mm').format(DateTime.now());
 
   final property = reservation.property;
-
-  final advertiserName =
-      property?.postBy?.toString() ?? property?.user?.username?.toString() ?? 'Non renseigné';
   final propTypeName = property?.propertyType?.name?.toString() ?? 'Propriété';
-  final publisher = property?.user;
   String telOrEmpty(String? s) {
     final t = s?.trim() ?? '';
-    if (t.isEmpty || t == 'null') return '';
+    if (t.isEmpty || t.toLowerCase() == 'null') return '';
     return t;
   }
 
+  final client = reservation.user;
+  bool samePerson(UserModel? other) {
+    if (other == null || client == null) return false;
+    final a = other.userId;
+    final b = client.userId;
+    return a != null && b != null && a == b;
+  }
+
+  String? personName(UserModel? person) {
+    if (person == null || samePerson(person)) return null;
+    final full = telOrEmpty(person.fullName);
+    if (full.isNotEmpty) return full;
+    final username = telOrEmpty(person.username);
+    if (username.isNotEmpty) return username;
+    return null;
+  }
+
+  final hostUser = samePerson(reservation.proprietaire)
+      ? null
+      : reservation.proprietaire;
+  final listingUser = samePerson(property?.user) ? null : property?.user;
+  final publisher = hostUser ?? listingUser;
+  final postedBy = telOrEmpty(property?.postBy);
+  final listingUsername = telOrEmpty(property?.username);
+  final advertiserName = personName(hostUser) ??
+      (postedBy.isEmpty ? null : postedBy) ??
+      personName(listingUser) ??
+      (listingUsername.isEmpty ? null : listingUsername) ??
+      'Non renseigné';
   final publisherPhone = () {
     final fromApi = telOrEmpty(reservation.postByTel);
-    if (fromApi.isNotEmpty) return fromApi;
-    final fb = telOrEmpty(publisher?.phone?.toString());
-    return fb.isNotEmpty ? fb : 'Non renseigné';
+    if (fromApi.isNotEmpty && fromApi != telOrEmpty(client?.phone)) return fromApi;
+    final hostPhone = telOrEmpty(publisher?.phone?.toString());
+    if (hostPhone.isNotEmpty) return hostPhone;
+    return fromApi.isNotEmpty ? fromApi : 'Non renseigné';
   }();
   final typeAccountName = (publisher?.typeAccount?.name?.toString() ?? '').toLowerCase();
   final publisherRole = typeAccountName.contains('bailleur')
@@ -59,8 +86,13 @@ Future<Uint8List> buildReservationPdfBytes(
   final countryName = property?.countryValue?.toString() ?? '';
 
   String getCleanAddress(dynamic rawAddress) {
+    if (rawAddress is Map) {
+      final inner = rawAddress['address'] ?? rawAddress['adresse'];
+      return getCleanAddress(inner);
+    }
     if (rawAddress == null) return '';
-    final str = rawAddress.toString();
+    final str = rawAddress.toString().trim();
+    if (str.isEmpty || str.toLowerCase() == 'null') return '';
     if (str.contains('{') && str.contains('}')) {
       try {
         final match = RegExp(r'(?:adresse|address)\s?[:=]\s?([^,}]+)').firstMatch(str);
@@ -68,6 +100,7 @@ Future<Uint8List> buildReservationPdfBytes(
           return match.group(1)?.trim().replaceAll('"', '').replaceAll("'", "") ?? '';
         }
       } catch (_) {}
+      return '';
     }
     return str;
   }
@@ -118,7 +151,6 @@ Future<Uint8List> buildReservationPdfBytes(
     }
   }
 
-  final client = reservation.user;
   final userName = (client?.displayFullName ?? '').trim().isEmpty
       ? 'Client'
       : client!.displayFullName;
@@ -158,9 +190,15 @@ Future<Uint8List> buildReservationPdfBytes(
   final message = telOrEmpty(reservation.message);
   final cancelReason = telOrEmpty(reservation.cancellationReason);
   final address = getCleanAddress(property?.address);
+  final postal = telOrEmpty(property?.postalCode);
+  final fullAddress = [
+    address,
+    if (postal.isNotEmpty && !address.toLowerCase().contains(postal.toLowerCase())) postal,
+  ].where((part) => part.isNotEmpty).join(', ');
   final placeBits = [quartierName, communeName, cityName, countryName]
       .map((e) => e.trim())
       .where((e) => e.isNotEmpty && e.toLowerCase() != 'null')
+      .where((e) => !fullAddress.toLowerCase().contains(e.toLowerCase()))
       .toList();
   String shown(String value) {
     final text = value.trim();
@@ -310,7 +348,7 @@ Future<Uint8List> buildReservationPdfBytes(
                 if (bedrooms > 0) buildPdfDetailRow('Chambres', '$bedrooms'),
                 if (surfaceLabel.isNotEmpty) buildPdfDetailRow('Surface', surfaceLabel),
                 if (capacity > 0) buildPdfDetailRow('Capacité', '$capacity personnes'),
-                buildPdfDetailRow('Adresse', shown(address)),
+                buildPdfDetailRow('Adresse', shown(fullAddress)),
                 buildPdfDetailRow('Lieu', shown(placeBits.join(', '))),
                 if (telOrEmpty(property?.description).isNotEmpty)
                   buildPdfDetailRow('Description', telOrEmpty(property?.description)),

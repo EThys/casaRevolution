@@ -4,6 +4,7 @@ import 'package:get_storage/get_storage.dart';
 import '../models/ReservationModel.dart';
 import 'package:flutter/foundation.dart';
 
+import '../utils/casa_analytics.dart';
 import '../utils/Endpoints.dart';
 import '../utils/log_redaction.dart';
 import '../utils/StockageKeys.dart';
@@ -376,6 +377,17 @@ class ReservationController with ChangeNotifier {
     return reservation;
   }
 
+  String _reservationCategory(Map<String, dynamic> data) {
+    if (data['chambreId'] != null) return 'chambre';
+    if (data['hotelId'] != null) return 'hotel';
+    if (data['terrainId'] != null) return 'terrain';
+    if (data['festiveId'] != null) return 'festive';
+    if (data['funeraireId'] != null) return 'funeraire';
+    if (data['vacanceId'] != null) return 'vacance';
+    if (data['bureauId'] != null) return 'bureau';
+    return 'property';
+  }
+
   Future<HttpResponse> createReservation(
       Map<String, dynamic> reservationData, {
         int? propertyOwnerId,
@@ -498,6 +510,17 @@ class ReservationController with ChangeNotifier {
 
       // Vérifier si la création a réussi
       if (response.status == true && response.data != null) {
+        CasaAnalytics.reservationSent(
+          category: _reservationCategory(reservationData),
+          id: reservationData['chambreId'] ??
+              reservationData['propertyId'] ??
+              reservationData['hotelId'] ??
+              reservationData['terrainId'] ??
+              reservationData['bureauId'] ??
+              reservationData['vacanceId'] ??
+              reservationData['festiveId'] ??
+              reservationData['funeraireId'],
+        );
         // Déterminer quelle clé contient la réservation créée
         dynamic reservationJson = response.data['reservation'] ?? response.data['data'];
 

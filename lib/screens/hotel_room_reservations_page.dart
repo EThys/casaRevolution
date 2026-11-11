@@ -24,6 +24,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/PropertyModel.dart';
+import '../models/PropertyTypeModel.dart';
 import '../utils/french_date.dart';
 
 /// Liste des réservations d’une chambre d’hôtel (onglets + actions hôte alignés sur [BookingHistoryPage]).
@@ -31,6 +32,7 @@ class HotelRoomReservationsPage extends StatefulWidget {
   final int roomId;
   final String roomTitle;
   final List<ReservationModel> reservations;
+  final PropertyModel? hotel;
   final VoidCallback? onParentRefresh;
 
   const HotelRoomReservationsPage({
@@ -38,6 +40,7 @@ class HotelRoomReservationsPage extends StatefulWidget {
     required this.roomId,
     required this.roomTitle,
     required this.reservations,
+    this.hotel,
     this.onParentRefresh,
   }) : super(key: key);
 
@@ -192,6 +195,48 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
     });
   }
 
+  void _fillFromHotel(ReservationModel reservation) {
+    final hotel = widget.hotel;
+    if (hotel == null) return;
+    String? keep(String? current, String? fallback) {
+      final text = current?.trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return current;
+      final next = fallback?.trim() ?? '';
+      if (next.isEmpty || next.toLowerCase() == 'null') return current;
+      return fallback;
+    }
+
+    final property = reservation.property ??
+        PropertyModel(
+          propertyTypeId: 5,
+          propertyType: PropertyTypeModel(propertyTypeId: 5, name: 'Hôtel'),
+          title: widget.roomTitle,
+        );
+    property.address = keep(property.address, hotel.address);
+    property.communeValue = keep(property.communeValue, hotel.communeValue);
+    property.quartierValue = keep(property.quartierValue, hotel.quartierValue);
+    property.cityValue = keep(property.cityValue, hotel.cityValue);
+    property.countryValue = keep(property.countryValue, hotel.countryValue);
+    property.postalCode = keep(property.postalCode, hotel.postalCode);
+    property.postBy = keep(property.postBy, hotel.postBy ?? hotel.username);
+    final clientId = reservation.user?.userId;
+    final hotelOwner = hotel.user;
+    if (property.user == null &&
+        hotelOwner != null &&
+        hotelOwner.userId != null &&
+        hotelOwner.userId != clientId) {
+      property.user = hotelOwner;
+    }
+    final ownerPhone = hotelOwner?.phone?.trim() ?? '';
+    final currentTel = reservation.postByTel?.trim() ?? '';
+    if ((currentTel.isEmpty || currentTel.toLowerCase() == 'null') &&
+        ownerPhone.isNotEmpty &&
+        ownerPhone.toLowerCase() != 'null') {
+      reservation.postByTel = ownerPhone;
+    }
+    reservation.property = property;
+  }
+
   Future<void> _downloadReservationPdf(ReservationModel reservation) async {
     try {
       final dir = await pickExportDirectoryOrNull();
@@ -205,6 +250,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
         }
         return;
       }
+      _fillFromHotel(reservation);
       final bytes = await buildReservationPdfBytes(reservation, _logoImage);
       final generationDate =
           DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
@@ -233,6 +279,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
 
   Future<void> _shareReservationPdf(ReservationModel reservation) async {
     try {
+      _fillFromHotel(reservation);
       final bytes = await buildReservationPdfBytes(reservation, _logoImage);
       final generationDate =
           DateFormat('dd_MMMM_yyyy_HH_mm', 'fr_FR').format(DateTime.now());
@@ -420,7 +467,7 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
       } catch (_) {}
 
       if (action == 'CANCELLED') {
-        final usedReason = reason ?? "Refusé par l'hôte";
+        final usedReason = (reason ?? '').trim();
         print('📤 [HotelRoomReservationsPage] cancelReservation payload: {"status":"CANCELLED","reason":"$usedReason","userId":...}');
         lastResp = await ctrl.cancelReservation(
           reservation.reservationId!,
@@ -745,9 +792,9 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
             const SizedBox(height: 12),
             InkWell(
               onTap: () {
-                if (reservation.userImage != null &&
-                    reservation.userImage!.isNotEmpty) {
-                  reservation.user!.profilePicture = reservation.userImage;
+                final photo = reservation.requesterPhoto;
+                if (photo != null && photo.isNotEmpty) {
+                  reservation.user!.profilePicture = photo;
                 }
                 UserInfoBottomSheet.show(context, reservation.user!);
               },
@@ -764,13 +811,13 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                     CircleAvatar(
                       radius: 20,
                       backgroundColor: _primaryColor.withOpacity(0.2),
-                      backgroundImage: (reservation.userImage != null &&
-                              reservation.userImage!.isNotEmpty)
-                          ? OfflineImageProvider(reservation.userImage!)
+                      backgroundImage: (reservation.requesterPhoto != null &&
+                              reservation.requesterPhoto!.isNotEmpty)
+                          ? OfflineImageProvider(reservation.requesterPhoto!)
                               as ImageProvider
                           : null,
-                      child: (reservation.userImage != null &&
-                              reservation.userImage!.isNotEmpty)
+                      child: (reservation.requesterPhoto != null &&
+                              reservation.requesterPhoto!.isNotEmpty)
                           ? null
                           : Icon(Icons.person, color: _primaryColor),
                     ),
@@ -1131,7 +1178,17 @@ class _HotelRoomReservationsPageState extends State<HotelRoomReservationsPage>
                                   CircleAvatar(
                                     radius: 22,
                                     backgroundColor: _primaryColor.withOpacity(0.12),
-                                    child: const Icon(Icons.person_rounded, color: _primaryColor),
+                                    backgroundImage: (reservation.requesterPhoto !=
+                                                null &&
+                                            reservation.requesterPhoto!.isNotEmpty)
+                                        ? OfflineImageProvider(
+                                            reservation.requesterPhoto!)
+                                        : null,
+                                    child: (reservation.requesterPhoto != null &&
+                                            reservation.requesterPhoto!.isNotEmpty)
+                                        ? null
+                                        : const Icon(Icons.person_rounded,
+                                            color: _primaryColor),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
@@ -1621,10 +1678,6 @@ class _HostRoomCancelReasonSheetState extends State<_HostRoomCancelReasonSheet> 
 
   void _onConfirm() {
     final reason = _reasonController.text.trim();
-    if (reason.isEmpty) {
-      FancyNotification.show(context, "Veuillez entrer une raison simple");
-      return;
-    }
     setState(() => _isSheetLoading = true);
     Navigator.pop(context, {
       'confirmed': true,
@@ -1732,7 +1785,7 @@ class _HostRoomCancelReasonSheetState extends State<_HostRoomCancelReasonSheet> 
                       ),
                       const SizedBox(height: 18),
                       const Text(
-                        'Pourquoi souhaitez-vous annuler ?',
+                        'Pourquoi souhaitez-vous annuler ? (optionnel)',
                         style: TextStyle(
                           color: Color(0xFF666666),
                           fontSize: 14,

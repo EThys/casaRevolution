@@ -31,6 +31,13 @@ class SollicitationModel {
   /// Photo profil demandeur renvoyée par certains endpoints (ex: profile/reservation).
   String? userImage;
 
+  /// Photo de la personne qui sollicite, si l’API l’a envoyée.
+  String? get requesterPhoto {
+    final direct = profileImageUrlFrom(userImage);
+    if (direct != null) return direct;
+    return profileImageUrlFrom(user?.profilePicture);
+  }
+
   /// Téléphone annonceur / prestataire (`postByTel`) renvoyé par l’API sur création / liste.
   String? postByTel;
 
@@ -50,6 +57,35 @@ class SollicitationModel {
     this.postByTel,
     this.userImage,
   });
+
+  static String? _pickUserImage(
+    Map<String, dynamic> json,
+    Map<String, dynamic>? sollicitationData,
+    UserModel? user,
+  ) {
+    final direct = profileImageUrlFrom(json["userImage"] ??
+        sollicitationData?["userImage"] ??
+        json["imageUser"] ??
+        json["avatar"] ??
+        json["photo"]);
+    if (direct != null) return direct;
+
+    final raw = json["user"] ?? sollicitationData?["user"];
+    if (raw is Map) {
+      final m = Map<String, dynamic>.from(raw);
+      final fromUser = profileImageUrlFrom(m["avatar"] ??
+          m["profilePicture"] ??
+          m["profile_picture"] ??
+          m["image"] ??
+          m["photo"] ??
+          m["picture"] ??
+          m["images"]);
+      if (fromUser != null) return fromUser;
+      final fromProfile = profileImageUrlFrom(m["profile"]);
+      if (fromProfile != null) return fromProfile;
+    }
+    return profileImageUrlFrom(user?.profilePicture);
+  }
 
   static String? _parsePostByTel(
     Map<String, dynamic> json,
@@ -85,13 +121,37 @@ class SollicitationModel {
                 ? json["user"] as Map<String, dynamic>
                 : Map<String, dynamic>.from(json["user"] as Map),
           );
-    final prestation = json["prestation"] == null
-        ? null
-        : PrestationModel.fromJson(
-            json["prestation"] is Map<String, dynamic>
-                ? json["prestation"] as Map<String, dynamic>
-                : Map<String, dynamic>.from(json["prestation"] as Map),
-          );
+    PrestationModel? prestation;
+    if (json["prestation"] is Map) {
+      final wrapper = Map<String, dynamic>.from(json["prestation"] as Map);
+      final inner = wrapper["prestation"] is Map
+          ? Map<String, dynamic>.from(wrapper["prestation"] as Map)
+          : wrapper;
+      prestation = PrestationModel.fromJson(inner);
+      String? text(dynamic value) {
+        if (value == null) return null;
+        final raw = value.toString().trim();
+        if (raw.isEmpty || raw.toLowerCase() == 'null') return null;
+        return raw;
+      }
+
+      Map<String, dynamic>? actorUser;
+      final actor = wrapper["actor"] ?? json["actor"];
+      if (actor is Map) {
+        final person = actor["user"] ?? actor["member"] ?? actor;
+        if (person is Map) actorUser = Map<String, dynamic>.from(person);
+      }
+      prestation.postBy ??= text(wrapper["postBy"]) ??
+          text(json["postBy"]) ??
+          text(actorUser?["username"]) ??
+          text(actorUser?["fullName"]);
+      prestation.phone ??= text(wrapper["postByTel"]) ??
+          text(json["postByTel"]) ??
+          text(actorUser?["phone"]);
+      prestation.email ??= text(actorUser?["email"]);
+      prestation.user ??=
+          actorUser == null ? null : UserModel.fromJson(actorUser);
+    }
 
     return SollicitationModel(
       id: _asInt(sollicitationData?["id"] ?? json["id"]),
@@ -110,8 +170,7 @@ class SollicitationModel {
       createdAt: sollicitationData?["createdAt"],
       user: user,
       prestation: prestation,
-      userImage:
-          (json["userImage"] ?? sollicitationData?["userImage"])?.toString(),
+      userImage: _pickUserImage(json, sollicitationData, user),
       postByTel: _parsePostByTel(json, sollicitationData),
     );
   }

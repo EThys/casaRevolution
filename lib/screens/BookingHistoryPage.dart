@@ -1933,8 +1933,9 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
              SizedBox(height: 12),
              InkWell(
                onTap: () {
-                 if (reservation.userImage != null && reservation.userImage!.isNotEmpty) {
-                   reservation.user!.profilePicture = reservation.userImage;
+                 final photo = reservation.requesterPhoto;
+                 if (photo != null && photo.isNotEmpty) {
+                   reservation.user!.profilePicture = photo;
                  }
                  UserInfoBottomSheet.show(context, reservation.user!);
                },
@@ -1947,10 +1948,13 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                      CircleAvatar(
                        radius: 20,
                        backgroundColor: _primaryColor.withOpacity(0.2),
-                       backgroundImage: (reservation.userImage != null && reservation.userImage!.isNotEmpty)
-                           ? OfflineImageProvider(reservation.userImage!) as ImageProvider
+                       backgroundImage: (reservation.requesterPhoto != null &&
+                               reservation.requesterPhoto!.isNotEmpty)
+                           ? OfflineImageProvider(reservation.requesterPhoto!)
+                               as ImageProvider
                            : null,
-                       child: (reservation.userImage != null && reservation.userImage!.isNotEmpty)
+                       child: (reservation.requesterPhoto != null &&
+                               reservation.requesterPhoto!.isNotEmpty)
                            ? null
                            : Icon(Icons.person, color: _primaryColor),
                      ),
@@ -2169,6 +2173,50 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                   ],
                 ),
                 SizedBox(height: 20),
+
+                if (reservation.user != null ||
+                    (reservation.requesterPhoto ?? '').isNotEmpty) ...[
+                  Text(
+                    'Personne qui réserve',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: _darkColor,
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: _primaryColor.withOpacity(0.12),
+                        backgroundImage: (reservation.requesterPhoto != null &&
+                                reservation.requesterPhoto!.isNotEmpty)
+                            ? OfflineImageProvider(reservation.requesterPhoto!)
+                                as ImageProvider
+                            : null,
+                        child: (reservation.requesterPhoto != null &&
+                                reservation.requesterPhoto!.isNotEmpty)
+                            ? null
+                            : Icon(Icons.person, color: _primaryColor),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          (reservation.user?.fullName ?? '').trim().isNotEmpty
+                              ? reservation.user!.fullName!.trim()
+                              : (reservation.user?.username ?? 'Client'),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: _darkColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 20),
+                ],
 
                 // Section propriété
                 Text(
@@ -2547,10 +2595,6 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
 
             Future<void> onConfirm() async {
               final reason = reasonController.text.trim();
-              if (reason.isEmpty) {
-                FancyNotification.show(sheetContext, "Veuillez entrer une raison simple");
-                return;
-              }
               setSheetState(() => isSheetLoading = true);
               final ok = await _cancelReservation(reservation, reason);
               if (!mounted) return;
@@ -2664,7 +2708,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               ),
                               const SizedBox(height: 18),
                               const Text(
-                                'Pourquoi souhaitez-vous annuler ?',
+                                'Pourquoi souhaitez-vous annuler ? (optionnel)',
                                 style: TextStyle(
                                   color: Color(0xFF666666),
                                   fontSize: 14,
@@ -2992,7 +3036,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
     final reasonController = TextEditingController();
     bool isDialogLoading = false;
 
-    return await showDialog<Map<String, dynamic>>(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
       barrierDismissible: false,
       builder: (context) {
@@ -3122,12 +3166,10 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               onPressed: isDialogLoading 
                                   ? null 
                                   : () {
-                                      reasonController.dispose();
+                                      final text = reasonController.text.trim();
                                       Navigator.pop(context, {
                                         'confirmed': true,
-                                        'reason': reasonController.text.isEmpty 
-                                            ? "Refusé par l'hôte" 
-                                            : reasonController.text
+                                        'reason': text,
                                       });
                                     },
                               style: ElevatedButton.styleFrom(
@@ -3152,7 +3194,6 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
                               onPressed: isDialogLoading 
                                   ? null 
                                   : () {
-                                      reasonController.dispose();
                                       Navigator.pop(context, null);
                                     },
                               style: TextButton.styleFrom(
@@ -3179,6 +3220,8 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
         );
       },
     );
+    reasonController.dispose();
+    return result;
   }
 
   // Dialog pour valider une réservation (Host)
@@ -3350,7 +3393,7 @@ class _BookingHistoryPageState extends State<BookingHistoryPage>
            if (action == 'CANCELLED') {
             lastResp = await ctrl.cancelReservation(
               reservation.reservationId!,
-              reason ?? "Cancelled",
+              (reason ?? '').trim(),
               reservation: reservation,
             );
             success = lastResp.status == true;
