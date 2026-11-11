@@ -273,6 +273,7 @@ class _HotelManageDetailPageState extends State<HotelManageDetailPage>
           roomId: roomId,
           roomTitle: roomTitle,
           reservations: reservations,
+          hotel: _hotel,
           onParentRefresh: _refreshAll,
         ),
       ),
@@ -1218,10 +1219,14 @@ class _AddHotelRoomPageState extends State<AddHotelRoomPage> {
   }
 
   Future<void> _capture() async {
-    final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 82);
-    if (x != null) {
-      setState(() => _images.add(x));
+    final taken = <XFile>[];
+    while (mounted) {
+      final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 82);
+      if (!mounted || x == null) break;
+      taken.add(x);
     }
+    if (taken.isEmpty || !mounted) return;
+    setState(() => _images.addAll(taken));
   }
 
   Future<void> _submit() async {

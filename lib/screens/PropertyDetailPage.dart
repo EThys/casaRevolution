@@ -6,6 +6,7 @@ import 'package:casa/utils/FavoriteEartIcon.dart';
 import 'package:casa/utils/Routes.dart';
 import 'package:casa/utils/SubscriptionHelper.dart';
 import 'package:casa/utils/StockageKeys.dart';
+import 'package:casa/utils/casa_analytics.dart';
 import 'package:casa/utils/casanayo_share_copy.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -160,6 +161,13 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     
     // Démarrer le défilement automatique dès le début
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      CasaAnalytics.viewItem(
+        category: 'property',
+        id: widget.property.propertyId,
+        city: widget.property.cityValue,
+        commune: widget.property.communeValue,
+        price: widget.property.price,
+      );
       if (mounted) {
         _startAutoScrollForProperty(widget.property);
       }
@@ -416,6 +424,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
 
       final lines = <String>[
         '🏠 ${property.title ?? 'Belle propriété'}',
+        if (property.fullAddress.trim().isNotEmpty) property.fullAddress,
         '',
         '💰 $priceText',
       ];
@@ -428,8 +437,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
       }
       lines.add('');
       lines.add('Découvrez plus de détails sur CasaNayo !');
+      final id = property.propertyId;
       final shareText =
-          '${lines.join('\n')}\n\n${CasanayoShareCopy.listingShareFooter(listingId: property.propertyId, kindLabel: 'propriété')}';
+          '${lines.join('\n')}\n\n${CasanayoShareCopy.listingShareFooter(listingId: id, kindLabel: 'propriété', openUrl: id == null ? null : CasanayoShareCopy.propertyOpenLink(id, kind: CasanayoShareCopy.kindForPropertyType(property.propertyTypeId)))}';
 
       try {
         final box = context.findRenderObject() as RenderBox?;
@@ -2702,12 +2712,18 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
     );
   }
 
+  bool _isKnownUtility(int? value) {
+    return value == 80 || value == 60 || value == 40 || value == 20;
+  }
+
   Widget _buildEssentialServicesSectionFor(PropertyModel property) {
     final electric = property.electric;
     final water = property.water;
+    final hall = _isFestiveOrFuneraireFor(property);
+    final showElectric = electric != null && (hall || electric != 0);
+    final showWater = water != null && (hall || water != 0);
 
-    // Si aucun service n'est défini, ne pas afficher la section
-    if (electric == null && water == null) {
+    if (!showElectric && !showWater) {
       return SizedBox();
     }
 
@@ -2725,9 +2741,9 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
         SizedBox(height: 16),
 
         // Service Électricité
-        if (electric != null)
+        if (showElectric)
           Container(
-            margin: EdgeInsets.only(bottom: water != null ? 12 : 0),
+            margin: EdgeInsets.only(bottom: showWater ? 12 : 0),
             padding: EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -2770,30 +2786,30 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                               color: _darkColor,
                             ),
                           ),
-                          Spacer(),
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: _getServiceColor(electric).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: _getServiceColor(electric).withOpacity(0.3),
+                          if (_isKnownUtility(electric))
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: _getServiceColor(electric).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: _getServiceColor(electric).withOpacity(0.3),
+                                ),
+                              ),
+                              child: Text(
+                                _getServicePercentage(electric),
+                                style: TextStyle(
+                                  color: _getServiceColor(electric),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
-                            child: Text(
-                              _getServicePercentage(electric),
-                              style: TextStyle(
-                                color: _getServiceColor(electric),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
                         ],
                       ),
                       SizedBox(height: 4),
                       Text(
-                        _getElectricText(electric),
+                        _isKnownUtility(electric) ? _getElectricText(electric) : 'Non renseigné',
                         style: TextStyle(
                           color: _greyColor,
                           fontSize: 14,
@@ -2807,7 +2823,7 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
           ),
 
         // Service Eau
-        if (water != null)
+        if (showWater)
           Container(
             padding: EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -2851,30 +2867,30 @@ class _PropertyDetailPageState extends State<PropertyDetailPage> {
                               color: _darkColor,
                             ),
                           ),
-                          Spacer(),
-                          Container(
-                            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: _getServiceColor(water).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: _getServiceColor(water).withOpacity(0.3),
+                          if (_isKnownUtility(water))
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: _getServiceColor(water).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: _getServiceColor(water).withOpacity(0.3),
+                                ),
+                              ),
+                              child: Text(
+                                _getServicePercentage(water),
+                                style: TextStyle(
+                                  color: _getServiceColor(water),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
-                            child: Text(
-                              _getServicePercentage(water),
-                              style: TextStyle(
-                                color: _getServiceColor(water),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
                         ],
                       ),
                       SizedBox(height: 4),
                       Text(
-                        _getWaterText(water),
+                        _isKnownUtility(water) ? _getWaterText(water) : 'Non renseigné',
                         style: TextStyle(
                           color: _greyColor,
                           fontSize: 14,

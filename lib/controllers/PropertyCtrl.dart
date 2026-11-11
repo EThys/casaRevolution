@@ -216,6 +216,18 @@ class PropertyController with ChangeNotifier {
     return null;
   }
 
+  /// Le détail festif/funéraire renvoie `data: [ { festive, images, ... } ]`.
+  /// `fromJson` attend l’objet, pas la liste.
+  Map<String, dynamic>? _listingMapFromNode(dynamic node) {
+    if (node is Map) return Map<String, dynamic>.from(node);
+    if (node is List) {
+      for (final item in node) {
+        if (item is Map) return Map<String, dynamic>.from(item);
+      }
+    }
+    return null;
+  }
+
   /// Complète [sold] quand l’API envoie le flag dans une enveloppe (`funeraire`, `property`, etc.).
   void _mergeSoldFromRaw(PropertyModel p, dynamic raw) {
     if (raw is! Map) return;
@@ -1370,9 +1382,10 @@ class PropertyController with ChangeNotifier {
           }
         }
 
-        if (propertyJson != null) {
-          PropertyModel property = PropertyModel.fromJson(Map<String, dynamic>.from(propertyJson));
-          _mergeSoldFromRaw(property, propertyJson);
+        final listingMap = _listingMapFromNode(propertyJson);
+        if (listingMap != null) {
+          PropertyModel property = PropertyModel.fromJson(listingMap);
+          _mergeSoldFromRaw(property, listingMap);
           if (response is Map<String, dynamic>) {
             _mergeSoldFromRaw(property, response);
           }
@@ -2748,9 +2761,13 @@ class PropertyController with ChangeNotifier {
         if (sold == true  &&  isLocation) return false;
       }
 
-      // Filtre prix
-      if (minPrice != null && (property.price ?? 0) < minPrice) return false;
-      if (maxPrice != null && (property.price ?? double.maxFinite) > maxPrice) return false;
+      // Filtre prix. Un hôtel est comparé au tarif de départ de ses chambres.
+      if (minPrice != null || maxPrice != null) {
+        final amount = property.catalogPrice;
+        if (amount == null) return false;
+        if (minPrice != null && amount < minPrice) return false;
+        if (maxPrice != null && amount > maxPrice) return false;
+      }
 
       // Filtre type de bien
       if (typeMaison != null && property.propertyTypeId != typeMaison) return false;

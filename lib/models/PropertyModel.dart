@@ -21,6 +21,42 @@ int? _parseInt(dynamic value) {
   return null;
 }
 
+bool _isKnownUtilityLevel(int? value) {
+  return value == 80 || value == 60 || value == 40 || value == 20;
+}
+
+/// Lit électricité / eau sur l’objet plat et sur les nœuds imbriqués
+/// (`festive`, `funeraire`, `bureau`, `property`). Un niveau 20/40/60/80
+/// l’emporte sur un 0 laissé par une enveloppe incomplète.
+int? _readUtility(List<Map<String, dynamic>> layers, List<String> keys) {
+  int? fallback;
+  void consider(dynamic raw) {
+    final parsed = _parseInt(raw);
+    if (parsed == null) return;
+    if (_isKnownUtilityLevel(parsed)) {
+      fallback = parsed;
+      return;
+    }
+    fallback ??= parsed;
+  }
+
+  for (final layer in layers) {
+    for (final key in keys) {
+      consider(layer[key]);
+      if (_isKnownUtilityLevel(fallback)) return fallback;
+    }
+    for (final nestedKey in const ['festive', 'funeraire', 'bureau', 'property']) {
+      final nested = layer[nestedKey];
+      if (nested is! Map) continue;
+      for (final key in keys) {
+        consider(nested[key]);
+        if (_isKnownUtilityLevel(fallback)) return fallback;
+      }
+    }
+  }
+  return fallback;
+}
+
 double? _parseDouble(dynamic value) {
   if (value == null) return null;
   if (value is double) return value;
@@ -288,7 +324,22 @@ class PropertyModel {
     print('🔍 Parsing PropertyModel [ID: ${dataNode["propertyId"] ?? dataNode["id"]}] - Structure: ${json["property"] != null ? (container["property"] != null ? 'DOUBLE_NESTED' : 'NESTED') : 'FLAT'}');
                 
     final dynamic imagesNode = container["images"] ?? json["images"] ?? container["propertyImage"] ?? dataNode["profile"];
-    final Map<String, dynamic> addressNode = container["address"] is Map ? container["address"] : (json["address"] is Map ? json["address"] : dataNode);
+    final dynamic rawAddress = container["address"] ?? json["address"] ?? dataNode["address"];
+    final Map<String, dynamic> addressNode = rawAddress is Map
+        ? Map<String, dynamic>.from(rawAddress)
+        : dataNode;
+    final dynamic rawLocal = json["localAddress"] ?? container["localAddress"];
+    final Map<String, dynamic>? localAddress =
+        rawLocal is Map ? Map<String, dynamic>.from(rawLocal) : null;
+    String? namedPlace(dynamic node) {
+      if (node is Map) return _parseString(node["name"]);
+      return _parseString(node);
+    }
+    String? placeOr(String? current, dynamic named) {
+      final text = current?.trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return current;
+      return namedPlace(named);
+    }
     final Map<String, dynamic> geoNode = container["geoZone"] is Map ? container["geoZone"] : (json["geoZone"] is Map ? json["geoZone"] : dataNode);
     final Map<String, dynamic> typeNode = container["typeProperty"] is Map ? container["typeProperty"] : (json["typeProperty"] is Map ? json["typeProperty"] : dataNode);
     
@@ -327,15 +378,27 @@ class PropertyModel {
       livingRoom: _parseInt(dataNode["livingRoom"]) ?? 0,
       bathroom: _parseInt(dataNode["bathroom"]) ?? 0,
       floor: _parseInt(dataNode["floor"]) ?? 0,
-      address: _parseString(addressNode["address"]) ?? _parseString(dataNode["address"]),
+      address: _parseString(addressNode["address"]) ??
+          _parseString(addressNode["adresse"]) ??
+          (rawAddress is String ? _parseString(rawAddress) : null) ??
+          _parseString(dataNode["adresse"]),
 
       // NOUVELLES PROPRIÉTES
       guarantee: _parseString(dataNode["guarantee"]),
-      communeValue: _parseString(addressNode["communeValue"]) ?? _parseString(dataNode["communeValue"]),
-      cityValue: _parseString(addressNode["cityValue"]) ?? _parseString(dataNode["cityValue"]),
+      communeValue: placeOr(
+        _parseString(addressNode["communeValue"]) ?? _parseString(dataNode["communeValue"]),
+        localAddress?["commune"],
+      ),
+      cityValue: placeOr(
+        _parseString(addressNode["cityValue"]) ?? _parseString(dataNode["cityValue"]),
+        localAddress?["city"],
+      ),
       countryValue: _parseString(addressNode["countryValue"]) ?? _parseString(dataNode["countryValue"]),
       districtValue: _parseString(addressNode["districtValue"]) ?? _parseString(dataNode["districtValue"]),
-      quartierValue: _parseString(addressNode["quartierValue"]) ?? _parseString(dataNode["quartierValue"]),
+      quartierValue: placeOr(
+        _parseString(addressNode["quartierValue"]) ?? _parseString(dataNode["quartierValue"]),
+        localAddress?["quartier"],
+      ),
 
       cityId: _parseInt(addressNode["cityId"]) ?? _parseInt(dataNode["cityId"]) ?? 0,
       communeId: _parseInt(addressNode["communeId"]) ?? _parseInt(dataNode["communeId"]) ?? 0,
@@ -377,7 +440,8 @@ class PropertyModel {
               ? UserModel.fromJson(
                   Map<String, dynamic>.from(container["user"] as Map),
                 )
-              : (json["user"] is Map
+              // Sur une réservation, `user` à la racine est le client, pas l'annonceur.
+              : (json["reservation"] is! Map && json["user"] is Map
                   ? UserModel.fromJson(
                       Map<String, dynamic>.from(json["user"] as Map),
                     )
@@ -387,8 +451,8 @@ class PropertyModel {
       createdStart: _parseString(dataNode["createdStart"]) ?? _parseString(_getVal("createdAt")) ?? _parseString(json["createdAt"]),
       updatedAt: _parseString(dataNode["updatedAt"]) ?? _parseString(json["updatedAt"]),
       createdAt: _parseString(_getVal("createdAt")) ?? _parseString(json["createdAt"]),
-      electric: _parseInt(dataNode["electric"]) ?? 0,
-      water: _parseInt(dataNode["water"]) ?? 0,
+      electric: _readUtility([dataNode, container, json], const ['electric', 'electricity']) ?? 0,
+      water: _readUtility([dataNode, container, json], const ['water']) ?? 0,
 
       // CHAMPS SPÉCIFIQUES
       roomMeet: _parseInt(_getVal("roomMeet")),
@@ -570,6 +634,24 @@ class PropertyModel {
   bool get isHotelListing {
     final name = (propertyType?.name ?? '').toLowerCase();
     return propertyTypeId == 5 || name.contains('hotel') || name.contains('hôtel');
+  }
+
+  /// Montant utilisé par les filtres. Pour un hôtel, c’est le tarif de départ des chambres.
+  double? get catalogPrice {
+    if (isHotelListing) {
+      double? best;
+      for (final row in hotelStructure ?? const <HotelRoomStructure>[]) {
+        final room = row.chambre;
+        final amount = room?.price;
+        if (room == null || amount == null || amount <= 0) continue;
+        if (room.available == false) continue;
+        if (best == null || amount < best) best = amount;
+      }
+      if (best != null) return best;
+    }
+    final listing = price;
+    if (listing == null || listing <= 0) return null;
+    return listing;
   }
 
   /// Retiré du site par l’administration.

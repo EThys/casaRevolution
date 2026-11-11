@@ -10,6 +10,7 @@ import '../models/CotationModel.dart';
 import '../models/PrestationModel.dart';
 import '../models/SollicitationModel.dart';
 import '../utils/database/DatabaseHelper.dart';
+import '../utils/casa_analytics.dart';
 import '../utils/review_eligibility.dart';
 import 'CotationsListPage.dart';
 import '../utils/FancyNotification.dart';
@@ -613,6 +614,13 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
     initializeDateFormatting('fr_FR', null);
     _imageController = PageController(initialPage: 0);
 
+    CasaAnalytics.viewItem(
+      category: 'service',
+      id: widget.service.id,
+      city: widget.service.cityValue,
+      commune: widget.service.communeValue,
+      price: widget.service.minPrice,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final c = context.read<ServiceController>();
@@ -689,8 +697,15 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
   Future<void> _shareService(PrestationModel service) async {
     final priceText = _getPriceRange(service);
 
+    final place = CasanayoShareCopy.joinPlace([
+      service.address,
+      service.quartierValue,
+      service.communeValue,
+      service.cityValue,
+    ]);
     final lines = <String>[
-      '🔧 ${service.title ?? 'Service professionnel'} — ${service.cityValue}, ${service.communeValue}',
+      '🔧 ${service.title ?? 'Service professionnel'}',
+      if (place.isNotEmpty) place,
       '',
       '💰 $priceText',
     ];
@@ -699,10 +714,8 @@ class _ServiceDetailPageState extends State<ServiceDetailPage> {
       lines.add('');
       lines.add(desc);
     }
-    lines.add('');
-    lines.add('Découvrez ce service sur CasaNayo !');
     final shareText =
-        '${lines.join('\n')}\n\n${CasanayoShareCopy.listingShareFooter(listingId: service.id, kindLabel: 'service')}';
+        '${lines.join('\n')}\n\n${CasanayoShareCopy.listingShareFooter(listingId: service.id, kindLabel: 'service', openUrl: service.id == null ? null : CasanayoShareCopy.serviceOpenLink(service.id!))}';
 
     try {
       final box = context.findRenderObject() as RenderBox?;

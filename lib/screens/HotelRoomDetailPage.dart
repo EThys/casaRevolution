@@ -3,6 +3,7 @@ import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/screens/HotelImageZoomPage.dart';
 import 'package:casa/utils/cache/HotelImageCache.dart';
 import 'package:casa/utils/database/DatabaseHelper.dart';
+import 'package:casa/utils/casa_analytics.dart';
 import 'package:casa/utils/hotel_room_price.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -46,6 +47,13 @@ class _HotelRoomDetailPageState extends State<HotelRoomDetailPage> {
   void initState() {
     super.initState();
     _room = widget.structure.chambre;
+    CasaAnalytics.viewItem(
+      category: 'chambre',
+      id: _room?.id,
+      city: widget.hotel.cityValue,
+      commune: widget.hotel.communeValue,
+      price: _room?.price,
+    );
     _photos = _photoUrls(widget.structure);
     _loadingPhotos = _photos.isEmpty && _room?.id != null;
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadRoom());

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:casa/utils/casa_analytics.dart';
 import 'package:casa/utils/offline_network_image.dart';
 import 'package:casa/models/TerrainModel.dart';
 import 'package:casa/screens/FullScreenImageViewer.dart'; // Ensure this exists or use placeholder
@@ -104,6 +105,13 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
   void initState() {
     super.initState();
     _displayTerrain = widget.terrain;
+    CasaAnalytics.viewItem(
+      category: 'terrain',
+      id: widget.terrain.terrain?.id,
+      city: widget.terrain.address?.cityValue,
+      commune: widget.terrain.address?.communeValue,
+      price: widget.terrain.terrain?.price,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _startAutoScroll();
       final ctrl = context.read<PropertyController>();
@@ -358,15 +366,22 @@ class _TerrainDetailPageState extends State<TerrainDetailPage> {
     final rawCurrency = _displayTerrain.devise?.code ?? 'USD';
     final currency = (rawCurrency == 'USD') ? '\$' : (rawCurrency == 'CDF' ? 'FC' : rawCurrency);
     
+    final place = CasanayoShareCopy.joinPlace([
+      _displayTerrain.address?.address,
+      _displayTerrain.address?.quartierValue,
+      _displayTerrain.address?.communeValue,
+      _displayTerrain.address?.cityValue,
+      _displayTerrain.address?.countryValue,
+    ]);
     final intro = <String>[
-      'Découvrez ce terrain : $title',
+      title,
+      if (place.isNotEmpty) place,
       '',
       'Prix : $price $currency',
-      '',
-      "Sur l'application CasaNayo !",
     ].join('\n');
+    final terrainId = _displayTerrain.terrain?.id;
     await Share.share(
-      '$intro\n\n${CasanayoShareCopy.listingShareFooter(listingId: _displayTerrain.terrain?.id, kindLabel: 'terrain')}',
+      '$intro\n\n${CasanayoShareCopy.listingShareFooter(listingId: terrainId, kindLabel: 'terrain', openUrl: terrainId == null ? null : CasanayoShareCopy.propertyOpenLink(terrainId, kind: 'terrain'))}',
       subject: 'Terrain à voir',
     );
   }

@@ -209,6 +209,7 @@ class _SiteDetailsPageState extends State<SiteDetailsPage> {
     buf.write(CasanayoShareCopy.listingShareFooter(
       listingId: s.id,
       kindLabel: 'site',
+      openUrl: s.id == null ? null : CasanayoShareCopy.propertyOpenLink(s.id!, kind: 'vacance'),
     ));
     try {
       await Share.share(

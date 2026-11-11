@@ -21,6 +21,17 @@ class PropertySnapshotMerge {
     return rich;
   }
 
+  static bool _knownUtility(int? value) {
+    return value == 80 || value == 60 || value == 40 || value == 20;
+  }
+
+  /// Un 0 (« non renseigné ») ne doit pas masquer un niveau déjà choisi.
+  static int? _utility(int? nav, int? rich) {
+    if (_knownUtility(nav)) return nav;
+    if (_knownUtility(rich)) return rich;
+    return nav ?? rich;
+  }
+
   /// Fusionne les chambres par id : garde le texte et les photos les plus complets.
   static List<HotelRoomStructure>? mergeHotelRooms(
     List<HotelRoomStructure>? nav,
@@ -167,8 +178,8 @@ class PropertySnapshotMerge {
       createdStart: _nz(nav.createdStart, rich.createdStart),
       updatedAt: _nz(nav.updatedAt, rich.updatedAt),
       createdAt: _nz(nav.createdAt, rich.createdAt),
-      electric: nav.electric ?? rich.electric,
-      water: nav.water ?? rich.water,
+      electric: _utility(nav.electric, rich.electric),
+      water: _utility(nav.water, rich.water),
       roomMeet: nav.roomMeet ?? rich.roomMeet,
       numberPiece: nav.numberPiece ?? rich.numberPiece,
       isEquip: nav.isEquip ?? rich.isEquip,

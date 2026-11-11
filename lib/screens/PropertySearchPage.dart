@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:casa/utils/casa_analytics.dart';
 import 'package:casa/utils/offline_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -151,15 +152,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       if (sold == true && isLocation) return false;
     }
 
-    final price = p.price;
-    final priceWasNarrowed = _priceRange.start > 10 || _priceRange.end < 400;
-    if (priceWasNarrowed &&
-        !p.isHotelListing &&
-        price != null &&
-        price > 0 &&
-        (price < _priceRange.start || price > _priceRange.end)) {
-      return false;
-    }
+    if (!_amountMatchesBudget(p.catalogPrice)) return false;
 
     int? propertyTypeId = _propertyTypeMapping[_selectedPropertyType];
     if (propertyTypeId == 0) propertyTypeId = null;
@@ -182,7 +175,12 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
     if (_selectedBedrooms != null && _selectedBedrooms!.isNotEmpty) {
       final br = int.tryParse(_selectedBedrooms!);
-      if (br != null && p.propertyTypeId != 9) {
+      final skipRooms = p.isHotelListing ||
+          p.isVacationListing ||
+          p.propertyTypeId == 7 ||
+          p.propertyTypeId == 8 ||
+          p.propertyTypeId == 9;
+      if (br != null && !skipRooms) {
         final rooms = p.rooms ?? p.bedrooms ?? 0;
         if (rooms != br) return false;
       }
@@ -311,9 +309,6 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   @override
   void initState() {
     super.initState();
-    _minPriceController.text = _priceRange.start.toInt().toString();
-    _maxPriceController.text = _priceRange.end.toInt().toString();
-
     _minPriceController.addListener(_updatePriceRange);
     _maxPriceController.addListener(_updatePriceRange);
 
@@ -422,10 +417,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       if (!mounted) return;
       setState(() {
         _allPrestations = List.from(serviceCtrl.prestations);
-        _filteredPrestations = List.from(serviceCtrl.prestations);
-        _visibleServiceCount = _filteredPrestations.length;
         _isLoadingMoreServices = false;
       });
+      _refilterServices(resetWindow: false);
     }
   }
 
@@ -512,12 +506,46 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   }
 
 
+  bool get _priceFilterActive {
+    final minText = _minPriceController.text.trim();
+    final maxText = _maxPriceController.text.trim();
+    if (minText.isEmpty && maxText.isEmpty) return false;
+    if (minText == '10' && maxText == '400') return false;
+    return double.tryParse(minText) != null || double.tryParse(maxText) != null;
+  }
+
+  (double?, double?) get _budgetBounds {
+    if (!_priceFilterActive) return (null, null);
+    var min = double.tryParse(_minPriceController.text.trim());
+    var max = double.tryParse(_maxPriceController.text.trim());
+    if (min != null && max != null && min > max) {
+      final swap = min;
+      min = max;
+      max = swap;
+    }
+    return (min, max);
+  }
+
+  double? get _minPriceBound => _budgetBounds.$1;
+
+  double? get _maxPriceBound => _budgetBounds.$2;
+
+  bool _amountMatchesBudget(double? amount) {
+    final min = _minPriceBound;
+    final max = _maxPriceBound;
+    if (min == null && max == null) return true;
+    if (amount == null || amount <= 0) return false;
+    if (min != null && amount < min) return false;
+    if (max != null && amount > max) return false;
+    return true;
+  }
+
   void _updatePriceRange({StateSetter? setModalState}) {
-    final min = int.tryParse(_minPriceController.text) ?? 10;
-    final max = int.tryParse(_maxPriceController.text) ?? 400;
-    
+    final min = int.tryParse(_minPriceController.text.trim());
+    final max = int.tryParse(_maxPriceController.text.trim());
+
     final fn = () {
-      if (min <= max) {
+      if (min != null && max != null && min <= max) {
         _priceRange = RangeValues(min.toDouble(), max.toDouble());
       }
     };
@@ -597,6 +625,14 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
   void _performSearch() {
     final searchTerm = _searchController.text.trim();
+    if (searchTerm.isNotEmpty) {
+      CasaAnalytics.search(
+        term: searchTerm,
+        itemType: _searchType == 'Propriétés' ? _selectedPropertyType : 'service',
+        city: _selectedCity,
+        commune: _selectedCommune,
+      );
+    }
 
     if (_searchType == 'Propriétés') {
        final controller = Provider.of<PropertyController>(context, listen: false);
@@ -624,30 +660,10 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
        });
        
        // Simulate network delay for better UX
-       Future.delayed(Duration(milliseconds: 500), () {
-         if (mounted) {
-           setState(() {
-             if (searchTerm.isEmpty) {
-               _filteredPrestations = List.from(_allPrestations);
-             } else {
-               _filteredPrestations = _allPrestations.where((s) {
-                 final title = s.title?.toLowerCase() ?? '';
-                 final desc = s.description?.toLowerCase() ?? '';
-                 final query = searchTerm.toLowerCase();
-                 return title.contains(query) || desc.contains(query);
-               }).toList();
-             }
-             
-             // Trier par date la plus récente
-             _filteredPrestations.sort((a, b) {
-               final dateA = a.dateCreated ?? DateTime(2000);
-               final dateB = b.dateCreated ?? DateTime(2000);
-               return dateB.compareTo(dateA);
-             });
-             
-             _showSearchLoader = false;
-           });
-         }
+       Future.delayed(Duration(milliseconds: 300), () {
+         if (!mounted) return;
+         _refilterServices();
+         setState(() => _showSearchLoader = false);
        });
     }
   }
@@ -660,9 +676,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
          final controller = Provider.of<PropertyController>(context, listen: false);
          controller.resetFilters();
       } else {
-        setState(() {
-          _filteredPrestations = List.from(_allPrestations);
-        });
+        _refilterServices();
       }
       setState(() {
         _showSearchLoader = false;
@@ -691,11 +705,11 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     }
   }
 
-  void _resetFilters() {
+  void _resetFilters({StateSetter? setModalState}) {
     final locationController = Provider.of<LocationController>(context, listen: false);
 
     setState(() {
-      _priceRange = RangeValues(10, 400);
+      _priceRange = const RangeValues(0, 0);
       _selectedPropertyType = 'Tous';
       _selectedBedrooms = null;
       _selectedCity = null;
@@ -703,8 +717,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       _selectedQuartier = null;
       _selectedTransaction = 'Location';
       _selectedServiceCategory = null; 
-      _minPriceController.text = '10';
-      _maxPriceController.text = '400';
+      _minPriceController.clear();
+      _maxPriceController.clear();
       _bedroomsController.clear();
       _searchController.clear();
       _isSearching = false;
@@ -723,6 +737,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       // Reset prestations list
       _filteredPrestations = List.from(_allPrestations);
     });
+    setModalState?.call(() {});
 
     final controller = Provider.of<PropertyController>(context, listen: false);
     controller.resetFilters();
@@ -769,24 +784,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         if (mounted) {
           final serviceCtrl = Provider.of<ServiceController>(context, listen: false);
           await serviceCtrl.fetchAllPrestations(size: 200);
-          setState(() {
-             _allPrestations = List.from(serviceCtrl.prestations);
-             // Re-apply local service search if needed
-              if (_searchController.text.isNotEmpty) {
-                 final query = _searchController.text.toLowerCase();
-                 _filteredPrestations = _allPrestations.where((s) {
-                   final title = s.title?.toLowerCase() ?? '';
-                   final desc = s.description?.toLowerCase() ?? '';
-                   return title.contains(query) || desc.contains(query);
-                 }).toList();
-              } else {
-                _filteredPrestations = List.from(serviceCtrl.prestations);
-                // TODO: Re-apply local category filters if any
-                if (_selectedServiceCategory != null) {
-                   _onServiceCategoryRefilter(); 
-                }
-              }
-          });
+          _allPrestations = List.from(serviceCtrl.prestations);
+          _refilterServices();
         }
       }
       
@@ -797,23 +796,85 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     }
   }
 
-  // Helper to re-apply service filters locally after refresh
-  void _onServiceCategoryRefilter() {
-      if (_selectedServiceCategory == null) return;
-      
-      _filteredPrestations = _filteredPrestations.where((prestation) {
-         final serviceName = _getServiceName(prestation.serviceId);
-         if (serviceName == null) return false;
-         if (!serviceName.toLowerCase().contains(_selectedServiceCategory!.toLowerCase()) && 
-             !_selectedServiceCategory!.toLowerCase().contains(serviceName.toLowerCase())) {
-           return false;
-         }
-         return true;
-      }).toList();
+  bool _serviceMatches(PrestationModel prestation, String query) {
+    if (_selectedServiceCategory != null && _selectedServiceCategory!.trim().isNotEmpty) {
+      final serviceName = _getServiceName(prestation.serviceId);
+      if (serviceName == null) return false;
+      final name = serviceName.toLowerCase();
+      final selected = _selectedServiceCategory!.toLowerCase();
+      if (!name.contains(selected) && !selected.contains(name)) return false;
+    }
+
+    if (_selectedCity != null && _selectedCity!.trim().isNotEmpty) {
+      final sCity = PropertyModel.foldPlace(_selectedCity);
+      final pCity = PropertyModel.foldPlace(prestation.cityValue);
+      final pCommune = PropertyModel.foldPlace(prestation.communeValue);
+      final kinshasa = sCity == 'kinshasa' &&
+          _kinshasaCommunes.any((name) => PropertyModel.foldPlace(name) == pCommune);
+      if (!pCity.contains(sCity) && !pCommune.contains(sCity) && !kinshasa) return false;
+    }
+
+    if (_selectedCommune != null && _selectedCommune!.trim().isNotEmpty) {
+      final selected = PropertyModel.foldPlace(_selectedCommune);
+      final commune = PropertyModel.foldPlace(prestation.communeValue);
+      final address = PropertyModel.foldPlace(prestation.address);
+      if (!commune.contains(selected) && !address.contains(selected)) return false;
+    }
+
+    if (_selectedQuartier != null && _selectedQuartier!.trim().isNotEmpty) {
+      final selected = PropertyModel.foldPlace(_selectedQuartier);
+      final quartier = PropertyModel.foldPlace(prestation.quartierValue);
+      final address = PropertyModel.foldPlace(prestation.address);
+      if (!quartier.contains(selected) && !address.contains(selected)) return false;
+    }
+
+    if (!_amountMatchesBudget(prestation.minPrice)) return false;
+
+    final text = query.trim();
+    if (text.isNotEmpty) {
+      final blob = PropertyModel.foldPlace([
+        prestation.title,
+        prestation.description,
+        _getServiceName(prestation.serviceId),
+        prestation.cityValue,
+        prestation.communeValue,
+        prestation.quartierValue,
+        prestation.address,
+      ].whereType<String>().join(' '));
+      final tokens = PropertyModel.foldPlace(text).split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+      if (!tokens.every(blob.contains)) return false;
+    }
+    return true;
+  }
+
+  void _refilterServices({bool resetWindow = true}) {
+    final next = _allPrestations.where((prestation) => _serviceMatches(prestation, _searchController.text)).toList();
+    next.sort((a, b) {
+      final dateA = a.dateCreated ?? DateTime(2000);
+      final dateB = b.dateCreated ?? DateTime(2000);
+      return dateB.compareTo(dateA);
+    });
+    if (!mounted) return;
+    setState(() {
+      _filteredPrestations = next;
+      if (resetWindow) {
+        _visibleServiceCount = _pageSize;
+      } else if (_visibleServiceCount > next.length) {
+        _visibleServiceCount = next.length;
+      }
+    });
   }
 
   // Async version of applyFilters for refresh and load more
   Future<void> _applyFiltersAsync(PropertyController propertyController, {bool isLoadMore = false}) async {
+      if (!isLoadMore) {
+        CasaAnalytics.search(
+          term: _searchController.text.trim(),
+          itemType: _selectedPropertyType,
+          city: _selectedCity,
+          commune: _selectedCommune,
+        );
+      }
       final locationController = Provider.of<LocationController>(context, listen: false);
 
       int? propertyTypeId = _propertyTypeMapping[_selectedPropertyType];
@@ -849,8 +910,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
 
       await propertyController.filterProperties(
         sold: sold,
-        minPrice: _priceRange.start,
-        maxPrice: _priceRange.end,
+        minPrice: _minPriceBound,
+        maxPrice: _maxPriceBound,
         typeMaison: propertyTypeId,
         city: cityId,
         commune: communeId,
@@ -927,21 +988,29 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              'Filtres',
-                              style: GoogleFonts.inter(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                color: const Color(0xFF1A1D26),
-                              ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _searchType == 'Propriétés' ? 'Filtrer les biens' : 'Filtrer les services',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF1A1D26),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _searchType == 'Propriétés'
+                                      ? 'Lieu, budget, type et hébergement'
+                                      : 'Métier, lieu et budget',
+                                  style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+                                ),
+                              ],
                             ),
                             TextButton(
                               onPressed: () {
-                                setModalState(() {
-                                  _resetFilters();
-                                });
-                                Navigator.pop(context);
-                                _showFilterModal();
+                                _resetFilters(setModalState: setModalState);
                               },
                               style: TextButton.styleFrom(
                                 foregroundColor: _primaryColor,
@@ -964,121 +1033,77 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           if (_searchType == 'Propriétés') ...[
-                            // Transaction Zone
                             _buildSectionHeader(Icons.swap_horiz_rounded, 'Transaction'),
                             const SizedBox(height: 12),
-                            _buildDropdownField(
-                              'Je cherche à',
-                              _selectedTransaction,
-                              _selectedPropertyType == 'Hotels'
-                                  ? ['Hébergement', 'Vente']
-                                  : ['Location', 'Achat'],
-                              Icons.swap_horiz_rounded,
-                              (value) {
-                                setModalState(() {
-                                  _selectedTransaction = value ?? 'Location';
-                                });
-                              },
-                            ),
-                            const SizedBox(height: 24),
-
-                            // Localisation Zone
-                            _buildSectionHeader(Icons.location_on_rounded, 'Localisation'),
+                            _buildModernTransactionSelector(setModalState: setModalState),
+                            if (_selectedPropertyType == 'Hotels') ...[
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Hébergement montre les hôtels à réserver. Vente ne montre que les hôtels mis en vente. Le budget suit le tarif de départ des chambres.',
+                                style: TextStyle(fontSize: 13, height: 1.35, color: Color(0xFF64748B)),
+                              ),
+                            ],
+                            const SizedBox(height: 22),
+                            _buildSectionHeader(Icons.location_on_rounded, 'Lieu'),
                             const SizedBox(height: 12),
                             _buildLocationSection(setModalState: setModalState),
-                            const SizedBox(height: 24),
-
-                            // Budget Zone
+                            const SizedBox(height: 22),
                             _buildSectionHeader(Icons.payments_rounded, 'Budget'),
                             const SizedBox(height: 12),
                             _buildModernPriceRange(setModalState: setModalState),
-                            const SizedBox(height: 24),
-
-                            // Type de bien Zone
+                            const SizedBox(height: 22),
                             _buildSectionHeader(Icons.home_work_rounded, 'Type de bien'),
                             const SizedBox(height: 12),
-                            _buildDropdownField(
-                              'Type de bien',
-                              _selectedPropertyType,
-                              _propertyTypes,
-                              Icons.home_work_rounded,
-                              (value) {
-                                setModalState(() {
-                                  _selectedPropertyType = value ?? 'Tous';
-                                  _alignTransactionWithPropertyType(_selectedPropertyType);
-                                });
-                              },
-                            ),
+                            _buildModernPropertyTypeSelector(setModalState: setModalState),
                           ] else ...[
-                            // Localisation Zone (Service)
-                            _buildSectionHeader(Icons.location_on_rounded, 'Localisation'),
+                            _buildSectionHeader(Icons.work_rounded, 'Métier'),
+                            const SizedBox(height: 12),
+                            if (_serviceCategories.isEmpty)
+                              const Text(
+                                'Les métiers se chargent. Rouvrez le filtre dans un instant.',
+                                style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                              )
+                            else
+                              _buildServiceCategorySelector(setModalState: setModalState),
+                            const SizedBox(height: 22),
+                            _buildSectionHeader(Icons.location_on_rounded, 'Lieu'),
                             const SizedBox(height: 12),
                             _buildLocationSection(setModalState: setModalState),
-                            const SizedBox(height: 24),
-
-                            // Service Category Zone
-                            _buildSectionHeader(Icons.work_rounded, 'Profession & Service'),
+                            const SizedBox(height: 22),
+                            _buildSectionHeader(Icons.payments_rounded, 'Budget'),
                             const SizedBox(height: 12),
-                            _buildDropdownField(
-                              'un service ',
-                              _selectedServiceCategory,
-                              _serviceCategories,
-                              Icons.work_outline_rounded,
-                              (value) {
-                                setModalState(() {
-                                  _selectedServiceCategory = value;
-                                });
-                              },
+                            _buildModernPriceRange(setModalState: setModalState),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'On compare le tarif de départ du service. Laissez les champs vides pour tout afficher.',
+                              style: TextStyle(fontSize: 13, height: 1.35, color: Color(0xFF64748B)),
                             ),
                           ],
-
-                          const SizedBox(height: 32),
-
-                          // Footer Button moved inside ScrollView to avoid RenderFlex Overflow
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: () {
-                                _applyFilters();
-                                Navigator.pop(context);
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _primaryColor,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                padding: const EdgeInsets.symmetric(vertical: 16),
-                                elevation: 2,
-                              ),
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.check_circle_outline, size: 20),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'APPLIQUER LES FILTRES',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
                           const SizedBox(height: 12),
-                          Text(
-                            "Affinez votre recherche pour trouver rapidement ce qui correspond à vos besoins",
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 20),
                         ],
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(24, 8, 24, 12 + MediaQuery.viewPaddingOf(context).bottom),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          _applyFilters();
+                          Navigator.pop(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _primaryColor,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        child: Text(
+                          _resultButtonLabel(),
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                        ),
                       ),
                     ),
                   ),
@@ -1102,23 +1127,25 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  Widget _buildModernTransactionSelector() {
+  Widget _buildModernTransactionSelector({StateSetter? setModalState}) {
     return Container(
-      padding: EdgeInsets.all(4),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xFFF3F5F8),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
           Expanded(
             child: _buildModernTransactionOption(
               _selectedPropertyType == 'Hotels' ? 'Hébergement' : 'Location',
+              setModalState: setModalState,
             ),
           ),
           Expanded(
             child: _buildModernTransactionOption(
               _selectedPropertyType == 'Hotels' ? 'Vente' : 'Achat',
+              setModalState: setModalState,
             ),
           ),
         ],
@@ -1126,15 +1153,13 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  Widget _buildModernTransactionOption(String type) {
+  Widget _buildModernTransactionOption(String type, {StateSetter? setModalState}) {
     final isSelected = _selectedTransaction == type;
     return GestureDetector(
       onTap: () {
-        setState(() {
-          _selectedTransaction = type;
-        });
-        Navigator.pop(context);
-        _showFilterModal();
+        void apply() => _selectedTransaction = type;
+        setState(apply);
+        setModalState?.call(apply);
       },
       child: AnimatedContainer(
         duration: Duration(milliseconds: 200),
@@ -1156,47 +1181,45 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
-  Widget _buildServiceCategorySelector() {
+  Widget _buildServiceCategorySelector({StateSetter? setModalState}) {
     return Wrap(
-      spacing: 12,
-      runSpacing: 12,
+      spacing: 8,
+      runSpacing: 8,
       children: _serviceCategories.map((category) {
         final isSelected = _selectedServiceCategory == category;
         return _buildModernChip(
-          label: category, 
+          label: category,
           isSelected: isSelected,
           onTap: () {
-            setState(() {
+            void apply() {
               _selectedServiceCategory = isSelected ? null : category;
-            });
-          }
+            }
+            setState(apply);
+            setModalState?.call(apply);
+          },
         );
       }).toList(),
     );
   }
 
-  Widget _buildModernPropertyTypeSelector() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: _propertyTypes.map((type) {
-           return Padding(
-             padding: EdgeInsets.only(right: 8),
-             child: _buildModernChip(
-               label: type,
-               isSelected: _selectedPropertyType == type,
-               onTap: () {
-                 setState(() {
-                   _selectedPropertyType = type;
-                   _alignTransactionWithPropertyType(type);
-                 });
-                 Navigator.pop(context);
-                 _showFilterModal();
-               },
-             ),
-           );
-        }).toList(),
-      ),
+  Widget _buildModernPropertyTypeSelector({StateSetter? setModalState}) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _propertyTypes.map((type) {
+        return _buildModernChip(
+          label: type,
+          isSelected: _selectedPropertyType == type,
+          onTap: () {
+            void apply() {
+              _selectedPropertyType = type;
+              _alignTransactionWithPropertyType(type);
+            }
+            setState(apply);
+            setModalState?.call(apply);
+          },
+        );
+      }).toList(),
     );
   }
 
@@ -1205,12 +1228,11 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
        onTap: onTap,
        child: AnimatedContainer(
          duration: Duration(milliseconds: 200),
-         padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
          decoration: BoxDecoration(
-           color: isSelected ? _primaryColor : Colors.white,
-           borderRadius: BorderRadius.circular(30),
-           border: Border.all(color: isSelected ? _primaryColor : Colors.grey.shade300),
-           boxShadow: isSelected ? [BoxShadow(color: _primaryColor.withOpacity(0.3), blurRadius: 8, offset: Offset(0, 4))] : null,
+           color: isSelected ? _primaryColor : const Color(0xFFF7F8FA),
+           borderRadius: BorderRadius.circular(14),
+           border: Border.all(color: isSelected ? _primaryColor : const Color(0xFFE6E8EC)),
          ),
          child: Text(
            label,
@@ -1223,18 +1245,36 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
     );
   }
 
+  String _resultButtonLabel() {
+    final count = _searchType == 'Propriétés'
+        ? _computeSearchPropertyList(Provider.of<PropertyController>(context, listen: false)).length
+        : _allPrestations.where((service) => _serviceMatches(service, _searchController.text)).length;
+    if (count == 0) return 'Aucun résultat';
+    if (count == 1) return 'Voir 1 résultat';
+    return 'Voir $count résultats';
+  }
+
   Widget _buildModernPriceRange({StateSetter? setModalState}) {
-      // Simplification: Just two inputs for now, could act as a range
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: _buildModernInput(_minPriceController, 'Min', Icons.attach_money, setModalState: setModalState),
+        Row(
+          children: [
+            Expanded(
+              child: _buildModernInput(_minPriceController, 'Minimum', Icons.attach_money, setModalState: setModalState),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildModernInput(_maxPriceController, 'Maximum', Icons.attach_money, setModalState: setModalState),
+            ),
+          ],
         ),
-        SizedBox(width: 16),
-        Text('-', style: TextStyle(color: Colors.grey, fontSize: 24)),
-        SizedBox(width: 16),
-        Expanded(
-          child: _buildModernInput(_maxPriceController, 'Max', Icons.attach_money, setModalState: setModalState),
+        const SizedBox(height: 8),
+        Text(
+          _selectedPropertyType == 'Hotels' && _searchType == 'Propriétés'
+              ? 'Laissez vide pour tout afficher. Pour un hôtel, le montant est le tarif de départ d’une chambre.'
+              : 'Laissez vide pour tout afficher.',
+          style: const TextStyle(fontSize: 13, height: 1.35, color: Color(0xFF64748B)),
         ),
       ],
     );
@@ -1369,14 +1409,18 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
   Widget _buildSectionHeader(IconData icon, String title) {
     return Row(
       children: [
-        // Icon removed per user request (too many icons)
+        Container(
+          width: 4,
+          height: 16,
+          decoration: BoxDecoration(color: _primaryColor, borderRadius: BorderRadius.circular(4)),
+        ),
+        const SizedBox(width: 8),
         Text(
-          title.toUpperCase(),
+          title,
           style: GoogleFonts.inter(
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: FontWeight.w800,
-            color: Colors.grey[600],
-            letterSpacing: 1.2,
+            color: _darkColor,
           ),
         ),
       ],
@@ -1702,19 +1746,15 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       if (_selectedPropertyType != 'Tous') count++;
       if (_selectedBedrooms != null && _selectedBedrooms!.isNotEmpty) count++;
       
-      // Conversion sécurisée des prix pour comparaison
-      final currentMin = double.tryParse(_minPriceController.text) ?? 10.0;
-      final currentMax = double.tryParse(_maxPriceController.text) ?? 400.0;
-      
-      if (currentMin > 10.0 || currentMax < 400.0) count++;
+      if (_priceFilterActive) count++;
       if (_selectedPropertyType == 'Hotels') {
         if (_selectedTransaction != 'Hébergement') count++;
       } else if (_selectedTransaction != 'Location') {
         count++;
       }
     } else {
-      // Filtres Services
       if (_selectedServiceCategory != null && _selectedServiceCategory!.isNotEmpty) count++;
+      if (_priceFilterActive) count++;
     }
     
     return count;
@@ -1773,8 +1813,8 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
       // Appliquer
       propertyController.filterProperties(
         sold: sold,
-        minPrice: _priceRange.start,
-        maxPrice: _priceRange.end,
+        minPrice: _minPriceBound,
+        maxPrice: _maxPriceBound,
         typeMaison: propertyTypeId,
         city: cityId,
         commune: communeId,
@@ -1783,60 +1823,7 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
         sortOrder: 'desc',
       );
     } else {
-      // Filtrage local des services
-      setState(() {
-        _filteredPrestations = _allPrestations.where((prestation) {
-          // Filtre Catégorie
-          if (_selectedServiceCategory != null) {
-             final serviceName = _getServiceName(prestation.serviceId);
-             if (serviceName == null) return false;
-             
-             if (!serviceName.toLowerCase().contains(_selectedServiceCategory!.toLowerCase()) && 
-                 !_selectedServiceCategory!.toLowerCase().contains(serviceName.toLowerCase())) {
-               return false;
-             }
-          }
-
-          // Filtre Ville (Normalisation pour plus de robustesse)
-          if (_selectedCity != null) {
-            final sCity = PropertyModel.foldPlace(_selectedCity);
-            final pCity = PropertyModel.foldPlace(prestation.cityValue);
-            final pCommune = PropertyModel.foldPlace(prestation.communeValue);
-            final kinshasa = sCity == 'kinshasa' &&
-                _kinshasaCommunes.any((name) => PropertyModel.foldPlace(name) == pCommune);
-            if (!pCity.contains(sCity) && !pCommune.contains(sCity) && !kinshasa) return false;
-          }
-
-          if (_selectedCommune != null) {
-            final sCommune = PropertyModel.foldPlace(_selectedCommune);
-            final pCommune = PropertyModel.foldPlace(prestation.communeValue);
-            final pAddress = PropertyModel.foldPlace(prestation.address);
-            if (!pCommune.contains(sCommune) && !pAddress.contains(sCommune)) return false;
-          }
-
-          final sq = _searchController.text.trim();
-          if (sq.isNotEmpty) {
-            final blob = PropertyModel.foldPlace([
-              prestation.title,
-              prestation.description,
-              prestation.cityValue,
-              prestation.communeValue,
-              prestation.address,
-            ].whereType<String>().join(' '));
-            final tokens = PropertyModel.foldPlace(sq).split(RegExp(r'\s+'));
-            if (!tokens.every(blob.contains)) return false;
-          }
-          
-          return true;
-        }).toList();
-        
-        // Trier par date la plus récente
-        _filteredPrestations.sort((a, b) {
-           final dateA = a.dateCreated ?? DateTime(2000);
-           final dateB = b.dateCreated ?? DateTime(2000);
-           return dateB.compareTo(dateA);
-        });
-      });
+      _refilterServices();
     }
 
     setState(() {
@@ -3222,9 +3209,9 @@ class _PropertySearchPageState extends State<PropertySearchPage> {
             break;
           case 'Augmenter le budget':
             setState(() {
-              _priceRange = RangeValues(0, 10000);
-              _minPriceController.text = '0';
-              _maxPriceController.text = '10000';
+              _priceRange = const RangeValues(0, 0);
+              _minPriceController.clear();
+              _maxPriceController.clear();
             });
             break;
           case 'Tous types de biens':

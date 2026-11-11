@@ -3,6 +3,9 @@ import 'package:casa/models/PropertyModel.dart';
 import 'package:casa/screens/HotelImageZoomPage.dart';
 import 'package:casa/screens/HotelRoomDetailPage.dart';
 import 'package:casa/screens/auth/LoginScreen.dart';
+import 'package:casa/utils/casa_analytics.dart';
+import 'package:casa/utils/casanayo_share_copy.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:casa/utils/hotel_room_price.dart';
 import 'package:casa/utils/FancyNotification.dart';
 import 'package:casa/utils/Routes.dart';
@@ -58,6 +61,13 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
     super.initState();
     _model = widget.property;
     _roomsLoading = widget.property.hotelStructure?.isEmpty ?? true;
+    CasaAnalytics.viewItem(
+      category: 'hotel',
+      id: widget.property.propertyId,
+      city: widget.property.cityValue,
+      commune: widget.property.communeValue,
+      price: widget.property.price,
+    );
     // Afficher immédiatement le snapshot (même partiel), puis rafraîchir (SWR) en arrière-plan.
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadDetail());
   }
@@ -307,6 +317,28 @@ class _HotelDetailPageState extends State<HotelDetailPage> {
                 icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
                 onPressed: () => Navigator.pop(context),
               ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.share, color: Colors.white),
+                  onPressed: () {
+                    final id = p.propertyId;
+                    final link = id == null
+                        ? null
+                        : CasanayoShareCopy.propertyOpenLink(id, kind: 'hotel');
+                    final price = (p.price != null && p.price! > 0)
+                        ? '${p.price!.toStringAsFixed(0)} ${p.currency}'
+                        : '';
+                    final details = [p.title ?? 'Hôtel', p.fullAddress, price]
+                        .whereType<String>()
+                        .where((part) => part.trim().isNotEmpty)
+                        .join('\n');
+                    Share.share(
+                      '$details\n\n${CasanayoShareCopy.listingShareFooter(openUrl: link)}',
+                      subject: p.title ?? 'Hôtel',
+                    );
+                  },
+                ),
+              ],
               flexibleSpace: FlexibleSpaceBar(
                 title: Text(
                   p.title ?? 'Hôtel',

@@ -16,16 +16,21 @@ import '../utils/FavoriteEartIcon.dart';
 import 'package:casa/widgets/property_sold_badge.dart';
 import 'AgenceDetailsPage.dart';
 
+/// D’où vient le bouton Explorer : l’ordre de la liste suit cette section.
+enum ListingEntryFocus { rentals, hotels, sales }
+
 class AllPropertiesPage extends StatefulWidget {
   final List<PropertyModel> initialProperties;
   final bool isForRent;
   final String? title;
+  final ListingEntryFocus focus;
 
   const AllPropertiesPage({
     Key? key,
     required this.initialProperties,
     required this.isForRent,
     this.title,
+    this.focus = ListingEntryFocus.rentals,
   }) : super(key: key);
 
   @override
@@ -233,7 +238,9 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                rent ? Icons.vpn_key_rounded : Icons.sell_rounded,
+                widget.focus == ListingEntryFocus.hotels
+                    ? Icons.hotel_rounded
+                    : (rent ? Icons.vpn_key_rounded : Icons.sell_rounded),
                 color: Colors.white,
                 size: 20,
               ),
@@ -279,15 +286,15 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
     final showAgences = _shouldShowAgencesSection && agences.isNotEmpty;
     final visibleItems = _filteredProperties.take(_visibleCount).toList();
 
-    // Inline sections (Tous uniquement): 4 propriétés → hôtels horizontal → 4 propriétés → agences horizontal → suite...
+    // « Tous » : les hôtels ont leur bandeau. L’ordre dépend de la section Explorer.
     final bool showInlineMix = _selectedFilter == 'Tous';
     final hotelsInline = showInlineMix
-        ? _filteredProperties.where((p) {
-            final n = (p.propertyType?.name ?? '').toString().toLowerCase();
-            final id = p.propertyTypeId ?? p.propertyType?.propertyTypeId;
-            return id == 5 || n.contains('hotel') || n.contains('hôtel');
-          }).toList()
+        ? _filteredProperties.where(_isHotelListing).toList()
         : const <PropertyModel>[];
+    final leadWithHotels = widget.focus == ListingEntryFocus.hotels;
+    final gridItems = showInlineMix
+        ? visibleItems.where((property) => !_isHotelListing(property)).toList()
+        : visibleItems;
 
     if (_filteredProperties.isEmpty && !showAgences) {
       return _buildEmptyState(isDarkMode);
@@ -318,8 +325,8 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                     ),
                     delegate: SliverChildBuilderDelegate(
                       (context, index) =>
-                          _buildPropertyCard(visibleItems[index], isDarkMode),
-                      childCount: visibleItems.length,
+                          _buildPropertyCard(gridItems[index], isDarkMode),
+                      childCount: gridItems.length,
                     ),
                   ),
                 ),
@@ -334,8 +341,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
             int start = 0;
             int sectionIndex = 0; // 0=hotels first, 1=agences next, repeat
 
-            // Start with hotels (if available), otherwise start with tourisme.
-            if (hasHotels || hasAgences) {
+            if (leadWithHotels && (hasHotels || hasAgences)) {
               final startWithHotels = hasHotels;
               if (startWithHotels) {
                 slivers.add(
@@ -362,9 +368,9 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
               }
             }
 
-            while (start < visibleItems.length) {
-              final end = (start + k).clamp(0, visibleItems.length);
-              final chunk = visibleItems.sublist(start, end);
+            while (start < gridItems.length) {
+              final end = (start + k).clamp(0, gridItems.length);
+              final chunk = gridItems.sublist(start, end);
 
               slivers.add(
                 SliverPadding(
@@ -387,7 +393,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
               );
 
               // After each 5-block, insert section (tourisme then hotels, alternating, with hotels prioritized first overall)
-              if (end < visibleItems.length && (hasHotels || hasAgences)) {
+              if (end < gridItems.length && (hasHotels || hasAgences)) {
                 final wantHotels =
                     hasHotels && (!hasAgences || sectionIndex % 2 == 0);
                 final wantAgences =
@@ -430,62 +436,68 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
                 (context, index) {
                   if (!showInlineMix) {
                     return _buildPropertyListItem(
-                        visibleItems[index], isDarkMode);
+                        gridItems[index], isDarkMode);
                   }
 
-                  // Insert sections repeatedly starting with Hotels:
-                  // Hotels scroll → 6 properties → Tourisme scroll → 6 properties → Hotels scroll → ...
                   final hasHotels = hotelsInline.isNotEmpty;
                   final hasAgences = agences.isNotEmpty;
                   const int k = 6;
+                  final hasSection = hasHotels || hasAgences;
+                  final lead = leadWithHotels && hasSection;
 
                   bool isInsertionIndex(int i) {
-                    return i % (k + 1) == 0;
+                    if (!hasSection) return false;
+                    if (lead) return i % (k + 1) == 0;
+                    if (i < k) return false;
+                    return (i - k) % (k + 1) == 0;
                   }
 
                   int insertionBlockIndex(int i) {
-                    // valid only if isInsertionIndex(i) == true
-                    return i ~/ (k + 1);
+                    if (lead) return i ~/ (k + 1);
+                    return (i - k) ~/ (k + 1);
                   }
 
                   int insertsBefore(int i) {
-                    final q = i ~/ (k + 1);
-                    final r = i % (k + 1);
-                    return q + (r == 0 ? 0 : 1);
+                    if (!hasSection) return 0;
+                    if (lead) {
+                      final q = i ~/ (k + 1);
+                      final r = i % (k + 1);
+                      return q + (r == 0 ? 0 : 1);
+                    }
+                    if (i < k) return 0;
+                    return 1 + (i - k) ~/ (k + 1);
                   }
 
-                  if (isInsertionIndex(index) && (hasHotels || hasAgences)) {
-                    final b = insertionBlockIndex(index); // 0 => hotels first
+                  if (isInsertionIndex(index)) {
+                    final b = insertionBlockIndex(index);
                     final wantHotels = hasHotels && (!hasAgences || b % 2 == 0);
                     final wantAgences =
                         hasAgences && (!hasHotels || b % 2 == 1);
-
-                    // Prioriser hotels avant agences tourisme
-                    if (wantHotels)
-                      return _buildInlineHotelsSection(
-                          hotelsInline, isDarkMode);
-                    if (wantAgences)
+                    if (wantHotels) {
+                      return _buildInlineHotelsSection(hotelsInline, isDarkMode);
+                    }
+                    if (wantAgences) {
                       return _buildInlineAgencesSection(agences, isDarkMode);
+                    }
                     return const SizedBox.shrink();
                   }
 
-                  // Map sliver index to property index
                   final pIndex = index - insertsBefore(index);
-
-                  if (pIndex < 0 || pIndex >= visibleItems.length)
+                  if (pIndex < 0 || pIndex >= gridItems.length) {
                     return const SizedBox.shrink();
-                  return _buildPropertyListItem(
-                      visibleItems[pIndex], isDarkMode);
+                  }
+                  return _buildPropertyListItem(gridItems[pIndex], isDarkMode);
                 },
                 childCount: () {
-                  if (!showInlineMix) return visibleItems.length;
+                  if (!showInlineMix) return gridItems.length;
                   const int k = 6;
                   final hasSection =
                       hotelsInline.isNotEmpty || agences.isNotEmpty;
-                  // Start with a section, then one section after every k items (except maybe at end).
-                  final extra =
-                      hasSection ? (1 + ((visibleItems.length - 1) ~/ k)) : 0;
-                  return visibleItems.length + extra;
+                  if (!hasSection) return gridItems.length;
+                  final extra = leadWithHotels
+                      ? 1 + (gridItems.isEmpty ? 0 : (gridItems.length - 1) ~/ k)
+                      : gridItems.length ~/ k;
+                  return gridItems.length + extra;
                 }(),
               ),
             ),
@@ -1050,7 +1062,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
           _filteredProperties = newProperties;
           _sortMostRecentFirst(_filteredProperties);
         });
-      } else {
+          _sortForEntry(_filteredProperties);
         // Sinon, réappliquer le filtre actuel
         setState(() {
           _applyFilters();
@@ -2211,11 +2223,60 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
   }
 
   void _sortMostRecentFirst(List<PropertyModel> list) {
-    // API: pas de createdAt exposé ici => fallback stable par id décroissant.
     list.sort((a, b) {
       final ai = a.propertyId ?? 0;
       final bi = b.propertyId ?? 0;
       return bi.compareTo(ai);
+    });
+  }
+
+  bool _isHotelListing(PropertyModel property) {
+    final name = (property.propertyType?.name ?? '').toLowerCase();
+    final id = property.propertyTypeId ?? property.propertyType?.propertyTypeId;
+    return id == 5 || name.contains('hotel') || name.contains('hôtel');
+  }
+
+  int _entryRank(PropertyModel property) {
+    final id = property.propertyTypeId ?? property.propertyType?.propertyTypeId;
+    final name = (property.propertyType?.name ?? '').toLowerCase();
+    final hotel = _isHotelListing(property);
+    final vacation = property.isVacationListing ||
+        id == 6 ||
+        id == 10 ||
+        id == 11 ||
+        name.contains('vacance');
+    final bureau = id == 4 || name.contains('bureau');
+    final terrain = id == 9 || name.contains('terrain');
+    final festive = id == 8 || name.contains('fête') || name.contains('fete');
+    final funeraire = id == 7 || name.contains('funéra') || name.contains('funera');
+    final home = !hotel && !vacation && !bureau && !terrain && !festive && !funeraire;
+
+    switch (widget.focus) {
+      case ListingEntryFocus.hotels:
+        if (hotel) return 0;
+        if (home) return 1;
+        if (bureau || terrain) return 2;
+        return 3;
+      case ListingEntryFocus.sales:
+        if (home) return 0;
+        if (bureau) return 1;
+        if (terrain) return 2;
+        if (festive || funeraire) return 3;
+        return 4;
+      case ListingEntryFocus.rentals:
+        if (home) return 0;
+        if (bureau || terrain) return 1;
+        if (vacation) return 2;
+        if (hotel) return 3;
+        return 4;
+    }
+  }
+
+  void _sortForEntry(List<PropertyModel> list) {
+    list.sort((a, b) {
+      final rank = _entryRank(a).compareTo(_entryRank(b));
+      if (rank != 0) return rank;
+      return (b.propertyId ?? 0).compareTo(a.propertyId ?? 0);
     });
   }
 
@@ -2242,7 +2303,7 @@ class _AllPropertiesPageState extends State<AllPropertiesPage> {
 
       _sortMostRecentFirst(_filteredProperties);
 
-      // Important pour l'infinity scroll: on repart d'une "page" quand on change de filtre/recherche.
+      _sortForEntry(_filteredProperties);
       _visibleCount = _pageSize.clamp(0, _filteredProperties.length);
     });
   }
