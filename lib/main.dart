@@ -8,10 +8,17 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:get_storage/get_storage.dart';
 import 'firebase_options.dart';
 import 'Apps/MonApllication.dart';
+import 'services/listing_deep_link.dart';
 import 'services/ConnectivityService.dart';
 import 'services/onesignal_service.dart';
+import 'widgets/casanayo_invite_poster.dart';
 
 void main() async {
+  if (const bool.fromEnvironment('INVITE_DEBUG')) {
+    WidgetsFlutterBinding.ensureInitialized();
+    runApp(const InviteDebugApp());
+    return;
+  }
   // IMPORTANT: tout (ensureInitialized + runApp) doit être dans la même Zone.
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
