@@ -910,6 +910,7 @@ class _HomePageState extends State<HomePage> {
                           builder: (context) => AllPropertiesPage(
                             initialProperties: rentalProperties,
                             isForRent: true,
+                            focus: ListingEntryFocus.rentals,
                           ),
                         ),
                       );
@@ -942,6 +943,7 @@ class _HomePageState extends State<HomePage> {
                           builder: (context) => AllPropertiesPage(
                             initialProperties: saleProperties,
                             isForRent: false,
+                            focus: ListingEntryFocus.sales,
                           ),
                         ),
                       );
@@ -969,6 +971,7 @@ class _HomePageState extends State<HomePage> {
                           builder: (context) => AllPropertiesPage(
                             initialProperties: hotelProperties,
                             isForRent: true,
+                            focus: ListingEntryFocus.hotels,
                           ),
                         ),
                       );
@@ -1146,6 +1149,7 @@ class _HomePageState extends State<HomePage> {
       // Le serveur remplace chaque cache. Les catégories restent dans leurs listes.
       await propertyCtrl.refreshProperties(forceSync: true);
       await propertyCtrl.syncAllSpecialCategories();
+      await PromoBanner.refresh();
 
       await _loadPrestationsFromAPI();
       if (mounted) {
@@ -3511,6 +3515,8 @@ class _HomePageState extends State<HomePage> {
           final bool isHotel = property.propertyTypeId == 5 ||
               typeName.contains('hotel') ||
               typeName.contains('hôtel');
+          final bool isHall = property.propertyTypeId == 7 ||
+              property.propertyTypeId == 8;
 
           final String? priceText = property.isStartingPriceListing
               ? property.startingPriceLabel
@@ -3746,6 +3752,39 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                 ),
                               SizedBox(height: 16),
+                              if (isHall)
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Container(
+                                    height: 44,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.4),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.people_outline,
+                                          size: 18,
+                                          color: Colors.white.withOpacity(0.95),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          '${property.capacityPeople ?? 0}',
+                                          style: GoogleFonts.inter(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              else
                               Container(
                                 height: 50,
                                 decoration: BoxDecoration(
@@ -3810,8 +3849,6 @@ class _HomePageState extends State<HomePage> {
                                             MainAxisAlignment.spaceAround,
                                         children: [
                                           if (property.propertyTypeId != 4 &&
-                                              property.propertyTypeId != 7 &&
-                                              property.propertyTypeId != 8 &&
                                               property.propertyTypeId != 9) ...[
                                             _buildModernFeatureItem(
                                               icon: FontAwesomeIcons.bed,
@@ -3840,16 +3877,6 @@ class _HomePageState extends State<HomePage> {
                                                 value: property.isEquip == true
                                                     ? 'Oui'
                                                     : 'Non',
-                                              ),
-                                            ],
-                                            if (property.propertyTypeId == 7 ||
-                                                property.propertyTypeId ==
-                                                    8) ...[
-                                              // Festive/Funeraire special fields
-                                              _buildModernFeatureItem(
-                                                icon: Icons.people_outline,
-                                                value:
-                                                    '${property.capacityPeople ?? 0}',
                                               ),
                                             ],
                                             if (property.propertyTypeId ==

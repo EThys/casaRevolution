@@ -9,6 +9,9 @@ import 'package:flutter/material.dart';
 class PromoBanner extends StatefulWidget {
   const PromoBanner({super.key});
 
+  /// Relit les publicités. Une annonce passée à `active: false` disparaît.
+  static Future<void> refresh() => _PromoBannerState.reload();
+
   @override
   State<PromoBanner> createState() => _PromoBannerState();
 }
@@ -16,45 +19,64 @@ class PromoBanner extends StatefulWidget {
 class _PromoBannerState extends State<PromoBanner> {
   static List<_Offer>? _cached;
   static Future<List<_Offer>>? _loading;
+  static int _generation = 0;
+  static final Set<_PromoBannerState> _alive = {};
 
   final List<_Offer> _offers = [];
   late PageController _pageController;
   int _currentPage = 0;
   bool _ready = false;
 
+  static Future<void> reload() async {
+    _generation++;
+    _cached = null;
+    _loading = null;
+    final offers = await _offersOnce();
+    for (final state in _alive.toList()) {
+      state._apply(offers);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _alive.add(this);
     _pageController = PageController(viewportFraction: 0.85);
     _load();
   }
 
   @override
   void dispose() {
+    _alive.remove(this);
     _pageController.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    final offers = await _offersOnce();
+  void _apply(List<_Offer> offers) {
     if (!mounted) return;
     setState(() {
       _offers
         ..clear()
         ..addAll(offers);
       _ready = true;
-      _currentPage = 0;
+      if (_currentPage >= _offers.length) _currentPage = 0;
     });
+  }
+
+  Future<void> _load() async {
+    final offers = await _offersOnce();
+    _apply(offers);
   }
 
   static Future<List<_Offer>> _offersOnce() {
     final cached = _cached;
     if (cached != null) return Future.value(cached);
+    final generation = _generation;
     return _loading ??= _fetchOffers().then((value) {
-      _cached = value;
+      if (generation == _generation) _cached = value;
       return value;
     }).whenComplete(() {
-      _loading = null;
+      if (generation == _generation) _loading = null;
     });
   }
 
@@ -99,9 +121,10 @@ class _PromoBannerState extends State<PromoBanner> {
   }
 
   static bool _isActive(Map<String, dynamic> row) {
-    final value = row['isActive'] ?? row['active'];
+    final value = row['isActive'] ?? row['is_active'] ?? row['active'];
     if (value == null) return true;
     if (value is bool) return value;
+    if (value is num) return value != 0;
     final text = value.toString().toLowerCase();
     return text == 'true' || text == '1';
   }
